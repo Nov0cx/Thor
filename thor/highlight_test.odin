@@ -133,7 +133,7 @@ test_overlay_exact_and_adjacent :: proc(t: ^testing.T) {
 
 @(private = "file")
 token :: proc(start, end: int, kind := lang.Token_Kind.Local) -> lang.Semantic_Token {
-    return lang.Semantic_Token{start, end, kind}
+    return lang.Semantic_Token{start = start, end = end, kind = kind}
 }
 
 // The reported fault in its smallest form: the classification names bytes of the
@@ -269,4 +269,28 @@ test_semantic_spans_skip_an_unmapped_kind :: proc(t: ^testing.T) {
 
     testing.expect_value(t, len(out), 1)
     testing.expect_value(t, out[0], span(8, 14, ANALYZER))
+}
+
+// A mapped modifier recolors its token, also one whose kind maps to no role.
+@(test)
+test_semantic_spans_modifier_color :: proc(t: ^testing.T) {
+    out := make([dynamic]editview.Highlight_Span)
+    defer delete(out)
+
+    colors: [lang.Token_Kind]ui.Color
+    colors[.Procedure] = ANALYZER
+    mod_colors: [lang.Token_Modifier]ui.Color
+    mod_colors[.Deprecated] = ui.Color{9, 9, 9, 255}
+    mod_colors[.Constant] = ui.Color{7, 7, 7, 255}
+    dead := token(0, 4, .Procedure)
+    dead.modifiers = {.Deprecated}
+    value := token(8, 12, .Local)
+    value.modifiers = {.Constant}
+    plain := token(14, 18, .Local)
+    tokens := []lang.Semantic_Token{dead, value, plain}
+    thor_semantic_spans(&out, tokens, colors, {.Procedure}, 0, 100, mod_colors, {.Deprecated, .Constant})
+
+    testing.expect_value(t, len(out), 2)
+    testing.expect_value(t, out[0], span(0, 4, mod_colors[.Deprecated]))
+    testing.expect_value(t, out[1], span(8, 12, mod_colors[.Constant]))
 }

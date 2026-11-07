@@ -172,7 +172,17 @@ thor_merge_semantic :: proc(
     }
 
     over := make([dynamic]editview.Highlight_Span, 0, len(tokens), context.temp_allocator)
-    thor_semantic_spans(&over, tokens, colors, mapped, win_start, win_end)
+    mod_colors: [lang.Token_Modifier]ui.Color
+    mod_mapped: bit_set[lang.Token_Modifier]
+    for mod in lang.Token_Modifier {
+        role := plugin.role_for(&thor.plugins, key, thor_modifier_capture(mod))
+        if role == "" {
+            continue
+        }
+        mod_colors[mod] = theme.role_color(thor.theme, role)
+        mod_mapped += {mod}
+    }
+    thor_semantic_spans(&over, tokens, colors, mapped, win_start, win_end, mod_colors, mod_mapped)
     thor_overlay_spans(&file.highlights, grammar, over[:])
 }
 
@@ -194,7 +204,10 @@ thor_rebase_semantic :: proc(
         if token.end <= prefix {
             append(out, token)
         } else if token.start >= tail {
-            append(out, lang.Semantic_Token{token.start + delta, token.end + delta, token.kind})
+            moved := token
+            moved.start += delta
+            moved.end += delta
+            append(out, moved)
         }
     }
 }
@@ -210,19 +223,33 @@ thor_semantic_spans :: proc(
     colors: [lang.Token_Kind]ui.Color,
     mapped: bit_set[lang.Token_Kind],
     win_start, win_end: int,
+    mod_colors := [lang.Token_Modifier]ui.Color{},
+    mod_mapped := bit_set[lang.Token_Modifier]{},
 ) {
     // Advanced by every accepted token, even one the window clips away, so the
     // emitted spans stay ascending and non-overlapping.
     cut := 0
     for token in tokens {
-        if token.kind not_in mapped || token.start < cut {
+        // The first mapped modifier recolors the token; a constant value has no kind color of its own.
+        color: ui.Color
+        has_color := token.kind in mapped
+        if has_color {
+            color = colors[token.kind]
+        }
+        for mod in lang.Token_Modifier {
+            if mod in token.modifiers && mod in mod_mapped {
+                color, has_color = mod_colors[mod], true
+                break
+            }
+        }
+        if !has_color || token.start < cut {
             continue
         }
         cut = token.end
         start := max(token.start, win_start)
         end := min(token.end, win_end)
         if start < end {
-            append(out, editview.Highlight_Span{start, end, colors[token.kind]})
+            append(out, editview.Highlight_Span{start, end, color})
         }
     }
 }
@@ -291,6 +318,19 @@ thor_token_capture :: proc(kind: lang.Token_Kind) -> string {
     case .Enum_Member: return "constant"
     case .Package:     return "namespace"
     case .Unresolved:  return "unresolved"
+    case .Inactive:    return "inactive"
+    }
+    return ""
+}
+
+// The capture name a token modifier recolors its token with.
+@(private = "file")
+thor_modifier_capture :: proc(mod: lang.Token_Modifier) -> string {
+    switch mod {
+    case .Deprecated: return "deprecated"
+    case .Distinct:   return "type.distinct"
+    case .Constant:   return "constant"
+    case .Mutable:    return "variable.mutable"
     }
     return ""
 }
