@@ -66,6 +66,58 @@ vet_diagnostics :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, whens: []B
         when_shadowing(rc, whens, report)
     }
     syntax_vet(rc, flags, report)
+    if .Unused_Procedures in flags {
+        unused_procedures(rc, whens, report)
+    }
+}
+
+// Reports the file-scope procedures that no identifier of their package names.
+@(private = "file")
+unused_procedures :: proc(rc: ^Request_Context, whens: []Branch, report: ^lang.Diagnostic_Report) {
+    view := request_package(rc, live_dir(rc))
+    if view == nil || rc.live.tree == nil {
+        return
+    }
+    cands, err := odinsema.vet_unused_candidates(rc.live.tree, context.temp_allocator)
+    if err != nil || len(cands) == 0 {
+        return
+    }
+    names := make(map[string]int, len(cands), context.temp_allocator)
+    decls := make([dynamic]int, context.temp_allocator)
+    for i in cands {
+        item := rc.live.tree.items[i]
+        names[item.name] = i
+        append(&decls, item.name_offset)
+    }
+    used := make(map[string]struct{}, len(cands), context.temp_allocator)
+    if odinsema.vet_note_names(rc.parsed.tree.text, names, &used, decls[:]) != nil {
+        return
+    }
+    for id in view.files {
+        if id == rc.live.id {
+            continue
+        }
+        if odinsema.snapshot_cancelled(&rc.snap) {
+            return
+        }
+        parsed := odinsema.db_parse(&rc.snap, id)
+        if parsed == nil {
+            // A file that cannot be read may name the procedure.
+            return
+        }
+        failed := odinsema.vet_note_names(parsed.tree.text, names, &used, nil) != nil
+        odinsema.db_parse_release(&rc.snap, parsed)
+        if failed {
+            return
+        }
+    }
+    for i in cands {
+        item := rc.live.tree.items[i]
+        if item.name in used || in_untaken_branch(whens, item.name_offset) {
+            continue
+        }
+        report_error(rc, report, item.name_offset, CODE_UNUSED_PROC, fmt.aprintf("'%s' declared but not used", item.name), .Warning)
+    }
 }
 
 // Appends the vet warnings of the syntax: unneeded semicolons, indentation with spaces and a missing

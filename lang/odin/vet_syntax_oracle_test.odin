@@ -199,3 +199,128 @@ test_vet_syntax_oracle :: proc(t: ^testing.T) {
     testing.expect_value(t, extra, 0)
     testing.expect_value(t, missed, 0)
 }
+
+// The unused procedures of a package match the compiler's `-vet-unused-procedures`, by file and name.
+@(test)
+test_vet_unused_procedure_oracle :: proc(t: ^testing.T) {
+    when !LIVE_ORACLE {
+        log.info("skipped: needs -define:LIVE_ORACLE=true")
+        return
+    }
+    arena: virtual.Arena
+    if !testing.expect_value(t, virtual.arena_init_growing(&arena), nil) {
+        return
+    }
+    defer virtual.arena_destroy(&arena)
+    keep := virtual.arena_allocator(&arena)
+    dirs := make([dynamic]string, keep)
+    for top in ([]string{"atomicfile", "editview", "lang", "main", "plugin", "shell", "thor", "vt", "watch"}) {
+        oracle_dirs(top, &dirs, keep)
+    }
+    root := strings.clone(ODIN_ROOT, keep)
+    for top in ([]string{"core", "vendor"}) {
+        joined, _ := filepath.join({root, top}, context.temp_allocator)
+        oracle_dirs(joined, &dirs, keep)
+    }
+    free_all(context.temp_allocator)
+    slice.sort(dirs[:])
+    target := odinsema.target_host()
+    target.tests = true
+    packages, marks, extra, missed := 0, 0, 0, 0
+    for dir in dirs {
+        if LIVE_ORACLE_ONLY != "" && !strings.contains(dir, LIVE_ORACLE_ONLY) {
+            continue
+        }
+        files, ferr := odinsema.package_dir_files(dir, context.temp_allocator)
+        if ferr != nil {
+            continue
+        }
+        name := ""
+        sources := make([dynamic]string, context.temp_allocator)
+        paths := make([dynamic]string, context.temp_allocator)
+        trees := make([dynamic]^odinsema.Item_Tree, context.temp_allocator)
+        for path in files {
+            src, ok := lang.source_read(path, context.temp_allocator)
+            if !ok {
+                continue
+            }
+            parsed, perr := odinsyntax.parse(src, context.temp_allocator)
+            if perr != nil {
+                continue
+            }
+            items, ierr := odinsema.item_tree(parsed, context.temp_allocator)
+            if ierr != nil || !odinsema.file_in_build(path, items.tags, target) {
+                continue
+            }
+            name = items.package_name
+            append(&sources, src)
+            append(&paths, path)
+            append(&trees, items)
+        }
+        if name == "" {
+            continue
+        }
+        args := []string{"check", dir, "-no-entry-point", "-max-error-count:100000", "-terse-errors", "-vet-unused-procedures", strings.concatenate({"-vet-packages:", name}, context.temp_allocator)}
+        output, _, ran := shell.exec_status("odin", args, ".", ORACLE_TIMEOUT)
+        if !ran {
+            continue
+        }
+        want := make(map[Vet_Mark]bool, context.temp_allocator)
+        it := output
+        for line in strings.split_lines_iterator(&it) {
+            p, ok := parse_diagnostic_line(line)
+            if ok && strings.has_suffix(p.message, "declared but not used") {
+                want[Vet_Mark{mark_file(p.path), p.line, p.col}] = true
+            }
+        }
+        delete(output)
+        used := make(map[string]struct{}, context.temp_allocator)
+        names := make(map[string]int, context.temp_allocator)
+        decls := make([dynamic]int, context.temp_allocator)
+        cands := make([dynamic][dynamic]int, len(trees), context.temp_allocator)
+        for tree, i in trees {
+            cands[i], _ = odinsema.vet_unused_candidates(tree, context.temp_allocator)
+            for c in cands[i] {
+                names[tree.items[c].name] = c
+            }
+        }
+        packages += 1
+        have := make(map[Vet_Mark]bool, context.temp_allocator)
+        for src, i in sources {
+            skip := make([dynamic]int, context.temp_allocator)
+            for c in cands[i] {
+                append(&skip, trees[i].items[c].name_offset)
+            }
+            odinsema.vet_note_names(src, names, &used, skip[:])
+        }
+        for tree, i in trees {
+            for c in cands[i] {
+                item := tree.items[c]
+                if item.name in used {
+                    continue
+                }
+                line, col := line_col_of(sources[i], item.name_offset)
+                have[Vet_Mark{mark_file(paths[i]), line, col}] = true
+            }
+        }
+        _ = decls
+        for m in have {
+            marks += 1
+            if m not_in want {
+                extra += 1
+                sample(&shown_unused, "EXTRA", "unused-procedure", dir, m)
+            }
+        }
+        for m in want {
+            if m not_in have {
+                missed += 1
+                sample(&shown_unused, "MISSED", "unused-procedure", dir, m)
+            }
+        }
+        free_all(context.temp_allocator)
+    }
+    log.infof("unused procedures: %d packages, %d marks, %d extra, %d missed", packages, marks, extra, missed)
+}
+
+@(private = "file")
+shown_unused: map[string]int

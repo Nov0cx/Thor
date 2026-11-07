@@ -58,9 +58,14 @@ expect_errors :: proc(t: ^testing.T, res: ^lang.Result, source: string, wants: [
     for w in wants {
         vet ||= strings.has_suffix(w.message, "declared but not used") || strings.has_suffix(w.message, "is never used") || strings.contains(w.message, " shadows ") || strings.has_prefix(w.message, "Unneeded ") || w.message == "Found unneeded semicolon" || w.message == "Expected a comma, got a newline" || strings.has_prefix(w.message, "With '-vet-tabs'")
     }
+    // A nil dereference is compared only when a want names one.
+    nil_wanted := false
+    for w in wants {
+        nil_wanted ||= strings.has_suffix(w.message, "which is always nil here")
+    }
     got := make([dynamic]string, context.temp_allocator)
     for d in res.report.items {
-        if !vet && is_vet_code(d.code) {
+        if !vet && is_vet_code(d.code) || !nil_wanted && d.code == CODE_NIL_DEREF {
             continue
         }
         append(&got, fmt.tprintf("%d:%d %s", d.line, d.col, d.message))

@@ -35,6 +35,7 @@ Request_Context :: struct {
     checker_state: Checker_State,
     universe:    [2]odinsema.Universe_Package, // directories in the arena of `snap`
     naming:      odinsema.Naming_Rules, // set by the live body check
+    vet:         odinsema.Vet_Flags,    // set by the live body check
 }
 
 // The state of the checker of a request.
