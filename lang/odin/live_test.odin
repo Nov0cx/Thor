@@ -56,7 +56,7 @@ expect_errors :: proc(t: ^testing.T, res: ^lang.Result, source: string, wants: [
     // Vet and liveness warnings are compared only when a want names one.
     vet := false
     for w in wants {
-        vet ||= strings.has_suffix(w.message, "declared but not used") || strings.has_suffix(w.message, "is never used") || strings.contains(w.message, " shadows ")
+        vet ||= strings.has_suffix(w.message, "declared but not used") || strings.has_suffix(w.message, "is never used") || strings.contains(w.message, " shadows ") || strings.has_prefix(w.message, "Unneeded ") || w.message == "Found unneeded semicolon" || w.message == "Expected a comma, got a newline" || strings.has_prefix(w.message, "With '-vet-tabs'")
     }
     got := make([dynamic]string, context.temp_allocator)
     for d in res.report.items {

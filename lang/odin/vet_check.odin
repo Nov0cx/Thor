@@ -2,6 +2,8 @@
 package odin
 
 import "core:fmt"
+import "core:mem"
+import "core:strings"
 
 import lang ".."
 import odinsema "sema"
@@ -62,6 +64,33 @@ vet_diagnostics :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, whens: []B
     }
     if .When_Shadowing in flags {
         when_shadowing(rc, whens, report)
+    }
+    syntax_vet(rc, flags, report)
+}
+
+// Appends the vet warnings of the syntax: unneeded semicolons, indentation with spaces and a missing
+// trailing comma.
+@(private = "file")
+syntax_vet :: proc(rc: ^Request_Context, flags: odinsema.Vet_Flags, report: ^lang.Diagnostic_Report) {
+    if .Semicolon in flags {
+        report_offsets(rc, odinsema.vet_semicolons, CODE_SEMICOLON, "Found unneeded semicolon", report)
+    }
+    if .Tabs in flags {
+        report_offsets(rc, odinsema.vet_tabs, CODE_TABS, "With '-vet-tabs', tabs must be used for indentation", report)
+    }
+    if .Style in flags {
+        report_offsets(rc, odinsema.vet_style, CODE_STYLE, "Expected a comma, got a newline", report)
+    }
+}
+
+@(private = "file")
+report_offsets :: proc(rc: ^Request_Context, find: proc(parsed: odinsyntax.Parse, allocator := context.allocator) -> (out: [dynamic]int, err: mem.Allocator_Error), code, message: string, report: ^lang.Diagnostic_Report) {
+    offsets, err := find(rc.parsed, context.temp_allocator)
+    if err != nil {
+        return
+    }
+    for at in offsets {
+        report_error(rc, report, at, code, strings.clone(message), .Warning)
     }
 }
 
