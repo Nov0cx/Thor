@@ -376,3 +376,22 @@ test_ext_parse_count :: proc(t: ^testing.T) {
     _, ok = ext_parse_count("fatal: no upstream")
     testing.expect(t, !ok, "an error line is refused")
 }
+
+// The byte count of a partial download is the size of its file in the staging folder.
+@(test)
+test_staged_bytes :: proc(t: ^testing.T) {
+    asset :: "staged_bytes_test.tmp"
+    testing.expect_value(t, staged_bytes(asset), 0)
+
+    testing.expect(t, os.make_directory_all(STAGE_DIR) == nil, "could not make the staging folder")
+    path := strings.concatenate({STAGE_DIR, "/", asset}, context.temp_allocator)
+    defer {
+        if err := os.remove(path); err != nil {
+            testing.expectf(t, false, "could not remove %q: %v", path, err)
+        }
+        // Fails when another test keeps a file in the folder, which is fine.
+        _ = os.remove(STAGE_DIR)
+    }
+    testing.expect(t, os.write_entire_file(path, "12345") == nil, "could not write the partial file")
+    testing.expect_value(t, staged_bytes(asset), 5)
+}

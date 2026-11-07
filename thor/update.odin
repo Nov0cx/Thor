@@ -85,6 +85,8 @@ Update_Job :: struct {
     // Set by the main thread at shutdown, read by the worker between download
     // slices so a quit does not wait out a whole download.
     cancel:       bool,
+    // The install step, stored by the worker and read by the title bar.
+    phase:        update.Install_Phase,
     // Results, applied and freed on the main thread.
     status:       update.Status,
     out_version:  string, // owned
@@ -217,7 +219,7 @@ update_install_worker :: proc(job: ^Update_Job) {
         target   = job.in_target,
     }
     agent := update.user_agent(VERSION, context.temp_allocator)
-    result := update.install_apply(plan, agent, &job.cancel, job.allocator)
+    result := update.install_apply(plan, agent, &job.cancel, &job.phase, job.allocator)
     job.status = result.status
     job.out_root = result.root
 
@@ -362,6 +364,7 @@ thor_cancel_update :: proc(thor: ^Thor) {
 // The updater's frame slot, called from the run loop. Everything that takes
 // focus or replaces files happens here rather than in a callback or a drain.
 thor_poll_update :: proc(thor: ^Thor) {
+    thor_poll_update_bytes(thor)
     if thor.update_swap_pending {
         thor_swap_and_relaunch(thor)
         return
@@ -473,7 +476,60 @@ thor_update_button_state :: proc(thor: ^Thor) -> (label, icon: string, shown: bo
     if thor.update_state != .Found && thor.update_state != .Installing {
         return "", "", false
     }
-    return thor.update_version, thor.update_state == .Installing ? "loader-2" : "download", true
+    if thor.update_state == .Installing {
+        return thor_update_install_label(thor), "loader-2", true
+    }
+    return thor.update_version, "download", true
+}
+
+// What the install is doing now. Temporary memory.
+thor_update_install_label :: proc(thor: ^Thor) -> string {
+    switch thor_update_phase(thor) {
+    case .Verifying:
+        return "Verifying..."
+    case .Extracting:
+        return "Installing..."
+    case .Idle, .Downloading:
+        if percent := thor_update_percent(thor); percent >= 0 {
+            return fmt.tprintf("Downloading %d%%", percent)
+        }
+        return "Downloading..."
+    }
+    return "Downloading..."
+}
+
+// The step of the running install; Idle when none runs.
+thor_update_phase :: proc(thor: ^Thor) -> update.Install_Phase {
+    if thor.update_job == nil {
+        return .Idle
+    }
+    return sync.atomic_load(&thor.update_job.phase)
+}
+
+// How much of the archive is downloaded, 0 to 100; -1 when the size or the first byte is not known.
+thor_update_percent :: proc(thor: ^Thor) -> int {
+    if thor.update_size <= 0 || thor.update_bytes <= 0 {
+        return -1
+    }
+    return int(min(thor.update_bytes * 100 / thor.update_size, 100))
+}
+
+// Reads how far the download is, at most four times a second.
+@(private = "file")
+thor_poll_update_bytes :: proc(thor: ^Thor) {
+    if thor.update_state != .Installing || thor.update_job == nil {
+        thor.update_bytes = 0
+        return
+    }
+    if thor_update_phase(thor) == .Verifying || thor_update_phase(thor) == .Extracting {
+        return
+    }
+    now := rl.GetTime()
+    if now - thor.update_bytes_time < 0.25 {
+        return
+    }
+    thor.update_bytes_time = now
+    thor.update_bytes = update.staged_bytes(thor.update_job.in_asset)
 }
 
 // Moves the plugin and theme check throttle to now.

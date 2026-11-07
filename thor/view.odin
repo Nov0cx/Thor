@@ -396,11 +396,24 @@ thor_update_button :: proc(thor: ^Thor) {
     )
     thor_icon_label(thor, icon, thor.theme.accent_color, 14)
     ui.label(label, {key = "text", props = {color = thor.theme.foreground, text_wrap = .None}})
+    if percent := thor_update_percent(thor); thor.update_state == .Installing && thor_update_phase(thor) == .Downloading && percent >= 0 {
+        thor_update_bar(thor, percent)
+    }
     ui.end()
-    thor_tip(thor, it.id, "A new version is available. Click to install it")
+    thor_tip(thor, it.id, thor.update_state == .Installing ? "Installing the update. Thor restarts when it is done" : "A new version is available. Click to install it")
     if it.clicked {
         thor_click_update(thor)
     }
+}
+
+// A thin bar for the share of the update that is downloaded.
+@(private = "file")
+thor_update_bar :: proc(thor: ^Thor, percent: int) {
+    UPDATE_BAR_WIDTH :: 48
+    ui.begin({key = "update_bar", props = {w = ui.Px(UPDATE_BAR_WIDTH), h = ui.Px(4), dir = .Row, radius = ui.rad(2), bg = thor.theme.background}})
+    ui.begin({key = "update_fill", props = {w = ui.Px(f32(UPDATE_BAR_WIDTH * percent) / 100), h = ui.Px(4), radius = ui.rad(2), bg = thor.theme.accent_color}})
+    ui.end()
+    ui.end()
 }
 
 // Shown only while a plugin or theme update is waiting.

@@ -151,3 +151,33 @@ test_terminal_lets_the_settings_chord_through :: proc(t: ^testing.T) {
     testing.expect(t, thor_terminal_owns_key(&thor, ui.Key_Event {key = .A, mods = {.Ctrl}}), "another chord belongs to the shell")
     testing.expect(t, thor_terminal_owns_key(&thor, ui.Key_Event {key = .Comma}), "a bare comma belongs to the shell")
 }
+
+// The title bar button names the install step, and the percent follows the bytes on disk.
+@(test)
+test_update_button_shows_the_install_step :: proc(t: ^testing.T) {
+    job := Update_Job {}
+    thor: Thor
+    thor.update_state = .Installing
+    thor.update_job = &job
+    thor.update_size = 200
+
+    label, _, shown := thor_update_button_state(&thor)
+    testing.expect(t, shown, "the button shows while installing")
+    testing.expect_value(t, label, "Downloading...")
+
+    thor.update_bytes = 50
+    job.phase = .Downloading
+    testing.expect_value(t, thor_update_percent(&thor), 25)
+    label, _, _ = thor_update_button_state(&thor)
+    testing.expect_value(t, label, "Downloading 25%")
+
+    thor.update_bytes = 900
+    testing.expect_value(t, thor_update_percent(&thor), 100)
+
+    job.phase = .Verifying
+    label, _, _ = thor_update_button_state(&thor)
+    testing.expect_value(t, label, "Verifying...")
+    job.phase = .Extracting
+    label, _, _ = thor_update_button_state(&thor)
+    testing.expect_value(t, label, "Installing...")
+}

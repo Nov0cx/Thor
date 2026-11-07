@@ -212,6 +212,9 @@ Thor :: struct {
     update_prompt_shown: bool,
     update_started: bool,
     update_inflight: bool,
+    // Bytes of the update archive on disk, read about four times a second while it downloads.
+    update_bytes: i64,
+    update_bytes_time: f64,
     // The running install job, borrowed, so a quit can ask it to stop.
     update_job: ^Update_Job,
     // A staged update waiting to be swapped in. Owned; the swap runs from
