@@ -63,6 +63,20 @@ Request_Kind :: enum {
     // made at. The result answers `edits` and `resource_ops` like Rename, and
     // `message.text` the reason when `ok` is false.
     Resolve_Action,
+    // The callers (Request.query "up", the default) or the callees ("down") of the procedure at
+    // `offset`, or of the one that holds it. Answers `symbols`, one per procedure, with the
+    // line and offset of its name.
+    Call_Hierarchy,
+    // The types the type at `offset` embeds with `using` (Request.query "up") or the types that
+    // embed it ("down"). Answers `symbols`.
+    Type_Hierarchy,
+    // The members of the procedure group at `offset`, the groups that hold the procedure, the
+    // variants of a union, or the types that embed the type. Answers `symbols`.
+    Implementations,
+    // The syntax ranges around `offset`, innermost first. Answers `ranges`.
+    Selection_Range,
+    // The reference count of each top-level declaration of the buffer. Answers `lenses`.
+    Code_Lens,
     // Push-only: never dispatched through manager_request*, only produced by
     // Backend.poll (a server's unsolicited $/progress notification).
     Progress,
@@ -81,6 +95,19 @@ Location :: struct {
     path:  string, // owned
     start: int,
     end:   int,
+}
+
+// A byte range of the request's buffer.
+Text_Range :: struct {
+    start: int,
+    end:   int,
+}
+
+// A reference count above the declaration whose name is [start, end).
+Code_Lens_Item :: struct {
+    start: int,
+    end:   int,
+    count: int,
 }
 
 // Hover payload: display text plus the symbol range it describes, so the editor
@@ -449,6 +476,10 @@ Result :: struct {
     inlays:    [dynamic]Inlay_Hint,
     // Document_Highlight; owned, freed in job_free. Ascending by `start`.
     highlights: [dynamic]Document_Highlight,
+    // Selection_Range; owned, freed in job_free. Innermost first, each range holds the one before.
+    ranges: [dynamic]Text_Range,
+    // Code_Lens; owned, freed in job_free. Ascending by `start`.
+    lenses: [dynamic]Code_Lens_Item,
     // Format only. Set from the workspace's odin-formatter.lua newline_style
     // key, and only when that key is actually present — an absent key must
     // never flip a repo's line endings on the first format. Unspecified means
@@ -1405,6 +1436,8 @@ result_free :: proc(m: ^Manager, res: ^Result) {
     }
     delete(res.inlays)
     delete(res.highlights)
+    delete(res.ranges)
+    delete(res.lenses)
     delete(res.report.scope)
     for d in res.report.items {
         delete(d.path)
