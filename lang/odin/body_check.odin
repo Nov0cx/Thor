@@ -44,11 +44,13 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope
     case .Assign_Stmt:
         count_errors(rc, c, n, report)
         mismatch_errors(rc, c, odinsema.assign_mismatches(c, rc.live.id, n, context.temp_allocator), "assignment", report)
+        dangling_stores(rc, c, n, report)
     case .Value_Decl:
         count_errors(rc, c, n, report)
         mismatch_errors(rc, c, odinsema.assign_mismatches(c, rc.live.id, n, context.temp_allocator), "a variable declaration", report)
     case .Return_Stmt:
         mismatch_errors(rc, c, odinsema.return_mismatches(c, rc.live.id, n, context.temp_allocator), "return statement", report)
+        dangling_returns(rc, c, n, report)
     case .Switch_Stmt, .Type_Switch_Stmt:
         switch_errors(rc, c, n, report)
     case .Proc_Lit:
@@ -295,6 +297,60 @@ ignored_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, stmt: odinsyn
         return
     }
     report_error(rc, report, at, CODE_IGNORED_ERROR, fmt.aprintf("Error result of type '%s' is ignored", odinsema.type_string(&c.table, type, context.temp_allocator)), .Hint, lint = true)
+}
+
+// Reports, as a lint, a returned address or slice of a local.
+@(private = "file")
+dangling_returns :: proc(rc: ^Request_Context, c: ^odinsema.Checker, ret: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+    ret := ret
+    rs, _ := odinsyntax.as_return_stmt(ret)
+    values, has := odinsyntax.return_stmt_values(&rs)
+    if !has {
+        return
+    }
+    it := odinsyntax.expr_list_items(&values)
+    for v in odinsyntax.child_iter_next(&it) {
+        dangling_report(rc, c, v, "returned", false, report)
+    }
+}
+
+// Reports, as a lint, an address or slice of a local stored where it outlives the frame.
+@(private = "file")
+dangling_stores :: proc(rc: ^Request_Context, c: ^odinsema.Checker, assign: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+    as, _ := odinsyntax.as_assign_stmt(assign)
+    lhs, has_lhs := odinsyntax.assign_stmt_lhs(&as)
+    rhs, has_rhs := odinsyntax.assign_stmt_rhs(&as)
+    if !has_lhs || !has_rhs {
+        return
+    }
+    targets := odinsyntax.expr_list_items(&lhs)
+    values := odinsyntax.expr_list_items(&rhs)
+    for target in odinsyntax.child_iter_next(&targets) {
+        value, more := odinsyntax.child_iter_next(&values)
+        if !more {
+            return
+        }
+        if odinsema.outliving_store(c, rc.live.id, target) && !odinsema.cleared_by_defer(assign, target) {
+            temp := odinsema.outliving_store(c, rc.live.id, target, results = false)
+            dangling_report(rc, c, value, "stored", temp, report)
+        }
+    }
+}
+
+// Reports a dangling address or slice in `value`, and a temp allocator value when `temp` is set:
+// a procedure may hand out a temp value in its result on purpose, but not park it in a global.
+@(private = "file")
+dangling_report :: proc(rc: ^Request_Context, c: ^odinsema.Checker, value: odinsyntax.Syntax_Node, what: string, temp: bool, report: ^lang.Diagnostic_Report) {
+    if at, name, ok := odinsema.dangling_place(c, rc.live.id, value); ok {
+        report_error(rc, report, at, CODE_DANGLING_SLICE, fmt.aprintf("Address of local '%s' is %s and dangles after the procedure returns", name, what), .Hint, lint = true)
+        return
+    }
+    if !temp {
+        return
+    }
+    if at, ok := odinsema.temp_place(c, rc.live.id, value); ok {
+        report_error(rc, report, at, CODE_TEMP_ESCAPE, fmt.aprintf("Value from the temp allocator is %s and is freed by the next free_all(context.temp_allocator)", what), .Hint, lint = true)
+    }
 }
 
 // Reports an `or_return` that does not fit the procedure around it.

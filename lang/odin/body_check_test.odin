@@ -1438,3 +1438,122 @@ main :: proc() {
         testing.expect(t, d.lint, "an ignored error is a lint")
     }
 }
+
+@(test)
+test_live_dangling_slice :: proc(t: ^testing.T) {
+    root := fixture(t, "live_dangling_slice", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+Holder :: struct { buf: [8]u8, n: int }
+global: ^int
+
+by_addr :: proc() -> ^int {
+	one: int
+	return &one
+}
+by_slice :: proc() -> []u8 {
+	arr: [4]u8
+	return arr[:]
+}
+by_field :: proc() -> ^int {
+	h: Holder
+	return &h.n
+}
+by_result :: proc() -> (r: []u8) {
+	two: [2]u8
+	r = two[1:]
+	return
+}
+to_global :: proc() {
+	three: int
+	global = &three
+}
+to_param :: proc(out: ^^int) {
+	four: int
+	out^ = &four
+}
+fine :: proc(p: ^Holder, s: []u8, d: [dynamic]u8) -> (^int, []u8, []u8, ^int) {
+	local := p
+	return &p.n, s[:], d[:], &local.n
+}
+fine_static :: proc() -> []u8 {
+	@(static) keep: [4]u8
+	return keep[:]
+}
+fine_ref :: proc(items: []int) -> ^int {
+	for &item in items {
+		return &item
+	}
+	return nil
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"&one", "Address of local 'one' is returned and dangles after the procedure returns", 0},
+        {"arr[:]", "Address of local 'arr' is returned and dangles after the procedure returns", 0},
+        {"&h.n", "Address of local 'h' is returned and dangles after the procedure returns", 0},
+        {"two[1:]", "Address of local 'two' is stored and dangles after the procedure returns", 0},
+        {"&three", "Address of local 'three' is stored and dangles after the procedure returns", 0},
+        {"&four", "Address of local 'four' is stored and dangles after the procedure returns", 0},
+    })
+    for d in res.report.items {
+        testing.expect_value(t, d.code, CODE_DANGLING_SLICE)
+        testing.expect_value(t, d.severity, lang.Diagnostic_Severity.Hint)
+        testing.expect(t, d.lint, "a dangling slice is a lint")
+    }
+}
+
+@(test)
+test_live_temp_escape :: proc(t: ^testing.T) {
+    root := fixture(t, "live_temp_escape", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+import "core:fmt"
+import "core:strings"
+
+keep: string
+
+returned :: proc(name: string) -> string {
+	return fmt.tprintf("hi %s", name)
+}
+named :: proc(s: string) -> (r: string) {
+	r = strings.clone(s, context.temp_allocator)
+	return
+}
+to_global :: proc(s: string) {
+	dup := strings.clone(s, context.temp_allocator)
+	keep = dup
+}
+to_param :: proc(out: ^string, name: string) {
+	out^ = fmt.tprintf("hi %s", name)
+}
+fine :: proc(s: string) -> string {
+	return strings.clone(s)
+}
+fine_local :: proc(s: string) -> int {
+	tmp := strings.clone(s, context.temp_allocator)
+	return len(tmp)
+}
+temp_name :: proc(s: string) -> string {
+	return strings.clone(s, context.temp_allocator)
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"dup\n}", "Value from the temp allocator is stored and is freed by the next free_all(context.temp_allocator)", 0},
+        {"fmt.tprintf(\"hi %s\", name)\n}\nfine", "Value from the temp allocator is stored and is freed by the next free_all(context.temp_allocator)", 0},
+    })
+    for d in res.report.items {
+        testing.expect_value(t, d.code, CODE_TEMP_ESCAPE)
+        testing.expect_value(t, d.severity, lang.Diagnostic_Severity.Hint)
+        testing.expect(t, d.lint, "a temp escape is a lint")
+    }
+}
