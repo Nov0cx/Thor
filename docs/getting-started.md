@@ -169,7 +169,11 @@ string of a `fmt.printf`-style call that `core:fmt` would print as `%!(...)`,
 such as a verb the argument type does not take, a missing or extra argument, or
 a bare `{` that should be `{{` (`api/fmt-verbs`), and a call statement that
 drops an error result, such as `os.remove(path)` instead of
-`_ = os.remove(path)` (`api/ignored-error`). The checks of `odin check -vet` are warnings
+`_ = os.remove(path)` (`api/ignored-error`). Two more hints mark a value that is
+gone when the procedure returns: the address or slice of a local that is returned or
+stored in a global or through a pointer parameter (`mem/dangling-slice`), and a
+value from `context.temp_allocator` or `tprintf` that is stored there
+(`mem/temp-escape`). The checks of `odin check -vet` are warnings
 while typing: a variable that nothing uses (`vet/unused-variable`), an import
 that nothing uses (`vet/unused-import`), a variable that shadows an earlier one
 of the same type (`vet/shadowing`) and a declaration in a file-scope `when`

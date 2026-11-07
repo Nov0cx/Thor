@@ -128,6 +128,8 @@
 - Diagnostics have a hint severity: a faint underline with no gutter mark. `"hint"` is a value of `diagnostics` in `.thor/odin-analyzer.lua`, and a language server's Information and Hint diagnostics show as hints.
 - Odin: a `fmt.printf`-style format string that `core:fmt` would print as `%!(...)` is marked as a hint while typing: a verb the argument type does not take, a missing or extra argument, a bad index, and a bare `{` that must be `{{` (`api/fmt-verbs`).
 - Odin: a call statement that drops an error result, such as `os.remove(path)`, is marked as a hint (`api/ignored-error`). `_ = os.remove(path)` drops it explicitly.
+- Odin: returning or storing the address or slice of a local (`return &x`, `return arr[:]`, `global = &x`, `out^ = &x`) is marked as a hint, since the local is gone when the procedure returns (`mem/dangling-slice`).
+- Odin: storing a value made with `context.temp_allocator` or `tprintf` in a global or through a pointer parameter, such as `global = strings.clone(s, context.temp_allocator)`, is marked as a hint, since the next `free_all` frees it (`mem/temp-escape`). Returning one is not marked.
 - The first start after an update shows a summary of the new version. "All changes" shows its full changelog. Help > "What's New" (`whats_new`) opens it again.
 - Fixed: the tutorial lab explanations showed `%!(MISSING CLOSE BRACE)` instead of the key chords.
 - Fixed: the PowerShell fallback of the update check sent a broken command.
