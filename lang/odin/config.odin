@@ -44,6 +44,8 @@ Config :: struct {
     enable_snippets:         bool, // completion inserts a procedure call with its parameters as stops
     inlay_types:             bool, // inlay hints show the type of a `:=` name
     inlay_parameters:        bool, // inlay hints show the parameter name of an argument
+    package_diagnostics:     bool, // live diagnostics also cover the other files of the package
+    diagnostics_telemetry:   bool, // the compiler check logs where it and the live check disagree
     naming:                  odinsema.Naming_Rules, // the spellings `style/naming` accepts
 }
 
@@ -174,6 +176,12 @@ config_parse :: proc(cache: ^Config_Cache, workspace, path: string) {
     }
     if b, ok := obj["inlay_parameters"].(json.Boolean); ok {
         cache.cfg.inlay_parameters = bool(b)
+    }
+    if b, ok := obj["package_diagnostics"].(json.Boolean); ok {
+        cache.cfg.package_diagnostics = bool(b)
+    }
+    if b, ok := obj["diagnostics_telemetry"].(json.Boolean); ok {
+        cache.cfg.diagnostics_telemetry = bool(b)
     }
 
     config_parse_target(cache, obj)
@@ -568,6 +576,32 @@ config_inlays :: proc(e: ^Engine, workspace: string) -> (types, parameters: bool
     defer sync.unlock(&cache.mutex)
     config_ensure(cache, workspace)
     return cache.cfg.inlay_types, cache.cfg.inlay_parameters
+}
+
+// True when the workspace config turns on live diagnostics for the whole package; off by default.
+@(private)
+config_package_diagnostics :: proc(e: ^Engine, workspace: string) -> bool {
+    if workspace == "" {
+        return false
+    }
+    cache := &e.config
+    sync.lock(&cache.mutex)
+    defer sync.unlock(&cache.mutex)
+    config_ensure(cache, workspace)
+    return cache.cfg.package_diagnostics
+}
+
+// True when the workspace config turns on the disagreement log of the compiler check; off by default.
+@(private)
+config_telemetry :: proc(e: ^Engine, workspace: string) -> bool {
+    if workspace == "" {
+        return false
+    }
+    cache := &e.config
+    sync.lock(&cache.mutex)
+    defer sync.unlock(&cache.mutex)
+    config_ensure(cache, workspace)
+    return cache.cfg.diagnostics_telemetry
 }
 
 // Frees the cached config's owned collection strings and the map itself. Element

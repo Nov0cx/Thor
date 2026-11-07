@@ -21,7 +21,7 @@ syntax_diagnostics :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     }
 
     res.report.scope = strings.clone(req.path)
-    res.ok = live_report(&rc, &res.report)
+    res.ok = live_report_with_package(&rc, &res.report)
 }
 
 // Fills `report` with the live diagnostics of the request's buffer, less the ones its ignore
@@ -41,6 +41,20 @@ live_report :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) -> bo
     apply_ignores(rc, report)
     apply_severities(rc, report)
     return true
+}
+
+// Fills `report` as `live_report` does, and adds the other files of the package when the
+// workspace config asks for them.
+@(private)
+live_report_with_package :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) -> bool {
+    if !live_report(rc, report) {
+        return false
+    }
+    if rc.req.workspace != "" && rc.req.path != "" && config_package_diagnostics(rc.e, rc.req.workspace) {
+        package_live_items(rc, report)
+        report.package_wide = true
+    }
+    return !lang.request_cancelled(rc.req)
 }
 
 // Appends an error with the id `code` at byte `offset` of the buffer. Takes ownership of `message`.
