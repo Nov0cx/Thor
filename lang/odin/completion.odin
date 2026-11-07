@@ -38,6 +38,7 @@ Tier :: enum u8 {
     Expected,   // its type is the one the caret expects
     Field_Name, // a field a composite literal does not set yet
     Member,
+    Postfix, // a template that rewrites `x.` and the operand
     Local,
     Package,
     Import,
@@ -56,6 +57,8 @@ Candidate :: struct {
     import_path: string, // the import the candidate adds to the buffer; "" when none
     tier:        Tier,
     order:       int, // the declaration order of a member; 0 for the others
+    from:        int, // the start of the range the insert replaces; -1 for the typed word
+    to:          int, // one past the end of that range
 }
 
 @(private = "file")
@@ -112,7 +115,7 @@ emit :: proc(cm: ^Completer, res: ^lang.Result) {
     }
     res.completions = out
     for cand, i in cm.items {
-        item := lang.Completion_Item{start = -1, end = -1, preselect = i == 0 && cand.tier == .Expected}
+        item := lang.Completion_Item{start = cand.from, end = cand.from < 0 ? -1 : cand.to, preselect = i == 0 && cand.tier == .Expected}
         ok := [5]bool{}
         item.label, ok[0] = clone_ok(cand.label)
         item.kind, ok[1] = clone_ok(cand.kind)
@@ -261,7 +264,7 @@ add :: proc(cm: ^Completer, label, kind, detail: string, tier: Tier, order := 0,
     if type != odinsema.INVALID_TYPE && type == cm.expected {
         t = .Expected
     }
-    append(&cm.items, Candidate{label = label, kind = kind, detail = detail, insert = insert, snippet = snippet, import_path = cm.importing, tier = t, order = order})
+    append(&cm.items, Candidate{label = label, kind = kind, detail = detail, insert = insert, snippet = snippet, import_path = cm.importing, tier = t, order = order, from = -1})
 }
 
 // The type a candidate shows; "" when it is not known.
@@ -317,10 +320,149 @@ dot_completions :: proc(cm: ^Completer, dot: int) {
             return
         }
         add_members(cm, odinsema.operand_members(c, op, context.temp_allocator))
+        if !cm.arrow && op.mode == .Value {
+            add_postfix(cm, operand, op.type)
+        }
     case .Implicit_Selector:
         if !cm.arrow {
             add_enum_choices(cm, odinsema.expected_type_at(c, file, dot), 0)
         }
+    }
+}
+
+// One postfix template. `%` stands for the operand text.
+@(private = "file")
+Postfix :: struct {
+    label:    string,
+    detail:   string,
+    template: string,
+    applies:  proc(t: ^odinsema.Type_Table, id: odinsema.Type_Id) -> bool,
+}
+
+@(private = "file")
+POSTFIXES :: [?]Postfix {
+    {"if", "if x {}", "if %% {\n\t$0\n}", postfix_any},
+    {"ifnot", "if !x {}", "if !%% {\n\t$0\n}", postfix_bool},
+    {"ifnil", "if x == nil {}", "if %% == nil {\n\t$0\n}", postfix_nilable},
+    {"ifnotnil", "if x != nil {}", "if %% != nil {\n\t$0\n}", postfix_nilable},
+    {"for", "for v in x {}", "for ${1:v} in %% {\n\t$0\n}", postfix_iterable},
+    {"fori", "for i in 0..<len(x) {}", "for ${1:i} in 0..<len(%%) {\n\t$0\n}", postfix_indexable},
+    {"switch", "switch x {}", "switch %% {\ncase $0:\n}", postfix_switchable},
+    {"var", "name := x", "${1:name} := %%$0", postfix_any},
+    {"return", "return x", "return %%$0", postfix_any},
+    {"defer_delete", "defer delete(x)", "defer delete(%%)$0", postfix_deletable},
+    {"defer_free", "defer free(x)", "defer free(%%)$0", postfix_pointer},
+}
+
+@(private = "file")
+postfix_any :: proc(t: ^odinsema.Type_Table, id: odinsema.Type_Id) -> bool {
+    return id != odinsema.INVALID_TYPE
+}
+
+@(private = "file")
+postfix_bool :: proc(t: ^odinsema.Type_Table, id: odinsema.Type_Id) -> bool {
+    #partial switch v in odinsema.type_get(t, odinsema.type_base(t, id)) {
+    case odinsema.Basic_Type:
+        return v.kind >= .Bool && v.kind <= .B64
+    case odinsema.Untyped_Type:
+        return v.kind == .Bool
+    }
+    return false
+}
+
+@(private = "file")
+postfix_nilable :: proc(t: ^odinsema.Type_Table, id: odinsema.Type_Id) -> bool {
+    #partial switch v in odinsema.type_get(t, odinsema.type_base(t, id)) {
+    case odinsema.Pointer_Type, odinsema.Multi_Pointer_Type, odinsema.Union_Type, odinsema.Proc_Type,
+         odinsema.Slice_Type, odinsema.Dynamic_Array_Type, odinsema.Map_Type:
+        return true
+    case odinsema.Basic_Type:
+        return v.kind == .Rawptr || v.kind == .Cstring || v.kind == .Typeid || v.kind == .Any
+    }
+    return false
+}
+
+@(private = "file")
+postfix_pointer :: proc(t: ^odinsema.Type_Table, id: odinsema.Type_Id) -> bool {
+    #partial switch v in odinsema.type_get(t, odinsema.type_base(t, id)) {
+    case odinsema.Pointer_Type, odinsema.Multi_Pointer_Type:
+        return true
+    case odinsema.Basic_Type:
+        return v.kind == .Rawptr || v.kind == .Cstring
+    }
+    return false
+}
+
+@(private = "file")
+postfix_deletable :: proc(t: ^odinsema.Type_Table, id: odinsema.Type_Id) -> bool {
+    #partial switch v in odinsema.type_get(t, odinsema.type_base(t, id)) {
+    case odinsema.Slice_Type, odinsema.Dynamic_Array_Type, odinsema.Map_Type:
+        return true
+    case odinsema.Basic_Type:
+        return v.kind == .String || v.kind == .Cstring
+    }
+    return false
+}
+
+@(private = "file")
+postfix_indexable :: proc(t: ^odinsema.Type_Table, id: odinsema.Type_Id) -> bool {
+    #partial switch v in odinsema.type_get(t, odinsema.type_base(t, id)) {
+    case odinsema.Slice_Type, odinsema.Dynamic_Array_Type, odinsema.Array_Type, odinsema.Enumerated_Array_Type:
+        return true
+    case odinsema.Basic_Type:
+        return v.kind == .String
+    }
+    return false
+}
+
+@(private = "file")
+postfix_iterable :: proc(t: ^odinsema.Type_Table, id: odinsema.Type_Id) -> bool {
+    if postfix_indexable(t, id) {
+        return true
+    }
+    #partial switch v in odinsema.type_get(t, odinsema.type_base(t, id)) {
+    case odinsema.Map_Type, odinsema.Bit_Set_Type, odinsema.Enum_Type:
+        return true
+    }
+    return false
+}
+
+@(private = "file")
+postfix_switchable :: proc(t: ^odinsema.Type_Table, id: odinsema.Type_Id) -> bool {
+    #partial switch v in odinsema.type_get(t, odinsema.type_base(t, id)) {
+    case odinsema.Enum_Type, odinsema.Union_Type:
+        return true
+    case odinsema.Basic_Type:
+        return odinsema.type_is_integer(t, id) || v.kind == .String || v.kind == .Rune
+    }
+    return false
+}
+
+// Adds the postfix templates for `operand` of type `type`. Each replaces `operand.` and the typed word.
+@(private = "file")
+add_postfix :: proc(cm: ^Completer, operand: odinsyntax.Syntax_Node, type: odinsema.Type_Id) {
+    if cm.c == nil {
+        return
+    }
+    text := strings.trim_space(odinsyntax.node_text(operand))
+    from := int(operand.offset)
+    to := clamp(cm.ctx.req.offset, from, len(cm.ctx.req.source))
+    if text == "" || to <= from {
+        return
+    }
+    sb := strings.builder_make(context.temp_allocator)
+    write_snippet_text(&sb, text)
+    escaped := strings.to_string(sb)
+    for pf in POSTFIXES {
+        if pf.label in cm.seen || !strings.has_prefix(pf.label, cm.prefix) || !pf.applies(&cm.c.table, type) {
+            continue
+        }
+        cm.seen[pf.label] = {}
+        snippet, _ := strings.replace_all(pf.template, "%%", escaped, context.temp_allocator)
+        append(&cm.items, Candidate{
+            label = pf.label, kind = "keyword", detail = pf.detail, snippet = snippet,
+            import_path = cm.importing, tier = .Postfix, from = from, to = to,
+        })
     }
 }
 

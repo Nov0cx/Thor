@@ -736,3 +736,63 @@ test_completion_auto_import_new_package :: proc(t: ^testing.T) {
     expect_labels(t, &res, {"freshpkg"})
     completions_free(&res)
 }
+
+// The source with the item's range replaced by its insert; snippet stops and escapes are left as written.
+@(private = "file")
+apply_item :: proc(source: string, item: ^lang.Completion_Item) -> string {
+    return strings.concatenate({source[:item.start], item.insert, source[item.end:]}, context.temp_allocator)
+}
+
+// `x.if`, `x.for` and `x.defer_delete` replace the operand and the dot with a snippet.
+@(test)
+test_completion_postfix :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := "package demo\n\nmain :: proc() {\n\titems := make([dynamic]int)\n\titems.\n}\n"
+    res := complete_at(e, src, "\titems.")
+    expect_labels(t, &res, {"if", "for", "fori", "var", "return", "defer_delete", "ifnil"}, {"ifnot", "switch", "defer_free"})
+    item := find_item(&res, "defer_delete")
+    if testing.expect(t, item != nil) {
+        testing.expect(t, item.snippet, "postfix inserts a snippet")
+        testing.expect_value(t, apply_item(src, item), "package demo\n\nmain :: proc() {\n\titems := make([dynamic]int)\n\tdefer delete(items)$0\n}\n")
+    }
+    item = find_item(&res, "for")
+    if testing.expect(t, item != nil) {
+        testing.expect_value(t, item.insert, "for ${1:v} in items {\n\t$0\n}")
+        testing.expect_value(t, src[item.start:item.end], "items.")
+    }
+    completions_free(&res)
+
+    // The typed word filters, and the range covers it.
+    src = "package demo\n\nmain :: proc() {\n\tok := true\n\tok.if\n}\n"
+    res = complete_at(e, src, "ok.if")
+    expect_labels(t, &res, {"if", "ifnot"}, {"for", "var"})
+    item = find_item(&res, "if")
+    if testing.expect(t, item != nil) {
+        testing.expect_value(t, src[item.start:item.end], "ok.if")
+    }
+    completions_free(&res)
+
+    // A package qualifier and a type get none.
+    src = "package demo\n\nimport \"core:fmt\"\n\nmain :: proc() {\n\tfmt.\n}\n"
+    res = complete_at(e, src, "\tfmt.")
+    expect_labels(t, &res, {}, {"if", "for", "var"})
+    completions_free(&res)
+}
+
+// A pointer gets the nil and free templates; an enum gets switch and for.
+@(test)
+test_completion_postfix_types :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := "package demo\n\nC :: enum {\n\tA,\n\tB,\n}\n\nmain :: proc(p: ^int, c: C) {\n\tp.\n\tc.\n}\n"
+    res := complete_at(e, src, "\tp.")
+    expect_labels(t, &res, {"ifnil", "ifnotnil", "defer_free"}, {"switch", "for", "defer_delete"})
+    completions_free(&res)
+
+    res = complete_at(e, src, "\tc.")
+    expect_labels(t, &res, {"switch", "if"}, {"defer_free", "ifnil"})
+    completions_free(&res)
+}

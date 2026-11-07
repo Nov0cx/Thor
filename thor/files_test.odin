@@ -819,7 +819,7 @@ test_reload_drops_data_derived_from_the_old_text :: proc(t: ^testing.T) {
 
     // What a landed classification, highlight pass and fold pass leave behind,
     // all stamped with the revision the buffer is on now.
-    append(&file.semantic, lang.Semantic_Token{0, 5, .Type})
+    append(&file.semantic, lang.Semantic_Token{start = 0, end = 5, kind = .Type})
     file.semantic_source = strings.clone(textedit.text(&file.state))
     file.semantic_revision = file.state.revision
     file.semantic_ready = true

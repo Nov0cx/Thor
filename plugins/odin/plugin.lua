@@ -51,6 +51,8 @@ thor.register_language {
         -- name. The grammar cannot tell a typo from a local, so this arrives
         -- only once every lookup has completed and come up empty.
         unresolved   = t.muted,
+        inactive     = t.muted, -- a `when` branch the build target makes false
+        deprecated   = t.muted,
 
         attribute    = t.attributes,
     },
