@@ -2,7 +2,6 @@
 package odin
 
 import lang ".."
-import odinsema "sema"
 
 @(private = "file")
 Count_Scan :: struct {

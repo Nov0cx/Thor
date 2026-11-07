@@ -233,13 +233,17 @@ outgoing_calls :: proc(ctx: ^Request_Context, cand: Def_Candidate, res: ^lang.Re
             continue
         }
         runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
-        probe := ctx.req^
+        probe, perr := new_clone(ctx.req^)
+        if perr != nil {
+            return
+        }
         probe.offset = ref.start
         probe.end = ref.start
         saved := ctx.req
-        ctx.req = &probe
+        ctx.req = probe
         t := ref_target(ctx)
         ctx.req = saved
+        free(probe)
         if t.kind != .Package_Item || t.dir == "" {
             continue
         }
