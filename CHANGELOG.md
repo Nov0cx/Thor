@@ -1,5 +1,6 @@
 # 2026.11.0
 
+- Odin: three opt-in hints follow `make`, `new` and `strings.clone` results: an allocation a path neither frees nor hands on (`mem/leak`), a double free (`mem/double-free`) and a use after free (`mem/use-after-free`). Set the id in `diagnostics` to turn one on.
 - The line number gutter is narrow again: it has room for 3 digits and widens only for a longer line count. The fold arrows sit in its left margin.
 - Plugins and themes are checked for updates. A `manifest.lua` or theme file with `version` and `source = "owner/repo"` updates from the latest GitHub release. A plugin folder or `user/themes/` that is a git clone updates from its upstream.
 - A puzzle button in the title bar shows how many plugin and theme updates are waiting. The theme picker marks a theme that has an update.

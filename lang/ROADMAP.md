@@ -2800,6 +2800,13 @@ not a status, so this section stays the source of truth for what is built.
       dereference; an `if` whose condition is the literal `true` or `false`;
       an `if`/`else` whose two blocks have the same text without white space.
       A constant expression such as `N > 4` is not read yet.
+    - `mem/leak`, `mem/double-free`, `mem/use-after-free` (`sema/ownership.odin`, opt-in
+      through `diagnostics`): a local given `make`, `new`, `new_clone` or a `strings`/`slice`
+      clone with the default allocator is followed over the CFG. Owned is a may-fact, freed a
+      must-fact; a value that is returned, stored, sliced, address-taken or passed to a
+      call other than a free is handed on and not followed. A body that sets
+      `context.allocator` is skipped. The audit over `base`/`core`/`vendor` gave 4 leak hits
+      in 1268 files, all real (early `or_return` or return paths), no double free.
     - `style/naming` (`sema/naming.odin`, rules `naming` in `odin-analyzer.lua`): types
       `Ada_Case`, procedures and variables `snake_case` (a file-scope variable may be
       `SCREAMING_SNAKE_CASE`), constants with a literal value and enum members take several
@@ -2834,7 +2841,8 @@ not a status, so this section stays the source of truth for what is built.
     `assign/count`, `import/cycle`, `flow/unreachable`,
     `flow/unreachable-defer`, `vet/unused-variable`, `vet/unused-import`,
     `vet/shadowing`, `vet/using-stmt`, `vet/when-shadowing`,
-    `flow/dead-store`, `api/fmt-verbs`, `api/ignored-error`), shown after the
+    `flow/dead-store`, `api/fmt-verbs`, `api/ignored-error`, `mem/leak`,
+    `mem/double-free`, `mem/use-after-free`), shown after the
     message in the hover.
     `// thor:ignore <id>...` drops those ids on the next
     line (on its own line when it follows code), with no id every id;

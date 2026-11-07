@@ -182,7 +182,10 @@ value from `context.temp_allocator` or `tprintf` that is stored there
 (`mem/temp-escape`). A `defer` in a loop that frees a variable declared before the
 loop, such as `defer delete(buf)`, is marked too, since it runs on every iteration
 (`defer/in-loop`). A use of a declaration marked `@(deprecated)` is marked too
-(`api/deprecated`). A `for x in items` loop that copies a large element (512
+(`api/deprecated`). With `mem/leak`, `mem/double-free` or `mem/use-after-free` set in
+`diagnostics`, a hint marks a `make`, `new` or `strings.clone` result that a path
+neither frees nor hands on, a free of a value every path already freed, and a use of
+such a value. A `for x in items` loop that copies a large element (512
 bytes or more) on every iteration and only reads it is marked too, since
 `for &x` avoids the copy (`perf/range-copy`). An assignment of a place to itself, an `if` with the
 literal condition `true` or `false` and an `if` with the same text in both

@@ -412,7 +412,9 @@ its root, layered on top of the global settings above. This repository's own
   `vet/unused-variable`, `vet/unused-import`, `vet/shadowing`,
   `vet/using-stmt`, `vet/when-shadowing`, `flow/dead-store`, `api/fmt-verbs`,
   `api/ignored-error`, `mem/dangling-slice`, `mem/temp-escape`, `defer/in-loop`, `api/deprecated`, `perf/range-copy`, `logic/self-assign`,
-  `logic/const-condition`, `logic/identical-branches` and `style/naming`. An unknown id or value is logged and
+  `logic/const-condition`, `logic/identical-branches`, `style/naming`, `mem/leak`,
+  `mem/double-free` and `mem/use-after-free`. The last three are off until an entry sets them, for example
+  `["mem/leak"] = "hint"`. An unknown id or value is logged and
   ignored. The diagnostics `odin check` gives after a save are not affected, except the `vet/*` ids:
   the save passes `odin check` one `-vet-*` flag for each of them that is not `"off"`, and gives the
   lines it reports for them the same id and severity.
