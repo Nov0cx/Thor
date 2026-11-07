@@ -7,8 +7,11 @@ Target_OS :: enum u8 {
     Windows,
     Darwin,
     Linux,
+    // thor:ignore style/naming
     FreeBSD,
+    // thor:ignore style/naming
     OpenBSD,
+    // thor:ignore style/naming
     NetBSD,
     Haiku,
     WASI,

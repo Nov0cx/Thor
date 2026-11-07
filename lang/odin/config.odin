@@ -44,6 +44,7 @@ Config :: struct {
     enable_snippets:         bool, // completion inserts a procedure call with its parameters as stops
     inlay_types:             bool, // inlay hints show the type of a `:=` name
     inlay_parameters:        bool, // inlay hints show the parameter name of an argument
+    naming:                  odinsema.Naming_Rules, // the spellings `style/naming` accepts
 }
 
 // What `"diagnostics": {"<id>": ...}` sets for the live diagnostics of one id.
@@ -130,6 +131,7 @@ config_defaults :: proc() -> Config {
         enable_snippets         = true,
         inlay_types             = true,
         inlay_parameters        = true,
+        naming                  = odinsema.DEFAULT_NAMING_RULES,
     }
 }
 
@@ -176,6 +178,7 @@ config_parse :: proc(cache: ^Config_Cache, workspace, path: string) {
 
     config_parse_target(cache, obj)
     config_parse_diagnostics(cache, obj)
+    config_parse_naming(cache, obj)
 
     arr, aok := luaconf.as_array(obj["collections"])
     if !aok {
@@ -252,6 +255,43 @@ config_parse_diagnostics :: proc(cache: ^Config_Cache, obj: json.Object) {
             cache.cfg.severities[id] = setting
         } else {
             cache.cfg.severities[strings.clone(id)] = setting
+        }
+    }
+}
+
+// Reads `"naming": {"type": "ada_case", ...}`. The keys are `type`, `proc`, `variable`, `constant` and
+// `enum_member`; a value is `"ada_case"`, `"snake_case"`, `"screaming_snake_case"` or `"any"`, which
+// switches the rule off. An unknown key or value is dropped with a warning.
+@(private = "file")
+config_parse_naming :: proc(cache: ^Config_Cache, obj: json.Object) {
+    raw, has := obj["naming"]
+    if !has {
+        return
+    }
+    entries, ok := raw.(json.Object)
+    if !ok {
+        log.warnf("odin-analyzer.lua: \"naming\" is not an object and was ignored")
+        return
+    }
+    for key, value in entries {
+        rule: ^odinsema.Name_Styles
+        switch key {
+        case "type":        rule = &cache.cfg.naming.type
+        case "proc":        rule = &cache.cfg.naming.procedure
+        case "variable":    rule = &cache.cfg.naming.variable
+        case "constant":    rule = &cache.cfg.naming.constant
+        case "enum_member": rule = &cache.cfg.naming.enum_member
+        case:
+            log.warnf("odin-analyzer.lua: naming key %q is unknown and was dropped", key)
+            continue
+        }
+        text, is_string := value.(json.String)
+        if is_string && text == "any" {
+            rule^ = {}
+        } else if style, known := odinsema.style_from_key(text); is_string && known {
+            rule^ = {style}
+        } else {
+            log.warnf("odin-analyzer.lua: naming of %q is not \"ada_case\", \"snake_case\", \"screaming_snake_case\" or \"any\" and was dropped", key)
         }
     }
 }
@@ -489,6 +529,19 @@ config_severities :: proc(e: ^Engine, workspace: string) -> map[string]Severity_
         out[strings.clone(id, context.temp_allocator)] = setting
     }
     return out
+}
+
+// The spellings `style/naming` accepts in the workspace; the defaults when it has no config.
+@(private)
+config_naming :: proc(e: ^Engine, workspace: string) -> odinsema.Naming_Rules {
+    if workspace == "" {
+        return odinsema.DEFAULT_NAMING_RULES
+    }
+    cache := &e.config
+    sync.lock(&cache.mutex)
+    defer sync.unlock(&cache.mutex)
+    config_ensure(cache, workspace)
+    return cache.cfg.naming
 }
 
 // True when completion inserts procedure snippets; on when the workspace has no config.

@@ -34,6 +34,7 @@ Request_Context :: struct {
     checker:     odinsema.Checker,  // owned when checker_state is .Ready; ends before `snap`
     checker_state: Checker_State,
     universe:    [2]odinsema.Universe_Package, // directories in the arena of `snap`
+    naming:      odinsema.Naming_Rules, // set by the live body check
 }
 
 // The state of the checker of a request.

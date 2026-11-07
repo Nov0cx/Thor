@@ -1519,6 +1519,47 @@ main :: proc(p: ^P, n: int) {
 }
 
 @(test)
+test_live_naming :: proc(t: ^testing.T) {
+    root := fixture(t, "live_naming", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" }, naming = { constant = "any", enum_member = "snake_case" } }`}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+Good_Type :: struct {
+	good_field: int,
+	badField:   int,
+}
+
+badType :: struct {}
+
+Color :: enum { red, Green }
+
+oddConstant :: 1
+
+main :: proc(good_param: int, badParam: int) {
+	_ = good_param
+	_ = badParam
+	good_var := 1
+	badVar := 2
+	_, _ = good_var, badVar
+	// thor:ignore style/naming
+	ignoredVar := 3
+	_ = ignoredVar
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"badField", "'badField' should be snake_case", 0},
+        {"badType", "'badType' should be Ada_Case", 0},
+        {"Green", "'Green' should be snake_case", 0},
+        {"badParam: int", "'badParam' should be snake_case", 0},
+        {"badVar :=", "'badVar' should be snake_case", 0},
+    })
+}
+
+@(test)
 test_live_range_copy :: proc(t: ^testing.T) {
     root := fixture(t, "live_range_copy", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
     e := engine_create()

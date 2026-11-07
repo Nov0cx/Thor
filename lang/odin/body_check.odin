@@ -18,6 +18,7 @@ body_diagnostics :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, whens: []
     if c == nil {
         return
     }
+    rc.naming = config_naming(rc.e, rc.req.workspace)
     walk_body(rc, c, m, whens, odinsyntax.node_root(rc.parsed.tree), report)
 }
 
@@ -27,6 +28,10 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope
         return
     }
     n := n
+    #partial switch n.green.kind {
+    case .Value_Decl, .Field, .Range_Stmt, .Enum_Type:
+        naming_errors(rc, n, report)
+    }
     #partial switch n.green.kind {
     case .Call_Expr:
         call_errors(rc, c, n, report)
@@ -312,6 +317,15 @@ ignored_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, stmt: odinsyn
         return
     }
     report_error(rc, report, at, CODE_IGNORED_ERROR, fmt.aprintf("Error result of type '%s' is ignored", odinsema.type_string(&c.table, type, context.temp_allocator)), .Hint, lint = true)
+}
+
+// Reports, as a lint, the names of `n` that do not fit the naming rules of the workspace.
+@(private = "file")
+naming_errors :: proc(rc: ^Request_Context, n: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+    for p in odinsema.naming_problems(n, rc.naming, context.temp_allocator) {
+        want := odinsema.styles_text(p.want, context.temp_allocator)
+        report_error(rc, report, p.offset, CODE_NAMING, fmt.aprintf("'%s' should be %s", p.name, want), .Hint, lint = true)
+    }
 }
 
 // Reports, as a lint, an `if` with a literal condition or the same text in both branches.

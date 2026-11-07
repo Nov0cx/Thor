@@ -1,6 +1,8 @@
 #+build windows
 package shell
 
+// thor:ignore-file style/naming
+
 import win32 "core:sys/windows"
 
 foreign import kernel32 "system:kernel32.lib"

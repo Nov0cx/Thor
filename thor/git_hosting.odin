@@ -11,7 +11,9 @@ import "core:strings"
 
 Git_Host_Kind :: enum {
     None,
+    // thor:ignore style/naming
     GitHub,
+    // thor:ignore style/naming
     GitLab,
     Other,  // repo page still opens as https://<host>/<path>
 }
