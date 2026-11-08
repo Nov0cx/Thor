@@ -299,3 +299,39 @@ test_engine_supports_new_kinds :: proc(t: ^testing.T) {
         testing.expectf(t, supports(e, ".odin", kind), "%v must be answered", kind)
     }
 }
+
+@(test)
+test_code_lens_count_cache_reuse_and_invalidate :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    root := fixture(t, "code_lens_cache", {{"use.odin", "package demo\n\nrun :: proc() {\n\t_ = helper()\n}\n"}})
+    defer os.remove_all(root)
+    use_path := fixture_path(root, "use.odin")
+
+    src := "package demo\n\nhelper :: proc() -> int {\n\treturn 1\n}\n"
+    main_path := fixture_path(root, "main.odin")
+    for _ in 0 ..< 3 {
+        res := ask(e, .Code_Lens, src, "package", workspace = root, path = main_path)
+        testing.expect_value(t, len(res.lenses), 1)
+        if len(res.lenses) == 1 {
+            testing.expect_value(t, res.lenses[0].count, 1)
+        }
+        free_result(&res)
+    }
+    testing.expect_value(t, e.counts.builds, 1)
+
+    // A sibling edit must show in the next count.
+    edited := "package demo\n\nrun :: proc() {\n\t_ = helper()\n\t_ = helper()\n\t_ = helper()\n}\n"
+    if err := os.write_entire_file(use_path, transmute([]byte)edited); err != nil {
+        testing.fail_now(t, "could not rewrite the sibling")
+    }
+    notify(e, .Saved, use_path, ".odin", "", 0)
+    res := ask(e, .Code_Lens, src, "package", workspace = root, path = main_path)
+    defer free_result(&res)
+    testing.expect_value(t, len(res.lenses), 1)
+    if len(res.lenses) == 1 {
+        testing.expect_value(t, res.lenses[0].count, 3)
+    }
+    testing.expect_value(t, e.counts.builds, 2)
+}
