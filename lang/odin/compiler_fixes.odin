@@ -25,7 +25,6 @@ REDECLARATION_SUFFIX :: "' in this scope"
 // Offers a fix for each error of the request's diagnostics that the compiler words in a known way.
 @(private)
 compiler_fixes :: proc(rc: ^Request_Context, res: ^lang.Result) {
-    seen := make([dynamic]int, context.temp_allocator)
     for d in rc.req.diagnostics {
         if d.severity != .Error || d.start < 0 || d.start >= len(rc.req.source) {
             continue
