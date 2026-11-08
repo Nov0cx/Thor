@@ -140,3 +140,28 @@ test_syntax_check_first_line :: proc(t: ^testing.T) {
     testing.expect_value(t, res.report.items[0].line, 1)
     testing.expect_value(t, res.report.items[0].col, 1)
 }
+
+// The compiler rejects `do` as a procedure body and a `#+` line after the package clause.
+@(test)
+test_syntax_check_do_body_and_late_file_tag :: proc(t: ^testing.T) {
+    res := run_syntax_check("package p\n\nf :: proc() do return\n")
+    defer free_report(&res)
+    testing.expect_value(t, len(res.report.items), 1)
+    if len(res.report.items) == 1 {
+        testing.expect_value(t, res.report.items[0].line, 3)
+        testing.expect_value(t, res.report.items[0].col, 16)
+        testing.expect_value(t, res.report.items[0].message, "'do' for procedure bodies is not allowed, prefer {}")
+    }
+
+    late := run_syntax_check("package p\n\n#+private\n\nx :: 1\n")
+    defer free_report(&late)
+    testing.expect_value(t, len(late.report.items), 1)
+    if len(late.report.items) == 1 {
+        testing.expect_value(t, late.report.items[0].line, 3)
+        testing.expect_value(t, late.report.items[0].col, 1)
+    }
+
+    ok := run_syntax_check("package p\n\nf :: proc() {\n\tif true do return\n}\n")
+    defer free_report(&ok)
+    testing.expect_value(t, len(ok.report.items), 0)
+}

@@ -20,6 +20,8 @@ Error_Code :: enum u8 {
     Malformed,
     Bad_Directive,
     Not_Allowed,
+    Do_Body,       // `do` as the body of a procedure
+    Late_File_Tag, // a `#+` line after the package clause
 }
 
 // A syntax error over the byte range [offset, end).
@@ -82,6 +84,8 @@ error_message :: proc(e: Syntax_Error, allocator := context.allocator) -> string
     case .Malformed:         return fmt.aprintf("malformed %s", found, allocator = allocator)
     case .Bad_Directive:     return strings.clone("unknown or misplaced directive", allocator)
     case .Not_Allowed:       return fmt.aprintf("%s is not allowed here", found, allocator = allocator)
+    case .Do_Body:           return strings.clone("'do' for procedure bodies is not allowed, prefer {}", allocator)
+    case .Late_File_Tag:     return strings.clone("lines starting with #+ (file tags) are only allowed before the package line", allocator)
     }
     return ""
 }

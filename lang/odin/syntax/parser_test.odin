@@ -234,3 +234,19 @@ test_trivia_stays_outside_nodes :: proc(t: ^testing.T) {
         testing.expect(t, is_tok && syntax_token_text(tok) == "x" && tok.parent.green.kind == .Ident)
     }
 }
+
+@(test)
+test_do_procedure_body_is_an_error :: proc(t: ^testing.T) {
+    o := outline(t, "package p\nf :: proc() do return\ng :: proc() { if true do return }\nh :: proc() {\n    for i in 0 ..< 2 do _ = i\n}\n")
+    expect_errors(t, o.errors, {"25: 'do' for procedure bodies is not allowed, prefer {}"})
+    expect_kinds(t, o.top, {.Package_Decl, .Value_Decl, .Value_Decl, .Value_Decl})
+}
+
+@(test)
+test_file_tag_after_package_is_an_error :: proc(t: ^testing.T) {
+    o := outline(t, "#+build windows\npackage p\n#+private\nx :: 1\n")
+    expect_errors(t, o.errors, {"26: lines starting with #+ (file tags) are only allowed before the package line"})
+    o = outline(t, "package p\nx :: 1\n#+build windows\ny :: 2\n")
+    expect_errors(t, o.errors, {"17: lines starting with #+ (file tags) are only allowed before the package line"})
+    expect_kinds(t, o.top, {.Package_Decl, .Value_Decl, .Error, .Value_Decl})
+}
