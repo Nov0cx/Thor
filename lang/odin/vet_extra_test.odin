@@ -106,7 +106,7 @@ T :: struct { x: int }
 
 make_t :: proc() -> ^T { return nil }
 
-f :: proc(c: bool, q: ^T) -> int {
+f :: proc(c: bool, q: ^T, q2: ^[4]int) -> int {
 	a: ^T
 	a.x = 1
 	b: ^T = nil
@@ -140,6 +140,10 @@ f :: proc(c: bool, q: ^T) -> int {
 		k = make_t()
 		n += k.x
 	}
+	arr: ^[4]int
+	n += arr[1]
+	arr2: ^[4]int = q2
+	n += arr2[1]
 	m: ^T
 	// thor:ignore nil/deref
 	n += m.x
@@ -152,6 +156,7 @@ f :: proc(c: bool, q: ^T) -> int {
         {"a.x", "Dereferencing 'a', which is always nil here", 0},
         {"b.x", "Dereferencing 'b', which is always nil here", 0},
         {"fn()", "Calling 'fn', which is always nil here", 0},
+        {"arr[1]", "Dereferencing 'arr', which is always nil here", 0},
     })
     for d in res.report.items {
         if d.code == CODE_NIL_DEREF {
