@@ -128,3 +128,112 @@ test_target_flags_invalid_pair :: proc(t: ^testing.T) {
     testing.expect_value(t, target_triple(.Windows, .amd64), "windows_amd64")
     testing.expect_value(t, target_triple(.Darwin, .i386), "")
 }
+
+// A per-file target overrides the os and arch of the workspace config for that file alone, keeps its
+// defines, and an empty triple clears it.
+@(test)
+test_file_target_override :: proc(t: ^testing.T) {
+    root, cfg_path, ok := write_config(t, "thor_lang_filetarget_ws", `return { target = { os = "darwin", arch = "arm64" }, defines = { FAST = true } }`)
+    if !ok {
+        return
+    }
+    defer remove_config(root, cfg_path)
+
+    e := engine_create()
+    defer engine_destroy(e)
+
+    file, _ := filepath.join({root, "a.odin"}, context.temp_allocator)
+    other, _ := filepath.join({root, "b.odin"}, context.temp_allocator)
+    testing.expect(t, engine_set_target(e, file, "linux_amd64"))
+
+    target := config_target(e, root, file)
+    testing.expect_value(t, target.os, odinsema.Target_OS.Linux)
+    testing.expect_value(t, target.arch, odinsema.Target_Arch.amd64)
+    _, has_fast := odinsema.target_define(target, "FAST")
+    testing.expect(t, has_fast)
+
+    sibling := config_target(e, root, other)
+    testing.expect_value(t, sibling.os, odinsema.Target_OS.Darwin)
+    testing.expect_value(t, sibling.arch, odinsema.Target_Arch.arm64)
+
+    triple, own := engine_target_label(e, root, file)
+    testing.expect_value(t, triple, "linux_amd64")
+    testing.expect(t, own)
+    triple, own = engine_target_label(e, root, other)
+    testing.expect_value(t, triple, "darwin_arm64")
+    testing.expect(t, !own)
+
+    testing.expect(t, engine_set_target(e, file, ""))
+    cleared := config_target(e, root, file)
+    testing.expect_value(t, cleared.os, odinsema.Target_OS.Darwin)
+
+    // A buffer outside any workspace still takes its own target.
+    testing.expect(t, engine_set_target(e, other, "windows_i386"))
+    loose := config_target(e, "", other)
+    testing.expect_value(t, loose.os, odinsema.Target_OS.Windows)
+    testing.expect_value(t, loose.arch, odinsema.Target_Arch.i386)
+    engine_clear_targets(e)
+    host := odinsema.target_host()
+    testing.expect_value(t, config_target(e, "", other).arch, host.arch)
+}
+
+// A triple the compiler does not know is refused and the old choice stays.
+@(test)
+test_file_target_invalid :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    testing.expect(t, engine_set_target(e, "x.odin", "LINUX_ARM64"))
+    testing.expect(t, !engine_set_target(e, "x.odin", "plan9_amd64"))
+    testing.expect(t, !engine_set_target(e, "x.odin", "darwin_i386"))
+    testing.expect(t, !engine_set_target(e, "", "linux_amd64"))
+    target := config_target(e, "", "x.odin")
+    testing.expect_value(t, target.os, odinsema.Target_OS.Linux)
+    testing.expect_value(t, target.arch, odinsema.Target_Arch.arm64)
+
+    names := target_names()
+    testing.expect(t, len(names) > 10)
+    for name in names {
+        target_os, arch, ok := target_from_triple(name)
+        testing.expect(t, ok)
+        testing.expect_value(t, target_triple(target_os, arch), name)
+    }
+    _, _, bad := target_from_triple("")
+    testing.expect(t, !bad)
+}
+
+// `odin check` takes the per-file target, and the workspace defines with it.
+@(test)
+test_target_flags_file_target :: proc(t: ^testing.T) {
+    root, cfg_path, ok := write_config(t, "thor_lang_flagsfile_ws", `return { target = { os = "darwin", arch = "arm64" }, defines = { FAST = true } }`)
+    if !ok {
+        return
+    }
+    defer remove_config(root, cfg_path)
+
+    e := engine_create()
+    defer engine_destroy(e)
+
+    file, _ := filepath.join({root, "a.odin"}, context.temp_allocator)
+    testing.expect(t, engine_set_target(e, file, "linux_amd64"))
+    args := make([dynamic]string, context.temp_allocator)
+    target_flags(e, root, &args, file)
+    targets := 0
+    seen_fast := false
+    for a in args {
+        if len(a) > 8 && a[:8] == "-target:" {
+            targets += 1
+            testing.expect_value(t, a, "-target:linux_amd64")
+        }
+        seen_fast ||= a == "-define:FAST=true"
+    }
+    testing.expect_value(t, targets, 1)
+    testing.expect(t, seen_fast)
+
+    loose := make([dynamic]string, context.temp_allocator)
+    target_flags(e, "", &loose, file)
+    testing.expect_value(t, len(loose), 1)
+    if len(loose) == 1 {
+        testing.expect_value(t, loose[0], "-target:linux_amd64")
+    }
+}

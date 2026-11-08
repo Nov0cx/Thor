@@ -84,7 +84,7 @@ request_open :: proc(e: ^Engine, req: ^lang.Request, ctx: ^Request_Context) -> b
     ctx^ = Request_Context {
         e      = e,
         req    = req,
-        target = config_target(e, req.workspace),
+        target = config_target(e, req.workspace, req.path),
     }
     collections := workspace_collections(e, req.workspace)
     tree_cache_ensure(e)

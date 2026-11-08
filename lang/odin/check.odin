@@ -57,7 +57,7 @@ check_package :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     args := make([dynamic]string, context.temp_allocator)
     append(&args, "check", dir, "-no-entry-point")
     collection_flags(e, req.workspace, &args)
-    target_flags(e, req.workspace, &args)
+    target_flags(e, req.workspace, &args, req.path)
     vet_flag_args(e, req.workspace, req.path, &args)
     // An argument list, not a shell line: the directory and the collection
     // roots come from the workspace.
@@ -132,18 +132,25 @@ collection_flags :: proc(e: ^Engine, workspace: string, args: ^[dynamic]string) 
     }
 }
 
-// `-target:<os>_<arch>` when the workspace config sets a target, then `-define:<name>=<value>` for each
-// of its defines. A name the compiler owns (`ODIN_*`) is left out. Scratch-allocated.
+// `-target:<os>_<arch>` when the editor sets a target for the file at `path` or the workspace config sets
+// one, then `-define:<name>=<value>` for each define of the config. A name the compiler owns (`ODIN_*`) is
+// left out. Scratch-allocated.
 @(private)
-target_flags :: proc(e: ^Engine, workspace: string, args: ^[dynamic]string) {
-    if workspace == "" {
-        return
-    }
+target_flags :: proc(e: ^Engine, workspace: string, args: ^[dynamic]string, path := "") {
     cache := &e.config
     sync.lock(&cache.mutex)
     defer sync.unlock(&cache.mutex)
+    choice, own := file_target_lookup(cache, path)
+    if own {
+        if triple := target_triple(choice.os, choice.arch); triple != "" {
+            append(args, fmt.tprintf("-target:%s", triple))
+        }
+    }
+    if workspace == "" {
+        return
+    }
     config_ensure(cache, workspace)
-    if cache.cfg.target_os != .Unknown || cache.cfg.target_arch != .Unknown {
+    if !own && (cache.cfg.target_os != .Unknown || cache.cfg.target_arch != .Unknown) {
         host := odinsema.target_host()
         target_os := cache.cfg.target_os != .Unknown ? cache.cfg.target_os : host.os
         arch := cache.cfg.target_arch != .Unknown ? cache.cfg.target_arch : host.arch

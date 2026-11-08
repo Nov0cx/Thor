@@ -74,6 +74,7 @@ Config_Cache :: struct {
     modtime:   i64,
     size:      i64,
     cfg:       Config,
+    file_targets: map[string]File_Target, // owned keys: path_key of the file; kept when the file is read again
 }
 
 // Ensures the cache reflects `<workspace>/.thor/odin-analyzer.lua` on disk. Rebuilds when the
@@ -480,23 +481,31 @@ config_validate_target :: proc(cache: ^Config_Cache) {
     }
 }
 
-// The target a workspace is analyzed for: the host, overlaid by the os, arch and defines of its config.
-// The defines are cloned into context.temp_allocator, so the target outlives the lock.
+// The target the file at `path` is analyzed for: the host, overlaid by the os, arch and defines of the
+// workspace config, then by the os and arch the editor set for the file. The defines are cloned into
+// context.temp_allocator, so the target outlives the lock.
 @(private)
-config_target :: proc(e: ^Engine, workspace: string) -> odinsema.Target {
+config_target :: proc(e: ^Engine, workspace: string, path := "") -> odinsema.Target {
     target := odinsema.target_host()
-    if workspace == "" {
-        return target
-    }
     cache := &e.config
     sync.lock(&cache.mutex)
     defer sync.unlock(&cache.mutex)
-    config_ensure(cache, workspace)
-    if cache.cfg.target_os != .Unknown {
-        target.os = cache.cfg.target_os
+    choice, own := file_target_lookup(cache, path)
+    if own {
+        target.os = choice.os
+        target.arch = choice.arch
     }
-    if cache.cfg.target_arch != .Unknown {
-        target.arch = cache.cfg.target_arch
+    if workspace == "" {
+        return target
+    }
+    config_ensure(cache, workspace)
+    if !own {
+        if cache.cfg.target_os != .Unknown {
+            target.os = cache.cfg.target_os
+        }
+        if cache.cfg.target_arch != .Unknown {
+            target.arch = cache.cfg.target_arch
+        }
     }
     if len(cache.cfg.defines) == 0 {
         return target
@@ -762,6 +771,7 @@ config_free :: proc(cache: ^Config_Cache) {
 config_clear :: proc(e: ^Engine) {
     cache := &e.config
     config_free(cache)
+    file_targets_free(cache)
     delete(cache.workspace, cache.alloc)
     cache.workspace = ""
     cache.loaded = false

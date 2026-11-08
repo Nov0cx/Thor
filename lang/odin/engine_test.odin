@@ -2,6 +2,7 @@ package odin
 
 import "core:fmt"
 import "core:os"
+import "core:path/filepath"
 import "core:slice"
 import "core:strings"
 import "core:testing"
@@ -316,4 +317,62 @@ test_workspace_symbols :: proc(t: ^testing.T) {
     names = symbol_names(&res)
     testing.expectf(t, slice.equal(names, []string{"thing_two"}), "after the edit: got %v", names)
     free_symbols(&res)
+}
+
+// A file of another OS joins the build of the file whose target the editor set to that OS, and leaves it
+// again when the target is cleared. Its neighbour keeps the host target.
+@(test)
+test_engine_file_target :: proc(t: ^testing.T) {
+    other_os := ODIN_OS == .Linux ? "windows" : "linux"
+    other_triple := ODIN_OS == .Linux ? "windows_amd64" : "linux_amd64"
+    root := fixture(t, "lang_file_target", {
+        {fmt.tprintf("x_%s.odin", other_os), "package app\n\nonly_other :: proc() {}\n"},
+        {"main.odin", "package app\n\nrun :: proc() {\n\tonly_other()\n}\n"},
+        {"side.odin", "package app\n\nside :: proc() {}\n"},
+    })
+    defer os.remove_all(root)
+    main_path := strings.concatenate({root, "/main.odin"}, context.temp_allocator)
+    side_path := strings.concatenate({root, "/side.odin"}, context.temp_allocator)
+    other_path := fmt.tprintf("%s/x_%s.odin", root, other_os)
+    source := "package app\n\nrun :: proc() {\n\tonly_other()\n}\n"
+
+    e := engine_create()
+    defer engine_destroy(e)
+
+    // The live errors of main.odin that name only_other.
+    undeclared :: proc(e: ^Engine, path, source: string) -> int {
+        res := live_check(e, source, filepath.dir(path), path)
+        defer free_live(&res)
+        n := 0
+        for d in res.report.items {
+            if strings.contains(d.message, "only_other") {
+                n += 1
+            }
+        }
+        return n
+    }
+    in_build :: proc(e: ^Engine, path: string) -> bool {
+        src, ok := lang.source_read(path, context.temp_allocator)
+        if !ok {
+            return false
+        }
+        req := lang.Request{kind = .Hover, path = path, ext = ".odin", source = src}
+        ctx: Request_Context
+        defer request_close(&ctx)
+        return request_open(e, &req, &ctx) && ctx.live.in_build
+    }
+
+    testing.expect(t, !in_build(e, other_path), "a file of another OS is out of the host build")
+    testing.expect_value(t, undeclared(e, main_path, source), 1)
+
+    testing.expect(t, engine_set_target(e, main_path, other_triple))
+    testing.expect(t, engine_set_target(e, other_path, other_triple))
+    testing.expect(t, in_build(e, other_path), "the file joins the build of its own target")
+    testing.expect_value(t, undeclared(e, main_path, source), 0)
+    testing.expect(t, in_build(e, side_path), "a neighbour keeps the host build")
+
+    testing.expect(t, engine_set_target(e, main_path, ""))
+    testing.expect(t, engine_set_target(e, other_path, ""))
+    testing.expect(t, !in_build(e, other_path))
+    testing.expect_value(t, undeclared(e, main_path, source), 1)
 }

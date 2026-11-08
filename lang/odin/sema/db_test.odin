@@ -303,6 +303,41 @@ test_db_target_change :: proc(t: ^testing.T) {
     testing.expect_value(t, stats_of(&db).trees, 2)
 }
 
+// Two buffers of one package, each read under its own target in turn, see the files of their own target.
+@(test)
+test_db_alternating_file_targets :: proc(t: ^testing.T) {
+    dir, ok := fixture(t, "alternate")
+    if !ok {
+        return
+    }
+    defer os.remove_all(dir)
+    host := target_host()
+    other := host
+    other.os = host.os == .Linux ? .Windows : .Linux
+    put(t, dir, fmt.tprintf("x_%s.odin", target_os_name(other.os)), "package p\n\nonly_other :: 1\n")
+    a := put(t, dir, "a.odin", "package p\n\nfrom_a :: 1\n")
+    b := put(t, dir, "b.odin", "package p\n\nfrom_b :: 1\n")
+    db: Db
+    db_init(&db, read_plain)
+    defer db_destroy(&db)
+
+    for _ in 0 ..< 3 {
+        for buffer, i in ([]string{a, b}) {
+            target := i == 0 ? other : host
+            text := i == 0 ? "package p\n\nfrom_a :: 2\n" : "package p\n\nfrom_b :: 2\n"
+            snap: Snapshot
+            if !begin(t, &db, &snap, Snapshot_Input{target = target, has_live = true, live_path = buffer, live_text = text}) {
+                return
+            }
+            testing.expect(t, db_in_build(&snap, snapshot_live_file(&snap)))
+            view := db_package(&snap, db_package_id(&snap, dir))
+            testing.expect_value(t, has_name(view, "only_other"), i == 0)
+            testing.expect(t, has_name(view, "from_a") && has_name(view, "from_b"))
+            snapshot_end(&snap)
+        }
+    }
+}
+
 @(test)
 test_db_live_overlay :: proc(t: ^testing.T) {
     dir, ok := fixture(t, "live")
