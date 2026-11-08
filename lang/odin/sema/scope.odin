@@ -143,8 +143,9 @@ scope_map :: proc(parsed: odinsyntax.Parse, allocator := context.allocator) -> (
 
 // Fills the position indexes of `m`.
 @(private = "file")
-index_map :: proc(m: ^Scope_Map, alloc: mem.Allocator) {
-    m.ref_order = make([]int, len(m.refs), alloc)
+index_map :: proc(m: ^Scope_Map) {
+    alloc := virtual.arena_allocator(&m.arena)
+    m.ref_order = make([]int, max(len(m.refs), 1), alloc)[:len(m.refs)]
     for i in 0 ..< len(m.refs) {
         m.ref_order[i] = i
     }
@@ -152,7 +153,7 @@ index_map :: proc(m: ^Scope_Map, alloc: mem.Allocator) {
         refs := (^Scope_Map)(m).refs
         return refs[a].start < refs[b].start || refs[a].start == refs[b].start && a < b
     }, m)
-    m.local_order = make([]int, len(m.locals), alloc)
+    m.local_order = make([]int, max(len(m.locals), 1), alloc)[:len(m.locals)]
     for i in 0 ..< len(m.locals) {
         m.local_order[i] = i
     }
@@ -164,6 +165,9 @@ index_map :: proc(m: ^Scope_Map, alloc: mem.Allocator) {
 
 // The indices into `m.refs` of the references that start in [lo, hi), by start.
 refs_between :: proc(m: ^Scope_Map, lo, hi: int) -> []int {
+    if m.ref_order == nil {
+        index_map(m)
+    }
     order := m.ref_order
     from, to := 0, len(order)
     for from < to {
@@ -184,6 +188,9 @@ refs_between :: proc(m: ^Scope_Map, lo, hi: int) -> []int {
 // The indices into `m.locals` of the locals whose name starts in [lo, hi), in declaration order.
 // The slice is in `allocator`.
 locals_between :: proc(m: ^Scope_Map, lo, hi: int, allocator: mem.Allocator) -> []int {
+    if m.local_order == nil {
+        index_map(m)
+    }
     order := m.local_order
     from, to := 0, len(order)
     for from < to {
@@ -242,7 +249,6 @@ scope_map_range :: proc(parsed: odinsyntax.Parse, start, end: int, allocator := 
     m.refs = w.refs[:]
     m.usings = w.usings[:]
     m.has_using = len(w.usings) > 0
-    index_map(m, alloc)
     for l in w.locals {
         if l.is_using {
             m.has_using = true

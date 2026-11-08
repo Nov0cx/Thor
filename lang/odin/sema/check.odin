@@ -165,6 +165,14 @@ File_Cache :: struct {
     in_build:    bool,
     has_parse:   bool,
     has_imports: bool,
+    tops:        []Top_Range, // the top-level nodes of the tree, by start; set when has_tops
+    has_tops:    bool,
+}
+
+@(private)
+Top_Range :: struct {
+    start: u32,
+    end:   u32,
 }
 
 @(private)
@@ -446,18 +454,38 @@ scope_map_at :: proc(c: ^Checker, file: File_Id, offset: int) -> ^Scope_Map {
     if parsed == nil || parsed.tree == nil || parsed.tree.root == nil {
         return nil
     }
-    root := odinsyntax.node_root(parsed.tree)
-    start, end := -1, -1
-    pos := root.offset
-    for child in odinsyntax.green_children(root.green) {
-        child_len := odinsyntax.element_len(child)
-        if u32(offset) >= pos && u32(offset) < pos + child_len {
+    fc := file_cache(c, file)
+    if fc == nil {
+        return nil
+    }
+    if !fc.has_tops {
+        root := odinsyntax.node_root(parsed.tree)
+        tops := make([dynamic]Top_Range, c.alloc)
+        pos := root.offset
+        for child in odinsyntax.green_children(root.green) {
+            child_len := odinsyntax.element_len(child)
             if _, is_node := odinsyntax.element_node(child); is_node {
-                start, end = int(pos), int(pos + child_len)
+                if _, err := append(&tops, Top_Range{pos, pos + child_len}); !note_alloc(c, err) {
+                    return nil
+                }
             }
-            break
+            pos += child_len
         }
-        pos += child_len
+        fc.tops = tops[:]
+        fc.has_tops = true
+    }
+    start, end := -1, -1
+    lo, hi := 0, len(fc.tops)
+    for lo < hi {
+        mid := (lo + hi) / 2
+        if fc.tops[mid].end <= u32(offset) {
+            lo = mid + 1
+        } else {
+            hi = mid
+        }
+    }
+    if lo < len(fc.tops) && fc.tops[lo].start <= u32(offset) && offset >= 0 {
+        start, end = int(fc.tops[lo].start), int(fc.tops[lo].end)
     }
     if start < 0 {
         return nil
