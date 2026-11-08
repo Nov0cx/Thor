@@ -151,6 +151,7 @@ return {
         reload_settings = "",
         restart_language_servers = "",
         restart_one_language_server = "",
+        select_build_target = "",
         toggle_shell_menu = "",
         tutorial = "",
     },

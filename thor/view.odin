@@ -30,6 +30,8 @@ Status_Info :: struct {
     file_name:     string,
     file_path:     string,
     language:      string,
+    build_target:  string, // the `-target:` value of an Odin file; "" for another file
+    own_target:    bool,   // the file has its own build target
     line:          int,
     column:        int,
     indent_width:  int,
@@ -2135,6 +2137,21 @@ thor_statusbar :: proc(thor: ^Thor) {
             dim,
             "Indentation the file is written with",
         )
+    }
+    if info.build_target != "" {
+        target_seg := thor_status_segment(
+            thor,
+            "target",
+            "",
+            info.build_target,
+            info.own_target ? text : dim,
+            "Build target the Odin analyzer checks this file for. Click to change it",
+            clickable = true,
+        )
+        if target_seg.clicked {
+            thor_note_action(thor, "select_build_target")
+            thor_cmd_select_build_target(thor)
+        }
     }
     if info.language != "" {
         lang_seg := thor_status_segment(

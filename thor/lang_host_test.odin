@@ -5,6 +5,7 @@ import "core:strings"
 import "core:testing"
 
 import "../lang"
+import "../lang/odin"
 import "../setting"
 import "../textedit"
 
@@ -590,4 +591,56 @@ test_lang_busy_label_prefers_the_visible_kind :: proc(t: ^testing.T) {
     testing.expect_value(t, thor_lang_busy_label({.Semantic_Tokens, .Diagnostics}), "Checking...")
     testing.expect_value(t, thor_lang_busy_label({.Semantic_Tokens, .References}), "Finding references...")
     testing.expect_value(t, thor_lang_busy_label({.Completion, .Hover}), "Resolving...")
+}
+
+// A build target change re-asks the analyzer about the file: a check is queued, the tokens and hints
+// go stale, and a classification in flight for the old target is dropped.
+@(test)
+test_file_target_refreshes_analysis :: proc(t: ^testing.T) {
+    thor := new(Thor)
+    defer free(thor)
+    thor.open_files = make([dynamic]^Open_File)
+    lang.manager_init(&thor.lang_manager)
+    thor.odin_engine = odin.engine_create()
+    lang.manager_register(&thor.lang_manager, odin.engine_backend(thor.odin_engine))
+    defer {
+        for file in thor.open_files {
+            thor_free_open_file(file)
+        }
+        delete(thor.open_files)
+        lang.manager_destroy(&thor.lang_manager)
+    }
+
+    file := new(Open_File)
+    file.path = strings.clone("thor_file_target.odin")
+    file.name = file.path
+    textedit.init(&file.state)
+    textedit.set_text(&file.state, "package demo\n")
+    file.loaded = true
+    file.semantic_ready = true
+    file.inlay_ready = true
+    file.syntax_ready = true
+    file.highlighted = true
+    append(&thor.open_files, file)
+
+    triple, own := thor_file_build_target(thor, file)
+    testing.expect(t, triple != "" && !own)
+    thor.semantic_request_id = lang.manager_request_debounced(&thor.lang_manager, .Semantic_Tokens, file.path, ".odin", "package demo\n", 0, file.state.revision, "")
+    testing.expect(t, thor.semantic_request_id != 0)
+
+    testing.expect(t, thor_set_file_target(thor, file, "freestanding_wasm32"))
+    triple, own = thor_file_build_target(thor, file)
+    testing.expect_value(t, triple, "freestanding_wasm32")
+    testing.expect(t, own)
+    testing.expect(t, !file.semantic_ready && !file.inlay_ready && !file.syntax_ready && !file.highlighted)
+    testing.expect(t, lang.manager_debounce_pending(&thor.lang_manager, .Diagnostics), "a check is queued")
+    testing.expect(t, !lang.manager_has_request(&thor.lang_manager, thor.semantic_request_id), "the old classification is dropped")
+
+    testing.expect(t, !thor_set_file_target(thor, file, "plan9_amd64"))
+    triple, _ = thor_file_build_target(thor, file)
+    testing.expect_value(t, triple, "freestanding_wasm32")
+
+    testing.expect(t, thor_set_file_target(thor, file, ""))
+    _, own = thor_file_build_target(thor, file)
+    testing.expect(t, !own)
 }

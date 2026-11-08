@@ -445,6 +445,7 @@ thor_open_view_menu :: proc(data: rawptr) {
     thor_menu_add(thor, "Toggle Whitespace", thor_cmd_toggle_whitespace, thor, action = "toggle_whitespace")
     thor_menu_add(thor, "Toggle Split Editor", thor_cmd_toggle_split, thor, action = "toggle_split")
     thor_menu_add(thor, "Change Language of File...", thor_cmd_change_language, thor, action = "change_language")
+    thor_menu_add(thor, "Select Build Target...", thor_cmd_select_build_target, thor, action = "select_build_target")
     thor_menu_add(thor, "Pane Layout...", thor_cmd_pick_layout, thor, action = "pick_layout")
     thor_menu_add(thor, "Open Active File to the Side", thor_cmd_open_to_side, thor, action = "open_to_side")
     thor_menu_add(thor, "Toggle Fullscreen", thor_cmd_toggle_fullscreen, thor, action = "toggle_fullscreen")

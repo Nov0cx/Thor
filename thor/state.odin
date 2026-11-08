@@ -315,6 +315,7 @@ thor_status_info :: proc(data: rawptr) -> Status_Info {
     info.file_name = file.name
     info.file_path = file.path
     info.language = thor_language_name(thor, file)
+    info.build_target, info.own_target = thor_file_build_target(thor, file)
     thor_refresh_indent(file)
     // detect_indent reports no width for tabs, and a width of 0 hides the
     // segment, so a tab-indented file shows the column width one renders as.
