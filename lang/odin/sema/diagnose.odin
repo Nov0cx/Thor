@@ -827,6 +827,123 @@ const_overflows :: proc(c: ^Checker, to: Type_Id, op: Operand) -> bool {
     return false
 }
 
+// A typed integer constant that the `+`, `-` or `*` of two constants of the integer type `type`
+// gives and `type` cannot hold. Silent when an operand already does not fit, so the innermost
+// expression of a chain is the one that reports.
+Const_Arith_Problem :: struct {
+    value: i64,
+    type:  Type_Id,
+}
+
+const_arith_overflow :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (Const_Arith_Problem, bool) {
+    b, is_binary := odinsyntax.as_binary_expr(n)
+    if !is_binary {
+        return {}, false
+    }
+    op_tok, has_op := odinsyntax.binary_expr_op(&b)
+    lhs_n, has_lhs := odinsyntax.binary_expr_lhs(&b)
+    rhs_n, has_rhs := odinsyntax.binary_expr_rhs(&b)
+    if !has_op || !has_lhs || !has_rhs {
+        return {}, false
+    }
+    #partial switch op_tok.green.kind {
+    case .Add, .Sub, .Mul:
+    case:
+        return {}, false
+    }
+    whole := expr_type(c, file, n)
+    t := &c.table
+    if whole.mode != .Const || whole.type == INVALID_TYPE || type_is_untyped(t, whole.type) || !type_is_integer(t, whole.type) {
+        return {}, false
+    }
+    if _, is_basic := type_get(t, type_base(t, whole.type)).(Basic_Type); !is_basic {
+        return {}, false
+    }
+    value, is_int := whole.value.(i64)
+    if !is_int {
+        return {}, false
+    }
+    lhs, rhs := expr_type(c, file, lhs_n), expr_type(c, file, rhs_n)
+    for side in ([2]Operand{lhs, rhs}) {
+        v, ok := side.value.(i64)
+        if side.mode != .Const || !ok || !integer_holds(c, whole.type, v) {
+            return {}, false
+        }
+    }
+    if integer_holds(c, whole.type, value) {
+        return {}, false
+    }
+    return {value, whole.type}, true
+}
+
+// The calls among the values of a variable declaration or an `=` assignment, one value for each
+// place, to a procedure that returns nothing.
+no_value_calls :: proc(c: ^Checker, file: File_Id, stmt: odinsyntax.Syntax_Node, allocator := context.allocator) -> []odinsyntax.Syntax_Node {
+    values: odinsyntax.Expr_List
+    places := 0
+    #partial switch stmt.green.kind {
+    case .Assign_Stmt:
+        as, _ := odinsyntax.as_assign_stmt(stmt)
+        op, has_op := odinsyntax.assign_stmt_op(&as)
+        lhs, has_lhs := odinsyntax.assign_stmt_lhs(&as)
+        rhs, has_rhs := odinsyntax.assign_stmt_rhs(&as)
+        if !has_op || op.green.kind != .Eq || !has_lhs || !has_rhs {
+            return nil
+        }
+        it := odinsyntax.expr_list_items(&lhs)
+        for _ in odinsyntax.child_iter_next(&it) {
+            places += 1
+        }
+        values = rhs
+    case .Value_Decl:
+        if is_constant_decl(stmt) {
+            return nil
+        }
+        vd, _ := odinsyntax.as_value_decl(stmt)
+        names, has_names := odinsyntax.value_decl_names(&vd)
+        list, has_values := odinsyntax.value_decl_values(&vd)
+        if !has_names || !has_values {
+            return nil
+        }
+        it := odinsyntax.name_list_names(&names)
+        for _ in odinsyntax.child_iter_next(&it) {
+            places += 1
+        }
+        values = list
+    case:
+        return nil
+    }
+    nodes := make([dynamic]odinsyntax.Syntax_Node, context.temp_allocator)
+    vit := odinsyntax.expr_list_items(&values)
+    for v in odinsyntax.child_iter_next(&vit) {
+        append(&nodes, v)
+    }
+    if len(nodes) != places {
+        return nil
+    }
+    out := make([dynamic]odinsyntax.Syntax_Node, allocator)
+    for v in nodes {
+        if v.green.kind != .Call_Expr {
+            continue
+        }
+        ce, _ := odinsyntax.as_call_expr(v)
+        callee, has_callee := odinsyntax.call_expr_callee(&ce)
+        if !has_callee {
+            continue
+        }
+        fn := expr_type(c, file, callee)
+        if fn.mode != .Value && fn.mode != .Const {
+            continue
+        }
+        p, is_proc := type_get(&c.table, type_base(&c.table, fn.type)).(Proc_Type)
+        if !is_proc || p.generic || p.diverging || len(p.results) != 0 {
+            continue
+        }
+        append(&out, v)
+    }
+    return out[:]
+}
+
 // The untyped constant of a conversion `T(x)` that `T` cannot take: an integer `T` cannot hold, a
 // string into a type that is no string, or a number or bool into a string, or a number into a bool.
 conversion_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) -> (Type_Problem, bool) {

@@ -33,6 +33,7 @@ Nil_Cand :: struct {
     name:    string,
     decl:    int,  // the name offset of the declaration
     is_proc: bool, // a procedure value: its use is a call
+    to_array: bool, // a pointer to a fixed array: `p[i]` dereferences it
     skip:    bool, // the analysis cannot follow it
 }
 
@@ -106,7 +107,7 @@ nil_deref :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.Syn
                 continue
             }
             w.by_decl[l.name_offset] = len(w.cands)
-            append(&w.cands, Nil_Cand{name = l.name, decl = l.name_offset, is_proc = kind == .Proc}) or_return
+            append(&w.cands, Nil_Cand{name = l.name, decl = l.name_offset, is_proc = kind == .Proc, to_array = nil_points_to_array(&w, l.name_offset)}) or_return
         }
     }
     if len(w.cands) == 0 {
@@ -139,6 +140,20 @@ nil_kind :: proc(w: ^Nil_Walk, name_offset: int) -> Nil_Type {
         return .Proc
     }
     return .None
+}
+
+// Whether the local declared at `name_offset` is a pointer to a fixed array.
+@(private = "file")
+nil_points_to_array :: proc(w: ^Nil_Walk, name_offset: int) -> bool {
+    t := decl_type(w.c, local_symbol(w.file, name_offset))
+    if t == INVALID_TYPE {
+        return false
+    }
+    if p, is_ptr := type_get(&w.c.table, type_base(&w.c.table, t)).(Pointer_Type); is_ptr {
+        _, is_array := type_get(&w.c.table, type_base(&w.c.table, p.elem)).(Array_Type)
+        return is_array
+    }
+    return false
 }
 
 @(private = "file")
@@ -309,6 +324,14 @@ walk_nil :: proc(w: ^Nil_Walk, n: odinsyntax.Syntax_Node, out: ^[dynamic]Nil_Eve
         se, _ := odinsyntax.as_selector_expr(n)
         if operand, ok := odinsyntax.selector_expr_operand(&se); ok {
             deref_event(w, strip_parens(operand), false, out)
+        }
+    case .Index_Expr:
+        ie, _ := odinsyntax.as_index_expr(n)
+        if operand, ok := odinsyntax.index_expr_operand(&ie); ok {
+            operand = strip_parens(operand)
+            if index, is_cand := nil_cand(w, operand); is_cand && w.cands[index].to_array {
+                append(out, Nil_Event{.Deref, index, int(operand.offset), false})
+            }
         }
     case .Call_Expr:
         ce, _ := odinsyntax.as_call_expr(n)
