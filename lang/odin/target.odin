@@ -37,8 +37,10 @@ Request_Context :: struct {
     naming:      odinsema.Naming_Rules, // set by the live body check
     vet:         odinsema.Vet_Flags,    // set by the live body check
     own_leak, own_double, own_after: bool, // the ownership lints the config turns on; set by the live body check
-    formatters:       odinsema.User_Formatters, // the user formatters of the workspace; read when first asked
-    formatters_known: bool
+    formatters:       odinsema.User_Formatters, // the user formatters of the buffer's package; read when first asked
+    formatters_known: bool,
+    workspace_formatters:       odinsema.User_Formatters, // those of the workspace; read when a named type needs them
+    workspace_formatters_known: bool
 }
 
 // The state of the checker of a request.

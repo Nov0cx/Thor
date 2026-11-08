@@ -2,6 +2,7 @@
 package odin
 
 import "core:fmt"
+import "core:path/filepath"
 import "core:strings"
 
 import lang ".."
@@ -343,22 +344,48 @@ format_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odinsynt
     }
 }
 
-// True when a user formatter of the live file or the workspace is registered for `type`, which then
-// takes any verb. A registration of a type the analysis cannot read frees every named type.
+// True when a user formatter is registered for `type`, which then takes any verb. The buffer and its
+// package are read first. A named type also reads its declaring package and the workspace. A
+// registration of a type the analysis cannot read frees every named type.
 @(private = "file")
 user_formatted :: proc(rc: ^Request_Context, c: ^odinsema.Checker, type: odinsema.Type_Id) -> bool {
     if !rc.formatters_known {
         rc.formatters_known = true
         files := make([dynamic]odinsema.File_Id, context.temp_allocator)
         append(&files, rc.live.id)
-        for id in odinsema.db_workspace(&rc.snap, rc.req.workspace) {
-            if id != rc.live.id {
-                append(&files, id)
-            }
-        }
+        append_package_files(rc, odinsema.db_file_path(&rc.snap, rc.live.id), &files)
         rc.formatters = odinsema.user_formatters(c, files[:])
     }
-    return odinsema.user_formatted(c, rc.formatters, type)
+    if odinsema.user_formatted(c, rc.formatters, type) {
+        return true
+    }
+    sym, named := odinsema.type_declaration(c, type)
+    if !named {
+        return false
+    }
+    files := make([dynamic]odinsema.File_Id, context.temp_allocator)
+    append_package_files(rc, odinsema.db_file_path(&rc.snap, sym.file), &files)
+    if declared := odinsema.user_formatters(c, files[:]); odinsema.user_formatted(c, declared, type) {
+        return true
+    }
+    if !rc.workspace_formatters_known {
+        rc.workspace_formatters_known = true
+        rc.workspace_formatters = odinsema.user_formatters(c, odinsema.db_workspace(&rc.snap, rc.req.workspace))
+    }
+    return odinsema.user_formatted(c, rc.workspace_formatters, type)
+}
+
+// Appends the files of the package that holds the file at `path`.
+@(private = "file")
+append_package_files :: proc(rc: ^Request_Context, path: string, files: ^[dynamic]odinsema.File_Id) {
+    dir := filepath.dir(path)
+    if dir == "" || dir == "." && path == "" {
+        return
+    }
+    view := odinsema.db_package(&rc.snap, odinsema.db_package_id(&rc.snap, dir))
+    if view != nil {
+        append(files, ..view.files)
+    }
 }
 
 // Reports, as a lint, a call statement that drops an error result.

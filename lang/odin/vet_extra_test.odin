@@ -177,6 +177,7 @@ test_live_nil_deref_narrowing :: proc(t: ^testing.T) {
 T :: struct { x: int, next: ^T }
 S :: struct { cb: proc(), p: ^T, inner: struct { cb: proc() } }
 U :: struct { using s: S }
+V :: struct { cb: proc(v: ^V) }
 
 make_t :: proc() -> ^T { return nil }
 use :: proc(s: ^S) {}
@@ -281,6 +282,9 @@ fields :: proc(c: bool) {
 	if ad.cb == nil {
 		ad.cb()
 	}
+	ae: V
+	ae->cb()
+	ae.cb(nil)
 }
 
 multi :: proc(n: int) -> int {

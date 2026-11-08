@@ -1417,7 +1417,8 @@ test_live_fmt_verbs_user_formatter_elsewhere :: proc(t: ^testing.T) {
     root := fixture(t, "live_fmt_user_elsewhere", {
         {".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`},
         {"app/reg.odin", "package app\n\nimport \"core:fmt\"\n\nOther :: distinct int\n\n@(init)\nregister :: proc() {\n\t_ = fmt.register_user_formatter(typeid_of(Other), nil)\n}\n"},
-        {"app/q/q.odin", "package q\n\nimport \"core:fmt\"\n\nRemote :: distinct int\n\n@(init)\nregister :: proc() {\n\t_ = fmt.register_user_formatter(type_info_of(Remote).id, nil)\n}\n"},
+        {"app/q/q.odin", "package q\n\nimport \"core:fmt\"\n\nRemote :: distinct int\nRemote2 :: distinct int\n\n@(init)\nregister :: proc() {\n\t_ = fmt.register_user_formatter(type_info_of(Remote).id, nil)\n}\n"},
+        {"app/other/other.odin", "package other\n\nimport \"core:fmt\"\nimport \"../q\"\n\n@(init)\nregister :: proc() {\n\t_ = fmt.register_user_formatter(q.Remote2, nil)\n}\n"},
     })
     e := engine_create()
     defer engine_destroy(e)
@@ -1436,6 +1437,8 @@ main :: proc() {
 	fmt.printf("%s", o)
 	r: q.Remote
 	fmt.printf("%s", r)
+	r2: q.Remote2
+	fmt.printf("%s", r2)
 }
 `
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
@@ -1892,6 +1895,14 @@ field_other :: proc(s: string) {
 	h: Holder
 	h.name = strings.clone(s, context.temp_allocator)
 	holder.id = h.id
+}
+Holder_R :: struct { name: string, reset: proc(h: ^Holder_R) }
+holder_r: Holder_R
+field_arrow :: proc(s: string) {
+	h: Holder_R
+	h.name = strings.clone(s, context.temp_allocator)
+	h->reset()
+	holder_r = h
 }
 field_reset :: proc(s: string) {
 	h: Holder

@@ -494,7 +494,7 @@ mark_spine :: proc(w: ^Nil_Walk, n: odinsyntax.Syntax_Node) {
     }
 }
 
-// Marks the locals the analysis cannot follow: one whose address is taken, one that a comparison
+// Marks the locals the analysis cannot follow: one whose address is taken, one a `->` call passes on, one that a comparison
 // other than a branch on nil, a `using` or a declaration with attributes names.
 @(private = "file")
 exclude_tested :: proc(w: ^Nil_Walk, n: odinsyntax.Syntax_Node) {
@@ -522,6 +522,13 @@ exclude_tested :: proc(w: ^Nil_Walk, n: odinsyntax.Syntax_Node) {
             }
             if rhs, has := odinsyntax.binary_expr_rhs(&b); has {
                 exclude_root(w, rhs, false)
+            }
+        }
+    case .Selector_Expr:
+        se, _ := odinsyntax.as_selector_expr(n)
+        if _, arrow := odinsyntax.selector_expr_arrow(&se); arrow {
+            if operand, ok := odinsyntax.selector_expr_operand(&se); ok {
+                exclude_root(w, operand, true)
             }
         }
     case .Using_Stmt:

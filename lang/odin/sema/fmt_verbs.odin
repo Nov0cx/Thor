@@ -517,8 +517,14 @@ user_formatters :: proc(c: ^Checker, files: []File_Id, allocator := context.temp
         types = make(map[Type_Id]struct{}, allocator),
     }
     for id in files {
+        raw := db_parse(c.snap, id)
+        mentions := raw != nil && raw.tree != nil && strings.contains(raw.tree.text, "register_user_formatter")
+        db_parse_release(c.snap, raw)
+        if !mentions {
+            continue
+        }
         parsed := checker_parse(c, id)
-        if parsed == nil || parsed.tree == nil || !strings.contains(parsed.tree.text, "register_user_formatter") {
+        if parsed == nil || parsed.tree == nil {
             continue
         }
         scan_formatters(c, id, odinsyntax.node_root(parsed.tree), &out)
@@ -536,6 +542,17 @@ user_formatted :: proc(c: ^Checker, formatters: User_Formatters, type: Type_Id) 
         return formatters.any
     }
     return false
+}
+
+// The declaration of a named or distinct type.
+type_declaration :: proc(c: ^Checker, type: Type_Id) -> (Symbol, bool) {
+    #partial switch v in type_get(&c.table, type) {
+    case Named_Type:
+        return v.symbol, true
+    case Distinct_Type:
+        return v.symbol, true
+    }
+    return {}, false
 }
 
 @(private = "file")

@@ -175,6 +175,12 @@ temp_prepare :: proc(w: ^Temp_Walk, node: ^odinsyntax.Syntax_Node) -> mem.Alloca
             }
         }
     case .Selector_Expr:
+        se, _ := odinsyntax.as_selector_expr(n)
+        if _, arrow := odinsyntax.selector_expr_arrow(&se); arrow {
+            if operand, ok := odinsyntax.selector_expr_operand(&se); ok {
+                temp_skip_root(w, operand)
+            }
+        }
         temp_register(w, n) or_return
     }
     it := odinsyntax.child_iter(node, {kinds = ~odinsyntax.Kind_Set{}})
