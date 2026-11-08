@@ -467,8 +467,12 @@ its root, layered on top of the global settings above. This repository's own
   | `space_single_line_blocks` | `{ stmt }` for a one-statement block the source already wrote on one line | `false` |
   | `align_struct_fields` | Align a struct's field types into one column | `true` |
   | `align_struct_values` | Align the `=` of enum members and multi-line composite literals, and a bit field's `\|` | `true` |
-  | `align_struct_declarations` | Align consecutive `Name :: struct` / `union` / `enum` / `bit_field` declarations' `::` | `false` |
-  | `align_constant_definitions` | Align consecutive `NAME :: value` declarations' `::` | `false` |
+  | `align_struct_declarations` | Align consecutive `Name :: struct` / `union` / `enum` / `bit_field` declarations' `::` | `true` |
+  | `align_constant_definitions` | Align consecutive `NAME :: value` and `NAME: T : value` declarations' `::` and types | `true` |
+  | `align_variable_declarations` | Align consecutive `a := v` and `a: T = v` declarations' `:=`, `:` and `=` | `true` |
+  | `align_comments` | Start the trailing comments of consecutive fields, members, declarations and literal entries in one column | `true` |
+  | `align_case_comments` | The same for the comments after consecutive `case X:` lines | `true` |
+  | `align_field_defaults` | Align the tags that follow the types of consecutive struct fields | `true` |
 
   `character_width` takes 20 to 1000, `spaces` and `tabs_width` 1 to 16 and
   `newline_limit` 0 to 16. A key the formatter does not know, a value of the

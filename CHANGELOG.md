@@ -1,5 +1,6 @@
 # 2026.11.0
 
+- Odin: the formatter aligns trailing comments, `:=` and typed declarations, struct field tags and `case` comments (`align_comments`, `align_variable_declarations`, `align_case_comments`, `align_field_defaults`). `align_constant_definitions` and `align_struct_declarations` are on by default.
 - Odin: a quick fix inserts the comma the compiler asks for ("Expected a comma, got a newline").
 - Odin: `const/overflow` also covers `/`, `<<` and unary minus on typed constants, in 128 bits.
 - Odin: a call that returns nothing is marked as an argument or a returned value.

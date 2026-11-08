@@ -1307,7 +1307,11 @@ lowest latency.
       collection-qualified paths first. `align_struct_fields` lines up struct
       field types, `align_struct_values` the `=` of enum members and multi-line
       composite literals and the `|` of a bit field, `align_constant_definitions`
-      and `align_struct_declarations` the `::` of consecutive declarations.
+      and `align_struct_declarations` the `::` of consecutive declarations
+      (typed constants too), `align_variable_declarations` the `:=`, `:` and `=`
+      of variables, `align_comments` and `align_case_comments` the trailing
+      comments of a run (a `Doc_Col` stop measured in a first render pass) and
+      `align_field_defaults` the field tags. All six default on.
       A comment inside a call's arguments, a parameter list or a composite
       literal, or between the operands of a binary expression, stays where it
       was written; such a list prints one item per line. `brace_style` covers
