@@ -9,6 +9,7 @@ import "core:path/filepath"
 import "core:slice"
 import "core:strings"
 import "core:sync"
+import "core:thread"
 import "core:time"
 
 import odinsema "sema"
@@ -72,6 +73,7 @@ known_packages :: proc(e: ^Engine, workspace: string) -> []Known_Package {
         if err == nil {
             index.key = cloned
         }
+        tasks := make([dynamic]Walk_Task, context.temp_allocator)
         if root != "" {
             ROOT_COLLECTIONS :: [3]struct {
                 name: string,
@@ -80,13 +82,14 @@ known_packages :: proc(e: ^Engine, workspace: string) -> []Known_Package {
             for coll in ROOT_COLLECTIONS {
                 dir, jerr := filepath.join({root, coll.name}, context.temp_allocator)
                 if jerr == nil {
-                    index_collection(index, coll.name, dir, coll.rank)
+                    collect_walk_tasks(&tasks, coll.name, dir, coll.rank)
                 }
             }
         }
         for c in colls {
-            index_collection(index, c.name, c.dir, 2)
+            collect_walk_tasks(&tasks, c.name, c.dir, 2)
         }
+        walk_tasks_run(index, tasks[:])
         slice.sort_by(index.packages[:], proc(a, b: Known_Package) -> bool {
             if a.rank != b.rank {
                 return a.rank < b.rank
@@ -110,9 +113,30 @@ known_packages :: proc(e: ^Engine, workspace: string) -> []Known_Package {
     return out
 }
 
-// Adds the package directories under the root `dir` of the collection `name`.
+// One top-level directory of a collection, walked as a unit.
 @(private = "file")
-index_collection :: proc(index: ^Package_Index, name, dir: string, rank: int) {
+Walk_Task :: struct {
+    coll: string,
+    dir:  string,
+    rel:  string,
+    rank: int,
+    out:  [dynamic]Known_Package, // owned, with their strings
+}
+
+// Most threads one package walk uses.
+@(private = "file")
+WALK_THREADS :: 8
+
+@(private = "file")
+Walk_Job :: struct {
+    index: ^Package_Index,
+    tasks: []Walk_Task,
+    next:  ^int, // atomic; shared by the threads
+}
+
+// Adds a task for each package directory directly under the collection root `dir`.
+@(private = "file")
+collect_walk_tasks :: proc(tasks: ^[dynamic]Walk_Task, name, dir: string, rank: int) {
     if dir == "" || !os.is_dir(dir) {
         return
     }
@@ -120,7 +144,69 @@ index_collection :: proc(index: ^Package_Index, name, dir: string, rank: int) {
     if err != nil {
         return
     }
-    walk_packages(index, name, clean, "", rank, 0)
+    infos, rerr := os.read_directory_by_path(clean, -1, context.temp_allocator)
+    if rerr != nil {
+        return
+    }
+    for info in infos {
+        if info.type != .Directory || skip_package_dir(info.name) {
+            continue
+        }
+        append(tasks, Walk_Task{coll = name, dir = info.fullpath, rel = info.name, rank = rank})
+    }
+}
+
+@(private = "file")
+walk_worker :: proc(t: ^thread.Thread) {
+    job := cast(^Walk_Job)t.data
+    for {
+        at := sync.atomic_add(job.next, 1)
+        if at >= len(job.tasks) {
+            break
+        }
+        task := &job.tasks[at]
+        local := Package_Index {
+            alloc = job.index.alloc,
+        }
+        local.packages = make([dynamic]Known_Package, job.index.alloc)
+        walk_packages(&local, task.coll, task.dir, task.rel, task.rank, 1)
+        task.out = local.packages
+    }
+}
+
+// Walks every task, on several threads when there are many, and adds the packages to `index`.
+// Caller holds index.mutex.
+@(private = "file")
+walk_tasks_run :: proc(index: ^Package_Index, tasks: []Walk_Task) {
+    next := 0
+    job := Walk_Job {
+        index = index,
+        tasks = tasks,
+        next  = &next,
+    }
+    count := min(len(tasks), WALK_THREADS)
+    threads := make([dynamic]^thread.Thread, 0, count, context.temp_allocator)
+    for _ in 1 ..< count {
+        if t := thread.create(walk_worker); t != nil {
+            t.data = &job
+            append(&threads, t)
+            thread.start(t)
+        }
+    }
+    self := thread.Thread {
+        data = &job,
+    }
+    walk_worker(&self)
+    for t in threads {
+        thread.join(t)
+        thread.destroy(t)
+    }
+    for &task in tasks {
+        if len(task.out) > 0 {
+            append(&index.packages, ..task.out[:])
+        }
+        delete(task.out)
+    }
 }
 
 // Adds `dir` when it holds an `.odin` file, then walks its subdirectories. `rel` is the path below

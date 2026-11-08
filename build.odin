@@ -256,7 +256,7 @@ BENCHES :: []struct {
     tests:       string,
 } {
     {"lang/odin/syntax", "odinsyntax.test_bench_parse,odinsyntax.test_bench_reparse"},
-    {"lang/odin", "odin.test_bench_diagnostics,odin.test_bench_completion"},
+    {"lang/odin", "odin.test_bench_diagnostics,odin.test_bench_completion,odin.test_bench_cold_prewarm"},
 }
 
 // Times parse, reparse, diagnostics and completion on Thor's own sources with the release flags, one

@@ -2887,7 +2887,10 @@ not a status, so this section stays the source of truth for what is built.
   - **Bench:** `build.odin -- bench [-strict]` times parse, reparse, diagnostics
     and completion with the release flags; a measure over budget is a log
     warning, an error with `-strict`.
-  - **Known gaps:** a cold first request still takes several hundred ms; warm
+  - **Known gaps:** a cold first request takes about 110 ms (was 250 ms;
+    `engine_prewarm` on startup lists the importable packages and finds the Odin root, which brings
+    the first completion to about 20 ms; a package of three or more unread files loads on up to six
+    threads, the package walk on up to eight); warm
     live diagnostics take about 32 ms against the 50 ms budget. Not reported:
     an error inside a polymorphic body for one instance (the compiler repeats it
     per instance), a hex float literal whose fraction needs more than 17 binary

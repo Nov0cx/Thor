@@ -801,6 +801,7 @@ init :: proc() -> ^Thor {
     lang.manager_init(&thor.lang_manager)
     thor.odin_engine = odin.engine_create()
     odin.engine_set_cache_dir(thor.odin_engine, thor_odin_cache_dir())
+    odin.engine_prewarm(thor.odin_engine, thor.workspace_dir)
     thor.lsp_client = lsp.client_create(thor.workspace_dir, thor_lsp_workspace_trusted(thor))
     if lsp.client_overrides(thor.lsp_client, ".odin") {
         lang.manager_register(&thor.lang_manager, lsp.client_backend(thor.lsp_client))

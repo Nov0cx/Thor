@@ -8,6 +8,9 @@
 package odin
 
 
+import "core:strings"
+import "core:thread"
+
 import lang ".."
 import odinsema "sema"
 
@@ -19,6 +22,9 @@ Engine :: struct {
     tree_cache:    Tree_Cache_File,
     packages:      Package_Index, // the packages completion offers to import
     counts:        Count_Cache,   // identifier counts of disk files; see count_cache.odin
+    warm:          ^thread.Thread, // the prewarm thread; joined by engine_destroy
+    warm_joined:   bool,
+    warm_workspace: string,        // owned; read by the prewarm thread
     // One compiler run at a time (see check_package). Atomic.
     checking:      bool,
     // Settings-driven admin gate; main thread only.
@@ -68,6 +74,42 @@ engine_create :: proc() -> ^Engine {
     e.packages.alloc = context.allocator
     e.packages.ttl = PACKAGE_INDEX_TTL
     return e
+}
+
+// Starts finding the Odin root and listing the importable packages on a thread, so the first
+// request after a file opens finds them ready. Call once, after engine_create.
+engine_prewarm :: proc(e: ^Engine, workspace: string) {
+    if e.warm != nil {
+        return
+    }
+    cloned, err := strings.clone(workspace)
+    if err != nil {
+        return
+    }
+    t := thread.create(prewarm_worker)
+    if t == nil {
+        delete(cloned)
+        return
+    }
+    e.warm_workspace = cloned
+    t.data = e
+    e.warm = t
+    thread.start(t)
+}
+
+// Waits until the prewarm is done.
+engine_prewarm_wait :: proc(e: ^Engine) {
+    if e.warm != nil && !e.warm_joined {
+        thread.join(e.warm)
+        e.warm_joined = true
+    }
+}
+
+@(private = "file")
+prewarm_worker :: proc(t: ^thread.Thread) {
+    e := cast(^Engine)t.data
+    known_packages(e, e.warm_workspace)
+    free_all(context.temp_allocator)
 }
 
 // Wraps the engine as a lang.Backend for lang.manager_register.
@@ -202,6 +244,11 @@ resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
 @(private)
 engine_destroy :: proc(data: rawptr) {
     e := cast(^Engine)data
+    if e.warm != nil {
+        engine_prewarm_wait(e)
+        thread.destroy(e.warm)
+        delete(e.warm_workspace)
+    }
     config_clear(e)
     format_config_clear(e)
     tree_cache_write(e, true)

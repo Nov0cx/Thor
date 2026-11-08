@@ -146,6 +146,62 @@ test_bench_completion :: proc(t: ^testing.T) {
     over_budget(t, p95 <= BUDGET_COMPLETION_MS, "completion p95 %.1f ms is over %.0f", p95, BUDGET_COMPLETION_MS)
 }
 
+// The first completion of an engine that was prewarmed, against one that was not.
+@(test)
+test_bench_cold_prewarm :: proc(t: ^testing.T) {
+    when !BENCH {
+        return
+    }
+    src, ok := bench_source()
+    if !testing.expect(t, ok, "the benchmark file could not be read") {
+        return
+    }
+    defer delete(src)
+    anchor := strings.index(src, "\n    return")
+    if !testing.expect(t, anchor >= 0, "no return statement in the benchmark file") {
+        return
+    }
+    typed := "ed"
+    text := strings.concatenate({src[:anchor + 1], typed, src[anchor + 1:]})
+    defer delete(text)
+
+    first :: proc(e: ^Engine, text: string, offset: int) -> (time.Duration, int) {
+        req := lang.Request {
+            kind      = .Completion,
+            path      = BENCH_FILE,
+            ext       = ".odin",
+            source    = text,
+            offset    = offset,
+            end       = offset,
+            workspace = ".",
+        }
+        res := lang.Result{kind = .Completion}
+        start := time.tick_now()
+        resolve(e, &req, &res)
+        elapsed := time.tick_since(start)
+        n := len(res.completions)
+        bench_free_completions(&res)
+        free_all(context.temp_allocator)
+        return elapsed, n
+    }
+
+    plain := engine_create()
+    plain_time, plain_count := first(plain, text, anchor + 1 + len(typed))
+    engine_destroy(plain)
+
+    warm := engine_create()
+    defer engine_destroy(warm)
+    engine_prewarm(warm, ".")
+    engine_prewarm_wait(warm)
+    warm_time, warm_count := first(warm, text, anchor + 1 + len(typed))
+    log.infof(
+        "bench cold prewarm: first completion %.1f ms without, %.1f ms after prewarm",
+        time.duration_milliseconds(plain_time),
+        time.duration_milliseconds(warm_time),
+    )
+    testing.expect_value(t, warm_count, plain_count)
+}
+
 // Fails the test in strict mode, else logs a warning, when `within` is false.
 @(private = "file")
 over_budget :: proc(t: ^testing.T, within: bool, format: string, args: ..any, loc := #caller_location) {

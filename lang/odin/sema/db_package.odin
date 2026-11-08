@@ -5,6 +5,7 @@ import "core:os"
 import "core:slice"
 import "core:strings"
 import "core:sync"
+import "core:thread"
 
 // The package at a directory for the snapshot: its files, their declarations and its scope. The live
 // buffer replaces its file, or joins the package when it is in the directory but not on disk. Nil
@@ -161,11 +162,16 @@ package_refresh :: proc(snap: ^Snapshot, slot: ^Package_Slot) -> (datas: []^File
     }
     ids := slot.listing
     datas = make([]^File_Data, len(ids), snap.alloc)
+    if len(ids) >= PARALLEL_LOAD_MIN && !files_load_parallel(snap, ids, datas) {
+        return nil, .Cancelled
+    }
     for id, i in ids {
         if snapshot_cancelled(snap) {
             return nil, .Cancelled
         }
-        datas[i] = file_data_pinned(snap, id)
+        if datas[i] == nil {
+            datas[i] = file_data_pinned(snap, id)
+        }
     }
     if memo := slot.memo; memo != nil && memo.config == snap.config && slice.equal(memo.files, ids) {
         same := true
@@ -187,6 +193,85 @@ package_refresh :: proc(snap: ^Snapshot, slot: ^Package_Slot) -> (datas: []^File
     package_slot_drop_memo(db, slot)
     slot.memo = memo
     return datas, .Ready
+}
+
+// Fewest never-read files of a package that are read on several threads.
+PARALLEL_LOAD_MIN :: 3
+
+// Most threads one package load uses.
+PARALLEL_LOAD_THREADS :: 6
+
+@(private = "file")
+Load_Job :: struct {
+    snap:  Snapshot, // copy of the request's; its own pin list
+    ids:   []File_Id,
+    todo:  []int, // indices into `ids` to load
+    datas: []^File_Data,
+    next:  ^int, // atomic; shared by the threads
+}
+
+@(private = "file")
+load_worker :: proc(t: ^thread.Thread) {
+    job := cast(^Load_Job)t.data
+    for {
+        at := sync.atomic_add(job.next, 1)
+        if at >= len(job.todo) || snapshot_cancelled(&job.snap) {
+            break
+        }
+        i := job.todo[at]
+        job.datas[i] = file_data_pinned(&job.snap, job.ids[i])
+    }
+    free_all(context.temp_allocator)
+}
+
+// Reads the files of `ids` that were never read on a few threads and gives their pinned data in
+// `datas`; the other entries stay nil. Each thread pins on its own list, which joins the request's
+// at the end. A thread takes only file slots. False when cancelled. The caller holds the package slot.
+@(private = "file")
+files_load_parallel :: proc(snap: ^Snapshot, ids: []File_Id, datas: []^File_Data) -> bool {
+    db := snap.db
+    todo := make([dynamic]int, 0, len(ids), snap.alloc)
+    for id, i in ids {
+        if slot := file_slot(db, id); slot != nil {
+            sync.guard(&slot.mutex)
+            if !slot.stamped {
+                append(&todo, i)
+            }
+        }
+    }
+    if len(todo) < PARALLEL_LOAD_MIN {
+        return true
+    }
+    count := min(len(todo), PARALLEL_LOAD_THREADS)
+    jobs := make([]Load_Job, count, snap.alloc)
+    threads := make([dynamic]^thread.Thread, 0, count, snap.alloc)
+    next := 0
+    for &job in jobs {
+        job = Load_Job{ids = ids, todo = todo[:], datas = datas, next = &next}
+        job.snap = snap^
+        job.snap.views = nil
+        job.snap.pins = make([dynamic]^Value, 0, 16, db.allocator)
+        t := thread.create(load_worker)
+        if t == nil {
+            continue
+        }
+        t.data = &job
+        append(&threads, t)
+        thread.start(t)
+    }
+    for t in threads {
+        thread.join(t)
+        thread.destroy(t)
+    }
+    for &job in jobs {
+        for v in job.snap.pins {
+            if _, err := append(&snap.pins, v); err != nil {
+                value_release(db, v)
+            }
+        }
+        delete(job.snap.pins)
+    }
+    return !snapshot_cancelled(snap)
 }
 
 // Drops the tree cache entries of files of the directory that its listing no longer holds.
