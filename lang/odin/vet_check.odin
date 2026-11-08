@@ -28,7 +28,7 @@ VET_CODES := [odinsema.Vet_Flag]string {
 // id it sets to anything but off.
 @(private)
 workspace_vet_flags :: proc(e: ^Engine, workspace: string) -> odinsema.Vet_Flags {
-    flags := odinsema.VET_DEFAULT
+    flags := odinsema.VET_DEFAULT | config_vet(e, workspace)
     severities := config_severities(e, workspace)
     for code, flag in VET_CODES {
         setting, ok := severities[code]

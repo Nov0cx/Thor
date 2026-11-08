@@ -47,6 +47,7 @@ Config :: struct {
     package_diagnostics:     bool, // live diagnostics also cover the other files of the package
     diagnostics_telemetry:   bool, // the compiler check logs where it and the live check disagree
     naming:                  odinsema.Naming_Rules, // the spellings `style/naming` accepts
+    vet:                     odinsema.Vet_Flags, // checks `"vet"` adds to the `-vet` set
 }
 
 // What `"diagnostics": {"<id>": ...}` sets for the live diagnostics of one id.
@@ -187,6 +188,7 @@ config_parse :: proc(cache: ^Config_Cache, workspace, path: string) {
     config_parse_target(cache, obj)
     config_parse_diagnostics(cache, obj)
     config_parse_naming(cache, obj)
+    config_parse_vet(cache, obj)
 
     arr, aok := luaconf.as_array(obj["collections"])
     if !aok {
@@ -264,6 +266,30 @@ config_parse_diagnostics :: proc(cache: ^Config_Cache, obj: json.Object) {
         } else {
             cache.cfg.severities[strings.clone(id)] = setting
         }
+    }
+}
+
+// Reads `"vet": {"-vet-style", "unused-procedures", ...}`: build flags or bare names of the checks to turn
+// on. An unknown name is dropped with a warning.
+@(private = "file")
+config_parse_vet :: proc(cache: ^Config_Cache, obj: json.Object) {
+    raw, has := obj["vet"]
+    if !has {
+        return
+    }
+    list, ok := luaconf.as_array(raw)
+    if !ok {
+        log.warnf("odin-analyzer.lua: \"vet\" is not a list and was ignored")
+        return
+    }
+    for item in list {
+        word, is_string := item.(json.String)
+        flags, known := odinsema.vet_option_flags(word)
+        if !is_string || !known {
+            log.warnf("odin-analyzer.lua: vet entry %v is not a check and was dropped", item)
+            continue
+        }
+        cache.cfg.vet += flags
     }
 }
 
@@ -606,6 +632,19 @@ config_allows :: proc(e: ^Engine, workspace: string, kind: lang.Request_Kind) ->
         return cache.cfg.enable_completion
     }
     return true
+}
+
+// The checks the workspace config's `"vet"` list adds to the `-vet` set.
+@(private)
+config_vet :: proc(e: ^Engine, workspace: string) -> odinsema.Vet_Flags {
+    if workspace == "" {
+        return {}
+    }
+    cache := &e.config
+    sync.lock(&cache.mutex)
+    defer sync.unlock(&cache.mutex)
+    config_ensure(cache, workspace)
+    return cache.cfg.vet
 }
 
 // The severity the workspace config sets for each diagnostic id, cloned into context.temp_allocator

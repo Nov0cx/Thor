@@ -62,6 +62,17 @@ file_vet_flags :: proc(tree: ^Item_Tree, base: Vet_Flags) -> Vet_Flags {
     return (base + added) - removed
 }
 
+// The checks a build flag or a `#+vet` name stands for: `-vet`, `-vet-<name>` or a bare `<name>`.
+// False for a name no check has.
+vet_option_flags :: proc(word: string) -> (flags: Vet_Flags, ok: bool) {
+    if word == "-vet" {
+        return VET_DEFAULT, true
+    }
+    name := strings.trim_prefix(word, "-vet-")
+    flags = vet_tag_flags(name)
+    return flags, flags != {}
+}
+
 // The checks one `#+vet` name stands for; none for a name outside the `-vet` set.
 @(private = "file")
 vet_tag_flags :: proc(name: string) -> Vet_Flags {
