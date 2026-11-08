@@ -166,6 +166,7 @@ format_config_parse :: proc(cache: ^Format_Config_Cache, path: string) {
     read_bool(obj, "align_struct_values", &cache.opts.align_struct_values)
     read_bool(obj, "align_struct_declarations", &cache.opts.align_struct_declarations)
     read_bool(obj, "align_constant_definitions", &cache.opts.align_constant_definitions)
+    read_bool(obj, "align_variable_declarations", &cache.opts.align_variable_declarations)
     read_bool(obj, "align_comments", &cache.opts.align_comments)
     read_bool(obj, "align_case_comments", &cache.opts.align_case_comments)
     read_bool(obj, "align_field_defaults", &cache.opts.align_field_defaults)
@@ -208,7 +209,7 @@ FORMAT_BOOL_KEYS := []string {
     "tabs", "convert_do", "exp_multiline_composite_literals", "indent_cases",
     "inline_single_stmt_case", "spaces_around_colons", "sort_imports",
     "space_single_line_blocks", "align_struct_fields", "align_struct_values",
-    "align_struct_declarations", "align_constant_definitions", "align_comments",
+    "align_struct_declarations", "align_constant_definitions", "align_variable_declarations", "align_comments",
     "align_case_comments", "align_field_defaults",
 }
 

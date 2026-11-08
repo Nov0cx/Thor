@@ -116,17 +116,29 @@ print_value_decl :: proc(pr: ^Printer, out: ^[dynamic]Doc, d: Node, ks: []Node) 
     if v.using_ {
         append(out, text("using "))
     }
-    if cell := align_cell(pr, d); cell.head != 0 {
-        names: [dynamic]Doc
-        print_expr_list(pr, &names, v.names)
+    cell := align_cell(pr, d)
+    has_type := is_node(v.type)
+    in_cell, after_cell := colon_split(pr)
+    if !has_type {
+        in_cell, after_cell = "", ""
+    }
+    names: [dynamic]Doc
+    print_expr_list(pr, &names, v.names)
+    append(&names, text(in_cell))
+    if cell.head != 0 {
         append(out, align(cell.head, names[:]))
     } else {
-        print_expr_list(pr, out, v.names)
+        append(out, ..names[:])
     }
-    has_type := is_node(v.type)
     if has_type {
-        append(out, text(colon_sep(pr)))
-        print_expr(pr, out, v.type)
+        append(out, text(after_cell))
+        if cell.value != 0 {
+            type_doc: [dynamic]Doc
+            print_expr(pr, &type_doc, v.type)
+            append(out, align(cell.value, type_doc[:]))
+        } else {
+            print_expr(pr, out, v.type)
+        }
     }
     if len(v.values) > 0 {
         append(out, text(value_decl_op(has_type, v.mutable)))

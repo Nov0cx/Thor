@@ -316,8 +316,11 @@ print_stmt_list :: proc(
 @(private)
 Const_Run_Kind :: enum {
     None,
-    Type_Decl, // align_struct_declarations
-    Constant,  // align_constant_definitions
+    Type_Decl,      // align_struct_declarations
+    Constant,       // align_constant_definitions
+    Typed_Constant, // align_constant_definitions
+    Variable,       // align_variable_declarations
+    Typed_Variable, // align_variable_declarations
 }
 
 // An attributed or `using` declaration is left out: it emits its attributes and
@@ -332,8 +335,17 @@ const_run_kind :: proc(stmt: Node) -> Const_Run_Kind {
         return .None
     }
     v := value_decl_parts(ks)
-    if v.mutable || v.using_ || is_node(v.type) || len(v.values) != 1 || len(v.names) == 0 {
+    if v.using_ || len(v.values) != 1 || len(v.names) == 0 {
         return .None
+    }
+    has_type := is_node(v.type)
+    switch {
+    case v.mutable && has_type:
+        return .Typed_Variable
+    case v.mutable:
+        return .Variable
+    case has_type:
+        return .Typed_Constant
     }
     #partial switch v.values[0].kind {
     case .Struct_Type, .Union_Type, .Enum_Type, .Bit_Field_Type:
@@ -347,13 +359,19 @@ const_run_kind :: proc(stmt: Node) -> Const_Run_Kind {
 // a block aligns exactly like one at file scope.
 @(private)
 assign_decl_align_ids :: proc(pr: ^Printer, stmts: []Node) {
-    if !pr.opts.align_constant_definitions && !pr.opts.align_struct_declarations {
-        return
-    }
     for i := 0; i < len(stmts); {
         kind := const_run_kind(stmts[i])
-        wanted := kind == .Type_Decl ? pr.opts.align_struct_declarations : pr.opts.align_constant_definitions
-        if kind == .None || !wanted {
+        wanted: bool
+        switch kind {
+        case .None:
+        case .Type_Decl:
+            wanted = pr.opts.align_struct_declarations
+        case .Constant, .Typed_Constant:
+            wanted = pr.opts.align_constant_definitions
+        case .Variable, .Typed_Variable:
+            wanted = pr.opts.align_variable_declarations
+        }
+        if !wanted {
             i += 1
             continue
         }
@@ -365,8 +383,10 @@ assign_decl_align_ids :: proc(pr: ^Printer, stmts: []Node) {
         }
         if end - i >= 2 {
             id := next_align(pr)
+            // A typed run also lines up what follows the type.
+            type_id := kind == .Typed_Constant || kind == .Typed_Variable ? next_align(pr) : 0
             for stmt in stmts[i:end] {
-                pr.align_ids[align_key(stmt)] = Align_Cell{head = id}
+                pr.align_ids[align_key(stmt)] = Align_Cell{head = id, value = type_id}
             }
         }
         i = end
