@@ -76,12 +76,96 @@ outliving_store :: proc(c: ^Checker, file: File_Id, lhs: odinsyntax.Syntax_Node,
                         return true
                     }
                 }
+                if r.local.kind == .Var && through_pointer {
+                    return points_outliving(c, file, n, r.local.name_offset)
+                }
             }
             return false
         case:
             return false
         }
     }
+}
+
+// True when the pointer or slice local `n`, declared at `name_offset`, is set once by
+// `name := init` to memory that outlives the frame: a pointer or slice parameter, a global, or the
+// address of a place in one.
+@(private = "file")
+points_outliving :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, name_offset: int) -> bool {
+    #partial switch _ in type_get(&c.table, type_base(&c.table, expr_type(c, file, n).type)) {
+    case Pointer_Type, Multi_Pointer_Type, Slice_Type:
+    case:
+        return false
+    }
+    path := node_path(c, file, name_offset)
+    decl: odinsyntax.Syntax_Node
+    body: odinsyntax.Syntax_Node
+    found, has_body := false, false
+    #reverse for d in path {
+        if !found && d.green.kind == .Value_Decl {
+            decl, found = d, true
+        } else if found && d.green.kind == .Proc_Lit {
+            body, has_body = d, true
+            break
+        }
+    }
+    if !found || !has_body || is_constant_decl(decl) {
+        return false
+    }
+    vd, _ := odinsyntax.as_value_decl(decl)
+    names := odinsyntax.value_decl_names(&vd) or_return
+    values := odinsyntax.value_decl_values(&vd) or_return
+    name_items, value_items := odinsyntax.name_list_names(&names), nil_items(values)
+    _, first := odinsyntax.child_iter_next(&name_items)
+    if _, more := odinsyntax.child_iter_next(&name_items); !first || more || len(value_items) != 1 {
+        return false
+    }
+    init := strip_parens(value_items[0])
+    #partial switch init.green.kind {
+    case .Ident:
+        r := lookup_name(c, file, odinsyntax.node_text(init), int(init.offset))
+        ok := r.kind == .Item || r.kind == .Local && r.local.kind == .Param
+        if !ok {
+            return false
+        }
+    case .Unary_Expr:
+        u, _ := odinsyntax.as_unary_expr(init)
+        op := odinsyntax.unary_expr_op(&u) or_return
+        operand := odinsyntax.unary_expr_operand(&u) or_return
+        if op.green.kind != .And || !outliving_store(c, file, operand, false) {
+            return false
+        }
+    case:
+        return false
+    }
+    return !reassigned(body, odinsyntax.node_text(n))
+}
+
+// True when an assignment under `n`, outside nested procedure literals, has the plain name `name`
+// as a target.
+@(private = "file")
+reassigned :: proc(n: odinsyntax.Syntax_Node, name: string) -> bool {
+    n := n
+    #partial switch n.green.kind {
+    case .Proc_Lit:
+        // The body the walk starts at is the literal itself.
+    case .Assign_Stmt:
+        a, _ := odinsyntax.as_assign_stmt(n)
+        if lhs, has := odinsyntax.assign_stmt_lhs(&a); has {
+            for target in nil_items(lhs) {
+                if odinsyntax.node_text(strip_parens(target)) == name {
+                    return true
+                }
+            }
+        }
+    }
+    it := odinsyntax.child_iter(&n, {kinds = ~odinsyntax.Kind_Set{}})
+    for child in odinsyntax.child_iter_next(&it) {
+        if child.green.kind != .Proc_Lit && reassigned(child, name) {
+            return true
+        }
+    }
+    return false
 }
 
 // True when `n` is a call that takes `context.temp_allocator`, or a `tprint*` call.

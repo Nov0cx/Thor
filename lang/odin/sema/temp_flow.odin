@@ -337,6 +337,21 @@ taint_expr :: proc(w: ^Temp_Walk, cur: Bits, n: odinsyntax.Syntax_Node, depth :=
         return has_lhs && taint_expr(w, cur, lhs, depth) || has_rhs && taint_expr(w, cur, rhs, depth)
     case .Call_Expr:
         return taint_call(w, cur, n, depth)
+    case .Comp_Lit:
+        if !w.dangling {
+            return false
+        }
+        cl, _ := odinsyntax.as_comp_lit(n)
+        elems := odinsyntax.comp_lit_elems(&cl)
+        for elem in odinsyntax.child_iter_next(&elems) {
+            value := elem
+            if fv, is_fv := odinsyntax.as_field_value(elem); is_fv {
+                value = odinsyntax.field_value_value(&fv) or_continue
+            }
+            if taint_expr(w, cur, value, depth) {
+                return true
+            }
+        }
     }
     return false
 }

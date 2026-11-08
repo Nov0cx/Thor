@@ -68,6 +68,56 @@ f :: proc(q: ^T, i: int, k: [3]^T) -> int {
 }
 
 @(test)
+test_live_dangling_comp_lit_and_local_pointer :: proc(t: ^testing.T) {
+    root := fixture(t, "live_dangling_complit", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+Holder :: struct { p: ^int, n: int }
+
+ret_lit :: proc() -> Holder {
+	x: int
+	return Holder{p = &x}
+}
+store_lit :: proc(out: ^Holder) {
+	y: int
+	out^ = Holder{&y, 1}
+}
+via_local_ptr :: proc(out: ^Holder) {
+	z: int
+	q := out
+	q.p = &z
+}
+fine_lit :: proc() -> Holder {
+	w: int
+	_ = w
+	return Holder{n = 2}
+}
+fine_local_lit :: proc() -> int {
+	v: int
+	h := Holder{p = &v}
+	return h.n
+}
+fine_reassigned :: proc(out: ^Holder) {
+	u: int
+	other: Holder
+	q := out
+	q = &other
+	q.p = &u
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"Holder{p = &x}", "A pointer or slice of a local is returned and dangles after the procedure returns", 0},
+        {"Holder{&y, 1}", "A pointer or slice of a local is stored and dangles after the procedure returns", 0},
+        {"&z\n}", "Address of local 'z' is stored and dangles after the procedure returns", 0},
+    })
+}
+
+@(test)
 test_live_dangling_slice_flow :: proc(t: ^testing.T) {
     root := fixture(t, "live_dangling_flow", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
     e := engine_create()
