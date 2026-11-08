@@ -2510,8 +2510,11 @@ not a status, so this section stays the source of truth for what is built.
     `test_live_clean_sources` finds none. A call with no value is flagged as an
     assigned value, a declared value, an argument and a returned value.
     `const/overflow` covers `+ - * / <<` and unary minus on typed constants in
-    128 bits. Not yet: float truncation of named or typed float constants,
-    and operands above `i64` (`u64(18446744073709551615)`).
+    128 bits, from operands above `i64` too (`Const_Value` `Wide_Int`); a
+    literal above `u128` has no value, and `% & | >>` stay silent. A float
+    that an integer type would truncate is reported for a literal, a named
+    untyped constant and a `+ - * /` expression of them, printed the way the
+    compiler prints its tree (comments dropped, one space around operators).
   - **Control flow** (`sema/cfg.odin`, plan §5.6, M7): `cfg_build` gives the
     graph of one procedure body: basic blocks of statements, an edge per
     jump. A `defer` runs as a `Defer_Run` step on every edge that leaves its
@@ -2899,11 +2902,13 @@ not a status, so this section stays the source of truth for what is built.
     live diagnostics take about 32 ms against the 50 ms budget. The first request needs no `odin root` spawn after
     the first run: the root is cached in the cache directory (`odin-root.txt`).
     Not reported:
-    a hex float literal whose result is not an integer and needs more than 17
-    binary places (the compiler's own rounding is not copied), a float
-    constant with a comment inside, unknown struct tags (the
-    compiler accepts them). Float constants built with `+ - * /`, parentheses
-    and negation print as exact fractions (`3.0 / 2` is `3.0/2`) with
+    an integral hex float at or above 1e18 (the compiler prints garbage for
+    it), a float constant from a selector (`pkg.F`), with an explicit type or
+    from a multi-value declaration, unknown struct tags (the compiler accepts
+    them). Hex float text follows the compiler's 17-digit loop (probed against
+    `odin check`); once a hex operand joins an expression the compiler
+    computes in f64, as Thor does. Decimal float constants built with
+    `+ - * /`, parentheses and negation print as exact fractions with
     big-integer arithmetic. The `vet` list of `odin-analyzer.lua` also reaches
     the `odin check` after a save for `-vet-unused-procedures`; style, semicolon
     and tabs stay live-only. `nil/deref` follows the elements of a fixed array only at a constant index; a

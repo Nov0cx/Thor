@@ -4,7 +4,9 @@
 - Odin: `const/overflow` also covers `/`, `<<` and unary minus on typed constants, in 128 bits.
 - Odin: a call that returns nothing is marked as an argument or a returned value.
 - Odin: `mem/dangling-slice` follows a compound literal with the address of a local and a store through a local pointer.
-- Odin: long float constants and hex float leaves in an expression are reported with the compiler's value.
+- Odin: long float constants and hex float literals in an expression are reported with the compiler's value and text. Comments in the expression are dropped, as the compiler does.
+- Odin: a float constant by name (`F :: 1.5`) that an integer type would truncate is marked.
+- Odin: `const/overflow` also checks `u64`, `u128` and `i128` constants above `i64`.
 - Odin: the Odin root is cached on disk, so the first start needs no `odin root` process.
 - Odin: the formatter keeps the space in `c. /* f */ d` and indents the rest after a line comment inside brackets.
 - Odin: the first request after a file opens is faster: about 110 ms, down from about 250 ms, and about 21 ms once the startup prewarm is done.
