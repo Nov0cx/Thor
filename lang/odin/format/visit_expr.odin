@@ -177,10 +177,29 @@ node_kids :: proc(ks: []Node) -> []Node {
     return out[:]
 }
 
-// The children of `ks` with nothing between them.
+// The pending comments before `at`, printed where written: a block comment inline,
+// a line comment ending its line.
+@(private)
+print_inner_comments :: proc(pr: ^Printer, out: ^[dynamic]Doc, at: int, before_node: bool) {
+    for comment_before(pr, at) {
+        cg := pr.comments[pr.comment_idx]
+        is_line := strings.has_prefix(cg.list[len(cg.list) - 1].text, "//")
+        pr.comment_idx += 1
+        group: [dynamic]Doc
+        comment_group_text(pr, cg, &group)
+        append(out, text(before_node ? "" : " "))
+        append(out, concat(group[:]))
+        append(out, is_line ? hard_line(0) : text(before_node ? " " : ""))
+    }
+}
+
+// The children of `ks` with nothing between them but comments.
 @(private)
 print_tight :: proc(pr: ^Printer, out: ^[dynamic]Doc, ks: []Node) {
-    for k in ks {
+    for k, i in ks {
+        if i > 0 {
+            print_inner_comments(pr, out, k.start, is_node(k))
+        }
         if is_node(k) {
             print_expr(pr, out, k)
         } else {
@@ -710,7 +729,10 @@ print_selector_call_expr_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: No
 // `x[i]`, `m[r, c]`, `s[lo:hi]`.
 @(private)
 print_index_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
-    for k in kids(expr) {
+    for k, i in kids(expr) {
+        if i > 0 {
+            print_inner_comments(pr, out, k.start, is_node(k))
+        }
         if is_node(k) {
             print_expr(pr, out, k)
         } else if k.tok == .Comma {

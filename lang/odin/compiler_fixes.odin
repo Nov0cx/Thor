@@ -22,11 +22,35 @@ REDECLARATION_PREFIX :: "Redeclaration of '"
 @(private = "file")
 REDECLARATION_SUFFIX :: "' in this scope"
 
+@(private = "file")
+UNNEEDED_SEMICOLON :: "Found unneeded semicolon"
+
+// Removes the semicolon the compiler names, with the blanks before it.
+@(private = "file")
+semicolon_fix :: proc(rc: ^Request_Context, offset: int, res: ^lang.Result) {
+    src := rc.req.source
+    if src[offset] != ';' {
+        return
+    }
+    from := offset
+    for from > 0 && (src[from - 1] == ' ' || src[from - 1] == '\t') {
+        from -= 1
+    }
+    push_action(res, rc.req, "Remove the unneeded semicolon", Edit_Spec{from, offset + 1, ""})
+}
+
 // Offers a fix for each error of the request's diagnostics that the compiler words in a known way.
 @(private)
 compiler_fixes :: proc(rc: ^Request_Context, res: ^lang.Result) {
     for d in rc.req.diagnostics {
-        if d.severity != .Error || d.start < 0 || d.start >= len(rc.req.source) {
+        if d.start < 0 || d.start >= len(rc.req.source) {
+            continue
+        }
+        if d.message == UNNEEDED_SEMICOLON {
+            semicolon_fix(rc, d.start, res)
+            continue
+        }
+        if d.severity != .Error {
             continue
         }
         if name, ok := message_name(d.message, PARAM_ASSIGN_PREFIX, PARAM_SUFFIX); ok {

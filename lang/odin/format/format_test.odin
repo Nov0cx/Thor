@@ -1126,6 +1126,14 @@ test_comments_inside_lists_stay_in_place :: proc(t: ^testing.T) {
             "package p\ny := a + // why\n\tb\nz := a + /* c */ b\n",
             "package p\ny := a +  // why\n\tb\nz := a + /* c */ b\n",
         },
+        {
+            "package p\nf :: proc() {\n\tx := a[/* i */ 0]\n\ty := b[0 /* j */]\n\tz := c. /* f */ d\n}\n",
+            "package p\nf :: proc() {\n\tx := a[/* i */ 0]\n\ty := b[0 /* j */]\n\tz := c./* f */ d\n}\n",
+        },
+        {
+            "package p\nf :: proc() {\n\tx := a[0, // row\n\t\t1]\n\tw := 2\n}\n",
+            "package p\nf :: proc() {\n\tx := a[0, // row\n\t1]\n\tw := 2\n}\n",
+        },
     }
     for c in cases {
         out, ok := format(c.src, default_options())
