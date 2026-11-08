@@ -71,7 +71,7 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope
             report_error(rc, report, int(n.offset), CODE_SELF_ASSIGN, strings.clone("A place is assigned to itself"), .Hint, lint = true)
         }
     case .If_Stmt:
-        logic_errors(rc, n, report)
+        logic_errors(rc, c, n, report)
     case .Value_Decl:
         count_errors(rc, c, n, report)
         mismatch_errors(rc, c, odinsema.assign_mismatches(c, rc.live.id, n, context.temp_allocator), "a variable declaration", report)
@@ -110,6 +110,7 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope
         ignored_errors(rc, c, n, report)
     case .For_Stmt:
         defer_in_loop(rc, m, n, report)
+        logic_errors(rc, c, n, report)
     case .Range_Stmt:
         defer_in_loop(rc, m, n, report)
         range_copies(rc, c, m, n, report)
@@ -423,10 +424,17 @@ naming_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, n: odinsyntax.
     }
 }
 
-// Reports, as a lint, an `if` with a literal condition or the same text in both branches.
+// Reports, as a lint, an `if` with a constant condition or the same text in both branches, and a
+// `for` whose condition is always false.
 @(private = "file")
-logic_errors :: proc(rc: ^Request_Context, stmt: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
-    identical, constant, value := odinsema.if_problems(stmt)
+logic_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, stmt: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+    if stmt.green.kind == .For_Stmt {
+        if at := odinsema.for_problem(c, rc.live.id, stmt); at >= 0 {
+            report_error(rc, report, at, CODE_CONST_CONDITION, strings.clone("The condition is always false"), .Hint, lint = true)
+        }
+        return
+    }
+    identical, constant, value := odinsema.if_problems(c, rc.live.id, stmt)
     if constant >= 0 {
         message := value ? "The condition is always true" : "The condition is always false"
         report_error(rc, report, constant, CODE_CONST_CONDITION, strings.clone(message), .Hint, lint = true)

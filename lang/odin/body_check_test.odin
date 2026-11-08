@@ -1743,7 +1743,50 @@ test_live_logic :: proc(t: ^testing.T) {
 
 P :: struct { x, y: int }
 
+DEBUG :: false
+LIMIT :: 4
+IS_WINDOWS :: ODIN_OS == .Windows
+ON_WINDOWS :: IS_WINDOWS
+WIDE :: size_of(int) == 8
+TRACE :: #config(TRACE, false)
+VERSION :: "1.0"
+NOTICE_VERSION :: "1.0"
+
 main :: proc(p: ^P, n: int) {
+	if LIMIT > 3 {
+	}
+	if LIMIT > 8 && DEBUG {
+	}
+	if 1 + 1 == 3 {
+	} else if LIMIT == 4 {
+	}
+	if DEBUG {
+	}
+	if !DEBUG {
+	}
+	if VERSION != NOTICE_VERSION || !(DEBUG) {
+	}
+	if ON_WINDOWS && LIMIT > 3 {
+	}
+	if WIDE || TRACE {
+	}
+	if ODIN_DEBUG == false {
+	}
+	for LIMIT < 2 {
+	}
+	for LIMIT > 2 {
+		break
+	}
+	for false {
+	}
+	when LIMIT > 8 {
+	}
+	AMD64 :: ODIN_ARCH == .amd64
+	K :: 2
+	if AMD64 && K > 1 {
+	}
+	if K > 1 {
+	}
 	n := n
 	n = n
 	p.x = p.y
@@ -1771,6 +1814,13 @@ main :: proc(p: ^P, n: int) {
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
     defer free_live(&res)
     expect_errors(t, &res, src, {
+        {"LIMIT > 3 {", "The condition is always true", 0},
+        {"LIMIT > 8 &&", "The condition is always false", 0},
+        {"1 + 1 == 3", "The condition is always false", 0},
+        {"LIMIT == 4", "The condition is always true", 0},
+        {"LIMIT < 2", "The condition is always false", 0},
+        {"false {\n\t}\n\twhen", "The condition is always false", 0},
+        {"K > 1 {", "The condition is always true", 1},
         {"n = n", "A place is assigned to itself", 0},
         {"p.x = p.x", "A place is assigned to itself", 0},
         {"true {", "The condition is always true", 0},
