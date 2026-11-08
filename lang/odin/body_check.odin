@@ -38,6 +38,12 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope
     case .Value_Decl, .Field, .Range_Stmt, .Enum_Type:
         naming_errors(rc, c, n, report)
     }
+    types, type_count := odinsema.type_children(n)
+    for t in types[:type_count] {
+        if t.green.kind == .Ident {
+            deprecated_uses(rc, c, t, report)
+        }
+    }
     #partial switch n.green.kind {
     case .Call_Expr:
         call_errors(rc, c, n, report)
@@ -57,6 +63,7 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope
         if callee, has := odinsyntax.call_expr_callee(&ce); has && callee.green.kind == .Ident {
             deprecated_uses(rc, c, callee, report)
         }
+        deprecated_members(rc, c, n, report)
     case .Selector_Expr:
         member_errors(rc, c, n, report)
         deprecated_uses(rc, c, n, report)
@@ -466,6 +473,20 @@ deprecated_uses :: proc(rc: ^Request_Context, c: ^odinsema.Checker, expr: odinsy
         return
     }
     report_error(rc, report, at, CODE_DEPRECATED, fmt.aprintf("'%s' is deprecated: %s", name, message), .Hint, lint = true)
+}
+
+// Reports, as a lint, a procedure group call that picks a member marked `@(deprecated)`.
+@(private = "file")
+deprecated_members :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+    at, member, group, message, ok := odinsema.group_member_deprecated(c, rc.live.id, call)
+    if !ok {
+        return
+    }
+    if message == "" {
+        report_error(rc, report, at, CODE_DEPRECATED, fmt.aprintf("'%s' (chosen by '%s') is deprecated", member, group), .Hint, lint = true)
+        return
+    }
+    report_error(rc, report, at, CODE_DEPRECATED, fmt.aprintf("'%s' (chosen by '%s') is deprecated: %s", member, group, message), .Hint, lint = true)
 }
 
 // Reports, as a lint, a `defer` in the body of the loop `loop` that releases an outer variable.

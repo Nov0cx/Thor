@@ -1713,19 +1713,53 @@ old :: proc() {}
 bare :: proc() {}
 fresh :: proc() {}
 
+@(deprecated = "use put_int")
+put_old :: proc(x: int) {}
+put_str :: proc(s: string) {}
+put :: proc{put_old, put_str}
+
+@(deprecated = "use New")
+Old :: struct { x: int }
+New :: struct { x: int }
+
+Holder :: struct {
+	field: Old,
+	ptr:   ^Old,
+	list:  []Old,
+	table: map[string]Old,
+}
+
+take :: proc(o: Old, rest: ..Old) -> Old { return o }
+
 main :: proc() {
 	old()
 	bare()
 	fresh()
 	// thor:ignore api/deprecated
 	old()
+	put(1)
+	put("s")
+	o: Old
+	n := New{}
+	_, _ = o, n
+	_ = take(Old{})
 }
 `
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
     defer free_live(&res)
     expect_errors(t, &res, src, {
+        {"Old,\n\tptr", "'Old' is deprecated: use New", 0},
+        {"Old,\n\tlist", "'Old' is deprecated: use New", 0},
+        {"Old,\n\ttable", "'Old' is deprecated: use New", 0},
+        {"Old,\n}", "'Old' is deprecated: use New", 0},
+        {"Old, rest", "'Old' is deprecated: use New", 0},
+        {"Old) -> Old", "'Old' is deprecated: use New", 0},
+        {"Old { return", "'Old' is deprecated: use New", 0},
         {"old()\n\tbare", "'old' is deprecated: use fresh", 0},
         {"bare()\n\tfresh", "'bare' is deprecated", 0},
+        {"put(1)", "'put_old' (chosen by 'put') is deprecated: use put_int", 0},
+        {"Old\n\tn :=", "'Old' is deprecated: use New", 0},
+        {"Old{})", "'Old' is deprecated: use New", 0},
     })
     for d in res.report.items {
         testing.expect_value(t, d.code, CODE_DEPRECATED)
