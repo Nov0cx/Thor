@@ -1,3 +1,13 @@
+# 2026.11.1
+
+- Odin: a quick fix declares an immutable `for` or `switch` variable as `&x` when the compiler rejects the assignment through it.
+- Odin: a quick fix removes an unneeded cast or transmute.
+- Odin: a quick fix indents a line with tabs when `-vet-tabs` rejects its spaces.
+- Odin: `style/naming` checks an alias by what it names.
+- Odin: `logic/const-condition` reads constant expressions in `if`, `else if` and `for` conditions.
+- Odin: `api/deprecated` also covers members of a procedure group and deprecated types in type positions.
+- Odin: each file has its own build target. "Odin: Select Build Target..." or the target segment of the status bar picks it, and analysis and checks use it. The choice is kept per file in the `file_targets` setting.
+
 # 2026.11.0
 
 - Odin: the formatter aligns trailing comments, `:=` and typed declarations, struct field tags and `case` comments (`align_comments`, `align_variable_declarations`, `align_case_comments`, `align_field_defaults`). `align_constant_definitions` and `align_struct_declarations` are on by default.
