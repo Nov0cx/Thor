@@ -120,6 +120,34 @@ atomic_expr :: proc(kind: odinsyntax.Syntax_Kind) -> bool {
     return false
 }
 
+@(private = "file")
+SPACED_INDENT :: "With '-vet-tabs', tabs must be used for indentation"
+
+// Replaces the indentation before `offset` with tabs, one for each started indent unit.
+@(private = "file")
+tabs_fix :: proc(rc: ^Request_Context, offset: int, res: ^lang.Result) {
+    src := rc.req.source
+    ls := line_start(src, offset)
+    width := rc.req.tab_size
+    if width <= 0 {
+        unit := indent_unit(rc.req)
+        width = unit == "\t" ? 4 : len(unit)
+    }
+    col := 0
+    for i in ls ..< offset {
+        switch src[i] {
+        case ' ':  col += 1
+        case '\t': col += width - col % width
+        case:      return
+        }
+    }
+    if col == 0 {
+        return
+    }
+    tabs := strings.repeat("\t", (col + width - 1) / width, context.temp_allocator)
+    push_action(res, rc.req, "Indent the line with tabs", Edit_Spec{ls, offset, tabs})
+}
+
 // Offers a fix for each error of the request's diagnostics that the compiler words in a known way.
 @(private)
 compiler_fixes :: proc(rc: ^Request_Context, res: ^lang.Result) {
@@ -141,6 +169,10 @@ compiler_fixes :: proc(rc: ^Request_Context, res: ^lang.Result) {
         }
         if strings.has_prefix(d.message, UNNEEDED_TRANSMUTE) {
             unneeded_cast_fix(rc, d.start, true, res)
+            continue
+        }
+        if d.message == SPACED_INDENT {
+            tabs_fix(rc, d.start, res)
             continue
         }
         if d.severity != .Error {

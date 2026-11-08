@@ -700,3 +700,37 @@ f :: proc(a: int, p: ^int) -> int {
     testing.expect(t, !has_action_prefix(&res, "Remove the unneeded"), "other message")
     free_actions(&res)
 }
+
+// The message as `odin check -vet-tabs` dev-2026-11-nightly:9a69916 words it; the live check gives it as a warning.
+@(test)
+test_action_vet_tabs :: proc(t: ^testing.T) {
+    SRC :: "package app\n\nf :: proc() {\n    x := 1\n    if x > 0 {\n\t  x = 2\n        x += 1\n    }\n}\n"
+    MESSAGE :: "With '-vet-tabs', tabs must be used for indentation"
+    root := fixture(t, "action_vet_tabs", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    Want :: struct {
+        marker, from, to: string,
+        severity:         lang.Diagnostic_Severity,
+    }
+    wants := []Want {
+        {"x := 1", "    x := 1", "\tx := 1", .Warning},
+        {"x = 2", "\t  x = 2", "\t\tx = 2", .Error},
+        {"x += 1", "        x += 1", "\t\tx += 1", .Hint},
+    }
+    for w in wants {
+        res := compiler_line_actions(t, e, root, SRC, w.marker, MESSAGE, w.severity)
+        want, _ := strings.replace(SRC, w.from, w.to, 1, context.temp_allocator)
+        testing.expect_value(t, applied(t, &res, SRC, "Indent the line with tabs"), want)
+        free_actions(&res)
+    }
+
+    // A mark after text on its line, and another message.
+    res := compiler_line_actions(t, e, root, SRC, "1\n", MESSAGE, .Warning)
+    testing.expect(t, !has_action_prefix(&res, "Indent the line"), "mark after text")
+    free_actions(&res)
+    res = compiler_line_actions(t, e, root, SRC, "x := 1", "With '-vet-style', tabs must be used", .Warning)
+    testing.expect(t, !has_action_prefix(&res, "Indent the line"), "other message")
+    free_actions(&res)
+}
