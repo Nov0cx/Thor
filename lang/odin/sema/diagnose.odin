@@ -192,7 +192,8 @@ group_no_match :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node)
 }
 
 // True when the polymorphic procedure `p` has a variadic parameter of a `$` element type that no
-// argument goes to. The compiler never picks such a member of a group of several (`append(&a)`).
+// argument goes to and that no other parameter binds. The compiler cannot infer such a type from an
+// empty spread, so it never picks the member of a group of several. `append(&a)` binds `E` from `a`.
 @(private = "file")
 empty_poly_variadic :: proc(c: ^Checker, p: Proc_Type, slots: []int) -> bool {
     for param, k in p.params {
@@ -204,9 +205,79 @@ empty_poly_variadic :: proc(c: ^Checker, p: Proc_Type, slots: []int) -> bool {
                 return false
             }
         }
-        return true
+        return !poly_bound_elsewhere(c, p, k)
     }
     return false
+}
+
+// True when the `$` names in the type of parameter `k` of `p` are declared by another parameter. A
+// type with no `$` of its own (`..E`) counts when it names one that another parameter declares.
+@(private = "file")
+poly_bound_elsewhere :: proc(c: ^Checker, p: Proc_Type, k: int) -> bool {
+    node, ok := node_of_kind(c, p.file, p.offset, .Proc_Type)
+    if !ok {
+        return false
+    }
+    pt, _ := odinsyntax.as_proc_type(node)
+    list, has_params := odinsyntax.proc_type_params(&pt)
+    if !has_params {
+        return false
+    }
+    infos := param_infos(c, odinsyntax.Syntax_Node(list))
+    if k >= len(infos) || !infos[k].has_type {
+        return false
+    }
+    declared_elsewhere :: proc(infos: []Param_Info, k: int, name: string) -> bool {
+        for info, j in infos {
+            if j == k || !info.has_type {
+                continue
+            }
+            text := odinsyntax.node_text(info.type)
+            for i := 0; i + len(name) < len(text) + 1; i += 1 {
+                if text[i] != '$' || !strings.has_prefix(text[i + 1:], name) {
+                    continue
+                }
+                end := i + 1 + len(name)
+                if end == len(text) || !is_ident_byte(text[end]) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+    text := odinsyntax.node_text(infos[k].type)
+    own := false
+    bare := false
+    for i := 0; i < len(text); {
+        if !is_ident_byte(text[i]) && text[i] != '$' {
+            i += 1
+            continue
+        }
+        dollar := text[i] == '$'
+        start := dollar ? i + 1 : i
+        end := start
+        for end < len(text) && is_ident_byte(text[end]) {
+            end += 1
+        }
+        if end > start {
+            name := text[start:end]
+            if dollar {
+                own = true
+                if !declared_elsewhere(infos, k, name) {
+                    return false
+                }
+            } else if declared_elsewhere(infos, k, name) {
+                bare = true
+            }
+        }
+        i = max(end, i + 1)
+    }
+    return own || bare
+}
+
+@(private = "file")
+is_ident_byte :: proc(b: u8) -> bool {
+    return b == '_' || b >= '0' && b <= '9' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
 }
 
 // True when `p` is declared in base:intrinsics, whose signatures only document what the compiler

@@ -553,6 +553,9 @@ tt :: proc{t1, t2}
 p1 :: proc(x: $T/[]$E, ys: ..E) {}
 p2 :: proc(x: string, ys: ..int) {}
 pp :: proc{p1, p2}
+v1 :: proc(x: int, ys: ..$E) {}
+v2 :: proc(x: string, ys: ..int) {}
+vv :: proc{v1, v2}
 
 main :: proc() {
 	x: f32
@@ -576,6 +579,8 @@ main :: proc() {
 	tt(arr)
 	tt(arr, 1)
 	pp(str)
+	vv(1)
+	inject_at(&arr, 0)
 }
 `
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
@@ -588,8 +593,7 @@ main :: proc() {
         {"g(true)", "No procedures or ambiguous call for procedure group 'g' that match with the given arguments", 0},
         {"delete(str, 0)", "No procedures or ambiguous call for procedure group 'delete' that match with the given arguments", 0},
         {"append(&arr, \"x\")", "No procedures or ambiguous call for procedure group 'append' that match with the given arguments", 0},
-        {"append(&arr)", "No procedures or ambiguous call for procedure group 'append' that match with the given arguments", 0},
-        {"tt(arr)", "No procedures or ambiguous call for procedure group 'tt' that match with the given arguments", 0},
+        {"vv(1)", "No procedures or ambiguous call for procedure group 'vv' that match with the given arguments", 0},
     })
     for d in res.report.items {
         testing.expect(t, d.code == CODE_OVERLOAD, "a group error carries the overload id")
