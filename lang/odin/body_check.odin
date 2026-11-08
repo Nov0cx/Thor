@@ -308,12 +308,31 @@ format_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odinsynt
         case .Bad_Precision:
             message = fmt.aprintf("Precision argument of type '%s' is not a number", odinsema.type_string(&c.table, p.type, context.temp_allocator))
         case .Bad_Verb:
+            if user_formatted(c, call, p.type) {
+                continue
+            }
             message = fmt.aprintf("Verb '%c' does not take an argument of type '%s'", p.verb, odinsema.type_string(&c.table, p.type, context.temp_allocator))
         case .Extra:
             message = p.count == 1 ? strings.clone("1 argument more than the format string uses") : fmt.aprintf("%d arguments more than the format string uses", p.count)
         }
         report_error(rc, report, p.offset, CODE_FMT_VERBS, message, .Hint, lint = true)
     }
+}
+
+// True when `type` is a named type and the file of `call` registers a user formatter, which may take
+// any verb. A formatter registered in another file is not seen.
+@(private = "file")
+user_formatted :: proc(c: ^odinsema.Checker, call: odinsyntax.Syntax_Node, type: odinsema.Type_Id) -> bool {
+    #partial switch _ in odinsema.type_get(&c.table, type) {
+    case odinsema.Named_Type, odinsema.Distinct_Type:
+    case:
+        return false
+    }
+    root := call
+    for root.parent != nil {
+        root = root.parent^
+    }
+    return strings.contains(odinsyntax.node_text(root), "register_user_formatter")
 }
 
 // Reports, as a lint, a call statement that drops an error result.

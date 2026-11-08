@@ -1381,6 +1381,34 @@ main :: proc() {
 }
 
 @(test)
+test_live_fmt_verbs_user_formatter :: proc(t: ^testing.T) {
+    root := fixture(t, "live_fmt_user", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+import "core:fmt"
+
+Id :: distinct int
+Plain :: int
+
+main :: proc() {
+	_ = fmt.register_user_formatter(type_info_of(Id), nil)
+	i: Id
+	fmt.printf("%s", i)
+	n: Plain
+	fmt.printf("%s", n)
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"%s\", n)", "Verb 's' does not take an argument of type 'int'", 0},
+    })
+}
+
+@(test)
 test_live_ignored_error :: proc(t: ^testing.T) {
     root := fixture(t, "live_ignored_error", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
     e := engine_create()
