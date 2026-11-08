@@ -188,12 +188,17 @@ no_value_error :: proc(rc: ^Request_Context, call: odinsyntax.Syntax_Node, repor
 // Reports a call of a procedure group that no member takes.
 @(private = "file")
 group_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
-    if !odinsema.group_no_match(c, rc.live.id, call) {
+    no_match := odinsema.group_no_match(c, rc.live.id, call)
+    if !no_match && !odinsema.group_ambiguous(c, rc.live.id, call) {
         return
     }
     ce, _ := odinsyntax.as_call_expr(call)
     callee, _ := odinsyntax.call_expr_callee(&ce)
     name := strings.join(strings.fields(odinsyntax.node_text(callee), context.temp_allocator), "", context.temp_allocator)
+    if !no_match {
+        report_error(rc, report, int(call.offset), CODE_OVERLOAD, fmt.aprintf("Ambiguous procedure group call '%s' that match with the given arguments", name))
+        return
+    }
     report_error(rc, report, int(call.offset), CODE_OVERLOAD, fmt.aprintf("No procedures or ambiguous call for procedure group '%s' that match with the given arguments", name))
 }
 
@@ -572,8 +577,15 @@ mismatch_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, problems: []
         value := strings.join(strings.fields(odinsyntax.node_text(p.value), context.temp_allocator), " ", context.temp_allocator)
         to := untyped_name(odinsema.type_string(&c.table, p.to, context.temp_allocator))
         from := odinsema.type_string(&c.table, p.op.type, context.temp_allocator)
+        if p.truncated {
+            report_error(rc, report, int(p.value.offset), CODE_MISMATCH, fmt.aprintf("'%s' truncated to '%s', got %s", value, to, p.got))
+            continue
+        }
         if p.overflow {
             got, _ := const_text(p.op.value)
+            if p.got != "" {
+                got = p.got
+            }
             report_error(rc, report, int(p.value.offset), CODE_OVERFLOW, fmt.aprintf("Cannot convert numeric value '%s' from '%s' to '%s' from '%s'", got, value, to, untyped_name(from)))
             continue
         }

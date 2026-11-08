@@ -99,46 +99,59 @@ call_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) -
     return out
 }
 
-// Whether no member of the procedure group the callee of `call` names takes its arguments: every
-// member gets too few or too many of them, a `$` parameter no argument fits, or an argument that it
-// cannot take. False when the callee is not a group or an argument type is not known.
-group_no_match :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) -> bool {
+// The group a call names and its arguments, the receiver of a `->` call first. False when the callee
+// is not a group, an argument gives several values, is spread or has no known type. The arguments
+// are in the scratch arena of the caller.
+@(private = "file")
+group_call :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) -> (grp: Proc_Group_Type, with: []Call_Arg, ok: bool) {
     ce, is_call := odinsyntax.as_call_expr(call)
     if !is_call {
-        return false
+        return {}, nil, false
     }
     callee, has_callee := odinsyntax.call_expr_callee(&ce)
     list, has_list := odinsyntax.call_expr_args(&ce)
     if !has_callee || !has_list {
-        return false
+        return {}, nil, false
     }
     fn := expr_type(c, file, callee)
     if fn.mode != .Value && fn.mode != .Const {
-        return false
+        return {}, nil, false
     }
-    g, is_group := type_get(&c.table, type_base(&c.table, fn.type)).(Proc_Group_Type)
-    if !is_group || len(g.members) == 0 {
-        return false
+    found, is_group := type_get(&c.table, type_base(&c.table, fn.type)).(Proc_Group_Type)
+    if !is_group || len(found.members) == 0 {
+        return {}, nil, false
     }
-    temp := scratch_begin(c)
-    defer scratch_end(temp)
+    grp = found
     args := call_args(c, file, odinsyntax.Syntax_Node(list), {})
     if args == nil && odinsyntax.node_text(odinsyntax.Syntax_Node(list)) != "()" {
-        return false
+        return {}, nil, false
     }
     for a in args {
         if a.spread || (a.name == "" && may_give_values(c, a)) {
-            return false
+            return {}, nil, false
         }
     }
-    with, ok := with_receiver(c, file, callee, args)
+    with, ok = with_receiver(c, file, callee, args)
     if !ok {
-        return false
+        return {}, nil, false
     }
     for a in with {
         if (a.op.mode != .Value && a.op.mode != .Const && a.op.mode != .Type) || a.op.type == INVALID_TYPE || has_poly(c, a.op.type, 0) {
-            return false
+            return {}, nil, false
         }
+    }
+    return grp, with, true
+}
+
+// Whether no member of the procedure group the callee of `call` names takes its arguments: every
+// member gets too few or too many of them, a `$` parameter no argument fits, or an argument that it
+// cannot take. False when the callee is not a group or an argument type is not known.
+group_no_match :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) -> bool {
+    temp := scratch_begin(c)
+    defer scratch_end(temp)
+    g, with, ok := group_call(c, file, call)
+    if !ok {
+        return false
     }
     for m in g.members {
         p, is_proc := type_get(&c.table, type_base(&c.table, m)).(Proc_Type)
@@ -189,6 +202,72 @@ group_no_match :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node)
         }
     }
     return true
+}
+
+// Whether a call of a procedure group ties between its best members. Only plain members count: no
+// polymorphic, variadic or default parameter, no named argument, and every argument an exact,
+// default or untyped-constant match. False whenever the compiler's tie-break could differ.
+group_ambiguous :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) -> bool {
+    temp := scratch_begin(c)
+    defer scratch_end(temp)
+    g, with, ok := group_call(c, file, call)
+    if !ok || len(with) == 0 {
+        return false
+    }
+    for a in with {
+        if a.name != "" || a.op.mode == .Type {
+            return false
+        }
+    }
+    best, tied := -1, 0
+    for m in g.members {
+        p, is_proc := type_get(&c.table, type_base(&c.table, m)).(Proc_Type)
+        if !is_proc {
+            return false
+        }
+        slots, miss := match_slots(c, p, with)
+        if miss.kind != .None {
+            continue
+        }
+        if p.generic || len(p.params) != len(with) {
+            return false
+        }
+        s := score_call(c, file, p, with, slots)
+        if s < 0 {
+            // Another member must be sure to reject, or the compiler may count it.
+            rejected := false
+            for a, i in with {
+                param := p.params[slots[i]]
+                if assignable(c, param.type, a.op, .Any_Int in param.flags) == .No {
+                    rejected = true
+                } else if assignable(c, param.type, a.op, .Any_Int in param.flags) == .Unknown {
+                    return false
+                }
+            }
+            if !rejected {
+                return false
+            }
+            continue
+        }
+        for a, i in with {
+            param := p.params[slots[i]]
+            if param.flags & {.Variadic, .C_Vararg} != {} {
+                return false
+            }
+            #partial switch Distance(assign_distance(c, param.type, a.op, .Any_Int in param.flags, false)) {
+            case .Exact, .Default, .Untyped:
+            case:
+                return false
+            }
+        }
+        switch {
+        case s > best:
+            best, tied = s, 1
+        case s == best:
+            tied += 1
+        }
+    }
+    return tied >= 2
 }
 
 // True when the polymorphic procedure `p` has a variadic parameter of a `$` element type that no
@@ -805,6 +884,8 @@ Type_Problem :: struct {
     op:       Operand, // the value as typed against `to`
     to:       Type_Id,
     overflow: bool,    // an untyped integer constant the integer type `to` cannot hold
+    truncated: bool,   // a float literal the integer type `to` cannot take as it is
+    got:       string, // a float literal: its exact value as the compiler prints it
 }
 
 // True when `op` is an untyped integer or rune constant that the integer type `to` cannot hold.
@@ -969,6 +1050,9 @@ conversion_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_N
     if const_overflows(c, fn.type, op) {
         return {value = arg, op = op, to = fn.type, overflow = true}, true
     }
+    if lp, found := literal_type_problem(c, fn.type, op, arg); found && lp.truncated == !lp.overflow {
+        return lp, true
+    }
     if op.mode == .Const && cast_refused(c, fn.type, op.type) || op.mode == .Value && typed_cast_refused(c, fn.type, op.type) {
         return {value = arg, op = op, to = fn.type}, true
     }
@@ -1088,7 +1172,7 @@ min_max_mismatches :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_N
         op := expr_type(c, file, arg, to)
         u, is_untyped := type_get(&c.table, op.type).(Untyped_Type)
         if op.mode == .Const && is_untyped && u.kind == .String {
-            append(&out, Type_Problem{arg, op, to, false})
+            append(&out, Type_Problem{value = arg, op = op, to = to})
         }
     }
     return out[:]
@@ -1218,9 +1302,13 @@ argument_mismatches :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_
             }
         }
         if assignable(c, to, op, .Any_Int in param.flags) == .No {
-            append(&out, Type_Problem{a.node, op, to, false})
+            append(&out, Type_Problem{value = a.node, op = op, to = to})
         } else if const_overflows(c, to, op) {
-            append(&out, Type_Problem{a.node, op, to, true})
+            append(&out, Type_Problem{value = a.node, op = op, to = to, overflow = true})
+        } else if .Any_Int not_in param.flags {
+            if lp, found := literal_type_problem(c, to, op, a.node); found {
+                append(&out, lp)
+            }
         }
     }
     return out[:]
@@ -1370,14 +1458,14 @@ op_assign_mismatches :: proc(c: ^Checker, file: File_Id, op: odinsyntax.Token_Ki
             return nil
         }
         out := make([]Type_Problem, 1, allocator)
-        out[0] = {value, vop, type_untyped(.Int), false}
+        out[0] = {value = value, op = vop, to = type_untyped(.Int)}
         return out
     case .Add_Eq, .Sub_Eq, .Mul_Eq, .Quo_Eq, .Mod_Eq, .Mod_Mod_Eq, .And_Eq, .Or_Eq, .Xor_Eq, .And_Not_Eq, .Cmp_And_Eq, .Cmp_Or_Eq:
         if assignable(c, lop.type, vop) != .No {
             return nil
         }
         out := make([]Type_Problem, 1, allocator)
-        out[0] = {value, vop, lop.type, false}
+        out[0] = {value = value, op = vop, to = lop.type}
         return out
     }
     return nil
@@ -1453,9 +1541,11 @@ value_mismatches :: proc(c: ^Checker, file: File_Id, places: []Type_Id, list: od
         }
         op := expr_type(c, file, v, to)
         if !overflow_only && assignable(c, to, op) == .No {
-            append(&out, Type_Problem{v, op, to, false})
+            append(&out, Type_Problem{value = v, op = op, to = to})
         } else if const_overflows(c, to, op) {
-            append(&out, Type_Problem{v, op, to, true})
+            append(&out, Type_Problem{value = v, op = op, to = to, overflow = true})
+        } else if lp, found := literal_type_problem(c, to, op, v); found {
+            append(&out, lp)
         }
     }
     return out[:]
