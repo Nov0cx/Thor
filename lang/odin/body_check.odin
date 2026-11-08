@@ -55,6 +55,9 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope
     case .Assign_Stmt:
         count_errors(rc, c, n, report)
         mismatch_errors(rc, c, odinsema.assign_mismatches(c, rc.live.id, n, context.temp_allocator), "assignment", report)
+        for call in odinsema.no_value_calls(c, rc.live.id, n, context.temp_allocator) {
+            no_value_error(rc, call, report)
+        }
         dangling_stores(rc, c, n, report)
         if odinsema.self_assign(n) {
             report_error(rc, report, int(n.offset), CODE_SELF_ASSIGN, strings.clone("A place is assigned to itself"), .Hint, lint = true)
@@ -64,6 +67,9 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope
     case .Value_Decl:
         count_errors(rc, c, n, report)
         mismatch_errors(rc, c, odinsema.assign_mismatches(c, rc.live.id, n, context.temp_allocator), "a variable declaration", report)
+        for call in odinsema.no_value_calls(c, rc.live.id, n, context.temp_allocator) {
+            no_value_error(rc, call, report)
+        }
     case .Return_Stmt:
         mismatch_errors(rc, c, odinsema.return_mismatches(c, rc.live.id, n, context.temp_allocator), "return statement", report)
         dangling_returns(rc, c, n, report)
@@ -75,6 +81,12 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope
         liveness_errors(rc, c, m, n, report)
         ownership_errors(rc, c, m, n, report)
         nil_errors(rc, c, m, whens, n, report)
+    case .Binary_Expr:
+        if p, ok := odinsema.const_arith_overflow(c, rc.live.id, n); ok {
+            text := strings.join(strings.fields(odinsyntax.node_text(n), context.temp_allocator), " ", context.temp_allocator)
+            type := odinsema.type_string(&c.table, p.type, context.temp_allocator)
+            report_error(rc, report, int(n.offset), CODE_OVERFLOW, fmt.aprintf("Numeric value '%d' from '%s' cannot be represented by '%s'", p.value, text, type))
+        }
     case .Or_Return_Expr:
         or_return_errors(rc, c, n, report)
     case .Cast_Expr:
@@ -160,6 +172,13 @@ order_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odinsynta
     type := odinsema.type_string(&c.table, p.type, context.temp_allocator)
     kinds := "ordered numeric or string" if p.name == "clamp" else "ordered numeric"
     report_error(rc, report, p.offset, CODE_MISMATCH, fmt.aprintf("Expected an %s type to '%s', got '%s'", kinds, p.name, type))
+}
+
+// Reports a call of a procedure with no result that is used as a value.
+@(private = "file")
+no_value_error :: proc(rc: ^Request_Context, call: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+    text := strings.join(strings.fields(odinsyntax.node_text(call), context.temp_allocator), " ", context.temp_allocator)
+    report_error(rc, report, int(call.offset), CODE_MISMATCH, fmt.aprintf("'%s' call does not return a value and cannot be used as a value", text))
 }
 
 // Reports a call of a procedure group that no member takes.

@@ -1409,6 +1409,49 @@ main :: proc() {
 }
 
 @(test)
+test_live_const_arith_and_no_value :: proc(t: ^testing.T) {
+    root := fixture(t, "live_const_arith", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+nothing :: proc() {}
+one :: proc() -> int { return 1 }
+stop :: proc() -> ! { for {} }
+
+small: i8 : 100
+byte: u8 : 200
+
+main :: proc() {
+	a := small + 100
+	b := small + 20
+	c := byte * 2
+	d := byte - 201
+	e := small + 100 + 1
+	f := nothing()
+	g: int = nothing()
+	h := one()
+	var: int
+	var = nothing()
+	i := 1 + 2
+	_, _, _, _, _, _, _, _, _ = a, b, c, d, e, f, g, h, i
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"small + 100\n\tb", "Numeric value '200' from 'small + 100' cannot be represented by 'i8'", 0},
+        {"byte * 2", "Numeric value '400' from 'byte * 2' cannot be represented by 'u8'", 0},
+        {"byte - 201", "Numeric value '-1' from 'byte - 201' cannot be represented by 'u8'", 0},
+        {"small + 100 + 1", "Numeric value '200' from 'small + 100' cannot be represented by 'i8'", 0},
+        {"nothing()\n\tg","'nothing()' call does not return a value and cannot be used as a value", 0},
+        {"nothing()\n\th","'nothing()' call does not return a value and cannot be used as a value", 0},
+        {"nothing()\n\ti","'nothing()' call does not return a value and cannot be used as a value", 0},
+    })
+}
+
+@(test)
 test_live_ignored_error :: proc(t: ^testing.T) {
     root := fixture(t, "live_ignored_error", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
     e := engine_create()
