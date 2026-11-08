@@ -380,7 +380,15 @@ test_reload_during_read_is_retried :: proc(t: ^testing.T) {
     thor_reload_file(thor, file)
     testing.expect(t, file.reloading, "reload did not start")
 
-    final_err := os.write_entire_file(TEST_PATH, transmute([]u8) string("second\n"))
+    // Windows refuses to truncate a file while the worker still maps it.
+    final_err: os.Error
+    for _ in 0 ..< 500 {
+        final_err = os.write_entire_file(TEST_PATH, transmute([]u8) string("second\n"))
+        if final_err == nil {
+            break
+        }
+        time.sleep(2 * time.Millisecond)
+    }
     testing.expect(t, final_err == nil, "could not rewrite test file")
     thor_reload_file(thor, file)
     testing.expect(t, file.reload_pending, "the change during the read was dropped")
