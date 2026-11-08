@@ -517,3 +517,134 @@ test_action_unneeded_semicolon :: proc(t: ^testing.T) {
     want, _ := strings.replace(SRC, " ;", "", 1, context.temp_allocator)
     testing.expect_value(t, applied(t, &res, SRC, "Remove the unneeded semicolon"), want)
 }
+
+// The code actions for one diagnostic of `src` at the `skip`th occurrence of `marker`.
+@(private = "file")
+compiler_line_actions :: proc(t: ^testing.T, e: ^Engine, root, src, marker, message: string, severity := lang.Diagnostic_Severity.Error, skip := 0) -> lang.Result {
+    from := 0
+    for _ in 0 ..< skip {
+        from += strings.index(src[from:], marker) + 1
+    }
+    i := strings.index(src[from:], marker)
+    if i < 0 {
+        testing.fail_now(t, "marker not found")
+    }
+    offset := from + i
+    diags := []lang.Diagnostic_Ref{{start = offset, end = offset + 1, severity = severity, message = message}}
+    req := lang.Request {
+        kind        = .Code_Actions,
+        path        = fixture_path(root, "app/main.odin"),
+        ext         = ".odin",
+        source      = src,
+        workspace   = root,
+        offset      = offset,
+        end         = offset,
+        diagnostics = diags,
+    }
+    res: lang.Result
+    code_actions(e, &req, &res)
+    return res
+}
+
+// True when `res` holds an action whose title starts with `prefix`.
+@(private = "file")
+has_action_prefix :: proc(res: ^lang.Result, prefix: string) -> bool {
+    for a in res.actions {
+        if strings.has_prefix(a.title, prefix) {
+            return true
+        }
+    }
+    return false
+}
+
+// Messages as `odin check` dev-2026-11-nightly:9a69916 words them.
+@(test)
+test_action_immutable_loop_variable :: proc(t: ^testing.T) {
+    SRC :: `package app
+
+S :: struct { a: int }
+U :: union { int, f32 }
+
+f :: proc(m: map[int]int, s: string, sp: []int) {
+    arr := [3]S{}
+    for x in arr {
+        x.a = 3
+    }
+    for x, i in arr {
+        i = 2
+        _ = x
+    }
+    for k, v in m {
+        k = 1
+        v = 2
+    }
+    for y in sp {
+        p := &y
+        _ = p
+    }
+    u: U = 1
+    #partial switch w in u {
+    case int:
+        w = 3
+    }
+    for r in s {
+        r = 'c'
+    }
+    for z in 0 ..< 3 {
+        z = 1
+    }
+    C :: 3
+    C = 4
+}
+
+g :: proc(arr: [3]int, u: U) {
+    for x in arr {
+        x = 1
+    }
+    #partial switch w in u {
+    case int:
+        w = 3
+    }
+}
+`
+    root := fixture(t, "action_immutable_loop", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    Want :: struct {
+        marker, message, title, from, to: string,
+    }
+    wants := []Want {
+        {"x.a = 3", "Cannot assign to 'x.a'", "Declare 'x' as '&x' to make it mutable", "for x in arr {\n        x.a", "for &x in arr {\n        x.a"},
+        {"v = 2", "Cannot assign to 'v'", "Declare 'v' as '&v' to make it mutable", "for k, v in m", "for k, &v in m"},
+        {"&y", "Cannot take the pointer address of 'y'", "Declare 'y' as '&y' to make it mutable", "for y in sp", "for &y in sp"},
+        {"w = 3", "Cannot assign to 'w'", "Declare 'w' as '&w' to make it mutable", "switch w in u {\n    case int:\n        w = 3\n    }\n    for r", "switch &w in u {\n    case int:\n        w = 3\n    }\n    for r"},
+    }
+    for w in wants {
+        res := compiler_line_actions(t, e, root, SRC, w.marker, w.message)
+        want, _ := strings.replace(SRC, w.from, w.to, 1, context.temp_allocator)
+        testing.expect_value(t, applied(t, &res, SRC, w.title), want)
+        free_actions(&res)
+    }
+
+    // An index, a map key, a rune, an interval value, a constant, a parameter array and a parameter subject.
+    Miss :: struct {
+        marker, message: string,
+        skip:            int,
+    }
+    misses := []Miss {
+        {"i = 2", "Cannot assign to 'i'", 0},
+        {"k = 1", "Cannot assign to 'k'", 0},
+        {"r = 'c'", "Cannot assign to 'r'", 0},
+        {"z = 1", "Cannot assign to 'z'", 0},
+        {"C = 4", "Cannot assign to 'C'", 0},
+        {"x = 1", "Cannot assign to 'x'", 0},
+        {"w = 3", "Cannot assign to 'w'", 1},
+        {"x.a = 3", "Cannot assign to 'x.a' because it is a field", 0},
+    }
+    for m in misses {
+        res := compiler_line_actions(t, e, root, SRC, m.marker, m.message, skip = m.skip)
+        testing.expectf(t, !has_action_prefix(&res, "Declare '"), "%s: %v", m.marker, titles(&res))
+        free_actions(&res)
+    }
+}

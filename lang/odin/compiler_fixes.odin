@@ -5,6 +5,7 @@ import "core:fmt"
 import "core:strings"
 
 import lang ".."
+import odinsema "sema"
 import odinsyntax "syntax"
 
 @(private = "file")
@@ -87,8 +88,137 @@ compiler_fixes :: proc(rc: ^Request_Context, res: ^lang.Result) {
             shadow_parameter_fix(rc, d.start, name, res)
         } else if name, ok = message_name(d.message, REDECLARATION_PREFIX, REDECLARATION_SUFFIX); ok {
             redeclaration_fix(rc, d.start, name, res)
+        } else if message_quotes(d.message, PARAM_ASSIGN_PREFIX) || message_quotes(d.message, PARAM_ADDRESS_PREFIX) {
+            immutable_fix(rc, d.start, res)
         }
     }
+}
+
+// True when `message` is `prefix`, a quoted text and nothing after the closing quote.
+@(private = "file")
+message_quotes :: proc(message, prefix: string) -> bool {
+    return strings.has_prefix(message, prefix) && len(message) > len(prefix) + 1 && message[len(message) - 1] == '\''
+}
+
+// Declares the `for ... in` or `switch ... in` variable at `offset` with `&`, where the compiler accepts it.
+// The compiler gives the hint `'x' is immutable, declare it as '&x'` on a snippet line, so the type tells.
+@(private = "file")
+immutable_fix :: proc(rc: ^Request_Context, offset: int, res: ^lang.Result) {
+    src := rc.req.source
+    at := offset
+    if src[at] == '&' {
+        at += 1
+        for at < len(src) && (src[at] == ' ' || src[at] == '\t') {
+            at += 1
+        }
+    }
+    root := odinsyntax.node_root(rc.parsed.tree)
+    tok, found := odinsyntax.node_token_at(root, u32(at), context.temp_allocator)
+    if !found || tok.green.kind != .Ident || int(tok.offset) != at {
+        return
+    }
+    c := request_checker(rc)
+    if c == nil {
+        return
+    }
+    file := rc.live.id
+    name := odinsyntax.syntax_token_text(tok)
+    r := odinsema.lookup_name(c, file, name, at)
+    l := r.local
+    if r.kind != .Local || (l.kind != .Loop_Var && l.kind != .Switch_Var) {
+        return
+    }
+    decl := l.name_offset
+    if decl <= 0 || decl >= len(src) || src[decl - 1] == '&' {
+        return
+    }
+    decl_tok, has_decl := odinsyntax.node_token_at(root, u32(decl), context.temp_allocator)
+    if !has_decl || int(decl_tok.offset) != decl {
+        return
+    }
+    stmt := decl_tok.parent
+    for stmt != nil && stmt.green.kind != .Range_Stmt && stmt.green.kind != .Type_Switch_Stmt {
+        stmt = stmt.parent
+    }
+    if stmt == nil {
+        return
+    }
+    ok := false
+    if stmt.green.kind == .Type_Switch_Stmt {
+        ts, _ := odinsyntax.as_type_switch_stmt(stmt^)
+        subject, has := odinsyntax.type_switch_stmt_subject(&ts)
+        ok = has && addressable(c, file, subject)
+    } else {
+        rs, _ := odinsyntax.as_range_stmt(stmt^)
+        iterated, has := odinsyntax.range_stmt_expr(&rs)
+        ok = has && element_addressable(c, file, iterated, l.value_index)
+    }
+    if !ok {
+        return
+    }
+    push_action(res, rc.req, fmt.tprintf("Declare '%s' as '&%s' to make it mutable", name, name), Edit_Spec{decl, decl, "&"})
+}
+
+// True when the `index`th variable of a `for ... in iterated` can be declared with `&`.
+@(private = "file")
+element_addressable :: proc(c: ^odinsema.Checker, file: odinsema.File_Id, iterated: odinsyntax.Syntax_Node, index: int) -> bool {
+    t := &c.table
+    base := odinsema.type_base(t, odinsema.expr_type(c, file, iterated).type)
+    #partial switch v in odinsema.type_get(t, base) {
+    case odinsema.Slice_Type, odinsema.Dynamic_Array_Type:
+        return index == 0
+    case odinsema.Map_Type:
+        return index == 1
+    case odinsema.Array_Type, odinsema.Enumerated_Array_Type:
+        return index == 0 && addressable(c, file, iterated)
+    case odinsema.Pointer_Type:
+        #partial switch _ in odinsema.type_get(t, odinsema.type_base(t, v.elem)) {
+        case odinsema.Array_Type, odinsema.Enumerated_Array_Type:
+            return index == 0
+        }
+    }
+    return false
+}
+
+// True when `n` names storage the compiler can take the address of. False when not sure.
+@(private = "file")
+addressable :: proc(c: ^odinsema.Checker, file: odinsema.File_Id, n: odinsyntax.Syntax_Node) -> bool {
+    n := n
+    t := &c.table
+    #partial switch n.green.kind {
+    case .Paren_Expr:
+        pe := odinsyntax.Paren_Expr(n)
+        inner := odinsyntax.paren_expr_expr(&pe) or_return
+        return addressable(c, file, inner)
+    case .Deref_Expr:
+        return true
+    case .Ident:
+        r := odinsema.lookup_name(c, file, odinsyntax.node_text(n), int(n.offset))
+        switch r.kind {
+        case .Local:
+            return r.local.kind == .Var || r.local.kind == .Result
+        case .Item:
+            return odinsema.expr_type(c, file, n).mode == .Value
+        case .None, .Import, .Basic, .Builtin:
+        }
+    case .Selector_Expr:
+        se := odinsyntax.Selector_Expr(n)
+        operand := odinsyntax.selector_expr_operand(&se) or_return
+        if _, is_ptr := odinsema.type_get(t, odinsema.type_base(t, odinsema.expr_type(c, file, operand).type)).(odinsema.Pointer_Type); is_ptr {
+            return true
+        }
+        return addressable(c, file, operand)
+    case .Index_Expr:
+        ie := odinsyntax.Index_Expr(n)
+        operand := odinsyntax.index_expr_operand(&ie) or_return
+        #partial switch _ in odinsema.type_get(t, odinsema.type_base(t, odinsema.expr_type(c, file, operand).type)) {
+        case odinsema.Slice_Type, odinsema.Dynamic_Array_Type, odinsema.Multi_Pointer_Type, odinsema.Pointer_Type:
+            return true
+        case odinsema.Array_Type, odinsema.Enumerated_Array_Type:
+            return addressable(c, file, operand)
+        }
+    }
+    return false
 }
 
 // The name between `prefix` and `suffix` when `message` is exactly that sentence.
