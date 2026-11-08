@@ -1,6 +1,7 @@
 package odinsema
 
 import "core:mem"
+import "core:slice"
 import "core:mem/virtual"
 
 import odinsyntax "../syntax"
@@ -106,6 +107,8 @@ Scope_Map :: struct {
     refs:      []Name_Ref, // one per identifier, in walk order
     usings:    []Using_Entry,
     has_using: bool, // a `using` statement or a `using` local is in the map
+    ref_order: []int, // indices into `refs`, by start
+    local_order: []int, // indices into `locals`, by name offset
 }
 
 @(private = "file")
@@ -136,6 +139,69 @@ Scope_Mark :: struct {
 // The scope map of the whole file.
 scope_map :: proc(parsed: odinsyntax.Parse, allocator := context.allocator) -> (m: ^Scope_Map, err: mem.Allocator_Error) {
     return scope_map_range(parsed, 0, max(int), allocator)
+}
+
+// Fills the position indexes of `m`.
+@(private = "file")
+index_map :: proc(m: ^Scope_Map, alloc: mem.Allocator) {
+    m.ref_order = make([]int, len(m.refs), alloc)
+    for i in 0 ..< len(m.refs) {
+        m.ref_order[i] = i
+    }
+    slice.sort_by_with_data(m.ref_order, proc(a, b: int, m: rawptr) -> bool {
+        refs := (^Scope_Map)(m).refs
+        return refs[a].start < refs[b].start || refs[a].start == refs[b].start && a < b
+    }, m)
+    m.local_order = make([]int, len(m.locals), alloc)
+    for i in 0 ..< len(m.locals) {
+        m.local_order[i] = i
+    }
+    slice.sort_by_with_data(m.local_order, proc(a, b: int, m: rawptr) -> bool {
+        locals := (^Scope_Map)(m).locals
+        return locals[a].name_offset < locals[b].name_offset || locals[a].name_offset == locals[b].name_offset && a < b
+    }, m)
+}
+
+// The indices into `m.refs` of the references that start in [lo, hi), by start.
+refs_between :: proc(m: ^Scope_Map, lo, hi: int) -> []int {
+    order := m.ref_order
+    from, to := 0, len(order)
+    for from < to {
+        mid := (from + to) / 2
+        if m.refs[order[mid]].start < lo {
+            from = mid + 1
+        } else {
+            to = mid
+        }
+    }
+    end := from
+    for end < len(order) && m.refs[order[end]].start < hi {
+        end += 1
+    }
+    return order[from:end]
+}
+
+// The indices into `m.locals` of the locals whose name starts in [lo, hi), in declaration order.
+// The slice is in `allocator`.
+locals_between :: proc(m: ^Scope_Map, lo, hi: int, allocator: mem.Allocator) -> []int {
+    order := m.local_order
+    from, to := 0, len(order)
+    for from < to {
+        mid := (from + to) / 2
+        if m.locals[order[mid]].name_offset < lo {
+            from = mid + 1
+        } else {
+            to = mid
+        }
+    }
+    end := from
+    for end < len(order) && m.locals[order[end]].name_offset < hi {
+        end += 1
+    }
+    out := make([]int, end - from, allocator)
+    copy(out, order[from:end])
+    slice.sort(out)
+    return out
 }
 
 // The scope map of the file-scope declarations that touch [start, end]. A local is declared and
@@ -176,6 +242,7 @@ scope_map_range :: proc(parsed: odinsyntax.Parse, start, end: int, allocator := 
     m.refs = w.refs[:]
     m.usings = w.usings[:]
     m.has_using = len(w.usings) > 0
+    index_map(m, alloc)
     for l in w.locals {
         if l.is_using {
             m.has_using = true

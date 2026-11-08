@@ -105,6 +105,9 @@ Checker :: struct {
     distinct_nodes: map[Symbol]i32,              // the node of each anonymous distinct type made here
     stamps:         map[File_Id]u64,             // the changed_at of each file read; 0 when it cannot be read
     package_stamps: map[Package_Id]Package_Stamp, // each package viewed
+    exprs:      map[Expr_Key]Operand, // the operands expr_values reuses
+    cut:        int,                  // the times the depth limit cut an expression short
+    cfgs:       map[Cfg_Key]^Cfg,     // built by cfg_cached, in `arena`
     scratch:    virtual.Arena,        // temporary arrays, freed by scratch_end
     tmp:        mem.Allocator,        // of `scratch`
     err:        mem.Allocator_Error,
@@ -209,6 +212,8 @@ checker_init :: proc(c: ^Checker, snap: ^Snapshot, universe: []Universe_Package 
     c.nodes = make([dynamic]bool, c.alloc)
     c.edges = make([dynamic][2]i32, c.alloc)
     c.distinct_nodes = make(map[Symbol]i32, c.alloc)
+    c.exprs = make(map[Expr_Key]Operand, c.alloc)
+    c.cfgs = make(map[Cfg_Key]^Cfg, c.alloc)
     c.stamps = make(map[File_Id]u64, c.alloc)
     c.package_stamps = make(map[Package_Id]Package_Stamp, c.alloc)
     home := home

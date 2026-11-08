@@ -42,6 +42,7 @@ where_failing :: proc(c: ^Checker, p: Proc_Type, env: []Binding) -> (odinsyntax.
 @(private)
 where_value :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (value, known: bool) {
     if c.depth >= EXPR_DEPTH {
+        c.cut += 1
         return false, false
     }
     c.depth += 1

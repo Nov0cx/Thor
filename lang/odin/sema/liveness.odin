@@ -116,8 +116,9 @@ liveness :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.Synt
         computed = make(map[int]bool, alloc),
         alloc   = alloc,
     }
-    for l, i in m.locals {
-        if l.name_offset < int(lit_start) || l.name_offset >= int(lit_end) || m.scopes[l.scope].proc_depth != depth {
+    for i in locals_between(m, int(lit_start), int(lit_end), alloc) {
+        l := m.locals[i]
+        if m.scopes[l.scope].proc_depth != depth {
             continue
         }
         #partial switch l.kind {
@@ -129,8 +130,9 @@ liveness :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.Synt
     if len(w.tracked) == 0 {
         return
     }
-    for r in m.refs {
-        if r.kind != .Local || r.start < int(lit_start) || r.start >= int(lit_end) {
+    for ri in refs_between(m, int(lit_start), int(lit_end)) {
+        r := m.refs[ri]
+        if r.kind != .Local {
             continue
         }
         if index, ok := w.by_decl[r.decl]; ok {
@@ -452,11 +454,10 @@ transfer :: proc(live: Bits, e: Effect) {
 // after it.
 @(private = "file")
 dead_stores :: proc(w: ^Live_Walk, lit: odinsyntax.Syntax_Node, out: ^Liveness_Report) -> mem.Allocator_Error {
-    g := cfg_build(w.c, w.file, lit, context.temp_allocator) or_return
+    g := cfg_cached(w.c, w.file, lit)
     if g == nil {
         return nil
     }
-    defer cfg_destroy(g, context.temp_allocator)
     reach := cfg_reachable(g, w.alloc)
     effects := make([][]Effect, len(g.blocks), w.alloc)
     covered := make([]bool, len(w.refs), w.alloc)
