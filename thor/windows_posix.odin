@@ -82,7 +82,7 @@ thor_raise_command :: proc(pid: int) -> (string, bool) {
         }
         if _, found := shell.which("wmctrl", context.temp_allocator); found {
             return fmt.tprintf(
-                `id=$(wmctrl -lp | awk '$3=="%d" {print $1; exit}'); [ -n "$id" ] && wmctrl -ia "$id"`,
+                `id=$(wmctrl -lp | awk '$3=="%d" {{print $1; exit}}'); [ -n "$id" ] && wmctrl -ia "$id"`,
                 pid,
             ), true
         }

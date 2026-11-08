@@ -248,7 +248,7 @@ clipboard_file_restrict :: proc() {
                 log.warnf("Could not create %q: %v", CLIPBOARD_FILE, err)
                 return
             }
-            os.close(f)
+            _ = os.close(f)
         }
         if err := os.change_mode(CLIPBOARD_FILE, os.perm_number(0o600)); err != nil {
             log.warnf("Could not restrict %q: %v", CLIPBOARD_FILE, err)

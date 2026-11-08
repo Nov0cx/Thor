@@ -111,7 +111,7 @@ run_argv :: proc(argv: []cstring, search_path: bool, cwd: string, timeout: time.
     posix.close(status_fds[0])
     if !started {
         posix.close(out_fds[0])
-        wait_for(pid)
+        _, _ = wait_for(pid)
         return strings.clone("[shell] could not start command\n"), -1, false
     }
     defer posix.close(out_fds[0])

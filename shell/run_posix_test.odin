@@ -48,7 +48,7 @@ test_run_timeout_kills_the_background_child :: proc(t: ^testing.T) {
     if join_err != nil {
         testing.fail_now(t, "could not name the marker")
     }
-    os.remove(marker)
+    _ = os.remove(marker)
     defer os.remove(marker)
 
     output := run("(sleep 1; echo done > late) & sleep 20", root, 200 * time.Millisecond)
