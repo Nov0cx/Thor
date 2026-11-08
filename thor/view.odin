@@ -1233,6 +1233,10 @@ thor_editor_view :: proc(thor: ^Thor, editor: ^editview.Editor, file: ^Open_File
     thor_paint_diagnostics(thor, editor, text, rows, first, last, line_h, text_x)
 
     for index in first ..< last {
+        if rows[index].lens {
+            thor_paint_lens_row(thor, editor, rows[index], f32(index) * line_h - editor.scroll_y, text_x)
+            continue
+        }
         if rows[index].spacer {
             continue
         }
@@ -1542,6 +1546,33 @@ thor_paint_row_inlays :: proc(
             x += width
         }
     }
+}
+
+// Declares the reference count of a lens row, left-aligned with the line below it.
+@(private = "file")
+thor_paint_lens_row :: proc(thor: ^Thor, editor: ^editview.Editor, row: editview.Visual_Row, row_y, text_x: f32) {
+    lens, ok := editview.editor_row_lens(editor, row)
+    if !ok {
+        return
+    }
+    ui.push_id_int(i64(row.line))
+    ui.leaf(
+        {
+            key = "lens",
+            text = lens.label,
+            props = {
+                position = .Absolute,
+                inset = {text_x, row_y, 0, 0},
+                w = ui.FIT,
+                h = ui.Px(f32(font.line_height(editor.font_size))),
+                color = thor.theme.comments_color,
+                font = thor.font_mono,
+                font_size = f32(editview.editor_inlay_font_size(editor)),
+                text_wrap = .None,
+            },
+        },
+    )
+    ui.pop_id()
 }
 
 // The swatches of one row, scanned into `out` and returned as the prefix used.

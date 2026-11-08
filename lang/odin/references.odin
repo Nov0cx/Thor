@@ -28,6 +28,24 @@ Ref_Scan :: struct {
     visit:     Ref_Visit,            // nil when no caller reads the files
     visit_data: rawptr,
     stopped:   bool,                 // `visit` gave false
+    batch:     ^Batch_Count,         // set by count_references; files then add to its counts only
+}
+
+// Which files of a batch count a target: its buffer, the files of its package, or an importer.
+@(private = "file")
+Batch_Reach :: enum {
+    Buffer,
+    Package,
+    Importer,
+}
+
+// The state of one count_references call.
+@(private = "file")
+Batch_Count :: struct {
+    targets: []Ref_Target,
+    counts:  []int,
+    names:   map[string][dynamic]int, // name -> indices of the targets that spell it; temp-allocated
+    reach:   Batch_Reach,             // of the files being scanned
 }
 
 // One file of a reference search with the offsets of its hits. Valid only during the call.
@@ -53,6 +71,68 @@ visit_references :: proc(ctx: ^Request_Context, target: Ref_Target, with_decl: b
     hits_free(s.hits[:])
     delete(s.hits)
     return ok && !s.stopped
+}
+
+// Fills `counts[i]` with the number of identifiers that name `targets[i]`, the declaration
+// excluded, as visit_references would count it. Every target is a Package_Item of one package.
+// Each file is read once whatever the number of targets. False when the request is cancelled.
+@(private)
+count_references :: proc(ctx: ^Request_Context, targets: []Ref_Target, counts: []int) -> bool {
+    if len(targets) == 0 || len(counts) < len(targets) {
+        return true
+    }
+    b := Batch_Count{targets = targets, counts = counts, names = make(map[string][dynamic]int, context.temp_allocator)}
+    for t, i in targets {
+        _, list, _, err := map_entry(&b.names, t.name)
+        if err != nil || list == nil {
+            return false
+        }
+        if list^ == nil {
+            list^ = make([dynamic]int, context.temp_allocator)
+        }
+        append(list, i)
+    }
+    s := Ref_Scan{ctx = ctx, batch = &b, target = targets[0]}
+    s.hits = make([dynamic]lang.Symbol)
+    defer delete(s.hits)
+    s.decl_key = targets[0].path != "" ? odinsema.path_key(targets[0].path) : ""
+    if targets[0].dir != "" {
+        s.dir_key = odinsema.path_key(targets[0].dir)
+    }
+    live := live_scan_file(ctx)
+    req := ctx.req
+    b.reach = .Buffer
+    scan_file(&s, &live)
+    // A buffer with no file or outside a workspace stands alone, as in definition.
+    if live.dir_key == s.dir_key && (ctx.live.path == "" || req.workspace == "") {
+        return !lang.request_cancelled(req)
+    }
+    b.reach = .Package
+    if view := request_package(ctx, targets[0].dir); view != nil {
+        for id in view.files {
+            if lang.request_cancelled(req) {
+                return false
+            }
+            if id != ctx.live.id {
+                scan_disk_file(&s, id)
+            }
+        }
+    }
+    public := false
+    for t in targets {
+        public ||= t.visibility == .Public
+    }
+    if !public || req.workspace == "" {
+        return !lang.request_cancelled(req)
+    }
+    b.reach = .Importer
+    for id in workspace_importers(&s) {
+        if lang.request_cancelled(req) {
+            return false
+        }
+        scan_disk_file(&s, id)
+    }
+    return !lang.request_cancelled(req)
 }
 
 // One file a scan reads. Strings are temp-allocated or borrowed from the snapshot.
@@ -423,7 +503,14 @@ scan_disk_file :: proc(s: ^Ref_Scan, id: odinsema.File_Id) {
     snap := &s.ctx.snap
     parsed := odinsema.db_parse(snap, id)
     defer odinsema.db_parse_release(snap, parsed)
-    if parsed == nil || parsed.tree == nil || !strings.contains(parsed.tree.text, s.target.name) {
+    if parsed == nil || parsed.tree == nil {
+        return
+    }
+    if s.batch != nil {
+        if !mentions_any(parsed.tree.text, s.batch.names) {
+            return
+        }
+    } else if !strings.contains(parsed.tree.text, s.target.name) {
         return
     }
     data := odinsema.db_file(snap, id)
@@ -454,6 +541,10 @@ scan_file :: proc(s: ^Ref_Scan, f: ^Scan_File) {
         return
     }
     defer odinsema.scope_map_destroy(m)
+    if s.batch != nil {
+        count_file(s, f, m)
+        return
+    }
     offsets := make([dynamic]int, context.temp_allocator)
     for ref in m.refs {
         if ref.name != s.target.name {
@@ -466,6 +557,57 @@ scan_file :: proc(s: ^Ref_Scan, f: ^Scan_File) {
         }
     }
     visit_file(s, f, offsets[:])
+}
+
+// Adds the references of one file to the counts of the batch.
+@(private = "file")
+count_file :: proc(s: ^Ref_Scan, f: ^Scan_File, m: ^odinsema.Scope_Map) {
+    b := s.batch
+    for ref in m.refs {
+        indices, found := b.names[ref.name]
+        if !found {
+            continue
+        }
+        for i in indices {
+            t := b.targets[i]
+            switch b.reach {
+            case .Buffer:
+            case .Package:
+                if t.visibility == .File {
+                    continue
+                }
+            case .Importer:
+                if t.visibility != .Public {
+                    continue
+                }
+            }
+            s.target = t
+            if hit, is_decl := classify(s, f, m, ref); hit && !is_decl {
+                b.counts[i] += 1
+            }
+        }
+    }
+}
+
+// True when the source spells an identifier that is a key of `names`.
+@(private = "file")
+mentions_any :: proc(source: string, names: map[string][dynamic]int) -> bool {
+    start := -1
+    for i in 0 ..= len(source) {
+        c: u8 = i < len(source) ? source[i] : 0
+        word := c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c >= 0x80
+        if word {
+            if start < 0 {
+                start = i
+            }
+        } else if start >= 0 {
+            if source[start:i] in names {
+                return true
+            }
+            start = -1
+        }
+    }
+    return false
 }
 
 // Hands the hits of one file to `s.visit`.

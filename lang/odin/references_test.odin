@@ -799,3 +799,39 @@ test_references_using_bare_name :: proc(t: ^testing.T) {
     testing.expectf(t, renamed.ok && len(renamed.edits) == 4, "rename: got %d edits, want 4", len(renamed.edits))
     free_edits(&renamed)
 }
+
+// One batched lens request counts as a References request per declaration does, over the buffer,
+// the sibling files and the importers, and a file-private name stays in its file.
+@(test)
+test_code_lens_matches_references :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    main_src := "package app\n\nshared :: proc(n: int) -> int {\n\treturn n\n}\n\n@(private = \"file\")\nhid :: proc() {}\n\nrun :: proc() {\n\t_ = shared(1)\n\thid()\n}\n"
+    root := fixture(t, "lens_matches_refs", {
+        {"zapp/helper.odin", "package app\n\nagain :: proc() -> int {\n\thid()\n\treturn shared(2)\n}\n"},
+        {"alib/uses_app.odin", USES_APP_SRC},
+    })
+    defer os.remove_all(root)
+    main_path := fixture_path(root, "zapp/main.odin")
+
+    req := lang.Request{kind = .Code_Lens, path = main_path, ext = ".odin", source = main_src, workspace = root}
+    res := lang.Result{kind = .Code_Lens}
+    resolve(e, &req, &res)
+    defer delete(res.lenses)
+    testing.expect_value(t, len(res.lenses), 3)
+
+    counts := map[string]int{}
+    defer delete(counts)
+    for l in res.lenses {
+        name := main_src[l.start:l.end]
+        counts[name] = l.count
+        refs := refs_at(e, main_src, strings.concatenate({name, " ::"}, context.temp_allocator), root, main_path)
+        want := len(refs.symbols)
+        free_refs(&refs)
+        testing.expectf(t, l.count == want, "%s: lens %d, references %d", name, l.count, want)
+    }
+    testing.expect_value(t, counts["shared"], 3)
+    testing.expect_value(t, counts["hid"], 1)
+    testing.expect_value(t, counts["run"], 0)
+}

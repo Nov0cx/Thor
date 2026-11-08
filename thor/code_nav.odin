@@ -30,7 +30,7 @@ Nav_State :: struct {
     lens_source:     string, // owned; the text it was computed over
 }
 
-// The reference counts of one file, as inlays after the declaration names.
+// The reference counts of one file, as lens rows above the declaration lines.
 File_Lens :: struct {
     items:         [dynamic]editview.Inlay, // owned labels
     source:        string,                  // owned; the text `items` were computed over
@@ -40,7 +40,6 @@ File_Lens :: struct {
     view:          [dynamic]editview.Inlay, // `items` rebased onto the live text; labels borrowed
     view_revision: u64,
     view_valid:    bool,
-    merged:        [dynamic]editview.Inlay, // `view` and the file's own inlays by offset; labels borrowed
 }
 
 thor_cmd_incoming_calls :: proc(data: rawptr) {
@@ -232,16 +231,16 @@ thor_nav_destroy :: proc(thor: ^Thor) {
     delete(nav.lens_source)
 }
 
-// Pushes the reference counts of the file onto its editor: asks for them when the text moved on,
-// and merges them with the file's inlay hints by offset.
+// The reference counts of the file for its editor's lens rows, at the offsets of the declaration
+// names: asks for them when the text moved on. Borrowed; empty when lenses are off.
 thor_lens_view :: proc(thor: ^Thor, file: ^Open_File) -> []editview.Inlay {
     if !thor.nav.lens_on {
-        return file.inlay_view[:]
+        return nil
     }
     thor_request_lens(thor, file)
     lens := &file.lens
     if !lens.ready || len(lens.items) == 0 {
-        return file.inlay_view[:]
+        return nil
     }
     if !lens.view_valid || lens.view_revision != file.state.revision {
         clear(&lens.view)
@@ -254,18 +253,7 @@ thor_lens_view :: proc(thor: ^Thor, file: ^Open_File) -> []editview.Inlay {
             thor_rebase_inlays(&lens.view, lens.items[:], lens.source, source)
         }
     }
-    clear(&lens.merged)
-    hints := file.inlay_view[:]
-    i := 0
-    for l in lens.view {
-        for i < len(hints) && hints[i].offset <= l.offset {
-            append(&lens.merged, hints[i])
-            i += 1
-        }
-        append(&lens.merged, l)
-    }
-    append(&lens.merged, ..hints[i:])
-    return lens.merged[:]
+    return lens.view[:]
 }
 
 @(private = "file")
@@ -322,7 +310,7 @@ thor_on_lens :: proc(thor: ^Thor, res: ^lang.Result) {
     thor_clear_file_lens(file)
     for l in res.lenses {
         label := l.count == 1 ? strings.clone("1 reference") : fmt.aprintf("%d references", l.count)
-        append(&file.lens.items, editview.Inlay{offset = l.end, label = label, parameter = true, pad_left = true})
+        append(&file.lens.items, editview.Inlay{offset = l.start, label = label, parameter = true})
     }
     file.lens.source = source
     file.lens.ready = true
@@ -336,7 +324,6 @@ thor_clear_file_lens :: proc(file: ^Open_File) {
     }
     clear(&lens.items)
     clear(&lens.view)
-    clear(&lens.merged)
     delete(lens.source)
     lens.source = ""
     lens.ready = false
@@ -349,7 +336,6 @@ thor_destroy_file_lens :: proc(file: ^Open_File) {
     thor_clear_file_lens(file)
     delete(file.lens.items)
     delete(file.lens.view)
-    delete(file.lens.merged)
 }
 
 // Drops the slot of a lens request that will never land.

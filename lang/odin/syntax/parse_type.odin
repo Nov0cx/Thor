@@ -49,7 +49,7 @@ parse_proc_operand :: proc(p: ^Parser) -> Expr {
         p.in_proc -= 1
     case .Do:
         p.in_proc += 1
-        parse_do_body(p)
+        parse_do_body(p, true)
         p.in_proc -= 1
         wrap_range(p, cp, nested_end(p, cp), .Proc_Lit)
         return {kind = .Proc_Lit}

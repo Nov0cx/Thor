@@ -116,6 +116,11 @@ parse_stmt :: proc(p: ^Parser, start := -1) -> Syntax_Kind {
         }
         return kind
 
+    case .File_Tag:
+        error_here(p, .Late_File_Tag)
+        bump_error(p, force = true)
+        return .Error
+
     case .Foreign: return parse_foreign_decl(p, start)
     case .Import:  return parse_import_decl(p, start)
     case .If:      return parse_if_stmt(p, start)
@@ -577,11 +582,14 @@ parse_block_stmt :: proc(p: ^Parser, is_when: bool) {
     parse_body(p)
 }
 
-// `do` and one statement.
+// `do` and one statement. A procedure body is reported at its statement, as the compiler does.
 @(private)
-parse_do_body :: proc(p: ^Parser) {
+parse_do_body :: proc(p: ^Parser, proc_body := false) {
     cp := mark(p)
     bump(p)
+    if proc_body {
+        error_here(p, .Do_Body)
+    }
     #partial switch at(p) {
     case .Open_Brace, .Semicolon:
         error_here(p, .Expected_Stmt)

@@ -1507,3 +1507,48 @@ test_zone_follows_edits :: proc(t: ^testing.T) {
     _, ok = editor_zone_line(&editor)
     testing.expect(t, !ok, "deleting the line drops the zone")
 }
+
+// A lens opens one row above its line that no offset maps to, and the zone ignores it.
+@(test)
+test_lens_rows :: proc(t: ^testing.T) {
+    state: textedit.State
+    defer textedit.destroy(&state)
+    editor: Editor
+    editor_test_overlay_setup(&editor, &state, "ab\ncd\nef")
+    defer delete(editor.visual_rows)
+    defer delete(editor.lens_offsets)
+
+    lenses := [?]Inlay{{offset = 3, label = "1 reference"}, {offset = 4, label = "dup"}, {offset = 6, label = "no references"}}
+    editor_set_lenses(&editor, lenses[:])
+    editor_ensure_visual_rows(&editor)
+    testing.expect_value(t, len(editor.visual_rows), 5)
+    testing.expect(t, editor.visual_rows[1].lens && editor.visual_rows[1].spacer)
+    testing.expect(t, editor.visual_rows[3].lens)
+    testing.expect_value(t, editor.visual_rows[2].start, 3)
+    testing.expect(t, editor.visual_rows[2].first)
+    lens, has := editor_row_lens(&editor, editor.visual_rows[1])
+    testing.expect(t, has)
+    testing.expect_value(t, lens.label, "1 reference")
+    _, has = editor_row_lens(&editor, editor.visual_rows[0])
+    testing.expect(t, !has)
+
+    testing.expect_value(t, editor_visual_row_index(&editor, 3), 2)
+    at, hit := editor_pos_at(&editor, editor_test_row_point(&editor, 1))
+    testing.expect(t, hit)
+    testing.expect_value(t, at, 3)
+
+    textedit.set_single_cursor(&state, 1)
+    editor_move_visual(&editor, 1, false)
+    testing.expect_value(t, textedit.primary_cursor(&state).caret, 4)
+
+    editor_set_zone(&editor, 0, 1)
+    editor_ensure_visual_rows(&editor)
+    rect, zone := editor_zone_rect(&editor)
+    testing.expect(t, zone)
+    testing.expect_value(t, rect.y, editor.view.y + cast(f32) font.line_height(editor.font_size))
+
+    editor_clear_zone(&editor)
+    editor_set_lenses(&editor, nil)
+    editor_ensure_visual_rows(&editor)
+    testing.expect_value(t, len(editor.visual_rows), 3)
+}
