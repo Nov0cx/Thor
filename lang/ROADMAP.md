@@ -2875,15 +2875,17 @@ not a status, so this section stays the source of truth for what is built.
   - **Bench:** `build.odin -- bench [-strict]` times parse, reparse, diagnostics
     and completion with the release flags; a measure over budget is a log
     warning, an error with `-strict`.
-  - **Known gaps:** live diagnostics take about 130 ms against the 50 ms budget.
-    The save's `odin check` gets no `-target` or `-define` from the analyzer
-    config. There is no Problems panel. `nil/deref` misses `p[i]`, field
-    procedures and narrowing. The lens count costs declarations x files per
-    request. Reference counts show inline, not above the line.
+  - **Known gaps:** a cold first request still takes several hundred ms; warm
+    live diagnostics take about 32 ms against the 50 ms budget. Not reported:
+    an error inside a polymorphic body for one instance (the compiler repeats it
+    per instance), float constants the compiler prints as source text
+    (`3.0 / 2`), parenthesised or hex float literals, unknown struct tags (the
+    compiler accepts them). `nil/deref` does not follow array elements. The
+    Problems panel (`thor/problems.odin`) lists open files and the stored
+    diagnostics of the other files of the checked packages.
 - **Formatter** (`lang/odin/format`, M2 end): prints from the `odinsyntax`
   tree; `core:odin/parser` is used only by tests. `tree.odin` builds the line
   index and the comment groups in one walk. Over every `.odin` file in the
   repo under four option sets, the output equals the old printer's except a
   block comment between `->` and a single result type, which now stays there.
-- **Not yet (syntax):** some compiler-only checks are not reported (`do`
-  procedure bodies, unknown struct tags, `#+` tags after `package`).
+- **Syntax:** `do` procedure bodies and `#+` tags after `package` are reported.

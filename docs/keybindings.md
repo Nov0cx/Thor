@@ -45,7 +45,8 @@ Every binding below is a default and can be changed in `keybinds.lua`
 | ctrl + hover | show the declaration of the symbol under the mouse |
 | ctrl + shift + u | code actions: the fixes available at the caret, in a picker (on the lines of the selection for Odin, scoped to the selection on a language-server-backed file) |
 | (unbound) | the palette commands "Show Incoming Calls", "Show Outgoing Calls", "Show Supertypes", "Show Subtypes" and "Go to Implementations" list the callers, callees, parent types, child types or implementations of the symbol at the caret in a picker; bind them under `actions` in `user/keybinds.lua` (`incoming_calls`, `outgoing_calls`, `supertypes`, `subtypes`, `goto_implementations`) |
-| (unbound) | "View: Toggle Reference Counts" (`toggle_code_lens`) shows how many uses each declaration of the file has |
+| (unbound) | "View: Toggle Reference Counts" (`toggle_code_lens`) shows how many uses each declaration of the file has, in a row above the declaration |
+| ctrl + shift + m | the Problems panel (`open_problems`, "View: Problems"): the diagnostics of the open files and of the other files of the checked packages, by file; click one to jump to it |
 | ctrl + f | find |
 | ctrl + shift + f | find in files |
 | ctrl + r | rename the symbol under the caret across every file that uses it; falls back to find & replace when the caret is not on a renameable symbol |

@@ -47,8 +47,9 @@ and `api/ignored-error` are live as hints, and so are `mem/dangling-slice`, `mem
 Also landed: call and type hierarchy, implementations, selection range, code lens reference counts,
 postfix completions, semantic token modifiers with inactive `when` ranges, `vet/cast`, `nil/deref`,
 a dropped `ok`, opt-in `vet/unused-procedure`, `vet/style`, `vet/semicolon` and `vet/tabs`, package
-live diagnostics, diagnostics telemetry and `build.odin -- bench`. Open: live diagnostics at about
-130 ms against the 50 ms budget, no `-target`/`-define` on the save's `odin check`, no Problems panel.
+live diagnostics, diagnostics telemetry and `build.odin -- bench`. Live diagnostics run at about 32 ms, the save's
+`odin check` takes `-target`/`-define` and the Problems panel lists them. Open: the formatter (section 12) and
+the polymorphic-instance errors in ROADMAP "Known gaps".
 `lang/ROADMAP.md` ("Next engine") tracks the rest. Section 11 lists the
 feature questions whose answers change the plan.
 

@@ -1,5 +1,14 @@
 # 2026.11.0
 
+- Odin: live diagnostics are about four times faster (about 30 ms for a typical file).
+- Odin: the `odin check` after a save gets `-target` and `-define` from `target` and `defines` in `.thor/odin-analyzer.lua`.
+- Problems panel: ctrl + shift + m or "View: Problems" lists the diagnostics of open files and of the other files of the checked packages, by file. Click one to jump to it.
+- Odin: reference counts show in a row above the declaration and cost less to compute.
+- Odin: `do` as a procedure body and a `#+` tag after the `package` line are marked while typing.
+- Odin: an ambiguous procedure group call, a float literal an integer type truncates, and a float literal a float type cannot hold are marked while typing.
+- Odin: `const/overflow` also covers `+`, `-` and `*` on typed constants, and a call that returns nothing used as a value is marked.
+- Odin: `nil/deref` follows `if p == nil` branches, field procedures and `[^]T` locals. `mem/temp-escape` follows later assignments, calls that return an argument and field stores. `api/fmt-verbs` sees user formatters registered in other files.
+- Odin: quick fixes for the compiler's "procedure parameter" and "redeclaration" errors.
 - Odin: three opt-in hints follow `make`, `new` and `strings.clone` results: an allocation a path neither frees nor hands on (`mem/leak`), a double free (`mem/double-free`) and a use after free (`mem/use-after-free`). Set the id in `diagnostics` to turn one on.
 - The line number gutter is narrow again: it has room for 3 digits and widens only for a longer line count. The fold arrows sit in its left margin.
 - Plugins and themes are checked for updates. A `manifest.lua` or theme file with `version` and `source = "owner/repo"` updates from the latest GitHub release. A plugin folder or `user/themes/` that is a git clone updates from its upstream.

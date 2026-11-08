@@ -391,8 +391,10 @@ its root, layered on top of the global settings above. This repository's own
   `haiku`, `wasi`, `js`, `orca`, `freestanding`; `arch` one of `amd64`, `i386`,
   `arm32`, `arm64`, `wasm32`, `wasm64p32`, `riscv64`. A define value is a
   boolean, an integer or a string. A define named like a build constant
-  (`ODIN_TEST`, `ODIN_DEBUG`) sets that constant. A bad value is logged and
-  ignored.
+  (`ODIN_TEST`, `ODIN_DEBUG`) sets that constant for the live analysis. The
+  `odin check` after a save gets the same `-target` and `-define` flags, except
+  the defines named `ODIN_*`. A bad value, or an `os`/`arch` pair that is not a
+  compiler target, is logged and ignored.
 
   `diagnostics` sets what each live diagnostic id is in this workspace:
   `"off"` hides it, `"hint"`, `"warning"` and `"error"` set its severity. A
