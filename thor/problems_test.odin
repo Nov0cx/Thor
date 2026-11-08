@@ -3,6 +3,7 @@ package thor
 import "core:testing"
 
 import "../editview"
+import "../lang"
 import "../textedit"
 
 @(private = "file")
@@ -78,4 +79,75 @@ test_problems_toggle_restores_focus :: proc(t: ^testing.T) {
     thor_cmd_open_problems(&thor)
     testing.expect(t, !thor.problems_open)
     testing.expect_value(t, thor.focus_request, "pane1")
+}
+
+@(private = "file")
+closed_report :: proc(scope: string, items: []lang.Diagnostic) -> lang.Result {
+    res := lang.Result {kind = .Diagnostics, ok = true}
+    res.report.scope = scope
+    res.report.items = make([dynamic]lang.Diagnostic)
+    for d in items {
+        append(&res.report.items, d)
+    }
+    return res
+}
+
+// A report keeps the problems of files that are not open, and a newer report of the scope replaces them.
+@(test)
+test_problem_groups_list_closed_files :: proc(t: ^testing.T) {
+    thor: Thor
+    thor.open_files = make([dynamic]^Open_File)
+    defer delete(thor.open_files)
+    defer thor_package_problems_destroy(&thor)
+
+    open := problems_file("pkg/a.odin", "x\n", {{start = 0, line = 0, severity = .Hint, message = "open"}})
+    defer problems_file_destroy(open)
+    append(&thor.open_files, open)
+
+    res := closed_report("pkg", {
+        {path = "pkg/a.odin", line = 1, col = 1, severity = .Error, message = "dup"},
+        {path = "pkg/z.odin", line = 3, col = 2, severity = .Error, message = "late", code = "id"},
+        {path = "pkg/z.odin", line = 1, col = 5, severity = .Warning, message = "early"},
+        {path = "pkg/b.odin", line = 2, col = 1, severity = .Error, message = "b"},
+    })
+    defer delete(res.report.items)
+    thor_package_problems_store(&thor, &res)
+    testing.expect_value(t, len(thor.package_problems), 3)
+
+    groups := thor_problem_groups(&thor)
+    testing.expect_value(t, len(groups), 3)
+    testing.expect_value(t, groups[0].path, "pkg/a.odin")
+    testing.expect_value(t, groups[0].problems[0].message, "open")
+    testing.expect_value(t, groups[1].path, "pkg/b.odin")
+    testing.expect_value(t, groups[2].path, "pkg/z.odin")
+    testing.expect_value(t, groups[2].problems[0].message, "early")
+    testing.expect_value(t, groups[2].problems[0].offset, -1)
+    testing.expect_value(t, groups[2].problems[0].col, 5)
+    testing.expect_value(t, groups[2].problems[1].line, 2)
+    testing.expect_value(t, problem_count(groups, .Error), 2)
+
+    // The package is clean now.
+    clean := closed_report("pkg", nil)
+    defer delete(clean.report.items)
+    thor_package_problems_store(&thor, &clean)
+    testing.expect_value(t, len(thor.package_problems), 0)
+    testing.expect_value(t, len(thor_problem_groups(&thor)), 1)
+}
+
+// A report of one package leaves the stored problems of another alone, and clear drops all.
+@(test)
+test_package_problems_scope_and_clear :: proc(t: ^testing.T) {
+    thor: Thor
+    defer thor_package_problems_destroy(&thor)
+
+    one := closed_report("p1", {{path = "p1/a.odin", line = 1, col = 1, message = "one"}})
+    defer delete(one.report.items)
+    two := closed_report("p2", {{path = "p2/a.odin", line = 1, col = 1, message = "two"}})
+    defer delete(two.report.items)
+    thor_package_problems_store(&thor, &one)
+    thor_package_problems_store(&thor, &two)
+    thor_package_problems_store(&thor, &one)
+    testing.expect_value(t, len(thor.package_problems), 2)
+    thor_package_problems_clear(&thor)
+    testing.expect_value(t, len(thor.package_problems), 0)
 }

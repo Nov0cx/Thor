@@ -56,6 +56,7 @@ thor_apply_diagnostics :: proc(thor: ^Thor, res: ^lang.Result) {
             thor_clear_file_diagnostics(file)
         }
     }
+    thor_package_problems_store(thor, res)
     for d in res.report.items {
         thor_apply_diagnostic(thor, d, res.revision)
     }
@@ -260,7 +261,6 @@ thor_file_live_diagnostics :: proc(file: ^Open_File) -> []editview.Diagnostic {
 
 // The seam's severity as the editor's. Both carry the same levels; the split
 // is what keeps the language layer free of widget types.
-@(private = "file")
 editor_severity :: proc(severity: lang.Diagnostic_Severity) -> editview.Diagnostic_Severity {
     switch severity {
     case .Error:   return .Error

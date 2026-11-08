@@ -9,6 +9,7 @@ import "base:runtime"
 import "core:path/filepath"
 import "core:slice"
 import "core:strings"
+import "core:sync"
 
 import lang ".."
 import odinsema "sema"
@@ -501,6 +502,9 @@ scan_disk_file :: proc(s: ^Ref_Scan, id: odinsema.File_Id) {
     }
     runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
     snap := &s.ctx.snap
+    if s.batch != nil && count_cached_file(s, id) {
+        return
+    }
     parsed := odinsema.db_parse(snap, id)
     defer odinsema.db_parse_release(snap, parsed)
     if parsed == nil || parsed.tree == nil {
@@ -543,6 +547,9 @@ scan_file :: proc(s: ^Ref_Scan, f: ^Scan_File) {
     defer odinsema.scope_map_destroy(m)
     if s.batch != nil {
         count_file(s, f, m)
+        if f.id != s.ctx.live.id {
+            count_cache_store(s, f, m)
+        }
         return
     }
     offsets := make([dynamic]int, context.temp_allocator)
@@ -587,6 +594,83 @@ count_file :: proc(s: ^Ref_Scan, f: ^Scan_File, m: ^odinsema.Scope_Map) {
             }
         }
     }
+}
+
+// Stores the name counts of a disk file scanned for a batch, unless the cache holds them.
+@(private = "file")
+count_cache_store :: proc(s: ^Ref_Scan, f: ^Scan_File, m: ^odinsema.Scope_Map) {
+    data := odinsema.db_file(&s.ctx.snap, f.id)
+    if data == nil {
+        return
+    }
+    fc := file_counts_build(m, data.changed_at)
+    c := &s.ctx.e.counts
+    sync.guard(&c.mutex)
+    c.builds += 1
+    count_cache_put(c, f.key, fc)
+}
+
+// Adds the counts a cache entry holds for a disk file to the batch. False when the entry is
+// missing or older than the file, so the caller scans the file.
+@(private = "file")
+count_cached_file :: proc(s: ^Ref_Scan, id: odinsema.File_Id) -> bool {
+    snap := &s.ctx.snap
+    data := odinsema.db_file(snap, id)
+    if data == nil {
+        return false
+    }
+    key := odinsema.db_file_key(snap, id)
+    path := odinsema.db_file_path(snap, id)
+    dir := filepath.dir(path)
+    f := Scan_File {
+        id      = id,
+        path    = path,
+        key     = key,
+        dir     = dir,
+        dir_key = odinsema.path_key(dir),
+        tree    = data.tree,
+    }
+    c := &s.ctx.e.counts
+    sync.guard(&c.mutex)
+    fc, found := &c.files[key]
+    if !found || fc.changed_at != data.changed_at {
+        return false
+    }
+    b := s.batch
+    for name, indices in b.names {
+        entry, has := fc.names[name]
+        if !has {
+            continue
+        }
+        for i in indices {
+            t := b.targets[i]
+            switch b.reach {
+            case .Buffer:
+            case .Package:
+                if t.visibility == .File {
+                    continue
+                }
+            case .Importer:
+                if t.visibility != .Public {
+                    continue
+                }
+            }
+            s.target = t
+            if f.dir_key == s.dir_key {
+                if !shadowed(s, &f) {
+                    b.counts[i] += entry.free
+                }
+                continue
+            }
+            for alias, n in entry.qualified {
+                imp, is_import := file_import(s, &f, alias)
+                if is_import && imp.exists && odinsema.path_key(imp.dir) == s.dir_key {
+                    b.counts[i] += n
+                }
+            }
+        }
+    }
+    return true
 }
 
 // True when the source spells an identifier that is a key of `names`.

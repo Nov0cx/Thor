@@ -18,6 +18,7 @@ Engine :: struct {
     root:          Odin_Root,
     tree_cache:    Tree_Cache_File,
     packages:      Package_Index, // the packages completion offers to import
+    counts:        Count_Cache,   // identifier counts of disk files; see count_cache.odin
     // One compiler run at a time (see check_package). Atomic.
     checking:      bool,
     // Settings-driven admin gate; main thread only.
@@ -208,5 +209,6 @@ engine_destroy :: proc(data: rawptr) {
     odinsema.db_destroy(&e.db)
     odin_root_clear(&e.root)
     package_index_destroy(&e.packages)
+    count_cache_destroy(&e.counts)
     free(e)
 }

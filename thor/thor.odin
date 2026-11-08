@@ -44,6 +44,7 @@ Thor :: struct {
     git_open: bool,
     problems_open: bool,
     problems: Problems_View, // see problems.odin
+    package_problems: [dynamic]Package_Problem, // owned; diagnostics of files that are not open
     // The git modal's own lists, diff and commit box; see git_view.odin.
     git: Git_View,
     theme_editor_open: bool,
@@ -1072,6 +1073,7 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.plugin_commands)
     delete(thor.app_binds)
     thor_clear_git_status(thor)
+    thor_package_problems_destroy(thor)
     delete(thor.workspace_dir)
     delete(thor.workspace_prefix)
     delete(thor.dock_layout)
