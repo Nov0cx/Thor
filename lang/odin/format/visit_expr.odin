@@ -358,6 +358,7 @@ print_comp_lit_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, ks: []Node) {
     }
     append(out, text("{"))
     assign_field_value_align_ids(pr, elems)
+    assign_comment_cols(pr, elems)
     body: [dynamic]Doc
     prev_line := open_line
     has_prev := true

@@ -91,6 +91,7 @@ format_window :: proc(source: string, lo, hi: int, opts: Options, allocator := c
 
     // A run aligns as one, so a declaration in it is printed with the whole run.
     assign_decl_align_ids(&pr, decls)
+    assign_comment_cols(&pr, decls)
     for first > 0 && same_run(&pr, decls[first - 1], decls[first]) {
         first -= 1
     }
@@ -98,6 +99,7 @@ format_window :: proc(source: string, lo, hi: int, opts: Options, allocator := c
         last += 1
     }
     clear(&pr.align_ids)
+    clear(&pr.comment_cols)
 
     start := decls[first].start
     end := decls[last].end
@@ -106,7 +108,14 @@ format_window :: proc(source: string, lo, hi: int, opts: Options, allocator := c
     }
 
     body: [dynamic]Doc
-    print_stmt_list(&pr, &body, decls[first:last + 1], 0, false)
+    last_line, _ := print_stmt_list(&pr, &body, decls[first:last + 1], 0, false)
+    // The last declaration's trailing comment is part of its comment column.
+    taken := pr.comment_idx
+    flush_trailing(&pr, &body, last_line)
+    if pr.comment_idx > taken {
+        tail := pr.comments[pr.comment_idx - 1].list
+        end = tail[len(tail) - 1].start + len(tail[len(tail) - 1].text)
+    }
     if pr.too_deep {
         return "", false
     }
@@ -142,7 +151,11 @@ parse_source :: proc(pr: ^Printer, source: string, opts: Options) -> (parsed: sy
 same_run :: proc(pr: ^Printer, a, b: Node) -> bool {
     ca, aok := pr.align_ids[align_key(a)]
     cb, bok := pr.align_ids[align_key(b)]
-    return aok && bok && ca.head == cb.head
+    if aok && bok && ca.head == cb.head {
+        return true
+    }
+    ia := pr.comment_cols[end_line(pr, a)]
+    return ia != 0 && ia == pr.comment_cols[end_line(pr, b)]
 }
 
 // Whether the brackets in `source` stay inside MAX_NESTING.

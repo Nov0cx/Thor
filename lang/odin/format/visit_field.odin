@@ -187,6 +187,7 @@ assign_field_align_ids :: proc(pr: ^Printer, fields: []Node) {
 @(private)
 print_field_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, open_line, close_line: int, fields: []Node) {
     assign_field_align_ids(pr, fields)
+    assign_comment_cols(pr, fields)
     append(out, text("{"))
     if len(fields) == 0 {
         body: [dynamic]Doc
@@ -264,6 +265,7 @@ is_flat_field_value :: proc(pr: ^Printer, ex: Node) -> bool {
 @(private)
 print_expr_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, close_line: int, exprs: []Node) {
     assign_field_value_align_ids(pr, exprs)
+    assign_comment_cols(pr, exprs)
     append(out, text("{"))
     if len(exprs) == 0 {
         body: [dynamic]Doc
@@ -373,6 +375,7 @@ assign_bit_field_align_ids :: proc(pr: ^Printer, fields: []Node) {
 @(private)
 print_bit_field_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, close_line: int, fields: []Node) {
     assign_bit_field_align_ids(pr, fields)
+    assign_comment_cols(pr, fields)
     append(out, text("{"))
     if len(fields) == 0 {
         body: [dynamic]Doc

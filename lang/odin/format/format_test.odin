@@ -1156,3 +1156,61 @@ test_comments_inside_lists_stay_in_place :: proc(t: ^testing.T) {
         testing.expect_value(t, again, out)
     }
 }
+
+@(test)
+test_comment_column_over_aligned_fields :: proc(t: ^testing.T) {
+    opts := default_options()
+    opts.tabs = false
+    src := "package p\nS :: struct {\n    a: int, // c1\n    bbbbbb: i8, // c2\n    c: f32,\n}\n"
+    out, ok := format(src, opts)
+    defer delete(out)
+    testing.expect(t, ok)
+    want := "package p\nS :: struct {\n    a:      int,  // c1\n    bbbbbb: i8,   // c2\n    c:      f32,\n}\n"
+    testing.expect_value(t, out, want)
+}
+
+@(test)
+test_comment_column_enum_and_off :: proc(t: ^testing.T) {
+    opts := default_options()
+    opts.tabs = false
+    src := "package p\nE :: enum {\n    A, // x\n    Longer, // y\n}\n"
+    out, ok := format(src, opts)
+    defer delete(out)
+    testing.expect(t, ok)
+    testing.expect_value(t, out, "package p\nE :: enum {\n    A,       // x\n    Longer,  // y\n}\n")
+    opts.align_comments = false
+    out2, ok2 := format(src, opts)
+    defer delete(out2)
+    testing.expect(t, ok2)
+    testing.expect_value(t, out2, "package p\nE :: enum {\n    A,  // x\n    Longer,  // y\n}\n")
+}
+
+@(test)
+test_comment_column_case_and_decls :: proc(t: ^testing.T) {
+    opts := default_options()
+    opts.tabs = false
+    src := "package p\nA :: 1 // one\nLONGER :: 2 // two\n\nf :: proc(x: int) {\n    switch x {\n    case 1: // a\n    case 22222: // b\n    }\n}\n"
+    out, ok := format(src, opts)
+    defer delete(out)
+    testing.expect(t, ok)
+    testing.expect(t, strings.contains(out, "A      :: 1  // one\nLONGER :: 2  // two\n"), out)
+    testing.expect(t, strings.contains(out, "case 1:      // a\n        case 22222:  // b\n"), out)
+    out2, ok2 := format(out, opts)
+    defer delete(out2)
+    testing.expect(t, ok2 && out2 == out, out2)
+}
+
+@(test)
+test_format_window_matches_full_with_comment_runs :: proc(t: ^testing.T) {
+    opts := default_options()
+    opts.tabs = false
+    src := "package p\n\nA :: 1 // one\nLONGER :: 2 // two\n\nZ :: 3\n"
+    full, ok := format(src, opts)
+    defer delete(full)
+    testing.expect(t, ok)
+    lo := strings.index(src, "A ::")
+    win, ok2 := format_window(src, lo, lo + 1, opts)
+    defer delete(win)
+    testing.expect(t, ok2)
+    testing.expect_value(t, win, full)
+}

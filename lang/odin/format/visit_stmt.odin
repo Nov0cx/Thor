@@ -21,6 +21,7 @@ print_brace_body :: proc(
     extra_indent: bool,
 ) {
     assign_decl_align_ids(pr, stmts)
+    assign_comment_cols(pr, stmts)
     append(out, text("{"))
     body: [dynamic]Doc
     prev_line := open_line
@@ -271,6 +272,7 @@ print_stmt_list :: proc(
     had_prev: bool,
 ) {
     assign_decl_align_ids(pr, stmts)
+    assign_comment_cols(pr, stmts)
     last_line = prev_line
     had_prev = has_prev
     for i := 0; i < len(stmts); {

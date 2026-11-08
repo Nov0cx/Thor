@@ -22,7 +22,8 @@ Printer :: struct {
     comment_idx:   int,
     next_align_id: int,
     align_ids:     map[u64]Align_Cell,
-    depth:         int,
+    comment_cols:  map[int]int, // source line of an item -> column stop of its trailing comment
+    depth:        int,
     too_deep:      bool, // the printer went past MAX_DEPTH; the output is not used
 }
 
@@ -74,6 +75,75 @@ same_align_run :: proc(pr: ^Printer, prev_end_line, next_start_line: int) -> boo
     return expect == next_start_line
 }
 
+// Whether `n` sits on one line and a comment follows it there.
+@(private)
+has_trailing_comment :: proc(pr: ^Printer, n: Node) -> bool {
+    ln := end_line(pr, n)
+    if start_line(pr, n) != ln {
+        return false
+    }
+    // First comment group on `ln` or later; the groups are sorted by line.
+    lo, hi := 0, len(pr.comments)
+    for lo < hi {
+        mid := (lo + hi) / 2
+        if pr.comments[mid].line < ln {
+            lo = mid + 1
+        } else {
+            hi = mid
+        }
+    }
+    return lo < len(pr.comments) && pr.comments[lo].line == ln && pr.comments[lo].start >= n.end
+}
+
+// Whether a trailing comment of `n` joins a comment column.
+@(private)
+comment_alignable :: proc(pr: ^Printer, n: Node) -> bool {
+    #partial switch n.kind {
+    case .Case_Clause:
+        if !pr.opts.align_case_comments {
+            return false
+        }
+    case .Value_Decl:
+        if !pr.opts.align_comments {
+            return false
+        }
+    case:
+        if !pr.opts.align_comments || is_stmt(n) {
+            return false
+        }
+    }
+    return has_trailing_comment(pr, n)
+}
+
+// One column stop per maximal run of two or more adjacent single-line items that
+// each end in a trailing comment, so those comments start in one column. Runs
+// are decided before any item is emitted, as for the align cells.
+@(private)
+assign_comment_cols :: proc(pr: ^Printer, items: []Node) {
+    if !pr.opts.align_comments && !pr.opts.align_case_comments {
+        return
+    }
+    for i := 0; i < len(items); {
+        if !comment_alignable(pr, items[i]) {
+            i += 1
+            continue
+        }
+        end := i + 1
+        for end < len(items) &&
+            comment_alignable(pr, items[end]) &&
+            same_align_run(pr, end_line(pr, items[end - 1]), start_line(pr, items[end])) {
+            end += 1
+        }
+        if end - i >= 2 {
+            id := next_align(pr)
+            for it in items[i:end] {
+                pr.comment_cols[end_line(pr, it)] = id
+            }
+        }
+        i = end
+    }
+}
+
 // blanks between two lines that are `gap` apart (gap = next.line - prev.line),
 // clamped by the caller's newline_limit at render time — this just turns a
 // line gap into "how many blank lines sit between them", never negative.
@@ -114,6 +184,9 @@ flush_trailing :: proc(pr: ^Printer, out: ^[dynamic]Doc, line: int) -> int {
         cg := pr.comments[pr.comment_idx]
         if cg.line != last_line {
             break
+        }
+        if id := pr.comment_cols[last_line]; id != 0 && last_line == line {
+            append(out, col(id))
         }
         append(out, text("  "))
         comment_group_text(pr, cg, out)
