@@ -34,6 +34,7 @@ engine_set_cache_dir :: proc(e: ^Engine, dir: string) {
     sync.guard(&c.mutex)
     tree_cache_clear(c)
     c.dir = strings.clone(dir, c.alloc)
+    odin_root_set_cache_dir(&e.root, dir)
 }
 
 @(private)

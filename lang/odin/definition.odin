@@ -4,6 +4,8 @@
 package odin
 
 import "base:runtime"
+import "core:fmt"
+import "core:log"
 import "core:os"
 import "core:path/filepath"
 import "core:slice"
@@ -12,6 +14,7 @@ import "core:sync"
 import "core:time"
 
 import lang ".."
+import "../../atomicfile"
 import "../../shell"
 import odinsema "sema"
 
@@ -21,6 +24,7 @@ Odin_Root :: struct {
     state: sync.Futex, // ROOT_UNKNOWN, ROOT_FINDING or ROOT_KNOWN
     alloc: runtime.Allocator,
     path:  string, // owned; "" when not found. Read only after state is ROOT_KNOWN
+    cache_dir: string, // owned; "" when the root cache is off. Set before the first request
 }
 
 @(private)
@@ -510,7 +514,7 @@ odin_root :: proc(r: ^Odin_Root) -> string {
             sync.futex_wait(&r.state, ROOT_FINDING)
         case:
             if _, won := sync.atomic_compare_exchange_strong(&r.state, ROOT_UNKNOWN, ROOT_FINDING); won {
-                r.path = strings.clone(odin_root_find(), r.alloc)
+                r.path = strings.clone(odin_root_find(r.cache_dir), r.alloc)
                 sync.atomic_store_explicit(&r.state, ROOT_KNOWN, .Release)
                 sync.futex_broadcast(&r.state)
             }
@@ -518,10 +522,17 @@ odin_root :: proc(r: ^Odin_Root) -> string {
     }
 }
 
-@(private = "file")
-odin_root_find :: proc() -> string {
+@(private)
+odin_root_find :: proc(cache_dir: string) -> string {
     if v, found := os.lookup_env("ODIN_ROOT", context.temp_allocator); found {
         if root := root_trim(v); root != "" && os.is_dir(root) {
+            return root
+        }
+    }
+    key := root_cache_key()
+    file := root_cache_file(cache_dir)
+    if key != "" && file != "" {
+        if root := root_cache_read(file, key); root != "" {
             return root
         }
     }
@@ -529,6 +540,9 @@ odin_root_find :: proc() -> string {
     defer delete(output)
     if ran && code == 0 {
         if root := root_trim(output); root != "" && os.is_dir(root) {
+            if key != "" && file != "" {
+                root_cache_write(file, key, root)
+            }
             return strings.clone(root, context.temp_allocator)
         }
     }
@@ -544,9 +558,76 @@ root_trim :: proc(path: string) -> string {
     return strings.trim_right(strings.trim_space(path), "/\\")
 }
 
+// The file that keeps the resolved root under `dir`; "" when `dir` is empty.
+@(private)
+root_cache_file :: proc(dir: string) -> string {
+    if dir == "" {
+        return ""
+    }
+    path, err := filepath.join({dir, "odin-root.txt"}, context.temp_allocator)
+    return err == nil ? path : ""
+}
+
+// The path, size and modtime of the `odin` found on PATH; "" when none. Temp-allocated.
+@(private)
+root_cache_key :: proc() -> string {
+    exe, found := shell.which(ODIN_OS == .Windows ? "odin.exe" : "odin", context.temp_allocator)
+    if !found {
+        return ""
+    }
+    info, err := os.stat(exe, context.temp_allocator)
+    if err != nil {
+        return ""
+    }
+    return fmt.tprintf("%s|%d|%d", exe, info.modification_time._nsec, info.size)
+}
+
+// The cached root when the file holds `key` and the root is still a directory; "" otherwise.
+@(private)
+root_cache_read :: proc(file, key: string) -> string {
+    data, err := os.read_entire_file(file, context.temp_allocator)
+    if err != nil {
+        return ""
+    }
+    text := string(data)
+    stored, _, rest := strings.partition(text, "\n")
+    if stored != key {
+        return ""
+    }
+    root := root_trim(rest)
+    if root == "" || !os.is_dir(root) {
+        return ""
+    }
+    return root
+}
+
+// Stores `root` under `key`; a failed write only costs the next start a spawn.
+@(private)
+root_cache_write :: proc(file, key, root: string) {
+    if dir := filepath.dir(file); dir != "" {
+        if err := os.make_directory_all(dir); err != nil && err != .Exist {
+            log.warnf("odin: cannot make the root cache directory %s: %v", dir, err)
+            return
+        }
+    }
+    text := strings.concatenate({key, "\n", root, "\n"}, context.temp_allocator)
+    if err := atomicfile.write(file, transmute([]byte)text); err != nil {
+        log.warnf("odin: cannot write the root cache %s: %v", file, err)
+    }
+}
+
+// Sets the directory of the root cache; "" turns it off. Call it before the first request.
+@(private)
+odin_root_set_cache_dir :: proc(r: ^Odin_Root, dir: string) {
+    delete(r.cache_dir, r.alloc)
+    r.cache_dir = strings.clone(dir, r.alloc)
+}
+
 @(private)
 odin_root_clear :: proc(r: ^Odin_Root) {
     delete(r.path, r.alloc)
+    delete(r.cache_dir, r.alloc)
     r.path = ""
+    r.cache_dir = ""
     sync.atomic_store(&r.state, ROOT_UNKNOWN)
 }
