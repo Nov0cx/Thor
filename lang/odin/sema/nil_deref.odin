@@ -2,6 +2,7 @@ package odinsema
 
 import "core:mem"
 import "core:slice"
+import "core:strconv"
 import "core:strings"
 
 import odinsyntax "../syntax"
@@ -197,7 +198,7 @@ collect_places :: proc(w: ^Nil_Walk, n: odinsyntax.Syntax_Node) -> mem.Allocator
     #partial switch n.green.kind {
     case .Proc_Lit:
         return nil
-    case .Selector_Expr:
+    case .Selector_Expr, .Index_Expr:
         register_place(w, n) or_return
     }
     it := odinsyntax.child_iter(&n, {kinds = ~odinsyntax.Kind_Set{}})
@@ -207,10 +208,11 @@ collect_places :: proc(w: ^Nil_Walk, n: odinsyntax.Syntax_Node) -> mem.Allocator
     return nil
 }
 
-// The root identifier and the path `.a.b` of the plain selector chain `n`. Not for `->`.
-@(private)
-flatten_place :: proc(n: odinsyntax.Syntax_Node) -> (root: odinsyntax.Syntax_Node, path: string, ok: bool) {
-    names := make([dynamic]string, context.temp_allocator)
+// The segments of the selector chain `n` from its root identifier. A selector gives `.a`, a constant
+// index gives `[2]` and any other index gives `[?]`, which only `elems` allows. Not for `->`.
+@(private = "file")
+place_chain :: proc(n: odinsyntax.Syntax_Node, elems: bool) -> (root: odinsyntax.Syntax_Node, segs: [dynamic]string, ok: bool) {
+    segs = make([dynamic]string, context.temp_allocator)
     cur := strip_parens(n)
     for {
         #partial switch cur.green.kind {
@@ -220,19 +222,58 @@ flatten_place :: proc(n: odinsyntax.Syntax_Node) -> (root: odinsyntax.Syntax_Nod
                 return
             }
             field := odinsyntax.selector_expr_field(&se) or_return
-            append(&names, odinsyntax.node_text(odinsyntax.Syntax_Node(field)))
+            append(&segs, strings.concatenate({".", odinsyntax.node_text(odinsyntax.Syntax_Node(field))}, context.temp_allocator))
             cur = strip_parens(odinsyntax.selector_expr_operand(&se) or_return)
-        case .Ident:
-            sb := strings.builder_make(context.temp_allocator)
-            #reverse for name in names {
-                strings.write_byte(&sb, '.')
-                strings.write_string(&sb, name)
+        case .Index_Expr:
+            if !elems {
+                return
             }
-            return cur, strings.to_string(sb), true
+            ie, _ := odinsyntax.as_index_expr(cur)
+            index := odinsyntax.index_expr_index(&ie) or_return
+            seg := "[?]"
+            if index.green.kind == .Literal {
+                if k, parsed := strconv.parse_int(odinsyntax.node_text(index), 0); parsed && k >= 0 {
+                    seg = strings.concatenate({"[", odinsyntax.node_text(index), "]"}, context.temp_allocator)
+                }
+            }
+            append(&segs, seg)
+            cur = strip_parens(odinsyntax.index_expr_operand(&ie) or_return)
+        case .Ident:
+            slice.reverse(segs[:])
+            return cur, segs, true
         case:
             return
         }
     }
+}
+
+// The root identifier and the path `.a.b` of the plain selector chain `n`. With `elems` the path
+// also has constant index steps: `.a[2]`. Not for `->` or a variable index.
+@(private)
+flatten_place :: proc(n: odinsyntax.Syntax_Node, elems := false) -> (root: odinsyntax.Syntax_Node, path: string, ok: bool) {
+    segs: [dynamic]string
+    root, segs = place_chain(n, elems) or_return
+    return root, strings.concatenate(segs[:], context.temp_allocator), !slice.contains(segs[:], "[?]")
+}
+
+// The root identifier of the chain `n` and the path before its first variable index. False when `n`
+// has no variable index.
+@(private = "file")
+dynamic_prefix :: proc(n: odinsyntax.Syntax_Node) -> (root: odinsyntax.Syntax_Node, prefix: string, ok: bool) {
+    segs: [dynamic]string
+    root, segs = place_chain(n, true) or_return
+    for seg, i in segs {
+        if seg == "[?]" {
+            return root, strings.concatenate(segs[:i], context.temp_allocator), true
+        }
+    }
+    return
+}
+
+// True when the place `cand` is `path` or lies under it.
+@(private = "file")
+path_under :: proc(cand, path: string) -> bool {
+    return path == "" || cand == path || strings.has_prefix(cand, path) && len(cand) > len(path) && (cand[len(path)] == '.' || cand[len(path)] == '[')
 }
 
 // The type of the field chain `.a.b` of a record held by value of type `t`. False when a step is
@@ -242,6 +283,20 @@ path_type :: proc(c: ^Checker, t: Type_Id, path: string) -> (Type_Id, bool) {
     t := t
     rest := path
     for len(rest) > 0 {
+        if rest[0] == '[' {
+            end := strings.index_byte(rest, ']')
+            if end < 0 {
+                return INVALID_TYPE, false
+            }
+            k, parsed := strconv.parse_int(rest[1:end], 0)
+            arr, is_array := type_get(&c.table, type_base(&c.table, t)).(Array_Type)
+            if !parsed || !is_array || k < 0 || arr.len < 0 || i64(k) >= arr.len {
+                return INVALID_TYPE, false
+            }
+            t = arr.elem
+            rest = rest[end + 1:]
+            continue
+        }
         st, is_struct := type_get(&c.table, type_base(&c.table, t)).(Struct_Type)
         if !is_struct || .Raw_Union in st.flags {
             return INVALID_TYPE, false
@@ -252,7 +307,7 @@ path_type :: proc(c: ^Checker, t: Type_Id, path: string) -> (Type_Id, bool) {
             }
         }
         rest = rest[1:]
-        end := strings.index_byte(rest, '.')
+        end := strings.index_any(rest, ".[")
         name := rest if end < 0 else rest[:end]
         rest = "" if end < 0 else rest[end:]
         next := INVALID_TYPE
@@ -272,7 +327,7 @@ path_type :: proc(c: ^Checker, t: Type_Id, path: string) -> (Type_Id, bool) {
 
 @(private = "file")
 register_place :: proc(w: ^Nil_Walk, n: odinsyntax.Syntax_Node) -> mem.Allocator_Error {
-    root, path, ok := flatten_place(n)
+    root, path, ok := flatten_place(n, true)
     if !ok || path == "" {
         return nil
     }
@@ -314,10 +369,10 @@ ref_lookup :: proc(refs: []Name_Ref, start: int) -> (Name_Ref, bool) {
 @(private = "file")
 nil_cand :: proc(w: ^Nil_Walk, n: odinsyntax.Syntax_Node) -> (int, bool) {
     inner := strip_parens(n)
-    if inner.green.kind != .Ident && inner.green.kind != .Selector_Expr {
+    if inner.green.kind != .Ident && inner.green.kind != .Selector_Expr && inner.green.kind != .Index_Expr {
         return 0, false
     }
-    root, path, ok := flatten_place(inner)
+    root, path, ok := flatten_place(inner, true)
     if !ok {
         return 0, false
     }
@@ -528,6 +583,15 @@ exclude_tested :: proc(w: ^Nil_Walk, n: odinsyntax.Syntax_Node) {
         se, _ := odinsyntax.as_selector_expr(n)
         if _, arrow := odinsyntax.selector_expr_arrow(&se); arrow {
             if operand, ok := odinsyntax.selector_expr_operand(&se); ok {
+                exclude_root(w, operand, true)
+            }
+        }
+    case .Range_Stmt:
+        // `for &e in a` stores through a reference to each element.
+        rs, _ := odinsyntax.as_range_stmt(n)
+        vars, has_vars := odinsyntax.range_stmt_vars(&rs)
+        if has_vars && strings.contains(odinsyntax.node_text(odinsyntax.Syntax_Node(vars)), "&") {
+            if operand, ok := odinsyntax.range_stmt_expr(&rs); ok {
                 exclude_root(w, operand, true)
             }
         }
@@ -770,9 +834,14 @@ assign_nil_events :: proc(w: ^Nil_Walk, n: odinsyntax.Syntax_Node, out: ^[dynami
     targets, values := nil_items(lhs), nil_items(rhs)
     for target, i in targets {
         walk_nil(w, target, out)
-        root, path, is_chain := flatten_place(target)
+        root, path, is_chain := flatten_place(target, true)
+        // A variable index may store into any element below its prefix.
+        any_element := false
         if !is_chain {
-            continue
+            root, path, any_element = dynamic_prefix(target)
+            if !any_element {
+                continue
+            }
         }
         ref, found := nil_ref(w, int(root.offset))
         if !found || ref.is_decl {
@@ -782,13 +851,12 @@ assign_nil_events :: proc(w: ^Nil_Walk, n: odinsyntax.Syntax_Node, out: ^[dynami
         if !is_root {
             continue
         }
-        paired := plain && len(targets) == len(values)
+        paired := plain && len(targets) == len(values) && !any_element
         set_nil := paired && is_nil_literal(values[i])
         set_zero := paired && is_empty_comp_lit(values[i])
-        under := strings.concatenate({path, "."}, context.temp_allocator)
         for index in places {
             cand_path := w.cands[index].path
-            if path != "" && cand_path != path && !strings.has_prefix(cand_path, under) {
+            if !path_under(cand_path, path) {
                 continue
             }
             kind := Nil_Kind.Reset

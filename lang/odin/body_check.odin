@@ -87,6 +87,7 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope
         ownership_errors(rc, c, m, n, report)
         nil_errors(rc, c, m, whens, n, report)
         temp_errors(rc, c, m, whens, n, report)
+        dangling_flow_errors(rc, c, m, whens, n, report)
     case .Binary_Expr:
         if p, ok := odinsema.const_arith_overflow(c, rc.live.id, n); ok {
             text := strings.join(strings.fields(odinsyntax.node_text(n), context.temp_allocator), " ", context.temp_allocator)
@@ -503,6 +504,23 @@ dangling_stores :: proc(rc: ^Request_Context, c: ^odinsema.Checker, assign: odin
 dangling_report :: proc(rc: ^Request_Context, c: ^odinsema.Checker, value: odinsyntax.Syntax_Node, what: string, report: ^lang.Diagnostic_Report) {
     if at, name, ok := odinsema.dangling_place(c, rc.live.id, value); ok {
         report_error(rc, report, at, CODE_DANGLING_SLICE, fmt.aprintf("Address of local '%s' is %s and dangles after the procedure returns", name, what), .Hint, lint = true)
+    }
+}
+
+// Reports, as a lint, an address or slice of a local that reaches a return or a store that outlives
+// the frame through a local, a field or a call.
+@(private = "file")
+dangling_flow_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope_Map, whens: []Branch, lit: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+    stores, err := odinsema.dangling_flow(c, rc.live.id, m, lit, context.temp_allocator)
+    if err != nil {
+        return
+    }
+    for s in stores {
+        if in_untaken_branch(whens, s.offset) {
+            continue
+        }
+        what := s.returned ? "returned" : "stored"
+        report_error(rc, report, s.offset, CODE_DANGLING_SLICE, fmt.aprintf("A pointer or slice of a local is %s and dangles after the procedure returns", what), .Hint, lint = true)
     }
 }
 

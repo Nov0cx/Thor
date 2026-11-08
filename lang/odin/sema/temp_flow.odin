@@ -10,7 +10,8 @@ import odinsyntax "../syntax"
 // A value of the temp allocator stored where it outlives the next `free_all`. `offset` is the
 // stored value.
 Temp_Store :: struct {
-    offset: int,
+    offset:   int,
+    returned: bool, // a dangling pointer that a `return` hands out
 }
 
 // A place the flow follows: a local, or a field chain of a record local held by value.
@@ -46,6 +47,7 @@ Temp_Update :: struct {
 Temp_Walk :: struct {
     c:           ^Checker,
     file:        File_Id,
+    dangling:    bool, // follow the address of a local, not a temp value
     refs:        [dynamic]Name_Ref,
     locals:      map[int]bool,
     places:      map[string]int,
@@ -63,9 +65,21 @@ Temp_Walk :: struct {
 // one. A local whose address is taken is not followed. A procedure with `temp` or `tprint` in
 // its name is left out.
 temp_stores :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.Syntax_Node, allocator := context.allocator) -> (out: [dynamic]Temp_Store, err: mem.Allocator_Error) {
+    return flow_stores(c, file, m, lit, false, allocator)
+}
+
+// The same flow for the address of a by-value local (`dangling_place`): the stores into a place
+// that outlives the frame and the returns, of a value that is not itself `&x` or `x[:]`, which
+// the direct check reports. A procedure with `temp` in its name is not left out.
+dangling_flow :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.Syntax_Node, allocator := context.allocator) -> (out: [dynamic]Temp_Store, err: mem.Allocator_Error) {
+    return flow_stores(c, file, m, lit, true, allocator)
+}
+
+@(private = "file")
+flow_stores :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.Syntax_Node, dangling: bool, allocator: mem.Allocator) -> (out: [dynamic]Temp_Store, err: mem.Allocator_Error) {
     out = make([dynamic]Temp_Store, allocator) or_return
     pl, is_lit := odinsyntax.as_proc_lit(lit)
-    if !is_lit || m == nil || temp_helper(lit) {
+    if !is_lit || m == nil || !dangling && temp_helper(lit) {
         return
     }
     body, has_body := odinsyntax.proc_lit_body(&pl)
@@ -73,7 +87,11 @@ temp_stores :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.S
         return
     }
     text := odinsyntax.node_text(body)
-    if !strings.contains(text, "temp_allocator") && !strings.contains(text, "tprint") {
+    if dangling {
+        if !strings.contains(text, "&") && !strings.contains(text, "[") {
+            return
+        }
+    } else if !strings.contains(text, "temp_allocator") && !strings.contains(text, "tprint") {
         return
     }
     lit_start, lit_end := odinsyntax.node_range(lit)
@@ -91,6 +109,7 @@ temp_stores :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.S
     w := Temp_Walk {
         c           = c,
         file        = file,
+        dangling    = dangling,
         refs        = make([dynamic]Name_Ref, alloc),
         locals      = make(map[int]bool, alloc),
         places      = make(map[string]int, alloc),
@@ -146,7 +165,7 @@ temp_prepare :: proc(w: ^Temp_Walk, node: ^odinsyntax.Syntax_Node) -> mem.Alloca
     #partial switch n.green.kind {
     case .Proc_Lit:
         return nil
-    case .Assign_Stmt:
+    case .Assign_Stmt, .Return_Stmt:
         w.real[n.offset] = n
     case .Value_Decl:
         w.real[n.offset] = n
@@ -286,7 +305,17 @@ taint_expr :: proc(w: ^Temp_Walk, cur: Bits, n: odinsyntax.Syntax_Node, depth :=
         if index, ok := temp_cand(w, n); ok {
             return place_tainted(w, cur, index)
         }
+    case .Unary_Expr:
+        if w.dangling {
+            _, _, source := dangling_place(w.c, w.file, n)
+            return source
+        }
     case .Slice_Expr:
+        if w.dangling {
+            if _, _, source := dangling_place(w.c, w.file, n); source {
+                return true
+            }
+        }
         se, _ := odinsyntax.as_slice_expr(n)
         if operand, ok := odinsyntax.slice_expr_operand(&se); ok {
             return taint_expr(w, cur, operand, depth)
@@ -294,7 +323,7 @@ taint_expr :: proc(w: ^Temp_Walk, cur: Bits, n: odinsyntax.Syntax_Node, depth :=
     case .Cast_Expr:
         ce, _ := odinsyntax.as_cast_expr(n)
         if operand, ok := odinsyntax.cast_expr_operand(&ce); ok {
-            return taint_expr(w, cur, operand, depth)
+            return !pointer_cast(w, n) && taint_expr(w, cur, operand, depth)
         }
     case .Auto_Cast_Expr:
         ac, _ := odinsyntax.as_auto_cast_expr(n)
@@ -314,7 +343,7 @@ taint_expr :: proc(w: ^Temp_Walk, cur: Bits, n: odinsyntax.Syntax_Node, depth :=
 
 @(private = "file")
 taint_call :: proc(w: ^Temp_Walk, cur: Bits, call: odinsyntax.Syntax_Node, depth: int) -> bool {
-    if temp_call(call) {
+    if !w.dangling && temp_call(call) {
         return true
     }
     ce, _ := odinsyntax.as_call_expr(call)
@@ -338,7 +367,7 @@ taint_call :: proc(w: ^Temp_Walk, cur: Bits, call: odinsyntax.Syntax_Node, depth
     }
     op := expr_type(w.c, w.file, callee)
     if op.mode == .Type {
-        return len(args) == 1 && taint_expr(w, cur, args[0], depth)
+        return len(args) == 1 && !pointer_cast(w, call) && taint_expr(w, cur, args[0], depth)
     }
     if depth >= TEMP_ALIAS_DEPTH || len(args) > 64 {
         return false
@@ -536,6 +565,32 @@ temp_updates :: proc(w: ^Temp_Walk, cur: Bits, root: int, dst_path: string, val:
     }
 }
 
+// True in the dangling flow when `n` converts to a pointer or `rawptr`: a deliberate cast, as of an
+// intrusive list node that lives on the stack while its owner waits.
+@(private = "file")
+pointer_cast :: proc(w: ^Temp_Walk, n: odinsyntax.Syntax_Node) -> bool {
+    if !w.dangling {
+        return false
+    }
+    #partial switch v in type_get(&w.c.table, type_base(&w.c.table, expr_type(w.c, w.file, n).type)) {
+    case Pointer_Type, Multi_Pointer_Type:
+        return true
+    case Basic_Type:
+        return v.kind == .Rawptr
+    }
+    return false
+}
+
+// True when the dangling flow follows `n` and the direct check (`dangling_place`) reports it.
+@(private = "file")
+direct_dangling :: proc(w: ^Temp_Walk, n: odinsyntax.Syntax_Node) -> bool {
+    if !w.dangling {
+        return false
+    }
+    _, _, direct := dangling_place(w.c, w.file, n)
+    return direct
+}
+
 @(private = "file")
 temp_step :: proc(w: ^Temp_Walk, s: Cfg_Step, cur: Bits, out: ^[dynamic]Temp_Store) {
     n := s.node
@@ -579,8 +634,8 @@ temp_step :: proc(w: ^Temp_Walk, s: Cfg_Step, cur: Bits, out: ^[dynamic]Temp_Sto
         targets, values := nil_items(lhs), nil_items(rhs)
         for target, i in targets {
             has_val := plain && i < len(values)
-            if has_val && out != nil && outliving_store(w.c, w.file, target, results = false) && !cleared_by_defer(real, target) && taint_expr(w, cur, values[i]) {
-                append(out, Temp_Store{int(strip_parens(values[i]).offset)})
+            if has_val && out != nil && outliving_store(w.c, w.file, target, results = w.dangling) && !cleared_by_defer(real, target) && taint_expr(w, cur, values[i]) && !direct_dangling(w, values[i]) {
+                append(out, Temp_Store{offset = int(strip_parens(values[i]).offset)})
             }
             root_node, path, is_chain := flatten_place(target)
             if !is_chain {
@@ -590,6 +645,19 @@ temp_step :: proc(w: ^Temp_Walk, s: Cfg_Step, cur: Bits, out: ^[dynamic]Temp_Sto
                 temp_updates(w, cur, r.decl, path, has_val ? values[i] : {}, has_val, &updates)
             }
         }
+    case .Return_Stmt:
+        if !w.dangling || out == nil {
+            return
+        }
+        rs, _ := odinsyntax.as_return_stmt(real)
+        if values, has_values := odinsyntax.return_stmt_values(&rs); has_values {
+            for value in nil_items(values) {
+                if taint_expr(w, cur, value) && !direct_dangling(w, value) {
+                    append(out, Temp_Store{offset = int(strip_parens(value).offset), returned = true})
+                }
+            }
+        }
+        return
     case:
         return
     }

@@ -1317,8 +1317,8 @@ lowest latency.
       operator past `character_width` and is printed by a loop, a result list
       wraps like a parameter list, and a case list breaks at its commas. An
       alignment run continues over whole-line comments; only a blank line
-      splits it. Missing, Odin-printer-only: a comment in any other expression
-      position (an index, a selector), which still moves below its statement.
+      splits it. A comment inside an index, slice or selector stays where it
+      was written (a block comment inline, a line comment ends its line).
 
 ## Missing — scalability / performance
 
@@ -2599,8 +2599,10 @@ not a status, so this section stays the source of truth for what is built.
     polymorphic body, or in a body that is instantiated, in any file of the
     package. The match is by name, so it can miss a report but cannot give
     a false one. The package walk runs only when the buffer has an import
-    that only its polymorphic bodies use. Not yet: the vet flags outside the
-    `-vet` set (`-vet-cast`, `-vet-style`, ...). Over the clean
+    that only its polymorphic bodies use. The vet flags outside the `-vet`
+    set (`-vet-style`, `-vet-unused-procedures`, ...) come from a diagnostic id
+    set above off, a `#+vet` tag, or `vet = { "-vet-style", ... }` in
+    `odin-analyzer.lua` (`config_vet`, `vet_option_flags`). Over the clean
     corpus `test_oracle_clean_corpus` compares the live vet items with
     `odin check -vet`: 88 matched, none false, 1 missed (a `-vet-cast` line
     a `#+vet` tag asks for).
@@ -2627,7 +2629,10 @@ not a status, so this section stays the source of truth for what is built.
     declaration (`create_decl.odin`): a procedure that takes the call's
     arguments for a callee, a struct for a type (fields from a literal of
     it), `:=` for the place of a plain `=`, else a variable of the type its
-    place expects. Not yet: fixes for the compiler's own lines.
+    place expects. The compiler's own lines (`req.diagnostics`) get
+    `compiler_fixes.odin`: a copy of an assigned or addressed parameter, an
+    assignment for a redeclared `name :=`, and removal of a `Found unneeded
+    semicolon`. Not yet: other compiler messages.
   - **Refactorings** (`refactor.odin`, `extract.odin`,
     `change_signature.odin`, `move_decl.odin`, plan §6, M7): offered as
     `Code_Actions` of kind `refactor`. Inline variable puts the value of
@@ -2749,8 +2754,10 @@ not a status, so this section stays the source of truth for what is built.
       lab's `{key:...}` chords and the PowerShell updater command were printed
       as `%!(MISSING CLOSE BRACE)`); over the clean corpus it finds 2, both
       one real bug (`core:flags` passes `value` and `SUBTAG_MANIFOLD` in the
-      wrong order). Not yet: a user formatter
-      (`fmt.register_user_formatter`) that takes other verbs.
+      wrong order). A type given to
+      `fmt.register_user_formatter` in the package takes every verb
+      (`user_formatters`); a registration of a type the analysis cannot read
+      frees every named type.
     - `api/ignored-error` (`sema/ignored.odin`): a call statement that drops
       every result when one is a named type `Error` or `*_Error`, or a union
       with such a variant. `Allocator_Error` on its own, a builtin, a
@@ -2759,8 +2766,9 @@ not a status, so this section stays the source of truth for what is built.
       output idiom, 411 of the first 602 corpus hits) are left out;
       `_ = f()` is the explicit drop. Over the clean corpus 191 hits, all
       real drops (parser `advance_token`, `os.write_string`, `image`
-      errors); the 23 in the repo are now `_ =`. Not yet: a dropped `ok`
-      bool.
+      errors); the 23 in the repo are now `_ =`. A call statement that drops a
+      trailing `ok: bool` result (`ignored_ok`; not `#optional_ok`) is
+      reported too.
     - `mem/dangling-slice` (`sema/escape.odin`): `&x`, `&x.f`, `&x[i]` or
       `x[a:b]` of a by-value local (`Var` or named result; a fixed array for
       the slice) that a `return` hands out, that is assigned to a named
@@ -2769,7 +2777,11 @@ not a status, so this section stays the source of truth for what is built.
       slice, dynamic array or map local are left out, and so is a store that
       a `defer` in the same block resets (`x.p = &b; defer x.p = nil`). Not
       yet: a compound literal that holds the address, and a store through a
-      local pointer.
+      local pointer. The address also counts through a later assignment, a
+      field of a record local, a conversion and a call that hands back its
+      argument (`dangling_flow`, the `temp_flow.odin` walk with the address of a
+      local as the source); the message is then "A pointer or slice of a local
+      is returned/stored".
     - `mem/temp-escape` (`sema/escape.odin`): a call given
       `context.temp_allocator`, or a `tprint*` call, that is stored in a
       global or through a pointer or slice parameter, directly or through a
@@ -2878,9 +2890,11 @@ not a status, so this section stays the source of truth for what is built.
   - **Known gaps:** a cold first request still takes several hundred ms; warm
     live diagnostics take about 32 ms against the 50 ms budget. Not reported:
     an error inside a polymorphic body for one instance (the compiler repeats it
-    per instance), float constants the compiler prints as source text
-    (`3.0 / 2`), parenthesised or hex float literals, unknown struct tags (the
-    compiler accepts them). `nil/deref` does not follow array elements. The
+    per instance), a hex float literal whose fraction needs more than 17 binary
+    places (the compiler's own rounding is not copied), unknown struct tags (the
+    compiler accepts them). Float constants built with `+ - * /`, parentheses
+    and negation print as exact fractions (`3.0 / 2` is `3.0/2`). `nil/deref` follows the elements of a fixed array only at a constant index; a
+    variable-index store resets them all. The
     Problems panel (`thor/problems.odin`) lists open files and the stored
     diagnostics of the other files of the checked packages.
 - **Formatter** (`lang/odin/format`, M2 end): prints from the `odinsyntax`
