@@ -81,6 +81,8 @@ odin run build.odin -file -- run            # build and start
 odin run build.odin -file -- run -release   # build and start an optimized one
 odin run build.odin -file -- check          # type-check, no binary
 odin run build.odin -file -- check -vet     # the same with -vet, as CI runs it
+odin run build.odin -file -- bench          # time parse, diagnostics and completion
+odin run build.odin -file -- bench -strict  # the same; fail when a measure is over its budget
 odin run build.odin -file -- clean
 odin run build.odin -file -- -h             # list the flags
 ```

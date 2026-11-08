@@ -175,7 +175,7 @@ string of a `fmt.printf`-style call that `core:fmt` would print as `%!(...)`,
 such as a verb the argument type does not take, a missing or extra argument, or
 a bare `{` that should be `{{` (`api/fmt-verbs`), and a call statement that
 drops an error result, such as `os.remove(path)` instead of
-`_ = os.remove(path)` (`api/ignored-error`). Two more hints mark a value that is
+`_ = os.remove(path)` (`api/ignored-error`); the same hint marks a call that drops its `ok` result. Two more hints mark a value that is
 gone when the procedure returns: the address or slice of a local that is returned or
 stored in a global or through a pointer parameter (`mem/dangling-slice`), and a
 value from `context.temp_allocator` or `tprintf` that is stored there
@@ -197,7 +197,12 @@ while typing: a variable that nothing uses (`vet/unused-variable`), an import
 that nothing uses (`vet/unused-import`), a variable that shadows an earlier one
 of the same type (`vet/shadowing`) and a declaration in a file-scope `when`
 that shadows a builtin (`vet/when-shadowing`). A `#+vet` file tag turns them on
-or off for its file as it does for the compiler. A save runs `odin check` with
+or off for its file as it does for the compiler. A cast to the type the value already has is
+a warning (`vet/cast`). Four more are off until `diagnostics` sets them: a procedure nothing
+calls (`vet/unused-procedure`), a missing trailing comma (`vet/style`), a semicolon that
+ends a line or block (`vet/semicolon`) and indentation with spaces (`vet/tabs`). A `#+vet`
+tag turns each on for its file. A hint (`nil/deref`) marks a pointer that is always nil where it is
+dereferenced or indexed. A save runs `odin check` with
 the matching `-vet-*` flags, and its vet lines show as warnings with the same
 ids. The hover over a mark shows its id
 (`[name/undeclared]`); a `// thor:ignore name/undeclared` comment hides that id
@@ -238,6 +243,14 @@ file. The same picker holds the refactorings: inline variable, `if` chain to
 change signature (a new parameter list, with every call rewritten) and move
 declaration (to another file of the package, or to another package). Those
 that need a name, a parameter list or a file ask for it in the palette first.
+
+Further requests: call hierarchy (incoming and outgoing calls), type hierarchy
+(supertypes and subtypes), go to implementations of a procedure group or union, and
+expand / shrink selection (`ctrl + alt + shift + right` / `left`). "View: Toggle Reference
+Counts" shows the number of uses of each declaration of the file. Semantic highlighting
+also marks `deprecated` declarations, and greys out a `when` branch the build target makes
+false (`inactive`); a plugin colours both through the `inactive` and `deprecated`
+captures (`plugins/odin/plugin.lua`).
 
 Every other language gets these features from a language server.
 **Settings > Language Servers** (or **Help > Language Servers**) lists the ones

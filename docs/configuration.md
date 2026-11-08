@@ -411,13 +411,22 @@ its root, layered on top of the global settings above. This repository's own
   `assign/count`, `flow/unreachable`, `flow/unreachable-defer`,
   `vet/unused-variable`, `vet/unused-import`, `vet/shadowing`,
   `vet/using-stmt`, `vet/when-shadowing`, `flow/dead-store`, `api/fmt-verbs`,
-  `api/ignored-error`, `mem/dangling-slice`, `mem/temp-escape`, `defer/in-loop`, `api/deprecated`, `perf/range-copy`, `logic/self-assign`,
+  `api/ignored-error`, `nil/deref`, `vet/cast`, `vet/unused-procedure`, `vet/style`, `vet/semicolon`, `vet/tabs`, `mem/dangling-slice`, `mem/temp-escape`, `defer/in-loop`, `api/deprecated`, `perf/range-copy`, `logic/self-assign`,
   `logic/const-condition`, `logic/identical-branches`, `style/naming`, `mem/leak`,
-  `mem/double-free` and `mem/use-after-free`. The last three are off until an entry sets them, for example
-  `["mem/leak"] = "hint"`. An unknown id or value is logged and
+  `mem/double-free` and `mem/use-after-free`. `mem/leak`, `mem/double-free`, `mem/use-after-free`, `vet/unused-procedure`, `vet/style`,
+  `vet/semicolon` and `vet/tabs` are off until an entry sets them, for example
+  `["mem/leak"] = "hint"`; `nil/deref` is a hint and `vet/cast` a warning by default. An unknown id or value is logged and
   ignored. The diagnostics `odin check` gives after a save are not affected, except the `vet/*` ids:
   the save passes `odin check` one `-vet-*` flag for each of them that is not `"off"`, and gives the
   lines it reports for them the same id and severity.
+
+  `package_diagnostics` (default `false`) also checks the other files of the open file's
+  package while typing. `diagnostics_telemetry` (default `false`) makes a save log where
+  `odin check` and the live check disagree:
+
+  ```lua
+  return { package_diagnostics = true, diagnostics_telemetry = true }
+  ```
 
   `naming` sets the spelling `style/naming` accepts for each kind of name:
   `type` (default `"ada_case"`), `proc` (`"snake_case"`), `variable`

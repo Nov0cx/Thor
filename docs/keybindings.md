@@ -44,6 +44,8 @@ Every binding below is a default and can be changed in `keybinds.lua`
 | f9 | run the selected task |
 | ctrl + hover | show the declaration of the symbol under the mouse |
 | ctrl + shift + u | code actions: the fixes available at the caret, in a picker (on the lines of the selection for Odin, scoped to the selection on a language-server-backed file) |
+| (unbound) | the palette commands "Show Incoming Calls", "Show Outgoing Calls", "Show Supertypes", "Show Subtypes" and "Go to Implementations" list the callers, callees, parent types, child types or implementations of the symbol at the caret in a picker; bind them under `actions` in `user/keybinds.lua` (`incoming_calls`, `outgoing_calls`, `supertypes`, `subtypes`, `goto_implementations`) |
+| (unbound) | "View: Toggle Reference Counts" (`toggle_code_lens`) shows how many uses each declaration of the file has |
 | ctrl + f | find |
 | ctrl + shift + f | find in files |
 | ctrl + r | rename the symbol under the caret across every file that uses it; falls back to find & replace when the caret is not on a renameable symbol |
@@ -141,6 +143,7 @@ Add `shift` to any movement to extend the selection.
 | ctrl + l | select line; press again: extend one line |
 | ctrl + alt + up / down | add cursor above / below |
 | escape | collapse to one cursor, clear selection |
+| ctrl + alt + shift + right / left | expand the selection to the enclosing syntax node / shrink it back (Odin and language servers that answer selection ranges) |
 
 ## Editing
 
@@ -365,7 +368,7 @@ function may arrive as a snippet with its arguments already in place.
 The built-in Odin support does the same: a procedure arrives as a call snippet
 (`enable_snippets` in `.thor/odin-analyzer.lua` turns this off, see
 [Configuration](configuration.md)), and a package the file does not import yet
-brings its `import` line. After `x.(` the list holds the variants of the union
+brings its `import` line. After `x.` a value also offers postfix templates that wrap it: `if`, `ifnot`, `ifnil`, `ifnotnil`, `for`, `fori`, `switch`, `var`, `return`, `defer_delete` and `defer_free`, each only for a type it fits. After `x.(` the list holds the variants of the union
 `x`, and after `x->` the procedure members of `x`.
 
 ### Snippets
