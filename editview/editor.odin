@@ -62,7 +62,8 @@ Visual_Row :: struct {
     end:   int, // byte offset one past its last character (before any newline)
     line:  int, // logical line index the row belongs to
     first: bool, // true for the first visual row of the logical line
-    spacer: bool, // an empty row of the zone below `line`; start == end == the line's end
+    spacer: bool, // an empty row of the zone below `line`, or a lens row above it
+    lens: bool, // a spacer above `line` that carries its lens; start == end == the line's start
 }
 
 // A colored byte range for syntax highlighting; ascending and non-overlapping.
@@ -175,6 +176,9 @@ Editor :: struct {
     zone_offset:        int,
     zone_rows:          int,
     zone_revision:      u64,
+    // Lens rows: one row above each line that holds a lens offset. Ascending by offset. Borrowed.
+    lenses:             []Inlay,
+    lens_offsets:       [dynamic]int, // owned; the offsets the rows were built from
     // Diagnostics for the current buffer, drawn as squiggles and gutter markers. Borrowed.
     diagnostics:            []Diagnostic,
     diagnostic_error_color: ui.Color,
@@ -546,6 +550,7 @@ editor_destroy :: proc(editor: ^Editor) {
     editor_dismiss_completion(editor)
     editor_clear_hover(editor)
     editor_clear_signature(editor)
+    delete(editor.lens_offsets)
     delete(editor.snippet_vars.filename)
     delete(editor.snippet_vars.directory)
     delete(editor.snippet_vars.workspace)
@@ -684,6 +689,47 @@ editor_set_highlights :: proc(editor: ^Editor, highlights: []Highlight_Span) {
 // Replaces the inlay hints drawn for the current buffer (borrowed, not copied).
 editor_set_inlays :: proc(editor: ^Editor, inlays: []Inlay) {
     editor.inlays = inlays
+}
+
+// Replaces the lenses (borrowed, ascending by offset): each opens one row above the line that
+// holds its offset, which the owner paints.
+editor_set_lenses :: proc(editor: ^Editor, lenses: []Inlay) {
+    same := len(lenses) == len(editor.lens_offsets)
+    for lens, i in lenses {
+        if !same || lens.offset != editor.lens_offsets[i] {
+            same = false
+            break
+        }
+    }
+    editor.lenses = lenses
+    if same {
+        return
+    }
+    clear(&editor.lens_offsets)
+    for lens in lenses {
+        append(&editor.lens_offsets, lens.offset)
+    }
+    editor.rows_stale = true
+}
+
+// The lens of the lens row `row`; false when the row is not one.
+editor_row_lens :: proc(editor: ^Editor, row: Visual_Row) -> (Inlay, bool) {
+    if !row.lens {
+        return {}, false
+    }
+    lo, hi := 0, len(editor.lenses)
+    for lo < hi {
+        mid := (lo + hi) / 2
+        if editor.lenses[mid].offset < row.start {
+            lo = mid + 1
+        } else {
+            hi = mid
+        }
+    }
+    if lo < len(editor.lenses) && editor.state != nil && textedit.state_line_index(editor.state, editor.lenses[lo].offset) == row.line {
+        return editor.lenses[lo], true
+    }
+    return {}, false
 }
 
 // Replaces the marked uses of the symbol at the caret (borrowed, not copied).
@@ -1135,12 +1181,21 @@ editor_rebuild_visual_rows :: proc(editor: ^Editor) {
     line_index := 0
     hidden_until := -1 // lines <= this are collapsed under a fold above; skip them
     zone_line := editor.zone_rows > 0 ? textedit.state_line_index(editor.state, editor.zone_offset) : -1
+    lens_at := 0
     for {
         line_end := textedit.line_end(text, line_start)
+        has_lens := false
+        for lens_at < len(editor.lenses) && editor.lenses[lens_at].offset <= line_end {
+            has_lens ||= editor.lenses[lens_at].offset >= line_start
+            lens_at += 1
+        }
         if !editor.wrap {
             editor_measure_line(editor, text, line_start, line_end, line_index, tab_width)
         }
         if line_index > hidden_until {
+            if has_lens {
+                append(&editor.visual_rows, Visual_Row{start = line_start, end = line_start, line = line_index, spacer = true, lens = true})
+            }
             editor_wrap_line(&editor.visual_rows, text, line_start, line_end, cols, line_index, tab_width)
             if editor.zone_rows > 0 && line_index == zone_line && editor_folded_end(editor, line_index) < 0 {
                 for _ in 0 ..< editor.zone_rows {
@@ -1167,7 +1222,7 @@ editor_rebuild_visual_rows :: proc(editor: ^Editor) {
 @(private)
 editor_patch_visual_rows :: proc(editor: ^Editor) -> bool {
     state := editor.state
-    if editor.rows_stale || len(editor.folded) > 0 || editor.zone_rows > 0 || len(editor.visual_rows) == 0 || editor.rows_wrap != editor.wrap {
+    if editor.rows_stale || len(editor.folded) > 0 || editor.zone_rows > 0 || len(editor.lenses) > 0 || len(editor.visual_rows) == 0 || editor.rows_wrap != editor.wrap {
         return false
     }
     if editor.rows_tab_width != textedit.tab_width(state) {
@@ -1329,7 +1384,7 @@ editor_wrap_line :: proc(rows: ^[dynamic]Visual_Row, text: string, line_start, l
     // With wrapping off cols is max(int), so the walk below can never break the
     // line — skip it rather than decoding every rune in the buffer per rebuild.
     if line_start == line_end || cols == max(int) {
-        append(rows, Visual_Row {line_start, line_end, line_index, true, false})
+        append(rows, Visual_Row {line_start, line_end, line_index, true, false, false})
         return
     }
 
@@ -1343,7 +1398,7 @@ editor_wrap_line :: proc(rows: ^[dynamic]Visual_Row, text: string, line_start, l
         // One cluster always fits an empty row, or a 1-column pane would loop.
         if col + cells > cols && i > seg_start {
             brk := last_break > seg_start ? last_break : i
-            append(rows, Visual_Row {seg_start, brk, line_index, first, false})
+            append(rows, Visual_Row {seg_start, brk, line_index, first, false, false})
             first = false
             seg_start = brk
             col = 0
@@ -1357,7 +1412,7 @@ editor_wrap_line :: proc(rows: ^[dynamic]Visual_Row, text: string, line_start, l
         }
         i = next
     }
-    append(rows, Visual_Row {seg_start, line_end, line_index, first, false})
+    append(rows, Visual_Row {seg_start, line_end, line_index, first, false, false})
 }
 
 // Index of the earliest visual row that owns byte offset `pos`; the last row
@@ -1376,6 +1431,9 @@ editor_visual_row_index :: proc(editor: ^Editor, pos: int) -> int {
         }
     }
     if low < len(rows) && rows[low].start <= pos {
+        if rows[low].lens && low + 1 < len(rows) {
+            return low + 1
+        }
         // A wrap point belongs to the row it starts, not the one it ends.
         if rows[low].end == pos && editor_row_continues(editor, low) {
             return low + 1
@@ -2707,7 +2765,7 @@ editor_zone_line :: proc(editor: ^Editor) -> (int, bool) {
 editor_zone_rect :: proc(editor: ^Editor) -> (ui.Rect, bool) {
     editor_ensure_visual_rows(editor)
     for row, i in editor.visual_rows {
-        if row.spacer {
+        if row.spacer && !row.lens {
             lh := cast(f32) font.line_height(editor.font_size)
             return ui.Rect{editor.view.x, editor.view.y - editor.scroll_y + cast(f32) i * lh, editor.view.w, cast(f32) editor.zone_rows * lh}, true
         }
@@ -2875,6 +2933,9 @@ editor_pos_at :: proc(editor: ^Editor, position: ui.Vec2) -> (int, bool) {
 
     target := cast(int) ((position.y - (inner_top - editor.scroll_y)) / line_height)
     target = clamp(target, 0, len(editor.visual_rows) - 1)
+    if editor.visual_rows[target].lens {
+        return editor.visual_rows[target].start, true
+    }
     if editor.visual_rows[target].spacer {
         target = editor_content_row(editor, target, -1)
         return editor.visual_rows[target].end, true

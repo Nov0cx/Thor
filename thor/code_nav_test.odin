@@ -94,9 +94,9 @@ test_expand_and_shrink_selection :: proc(t: ^testing.T) {
     testing.expect(t, thor.nav.chain_request_id != 0, "a selection the chain does not know asks again")
 }
 
-// The reference counts merge with the file's inlay hints by offset.
+// The reference counts follow edits and are off with the toggle.
 @(test)
-test_lens_view_merges_by_offset :: proc(t: ^testing.T) {
+test_lens_view_rebases :: proc(t: ^testing.T) {
     thor := new(Thor)
     defer free(thor)
     thor.nav.lens_on = true
@@ -106,9 +106,7 @@ test_lens_view_merges_by_offset :: proc(t: ^testing.T) {
     defer textedit.destroy(&file.state)
     textedit.set_text(&file.state, "aa bb cc dd\n")
     defer thor_destroy_file_lens(file)
-    defer delete(file.inlay_view)
 
-    append(&file.inlay_view, editview.Inlay{offset = 1, label = "h1"}, editview.Inlay{offset = 9, label = "h2"})
     file.lens.source = strings.clone(textedit.text(&file.state))
     append(&file.lens.items, editview.Inlay{offset = 2, label = strings.clone("2 references")}, editview.Inlay{offset = 5, label = strings.clone("no references")})
     file.lens.ready = true
@@ -116,17 +114,12 @@ test_lens_view_merges_by_offset :: proc(t: ^testing.T) {
     file.lens.asked_valid = true
 
     view := thor_lens_view(thor, file)
-    testing.expect_value(t, len(view), 4)
-    offsets := [?]int{1, 2, 5, 9}
-    for want, i in offsets {
-        testing.expect_value(t, view[i].offset, want)
-    }
+    testing.expect_value(t, len(view), 2)
+    testing.expect_value(t, view[1].offset, 5)
 
     // An edit before the counts moves them with the text.
     textedit.set_single_cursor(&file.state, 0)
     textedit.insert_text(&file.state, "xx")
-    file.inlay_view_valid = false
-    clear(&file.inlay_view)
     moved := thor_lens_view(thor, file)
     testing.expect_value(t, len(moved), 2)
     testing.expect_value(t, moved[0].offset, 4)
