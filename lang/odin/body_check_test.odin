@@ -1951,3 +1951,105 @@ fine_reassign :: proc() {
         }
     }
 }
+
+@(test)
+test_live_group_ambiguous :: proc(t: ^testing.T) {
+    root := fixture(t, "live_group_ambiguous", {
+        {".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`},
+    })
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+a1 :: proc(x: i8) {}
+a2 :: proc(x: i16) {}
+a :: proc{a1, a2}
+b1 :: proc(x: f32) {}
+b2 :: proc(x: f64) {}
+b :: proc{b1, b2}
+d1 :: proc(x: i32, y: int) {}
+d2 :: proc(x: int, y: i32) {}
+d :: proc{d1, d2}
+k1 :: proc(x: int) {}
+k2 :: proc(x: int, y := 2) {}
+k :: proc{k1, k2}
+e1 :: proc(x: string) {}
+e2 :: proc(x: cstring) {}
+e :: proc{e1, e2}
+
+main :: proc() {
+	x: i32
+	y: int
+	a(1)
+	a(i8(1))
+	b(1.5)
+	b(1)
+	d(1, 1)
+	d(x, y)
+	d(1, y)
+	k(1)
+	e("x")
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"a(1)", "Ambiguous procedure group call 'a' that match with the given arguments", 0},
+        {"b(1)", "Ambiguous procedure group call 'b' that match with the given arguments", 0},
+        {"d(1, 1)", "Ambiguous procedure group call 'd' that match with the given arguments", 0},
+    })
+}
+
+@(test)
+test_live_float_literals :: proc(t: ^testing.T) {
+    root := fixture(t, "live_float_literals", {
+        {".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`},
+    })
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+take :: proc(x: int) {}
+
+main :: proc() {
+	_: int = 1.5
+	_: i32 = -7.25
+	_: u8 = 300.0
+	_: int = 0.1
+	_: int = 2.5e-2
+	_: int = 1_0.5
+	_: int = 1e1
+	_: int = 2.0
+	_: int = 1.5 * 2
+	_: f32 = 1e39
+	_: f32 = 3.5e38
+	_: f32 = 3.0e38
+	_: f16 = 66000.0
+	_: f16 = 65504.0
+	_: f64 = 1e300
+	_: u8 = 1e3
+	take(0.25)
+	_ = int(2.5)
+	_ = f32(1e39)
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"1.5\n", "'1.5' truncated to 'int', got 3.0/2", 0},
+        {"-7.25", "'-7.25' truncated to 'i32', got -29.0/4", 0},
+        {"300.0", "'300.0' truncated to 'u8', got 300", 0},
+        {"0.1", "'0.1' truncated to 'int', got 1.0/10", 0},
+        {"2.5e-2", "'2.5e-2' truncated to 'int', got 1.0/40", 0},
+        {"1_0.5", "'1_0.5' truncated to 'int', got 21.0/2", 0},
+        {"1e39\n", "Cannot convert numeric value '1000000000000000000000000000000000000000' from '1e39' to 'f32' from 'untyped integer'", 0},
+        {"3.5e38", "Cannot convert numeric value '350000000000000000000000000000000000000' from '3.5e38' to 'f32' from 'untyped float'", 0},
+        {"66000.0", "Cannot convert numeric value '66000' from '66000.0' to 'f16' from 'untyped float'", 0},
+        {"1e3\n", "Cannot convert numeric value '1000' from '1e3' to 'u8' from 'untyped integer'", 0},
+        {"0.25", "'0.25' truncated to 'int', got 1.0/4", 0},
+        {"2.5)", "Cannot cast '2.5' as 'int' from 'untyped float'", 0},
+        {"1e39)", "Cannot cast '1e39' as 'f32' from 'untyped integer'", 0},
+    })
+}
