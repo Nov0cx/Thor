@@ -40,7 +40,7 @@ name_diagnostics :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) 
     if lang.request_cancelled(rc.req) {
         return
     }
-    undeclared_names(rc, whens[:], report)
+    undeclared_names(rc, m, whens[:], report)
     // An unresolved name leaves the types of a body unknown.
     if len(report.items) == first && !lang.request_cancelled(rc.req) {
         body_diagnostics(rc, m, whens[:], report)
@@ -53,8 +53,8 @@ name_diagnostics :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) 
 // Reports each free name that no scope declares for the target, outside `when` branches the
 // target may not take.
 @(private = "file")
-undeclared_names :: proc(rc: ^Request_Context, whens: []Branch, report: ^lang.Diagnostic_Report) {
-    tokens, ok := semantic_classify(rc, 0, len(rc.req.source), strict = true)
+undeclared_names :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, whens: []Branch, report: ^lang.Diagnostic_Report) {
+    tokens, ok := semantic_classify(rc, 0, len(rc.req.source), strict = true, whole = m)
     if !ok {
         return
     }

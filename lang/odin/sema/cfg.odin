@@ -82,11 +82,52 @@ cfg_build :: proc(c: ^Checker, file: File_Id, lit: odinsyntax.Syntax_Node, alloc
         free(g, allocator)
         return nil, err
     }
+    if err = cfg_fill(g, c, file, body, virtual.arena_allocator(&g.arena)); err != nil {
+        cfg_destroy(g, allocator)
+        return nil, err
+    }
+    return g, nil
+}
+
+// The graph of `lit` held by `c` until `checker_destroy`; shared by every analysis of the
+// procedure. Nil when it has no body or cannot be built.
+cfg_cached :: proc(c: ^Checker, file: File_Id, lit: odinsyntax.Syntax_Node) -> ^Cfg {
+    key := Cfg_Key{file, lit.offset}
+    if g, found := c.cfgs[key]; found {
+        return g
+    }
+    pl, is_lit := odinsyntax.as_proc_lit(lit)
+    if !is_lit {
+        return nil
+    }
+    body, has_body := odinsyntax.proc_lit_body(&pl)
+    if !has_body {
+        return nil
+    }
+    g, err := new(Cfg, c.alloc)
+    if err != nil {
+        return nil
+    }
+    if cfg_fill(g, c, file, body, c.alloc) != nil {
+        return nil
+    }
+    c.cfgs[key] = g
+    return g
+}
+
+@(private)
+Cfg_Key :: struct {
+    file:   File_Id,
+    offset: u32,
+}
+
+@(private = "file")
+cfg_fill :: proc(g: ^Cfg, c: ^Checker, file: File_Id, body: odinsyntax.Syntax_Node, alloc: mem.Allocator) -> (err: mem.Allocator_Error) {
     b := Cfg_Builder {
         g     = g,
         c     = c,
         file  = file,
-        alloc = virtual.arena_allocator(&g.arena),
+        alloc = alloc,
         fall  = NO_BLOCK,
     }
     g.blocks = make([dynamic]Cfg_Block, b.alloc)
@@ -98,12 +139,7 @@ cfg_build :: proc(c: ^Checker, file: File_Id, lit: odinsyntax.Syntax_Node, alloc
     b.cur = g.entry
     build_stmt(&b, body)
     edge(&b, b.cur, g.exit)
-    if b.err != nil {
-        err = b.err
-        cfg_destroy(g, allocator)
-        return nil, err
-    }
-    return g, nil
+    return b.err
 }
 
 cfg_destroy :: proc(g: ^Cfg, allocator := context.allocator) {
@@ -710,11 +746,10 @@ unreachable_code :: proc(c: ^Checker, file: File_Id, lit: odinsyntax.Syntax_Node
     out.never_executed = make([dynamic]Never_Executed, allocator)
     out.defers = make([dynamic]int, allocator)
     out.dead = make([dynamic]int, allocator)
-    g := cfg_build(c, file, lit, context.temp_allocator) or_return
+    g := cfg_cached(c, file, lit)
     if g == nil {
         return
     }
-    defer cfg_destroy(g, context.temp_allocator)
     w := Report_Walker {
         c         = c,
         file      = file,

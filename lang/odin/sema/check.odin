@@ -105,6 +105,9 @@ Checker :: struct {
     distinct_nodes: map[Symbol]i32,              // the node of each anonymous distinct type made here
     stamps:         map[File_Id]u64,             // the changed_at of each file read; 0 when it cannot be read
     package_stamps: map[Package_Id]Package_Stamp, // each package viewed
+    exprs:      map[Expr_Key]Operand, // the operands expr_values reuses
+    cut:        int,                  // the times the depth limit cut an expression short
+    cfgs:       map[Cfg_Key]^Cfg,     // built by cfg_cached, in `arena`
     scratch:    virtual.Arena,        // temporary arrays, freed by scratch_end
     tmp:        mem.Allocator,        // of `scratch`
     err:        mem.Allocator_Error,
@@ -162,6 +165,14 @@ File_Cache :: struct {
     in_build:    bool,
     has_parse:   bool,
     has_imports: bool,
+    tops:        []Top_Range, // the top-level nodes of the tree, by start; set when has_tops
+    has_tops:    bool,
+}
+
+@(private)
+Top_Range :: struct {
+    start: u32,
+    end:   u32,
 }
 
 @(private)
@@ -209,6 +220,8 @@ checker_init :: proc(c: ^Checker, snap: ^Snapshot, universe: []Universe_Package 
     c.nodes = make([dynamic]bool, c.alloc)
     c.edges = make([dynamic][2]i32, c.alloc)
     c.distinct_nodes = make(map[Symbol]i32, c.alloc)
+    c.exprs = make(map[Expr_Key]Operand, c.alloc)
+    c.cfgs = make(map[Cfg_Key]^Cfg, c.alloc)
     c.stamps = make(map[File_Id]u64, c.alloc)
     c.package_stamps = make(map[Package_Id]Package_Stamp, c.alloc)
     home := home
@@ -441,18 +454,38 @@ scope_map_at :: proc(c: ^Checker, file: File_Id, offset: int) -> ^Scope_Map {
     if parsed == nil || parsed.tree == nil || parsed.tree.root == nil {
         return nil
     }
-    root := odinsyntax.node_root(parsed.tree)
-    start, end := -1, -1
-    pos := root.offset
-    for child in odinsyntax.green_children(root.green) {
-        child_len := odinsyntax.element_len(child)
-        if u32(offset) >= pos && u32(offset) < pos + child_len {
+    fc := file_cache(c, file)
+    if fc == nil {
+        return nil
+    }
+    if !fc.has_tops {
+        root := odinsyntax.node_root(parsed.tree)
+        tops := make([dynamic]Top_Range, c.alloc)
+        pos := root.offset
+        for child in odinsyntax.green_children(root.green) {
+            child_len := odinsyntax.element_len(child)
             if _, is_node := odinsyntax.element_node(child); is_node {
-                start, end = int(pos), int(pos + child_len)
+                if _, err := append(&tops, Top_Range{pos, pos + child_len}); !note_alloc(c, err) {
+                    return nil
+                }
             }
-            break
+            pos += child_len
         }
-        pos += child_len
+        fc.tops = tops[:]
+        fc.has_tops = true
+    }
+    start, end := -1, -1
+    lo, hi := 0, len(fc.tops)
+    for lo < hi {
+        mid := (lo + hi) / 2
+        if fc.tops[mid].end <= u32(offset) {
+            lo = mid + 1
+        } else {
+            hi = mid
+        }
+    }
+    if lo < len(fc.tops) && fc.tops[lo].start <= u32(offset) && offset >= 0 {
+        start, end = int(fc.tops[lo].start), int(fc.tops[lo].end)
     }
     if start < 0 {
         return nil

@@ -18,11 +18,35 @@ expr_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, expecte
 // its results, a map index and a type assertion give (value, bool).
 expr_values :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, expected := INVALID_TYPE) -> Operand {
     if c.depth >= EXPR_DEPTH || n.green == nil {
+        c.cut += 1
         return {}
     }
+    // A result is reused only outside a declaration, a binding and a cut by the depth limit.
+    cacheable := c.frame == NO_NODE && len(c.env) == 0 && len(c.enum_env) == 0 && len(c.pending) == 0 && len(c.evaluating) == 0 && len(c.laying_out) == 0
+    key: Expr_Key
+    if cacheable {
+        key = Expr_Key{file, n.offset, n.green.text_len, n.green.kind, expected}
+        if op, found := c.exprs[key]; found {
+            return op
+        }
+    }
+    cut := c.cut
     c.depth += 1
     defer c.depth -= 1
-    return operand_of(c, file, n, expected)
+    op := operand_of(c, file, n, expected)
+    if cacheable && cut == c.cut && c.err == nil && c.frame == NO_NODE {
+        c.exprs[key] = op
+    }
+    return op
+}
+
+@(private)
+Expr_Key :: struct {
+    file:     File_Id,
+    offset:   u32,
+    len:      u32,
+    kind:     odinsyntax.Syntax_Kind,
+    expected: Type_Id,
 }
 
 // The first value of an operand whose last value a single-value use drops.

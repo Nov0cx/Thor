@@ -903,6 +903,7 @@ bind_poly :: proc(c: ^Checker, file: File_Id, ident: odinsyntax.Syntax_Node, op:
 @(private)
 unify :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, arg: Type_Id, env: ^[dynamic]Binding) -> bool {
     if arg == INVALID_TYPE || c.depth >= EXPR_DEPTH {
+        c.cut += 1
         return true
     }
     c.depth += 1

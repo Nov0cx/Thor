@@ -3,6 +3,7 @@
 package odin
 
 import "core:fmt"
+import "core:mem"
 import "core:slice"
 import "core:strings"
 
@@ -75,16 +76,22 @@ semantic_tokens :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
 // The classified identifiers of [lo, hi) of the request's buffer, sorted, with no overlap. Temp-allocated.
 // With `strict`, a name that only an inactive declaration binds is undeclared, as the compiler sees it.
 @(private)
-semantic_classify :: proc(rc: ^Request_Context, lo, hi: int, strict := false) -> (tokens: []lang.Semantic_Token, ok: bool) {
+semantic_classify :: proc(rc: ^Request_Context, lo, hi: int, strict := false, whole: ^odinsema.Scope_Map = nil) -> (tokens: []lang.Semantic_Token, ok: bool) {
     req := rc.req
     if rc.parsed.tree == nil || rc.parsed.tree.root == nil {
         return nil, false
     }
-    m, merr := odinsema.scope_map_range(rc.parsed, lo, hi, context.temp_allocator)
-    if merr != nil {
-        return nil, false
+    m := whole
+    if m == nil {
+        merr: mem.Allocator_Error
+        m, merr = odinsema.scope_map_range(rc.parsed, lo, hi, context.temp_allocator)
+        if merr != nil {
+            return nil, false
+        }
     }
-    defer odinsema.scope_map_destroy(m, context.temp_allocator)
+    defer if whole == nil {
+        odinsema.scope_map_destroy(m, context.temp_allocator)
+    }
 
     ctx := Semantic_Ctx {
         rc         = rc,

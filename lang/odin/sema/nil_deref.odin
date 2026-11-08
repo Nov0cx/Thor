@@ -81,21 +81,25 @@ nil_deref :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.Syn
         cands   = make([dynamic]Nil_Cand, alloc),
         by_decl = make(map[int]int, alloc),
     }
-    for l in m.locals {
-        if l.kind == .Var && !l.is_using && l.name_offset >= int(lit_start) && l.name_offset < int(lit_end) && m.scopes[l.scope].proc_depth == depth {
+    in_lit := locals_between(m, int(lit_start), int(lit_end), alloc)
+    for li in in_lit {
+        l := m.locals[li]
+        if l.kind == .Var && !l.is_using && m.scopes[l.scope].proc_depth == depth {
             w.locals[l.name_offset] = true
         }
     }
     if len(w.locals) == 0 {
         return
     }
-    for r in m.refs {
-        if r.kind == .Local && r.start >= int(lit_start) && r.start < int(lit_end) {
+    for ri in refs_between(m, int(lit_start), int(lit_end)) {
+        r := m.refs[ri]
+        if r.kind == .Local {
             append(&w.refs, r) or_return
         }
     }
     slice.sort_by(w.refs[:], proc(a, b: Name_Ref) -> bool {return a.start < b.start})
-    for l in m.locals {
+    for li in in_lit {
+        l := m.locals[li]
         if w.locals[l.name_offset] {
             kind := nil_kind(&w, l.name_offset)
             if kind == .None {
@@ -420,11 +424,10 @@ assign_nil_events :: proc(w: ^Nil_Walk, n: odinsyntax.Syntax_Node, out: ^[dynami
 @(private = "file")
 nil_flow :: proc(w: ^Nil_Walk, lit: odinsyntax.Syntax_Node, out: ^[dynamic]Nil_Use) -> mem.Allocator_Error {
     alloc := context.temp_allocator
-    g := cfg_build(w.c, w.file, lit, alloc) or_return
+    g := cfg_cached(w.c, w.file, lit)
     if g == nil {
         return nil
     }
-    defer cfg_destroy(g, alloc)
     reach := cfg_reachable(g, alloc)
     events := make([][][dynamic]Nil_Event, len(g.blocks), alloc)
     for blk, b in g.blocks {
