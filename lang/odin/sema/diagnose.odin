@@ -979,27 +979,47 @@ const_overflows :: proc(c: ^Checker, to: Type_Id, op: Operand) -> bool {
     return false
 }
 
-// A typed integer constant that the `+`, `-` or `*` of two constants of the integer type `type`
-// gives and `type` cannot hold. Silent when an operand already does not fit, so the innermost
-// expression of a chain is the one that reports.
+// A typed integer constant that `+ - * / <<` of two constants of the integer type `type`, or the
+// `-` of one, gives and `type` cannot hold. Silent when an operand already does not fit, so the
+// innermost expression of a chain is the one that reports.
 Const_Arith_Problem :: struct {
-    value: i64,
+    value: i128,
     type:  Type_Id,
 }
 
 const_arith_overflow :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (Const_Arith_Problem, bool) {
-    b, is_binary := odinsyntax.as_binary_expr(n)
-    if !is_binary {
+    lhs_n, rhs_n: odinsyntax.Syntax_Node
+    op: odinsyntax.Token_Kind
+    unary := false
+    #partial switch n.green.kind {
+    case .Binary_Expr:
+        b, _ := odinsyntax.as_binary_expr(n)
+        op_tok, has_op := odinsyntax.binary_expr_op(&b)
+        has_lhs, has_rhs: bool
+        lhs_n, has_lhs = odinsyntax.binary_expr_lhs(&b)
+        rhs_n, has_rhs = odinsyntax.binary_expr_rhs(&b)
+        if !has_op || !has_lhs || !has_rhs {
+            return {}, false
+        }
+        op = op_tok.green.kind
+    case .Unary_Expr:
+        u, _ := odinsyntax.as_unary_expr(n)
+        op_tok, has_op := odinsyntax.unary_expr_op(&u)
+        has_lhs: bool
+        lhs_n, has_lhs = odinsyntax.unary_expr_operand(&u)
+        if !has_op || !has_lhs {
+            return {}, false
+        }
+        op = op_tok.green.kind
+        unary = true
+    case:
         return {}, false
     }
-    op_tok, has_op := odinsyntax.binary_expr_op(&b)
-    lhs_n, has_lhs := odinsyntax.binary_expr_lhs(&b)
-    rhs_n, has_rhs := odinsyntax.binary_expr_rhs(&b)
-    if !has_op || !has_lhs || !has_rhs {
-        return {}, false
-    }
-    #partial switch op_tok.green.kind {
-    case .Add, .Sub, .Mul:
+    #partial switch op {
+    case .Add, .Sub, .Mul, .Quo, .Shl:
+        if unary && op != .Sub {
+            return {}, false
+        }
     case:
         return {}, false
     }
@@ -1011,18 +1031,34 @@ const_arith_overflow :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_No
     if _, is_basic := type_get(t, type_base(t, whole.type)).(Basic_Type); !is_basic {
         return {}, false
     }
-    value, is_int := whole.value.(i64)
-    if !is_int {
+    lhs := expr_type(c, file, lhs_n)
+    a, a_ok := lhs.value.(i64)
+    if lhs.mode != .Const || !a_ok || !const_wide_holds(c, whole.type, i128(a)) {
         return {}, false
     }
-    lhs, rhs := expr_type(c, file, lhs_n), expr_type(c, file, rhs_n)
-    for side in ([2]Operand{lhs, rhs}) {
-        v, ok := side.value.(i64)
-        if side.mode != .Const || !ok || !integer_holds(c, whole.type, v) {
+    value: i128
+    if unary {
+        // `-x` of an unsigned constant is a different error.
+        if basic_unsigned(c, whole.type) {
+            return {}, false
+        }
+        value = -i128(a)
+    } else {
+        rhs := expr_type(c, file, rhs_n)
+        bv, b_ok := rhs.value.(i64)
+        if rhs.mode != .Const || !b_ok {
+            return {}, false
+        }
+        if op != .Shl && !const_wide_holds(c, whole.type, i128(bv)) {
+            return {}, false
+        }
+        ok: bool
+        value, ok = const_wide_binary(op, a, bv)
+        if !ok {
             return {}, false
         }
     }
-    if integer_holds(c, whole.type, value) {
+    if const_wide_holds(c, whole.type, value) {
         return {}, false
     }
     return {value, whole.type}, true
@@ -1073,6 +1109,42 @@ no_value_calls :: proc(c: ^Checker, file: File_Id, stmt: odinsyntax.Syntax_Node,
     if len(nodes) != places {
         return nil
     }
+    return no_value_filter(c, file, nodes[:], allocator)
+}
+
+// The calls among the plain arguments of a call or the values of a `return` to a procedure that
+// returns nothing.
+no_value_operands :: proc(c: ^Checker, file: File_Id, node: odinsyntax.Syntax_Node, allocator := context.allocator) -> []odinsyntax.Syntax_Node {
+    nodes := make([dynamic]odinsyntax.Syntax_Node, context.temp_allocator)
+    #partial switch node.green.kind {
+    case .Call_Expr:
+        ce, _ := odinsyntax.as_call_expr(node)
+        list, has_list := odinsyntax.call_expr_args(&ce)
+        if !has_list {
+            return nil
+        }
+        it := odinsyntax.arg_list_args(&list)
+        for arg in odinsyntax.child_iter_next(&it) {
+            append(&nodes, arg)
+        }
+    case .Return_Stmt:
+        rs, _ := odinsyntax.as_return_stmt(node)
+        values, has_values := odinsyntax.return_stmt_values(&rs)
+        if !has_values {
+            return nil
+        }
+        it := odinsyntax.expr_list_items(&values)
+        for v in odinsyntax.child_iter_next(&it) {
+            append(&nodes, v)
+        }
+    case:
+        return nil
+    }
+    return no_value_filter(c, file, nodes[:], allocator)
+}
+
+@(private = "file")
+no_value_filter :: proc(c: ^Checker, file: File_Id, nodes: []odinsyntax.Syntax_Node, allocator := context.allocator) -> []odinsyntax.Syntax_Node {
     out := make([dynamic]odinsyntax.Syntax_Node, allocator)
     for v in nodes {
         if v.green.kind != .Call_Expr {

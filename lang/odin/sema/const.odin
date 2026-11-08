@@ -223,7 +223,16 @@ literal_value :: proc(c: ^Checker, n: odinsyntax.Syntax_Node) -> (Const_Value, b
         return v, iok
     case .Float:
         if strings.has_prefix(text, "0h") {
-            return nil, false
+            // 0h is the raw bits of a 16-digit f64 (8 for f32, 4 for f16 are left alone).
+            if len(text) != 18 {
+                return nil, false
+            }
+            bits, parsed := strconv.parse_u64_of_base(text[2:], 16)
+            f := transmute(f64)bits
+            if !parsed || f != f || abs(f) > max(f64) {
+                return nil, false
+            }
+            return f, true
         }
         clean, _ := strings.remove_all(text, "_", c.alloc)
         v, fok := strconv.parse_f64(clean)
@@ -473,6 +482,50 @@ int_binary :: proc(op: odinsyntax.Token_Kind, a, b: i64) -> (i64, bool) {
         return a >> u64(b), true
     }
     return 0, false
+}
+
+// `+ - * / << ` of two i64 operands in i128, so a result above i64 stays exact; false on division by zero or a shift count over 100.
+const_wide_binary :: proc(op: odinsyntax.Token_Kind, a, b: i64) -> (i128, bool) {
+    x, y := i128(a), i128(b)
+    #partial switch op {
+    case .Add:
+        return x + y, true
+    case .Sub:
+        return x - y, true
+    case .Mul:
+        return x * y, true
+    case .Quo:
+        if y == 0 {
+            return 0, false
+        }
+        return x / y, true
+    case .Shl:
+        if y < 0 || y > 100 {
+            return 0, false
+        }
+        v := x << u128(y)
+        if v >> u128(y) != x {
+            return 0, false
+        }
+        return v, true
+    }
+    return 0, false
+}
+
+// True when the integer type `t` holds `v`; true when its width is unknown.
+const_wide_holds :: proc(c: ^Checker, t: Type_Id, v: i128) -> bool {
+    b, is_basic := type_get(&c.table, type_base(&c.table, t)).(Basic_Type)
+    if !is_basic || !type_is_integer(&c.table, t) {
+        return true
+    }
+    bits := 8 * basic_size(b.kind, c.snap.target)
+    if bits <= 0 || bits > 128 {
+        return true
+    }
+    if basic_unsigned(c, t) {
+        return v >= 0 && (bits >= 127 || v < i128(1) << u128(bits))
+    }
+    return bits >= 128 || (v >= -(i128(1) << u128(bits - 1)) && v < i128(1) << u128(bits - 1))
 }
 
 @(private = "file")

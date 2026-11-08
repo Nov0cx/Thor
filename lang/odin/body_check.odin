@@ -50,6 +50,9 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope
         order_errors(rc, c, n, report)
         mismatch_errors(rc, c, odinsema.min_max_mismatches(c, rc.live.id, n, context.temp_allocator), "a procedure argument", report)
         format_errors(rc, c, n, report)
+        for call in odinsema.no_value_operands(c, rc.live.id, n, context.temp_allocator) {
+            no_value_error(rc, call, report)
+        }
         ce, _ := odinsyntax.as_call_expr(n)
         if callee, has := odinsyntax.call_expr_callee(&ce); has && callee.green.kind == .Ident {
             deprecated_uses(rc, c, callee, report)
@@ -77,6 +80,9 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope
         }
     case .Return_Stmt:
         mismatch_errors(rc, c, odinsema.return_mismatches(c, rc.live.id, n, context.temp_allocator), "return statement", report)
+        for call in odinsema.no_value_operands(c, rc.live.id, n, context.temp_allocator) {
+            no_value_error(rc, call, report)
+        }
         dangling_returns(rc, c, n, report)
     case .Switch_Stmt, .Type_Switch_Stmt:
         switch_errors(rc, c, n, report)
@@ -88,7 +94,7 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope
         nil_errors(rc, c, m, whens, n, report)
         temp_errors(rc, c, m, whens, n, report)
         dangling_flow_errors(rc, c, m, whens, n, report)
-    case .Binary_Expr:
+    case .Binary_Expr, .Unary_Expr:
         if p, ok := odinsema.const_arith_overflow(c, rc.live.id, n); ok {
             text := strings.join(strings.fields(odinsyntax.node_text(n), context.temp_allocator), " ", context.temp_allocator)
             type := odinsema.type_string(&c.table, p.type, context.temp_allocator)

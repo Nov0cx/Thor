@@ -1512,6 +1512,78 @@ main :: proc() {
 }
 
 @(test)
+test_live_no_value_operands :: proc(t: ^testing.T) {
+    root := fixture(t, "live_no_value_operands", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+nothing :: proc() {}
+one :: proc() -> int { return 1 }
+take :: proc(x: int) -> int { return x }
+
+ret :: proc() -> int {
+	return nothing()
+}
+
+main :: proc() {
+	_ = take(nothing())
+	_ = take(one())
+	_ = ret()
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"nothing()\n}", "'nothing()' call does not return a value and cannot be used as a value", 0},
+        {"nothing())\n\t_ = take(one", "'nothing()' call does not return a value and cannot be used as a value", 0},
+    })
+}
+
+@(test)
+test_live_const_arith_wide :: proc(t: ^testing.T) {
+    root := fixture(t, "live_const_arith_wide", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+X :: u8(200)
+Big :: u64(4611686018427387904)
+Low :: i8(-128)
+
+main :: proc() {
+	a := X + X
+	b := -(i8(-128))
+	c := Low / i8(-1)
+	d := i8(1) << 7
+	e := Big * 4
+	f := Low * 2
+	g := Low % i8(-1)
+	h := X & 0xF0
+	i := X | 0x0F
+	j := X / 2
+	k := i8(1) << 6
+	l := -Low
+	m := X - 100
+	_, _, _, _, _, _, _, _, _, _, _, _, _ = a, b, c, d, e, f, g, h, i, j, k, l, m
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"X + X", "Numeric value '400' from 'X + X' cannot be represented by 'u8'", 0},
+        {"-(i8(-128))", "Numeric value '128' from '-(i8(-128))' cannot be represented by 'i8'", 0},
+        {"Low / i8(-1)", "Numeric value '128' from 'Low / i8(-1)' cannot be represented by 'i8'", 0},
+        {"i8(1) << 7", "Numeric value '128' from 'i8(1) << 7' cannot be represented by 'i8'", 0},
+        {"Big * 4", "Numeric value '18446744073709551616' from 'Big * 4' cannot be represented by 'u64'", 0},
+        {"Low * 2", "Numeric value '-256' from 'Low * 2' cannot be represented by 'i8'", 0},
+        {"-Low", "Numeric value '128' from '-Low' cannot be represented by 'i8'", 0},
+    })
+}
+
+@(test)
 test_live_ignored_error :: proc(t: ^testing.T) {
     root := fixture(t, "live_ignored_error", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
     e := engine_create()
