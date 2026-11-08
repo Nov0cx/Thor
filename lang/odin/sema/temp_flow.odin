@@ -273,7 +273,8 @@ place_tainted :: proc(w: ^Temp_Walk, cur: Bits, index: int) -> bool {
 // Whether the value of `n` is, or holds, a temp value in the state `cur`.
 @(private = "file")
 taint_expr :: proc(w: ^Temp_Walk, cur: Bits, n: odinsyntax.Syntax_Node, depth := 0) -> bool {
-    n := strip_parens(n)
+    n := n
+    n = strip_parens(n)
     #partial switch n.green.kind {
     case .Ident, .Selector_Expr:
         if index, ok := temp_cand(w, n); ok {
@@ -424,7 +425,8 @@ collect_returns :: proc(w: ^Temp_Walk, file: File_Id, p: Proc_Type, n: odinsynta
 // `n` is something the analysis cannot read.
 @(private = "file")
 alias_expr :: proc(w: ^Temp_Walk, file: File_Id, p: Proc_Type, n: odinsyntax.Syntax_Node, depth: int) -> (mask: u64, ok: bool) {
-    n := strip_parens(n)
+    n := n
+    n = strip_parens(n)
     #partial switch n.green.kind {
     case .Literal:
         return 0, true

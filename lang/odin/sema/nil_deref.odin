@@ -400,7 +400,8 @@ nil_compare :: proc(w: ^Nil_Walk, b: odinsyntax.Binary_Expr) -> (cand: int, is_e
 // nil, through `!`, `&&` and `||`.
 @(private = "file")
 cond_facts :: proc(w: ^Nil_Walk, n: odinsyntax.Syntax_Node, truth: bool, out: ^[dynamic]Nil_Fact) {
-    n := strip_parens(n)
+    n := n
+    n = strip_parens(n)
     #partial switch n.green.kind {
     case .Unary_Expr:
         u, _ := odinsyntax.as_unary_expr(n)
@@ -461,7 +462,8 @@ mark_conditions :: proc(w: ^Nil_Walk, n: odinsyntax.Syntax_Node) {
 
 @(private = "file")
 mark_spine :: proc(w: ^Nil_Walk, n: odinsyntax.Syntax_Node) {
-    n := strip_parens(n)
+    n := n
+    n = strip_parens(n)
     #partial switch n.green.kind {
     case .Unary_Expr:
         u, _ := odinsyntax.as_unary_expr(n)
@@ -666,7 +668,8 @@ walk_nil :: proc(w: ^Nil_Walk, n: odinsyntax.Syntax_Node, out: ^[dynamic]Nil_Eve
 // condition around it rules the nil out.
 @(private = "file")
 deref_event :: proc(w: ^Nil_Walk, operand: odinsyntax.Syntax_Node, mode: Nil_Use_Mode, out: ^[dynamic]Nil_Event) {
-    operand := strip_parens(operand)
+    operand := operand
+    operand = strip_parens(operand)
     index, is_cand := nil_cand(w, operand)
     if !is_cand {
         return
