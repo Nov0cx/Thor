@@ -21,6 +21,7 @@ odin run build.odin -file -- test          # every package with tests, into bin/
 odin run build.odin -file -- test -release # the same with the flags a release is built with
 odin run build.odin -file -- clean
 odin run build.odin -file -- gen_syntax    # kind.odin + views.odin of lang/odin/syntax from syntax.schema
+odin run build.odin -file -- bench         # time parse, diagnostics, completion (release flags); -strict fails over budget
 odin run build.odin -file -- -h -verbose   # flags; -verbose echoes each command
 ```
 
@@ -414,7 +415,10 @@ subprocess LSP client as an optional second backend behind the same seam.
   `target.odin` + `definition.odin` + `references.odin` (the caret target, definition, references,
   rename and document highlight), `type_definition.odin`, `hover.odin`, `completion.odin`, `signature.odin`, `semantic.odin`, `actions.odin` (quick fixes),
   `builtins.odin` (the universe scope), `package_doc.odin`, `config.odin` and `path_*.odin`
-  remain. Every file and package read goes through the sema query DB;
+  remain, with `package_live.odin` (live diagnostics of the whole package), `telemetry.odin`
+  (where `odin check` and the live check disagree), `selection.odin`, `hierarchy.odin` and `lens.odin`
+  (selection range, call/type hierarchy, code lens). `sema/nil_deref.odin`, `sema/vet_cast.odin` and
+  `sema/vet_syntax.odin` hold the nil, cast and syntax-level vet checks. Every file and package read goes through the sema query DB;
   `parse_cache.odin` and `package_cache.odin` are gone. A request that needs types takes the
   lazy checker of its `Request_Context` (`request_checker`), which `request_close` ends before the
   snapshot. `supports` declines every kind outside `IMPLEMENTED` (`engine.odin`).

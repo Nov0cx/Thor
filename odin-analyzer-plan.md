@@ -44,6 +44,11 @@ The Tier 3 lints started: diagnostics have a hint severity, and `api/fmt-verbs`
 and `api/ignored-error` are live as hints, and so are `mem/dangling-slice`, `mem/temp-escape` and
 `defer/in-loop`, `api/deprecated` and `perf/range-copy`, and `logic/*` and `style/naming`. The ownership dataflow
 (`mem/leak`, `mem/double-free`, `mem/use-after-free`, opt-in) is done.
+Also landed: call and type hierarchy, implementations, selection range, code lens reference counts,
+postfix completions, semantic token modifiers with inactive `when` ranges, `vet/cast`, `nil/deref`,
+a dropped `ok`, opt-in `vet/unused-procedure`, `vet/style`, `vet/semicolon` and `vet/tabs`, package
+live diagnostics, diagnostics telemetry and `build.odin -- bench`. Open: live diagnostics at about
+130 ms against the 50 ms budget, no `-target`/`-define` on the save's `odin check`, no Problems panel.
 `lang/ROADMAP.md` ("Next engine") tracks the rest. Section 11 lists the
 feature questions whose answers change the plan.
 

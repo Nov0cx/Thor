@@ -2849,8 +2849,37 @@ not a status, so this section stays the source of truth for what is built.
     `// thor:ignore-file <id>...` drops them in the whole file. An unknown id
     is a warning. `"diagnostics": {"<id>": "off" | "warning" | "error"}` in
     `.thor/odin-analyzer.json` turns an id off or sets its severity; an
-    unknown id or value is dropped with a log warning. Not yet: a `"hint"`
-    severity (the seam has errors and warnings only).
+    unknown id or value is dropped with a log warning. `"hint"` is a severity too.
+  - **More request kinds** (M8): `Call_Hierarchy` and `Type_Hierarchy`
+    (`hierarchy.odin`), `Implementations`, `Selection_Range` (`selection.odin`;
+    `ctrl+alt+shift+right`/`left` expand and shrink) and `Code_Lens`
+    (`lens.odin`; reference counts, toggled by `toggle_code_lens`). The editor
+    commands are `incoming_calls`, `outgoing_calls`, `supertypes`, `subtypes`
+    and `goto_implementations` in `settings/keybinds.lua`.
+  - **Postfix completions** (`completion.odin`): after `x.` the templates `if`,
+    `ifnot`, `ifnil`, `ifnotnil`, `for`, `fori`, `switch`, `var`, `return`,
+    `defer_delete` and `defer_free`, each filtered by the type of `x`.
+  - **Semantic modifiers** (`semantic.odin`): `deprecated` and `distinct`
+    modifiers on declarations, and `Inactive` ranges for `when` branches the
+    target makes false. `plugins/odin/plugin.lua` maps `inactive` and
+    `deprecated` to a role.
+  - **More lints:** `vet/cast` (warning, `sema/vet_cast.odin`), `nil/deref`
+    (hint, `sema/nil_deref.odin`), `api/ignored-error` also for a dropped `ok`,
+    and the opt-in `vet/unused-procedure`, `vet/style`, `vet/semicolon` and
+    `vet/tabs` (`sema/vet_syntax.odin`). `#+vet` tags apply to each. The save's
+    `odin check` passes the matching `-vet-*` flag and maps its lines to the id.
+  - **Package live diagnostics** (`package_live.odin`): `package_diagnostics` in
+    `.thor/odin-analyzer.lua` (default false) also checks the other files of the
+    package. `diagnostics_telemetry` (default false, `telemetry.odin`) logs where
+    `odin check` and the live check disagree.
+  - **Bench:** `build.odin -- bench [-strict]` times parse, reparse, diagnostics
+    and completion with the release flags; a measure over budget is a log
+    warning, an error with `-strict`.
+  - **Known gaps:** live diagnostics take about 130 ms against the 50 ms budget.
+    The save's `odin check` gets no `-target` or `-define` from the analyzer
+    config. There is no Problems panel. `nil/deref` misses `p[i]`, field
+    procedures and narrowing. The lens count costs declarations x files per
+    request. Reference counts show inline, not above the line.
 - **Formatter** (`lang/odin/format`, M2 end): prints from the `odinsyntax`
   tree; `core:odin/parser` is used only by tests. `tree.odin` builds the line
   index and the comment groups in one walk. Over every `.odin` file in the
