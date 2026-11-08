@@ -180,31 +180,51 @@ node_kids :: proc(ks: []Node) -> []Node {
 // The pending comments before `at`, printed where written: a block comment inline,
 // a line comment ending its line.
 @(private)
-print_inner_comments :: proc(pr: ^Printer, out: ^[dynamic]Doc, at: int, before_node: bool) {
+print_inner_comments :: proc(pr: ^Printer, out: ^[dynamic]Doc, at: int, before_node: bool, lead_space := false, rest: ^[dynamic]Doc = nil) {
     for comment_before(pr, at) {
         cg := pr.comments[pr.comment_idx]
         is_line := strings.has_prefix(cg.list[len(cg.list) - 1].text, "//")
         pr.comment_idx += 1
         group: [dynamic]Doc
         comment_group_text(pr, cg, &group)
-        append(out, text(before_node ? "" : " "))
-        append(out, concat(group[:]))
-        append(out, is_line ? hard_line(0) : text(before_node ? " " : ""))
+        dst := rest != nil && len(rest^) > 0 ? rest : out
+        append(dst, text(before_node && !lead_space ? "" : " "))
+        append(dst, concat(group[:]))
+        if !is_line {
+            append(dst, text(before_node ? " " : ""))
+        } else if rest != nil {
+            append(rest, hard_line(0))
+        } else {
+            append(dst, hard_line(0))
+        }
     }
 }
 
-// The children of `ks` with nothing between them but comments.
+// Where the next item goes: `rest` once a line comment opened it, else `out`.
+@(private)
+comment_dst :: proc(out, rest: ^[dynamic]Doc) -> ^[dynamic]Doc {
+    return len(rest^) > 0 ? rest : out
+}
+
+// The children of `ks` with nothing between them but comments. After a line
+// comment the rest is indented one level.
 @(private)
 print_tight :: proc(pr: ^Printer, out: ^[dynamic]Doc, ks: []Node) {
+    rest: [dynamic]Doc
     for k, i in ks {
         if i > 0 {
-            print_inner_comments(pr, out, k.start, is_node(k))
+            dot := !is_node(ks[i - 1]) && (ks[i - 1].tok == .Period || ks[i - 1].tok == .Arrow_Right)
+            print_inner_comments(pr, comment_dst(out, &rest), k.start, is_node(k), dot, &rest)
         }
+        dst := comment_dst(out, &rest)
         if is_node(k) {
-            print_expr(pr, out, k)
+            print_expr(pr, dst, k)
         } else {
-            append(out, text(node_text(pr, k)))
+            append(dst, text(node_text(pr, k)))
         }
+    }
+    if len(rest) > 0 {
+        append(out, indent(rest[:]))
     }
 }
 
@@ -712,9 +732,21 @@ print_spaced_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
 
 @(private)
 print_paren_expr_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
+    ks := kids(expr)
+    inner, ok := first_node(ks)
+    if !ok {
+        append(out, text("()"))
+        return
+    }
     append(out, text("("))
-    if inner, ok := first_node(kids(expr)); ok {
-        print_expr(pr, out, inner)
+    rest: [dynamic]Doc
+    print_inner_comments(pr, out, inner.start, true, rest = &rest)
+    print_expr(pr, comment_dst(out, &rest), inner)
+    if len(ks) > 0 && !is_node(ks[len(ks) - 1]) {
+        print_inner_comments(pr, comment_dst(out, &rest), ks[len(ks) - 1].start, false, rest = &rest)
+    }
+    if len(rest) > 0 {
+        append(out, indent(rest[:]))
     }
     append(out, text(")"))
 }
@@ -729,17 +761,22 @@ print_selector_call_expr_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: No
 // `x[i]`, `m[r, c]`, `s[lo:hi]`.
 @(private)
 print_index_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
+    rest: [dynamic]Doc
     for k, i in kids(expr) {
         if i > 0 {
-            print_inner_comments(pr, out, k.start, is_node(k))
+            print_inner_comments(pr, comment_dst(out, &rest), k.start, is_node(k), rest = &rest)
         }
+        dst := comment_dst(out, &rest)
         if is_node(k) {
-            print_expr(pr, out, k)
+            print_expr(pr, dst, k)
         } else if k.tok == .Comma {
-            append(out, text(", "))
+            append(dst, text(", "))
         } else {
-            append(out, text(node_text(pr, k)))
+            append(dst, text(node_text(pr, k)))
         }
+    }
+    if len(rest) > 0 {
+        append(out, indent(rest[:]))
     }
 }
 

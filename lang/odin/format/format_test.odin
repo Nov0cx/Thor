@@ -1128,11 +1128,19 @@ test_comments_inside_lists_stay_in_place :: proc(t: ^testing.T) {
         },
         {
             "package p\nf :: proc() {\n\tx := a[/* i */ 0]\n\ty := b[0 /* j */]\n\tz := c. /* f */ d\n}\n",
-            "package p\nf :: proc() {\n\tx := a[/* i */ 0]\n\ty := b[0 /* j */]\n\tz := c./* f */ d\n}\n",
+            "package p\nf :: proc() {\n\tx := a[/* i */ 0]\n\ty := b[0 /* j */]\n\tz := c. /* f */ d\n}\n",
         },
         {
             "package p\nf :: proc() {\n\tx := a[0, // row\n\t\t1]\n\tw := 2\n}\n",
-            "package p\nf :: proc() {\n\tx := a[0, // row\n\t1]\n\tw := 2\n}\n",
+            "package p\nf :: proc() {\n\tx := a[0, // row\n\t\t1]\n\tw := 2\n}\n",
+        },
+        {
+            "package p\nf :: proc() {\n\tx := (a + // why\n\t\tb)\n\tw := 2\n}\n",
+            "package p\nf :: proc() {\n\tx := (a +  // why\n\t\tb)\n\tw := 2\n}\n",
+        },
+        {
+            "package p\nf :: proc() {\n\tx := (// lead\n\t\ta)\n\tw := 2\n}\n",
+            "package p\nf :: proc() {\n\tx := (// lead\n\t\ta)\n\tw := 2\n}\n",
         },
     }
     for c in cases {
