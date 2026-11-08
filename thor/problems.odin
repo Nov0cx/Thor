@@ -1,13 +1,15 @@
 package thor
 
+import "base:runtime"
 import "core:fmt"
 import "core:slice"
 import "core:strings"
 
 import "../editview"
+import "../lang"
 import ui "../vendor/loom/loom"
 
-// The Problems panel: the diagnostics of the open files, grouped by file.
+// The Problems panel: the diagnostics of the open files and of the other files of the checked packages, grouped by file.
 
 PROBLEMS_WIDTH :: 760
 PROBLEMS_HEIGHT :: 520
@@ -20,11 +22,22 @@ Problems_View :: struct {
 
 // One diagnostic row of the panel.
 Problem :: struct {
-    offset:   int, // byte offset in the file
+    offset:   int, // byte offset in the file; -1 for a file that is not open
+    col:      int, // 1-based; used when `offset` is -1
     line:     int, // 0-based
     severity: editview.Diagnostic_Severity,
     message:  string, // borrowed from the file
     code:     string,
+}
+
+// A diagnostic of a file that is not open.
+Package_Problem :: struct {
+    path:     string, // owned, absolute
+    line:     int,    // 1-based
+    col:      int,    // 1-based
+    severity: editview.Diagnostic_Severity,
+    message:  string, // owned
+    code:     string, // static
 }
 
 // The problems of one file, in line order.
@@ -59,10 +72,98 @@ thor_problem_groups :: proc(thor: ^Thor, allocator := context.temp_allocator) ->
         })
         append(&groups, Problem_Group {path = file.path, problems = rows})
     }
+    problems_add_closed(thor, &groups, allocator)
     slice.sort_by(groups[:], proc(a, b: Problem_Group) -> bool {
         return a.path < b.path
     })
     return groups[:]
+}
+
+// Adds a group for each file that is not open and has stored problems.
+@(private = "file")
+problems_add_closed :: proc(thor: ^Thor, groups: ^[dynamic]Problem_Group, allocator: runtime.Allocator) {
+    first := len(groups)
+    for &pp in thor.package_problems {
+        if file, _ := thor_find_open_file(thor, pp.path); file != nil && !file.closed {
+            continue
+        }
+        at := -1
+        for g, i in groups[first:] {
+            if g.path == pp.path {
+                at = first + i
+                break
+            }
+        }
+        if at < 0 {
+            append(groups, Problem_Group {path = pp.path})
+            at = len(groups) - 1
+        }
+        rows := make([dynamic]Problem, 0, len(groups[at].problems) + 1, allocator)
+        append(&rows, ..groups[at].problems)
+        append(&rows, Problem {
+            offset   = -1,
+            col      = pp.col,
+            line     = pp.line - 1,
+            severity = pp.severity,
+            message  = pp.message,
+            code     = pp.code,
+        })
+        groups[at].problems = rows[:]
+    }
+    for g in groups[first:] {
+        slice.stable_sort_by(g.problems, proc(a, b: Problem) -> bool {
+            return a.line < b.line
+        })
+    }
+}
+
+// Replaces the stored problems of the files `res.report.scope` covers with those of the
+// report, keeping only files that are not open.
+thor_package_problems_store :: proc(thor: ^Thor, res: ^lang.Result) {
+    kept := 0
+    for pp in thor.package_problems {
+        if scope_covers(pp.path, res.report.scope) {
+            delete(pp.path)
+            delete(pp.message)
+            continue
+        }
+        thor.package_problems[kept] = pp
+        kept += 1
+    }
+    resize(&thor.package_problems, kept)
+    for d in res.report.items {
+        if file, _ := thor_find_open_file(thor, d.path); file != nil && !file.closed {
+            continue
+        }
+        pp := Package_Problem {
+            path     = strings.clone(d.path),
+            line     = d.line,
+            col      = d.col,
+            severity = editor_severity(d.severity),
+            message  = strings.clone(d.message),
+            code     = d.code,
+        }
+        if _, err := append(&thor.package_problems, pp); err != nil {
+            delete(pp.path)
+            delete(pp.message)
+            return
+        }
+    }
+}
+
+// Drops the stored problems.
+thor_package_problems_clear :: proc(thor: ^Thor) {
+    for pp in thor.package_problems {
+        delete(pp.path)
+        delete(pp.message)
+    }
+    clear(&thor.package_problems)
+}
+
+thor_package_problems_destroy :: proc(thor: ^Thor) {
+    thor_package_problems_clear(thor)
+    delete(thor.package_problems)
+    thor.package_problems = nil
 }
 
 // The number of problems of `severity` over all `groups`.
@@ -116,6 +217,10 @@ problem_display_path :: proc(thor: ^Thor, path: string) -> string {
 // Opens the file of a problem at its location and closes the panel.
 thor_problem_jump :: proc(thor: ^Thor, path: string, p: Problem) {
     thor_problems_close(thor)
+    if p.offset < 0 {
+        thor_goto_file_line_col(thor, path, p.line + 1, p.col)
+        return
+    }
     thor_goto_location(thor, path, p.offset)
 }
 
@@ -204,7 +309,7 @@ problems_box :: proc(thor: ^Thor) {
         },
     )
     if len(groups) == 0 {
-        ui.label("No problems in the open files.", {key = "none", props = {color = thor.theme.muted_color, pad = ui.xy(8, 8)}})
+        ui.label("No problems.", {key = "none", props = {color = thor.theme.muted_color, pad = ui.xy(8, 8)}})
         return
     }
     for g, gi in groups {
