@@ -66,19 +66,17 @@ strip_signs :: proc(n: odinsyntax.Syntax_Node) -> (node: odinsyntax.Syntax_Node,
     return node, negative
 }
 
-// The float expression `n` as a number: a literal, or a sum, difference, product or quotient of
-// them, with parentheses and negations. False for any other node, a spelling with a comment, or a number too long to print.
+// The float expression `n` of `file` as a number: a literal, a named constant, or a sum,
+// difference, product or quotient of them, with parentheses and negations. False for any other
+// node or a number too long to print.
 @(private = "file")
-literal_number :: proc(n: odinsyntax.Syntax_Node) -> (num: Literal_Number, ok: bool) {
+literal_number :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (num: Literal_Number, ok: bool) {
     context.allocator = context.temp_allocator
     node, negative := strip_signs(n)
-    text := odinsyntax.node_text(n)
-    if strings.contains(text, "/*") || strings.contains(text, "//") {
-        return {}, false
-    }
-    if node.green.kind == .Binary_Expr {
-        r, rok := rational_of(node, 0)
-        if !rok || !r.dotted {
+    #partial switch node.green.kind {
+    case .Binary_Expr, .Ident:
+        r, rok := rational_of(c, file, node, 0)
+        if !rok || !r.dotted && node.green.kind == .Binary_Expr {
             return {}, false
         }
         if negative {
@@ -89,23 +87,18 @@ literal_number :: proc(n: odinsyntax.Syntax_Node) -> (num: Literal_Number, ok: b
             r = neg
         }
         return rational_number(r)
+    case .Literal:
+        leaf, lok := literal_leaf(node)
+        if !lok {
+            return {}, false
+        }
+        if negative {
+            leaf.negative = true
+            leaf.float = -leaf.float
+        }
+        return leaf, true
     }
-    if node.green.kind != .Literal {
-        return {}, false
-    }
-    // A plain literal or a negated one is kept to its tight spelling.
-    if n.green.kind != .Paren_Expr && strings.contains_any(text, " \t\r\n") {
-        return {}, false
-    }
-    leaf, lok := literal_leaf(node)
-    if !lok {
-        return {}, false
-    }
-    if negative {
-        leaf.negative = true
-        leaf.float = -leaf.float
-    }
-    return leaf, true
+    return {}, false
 }
 
 // The float literal node `node` as digits and an exponent.
@@ -126,10 +119,11 @@ literal_leaf :: proc(node: odinsyntax.Syntax_Node) -> (num: Literal_Number, ok: 
             return {}, false
         }
         bits, parsed := strconv.parse_u64_of_base(digits, 16)
-        if !parsed {
+        f := transmute(f64)bits
+        if !parsed || f != f || abs(f) > max(f64) {
             return {}, false
         }
-        return {hex = true, dotted = true, float = transmute(f64)bits}, true
+        return {hex = true, dotted = true, float = f}, true
     }
     clean := make([dynamic]u8, 0, len(text), context.temp_allocator)
     for ch in transmute([]u8)text {
@@ -172,12 +166,15 @@ literal_leaf :: proc(node: odinsyntax.Syntax_Node) -> (num: Literal_Number, ok: 
 // The most bits a numerator or denominator may take before the value is left unsettled.
 RAT_MAX_BITS :: 4096
 
-// An exact fraction; `den` is positive and `num` / `den` is in lowest terms.
+// An exact fraction; `den` is positive and `num` / `den` is in lowest terms. A hexadecimal float
+// makes the compiler compute in f64 from there on: `float` is then the value and `num` / `den` are unset.
 @(private = "file")
 Rational :: struct {
     num, den: big.Int,
-    dotted:   bool, // a float literal is part of it
-    hexfrac:  bool, // a hexadecimal float with a fraction is part of it
+    dotted:   bool, // a literal with a `.` is part of it
+    real:     bool, // a float literal, with or without a `.`, is part of it
+    float:    bool, // the value is the f64 `f`
+    f:        f64,
 }
 
 @(private = "file")
@@ -257,7 +254,7 @@ big_text :: proc(a: big.Int) -> (string, bool) {
 }
 
 @(private = "file")
-rat_make :: proc(num, den: big.Int, dotted, hexfrac: bool) -> (Rational, bool) {
+rat_make :: proc(num, den: big.Int, dotted, real: bool) -> (Rational, bool) {
     _, dzero, dok := big_sign(den)
     if !dok || dzero {
         return {}, false
@@ -290,11 +287,16 @@ rat_make :: proc(num, den: big.Int, dotted, hexfrac: bool) -> (Rational, bool) {
     if big_bits(num) > RAT_MAX_BITS || big_bits(den) > RAT_MAX_BITS {
         return {}, false
     }
-    return {num = num, den = den, dotted = dotted, hexfrac = hexfrac}, true
+    return {num = num, den = den, dotted = dotted, real = real}, true
 }
 
 @(private = "file")
 rat_neg :: proc(r: Rational) -> (out: Rational, ok: bool) {
+    if r.float {
+        out = r
+        out.f = -r.f
+        return out, true
+    }
     n, nok := big_neg(r.num)
     out = r
     out.num = n
@@ -303,58 +305,20 @@ rat_neg :: proc(r: Rational) -> (out: Rational, ok: bool) {
 
 // The value of the constant expression `n` made of numbers, parentheses, negation and `+ - * /`.
 @(private = "file")
-rational_of :: proc(n: odinsyntax.Syntax_Node, depth: int) -> (r: Rational, ok: bool) {
+rational_of :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, depth: int) -> (r: Rational, ok: bool) {
     if depth > 32 {
         return {}, false
     }
     node, negative := strip_signs(n)
-    r, ok = rational_node(node, depth)
+    r, ok = rational_node(c, file, node, depth)
     if ok && negative {
         r, ok = rat_neg(r)
     }
     return r, ok
 }
 
-// The exact value of the finite f64 `f`.
 @(private = "file")
-rat_of_f64 :: proc(f: f64) -> (Rational, bool) {
-    if f != f || abs(f) > max(f64) {
-        return {}, false
-    }
-    one, ook := big_from(1)
-    if !ook {
-        return {}, false
-    }
-    if f == 0 {
-        zero, zok := big_from(0)
-        if !zok {
-            return {}, false
-        }
-        return rat_make(zero, one, true, false)
-    }
-    frac, exp := math.frexp(abs(f))
-    mant := i64(frac * (1 << 53))
-    exp -= 53
-    m, mok := big_from(mant if f > 0 else -mant)
-    if !mok {
-        return {}, false
-    }
-    if exp >= 0 {
-        num, nok := big_shl(m, exp)
-        if !nok {
-            return {}, false
-        }
-        return rat_make(num, one, true, false)
-    }
-    den, dok := big_shl(one, -exp)
-    if !dok {
-        return {}, false
-    }
-    return rat_make(m, den, true, true)
-}
-
-@(private = "file")
-rational_node :: proc(node: odinsyntax.Syntax_Node, depth: int) -> (Rational, bool) {
+rational_node :: proc(c: ^Checker, file: File_Id, node: odinsyntax.Syntax_Node, depth: int) -> (Rational, bool) {
     #partial switch node.green.kind {
     case .Literal:
         lit, _ := odinsyntax.as_literal(node)
@@ -384,7 +348,7 @@ rational_node :: proc(node: odinsyntax.Syntax_Node, depth: int) -> (Rational, bo
             return {}, false
         }
         if leaf.hex {
-            return rat_of_f64(leaf.float)
+            return {float = true, f = leaf.float, dotted = true}, true
         }
         if leaf.exp10 > 1000 || leaf.exp10 < -1000 {
             return {}, false
@@ -413,9 +377,11 @@ rational_node :: proc(node: odinsyntax.Syntax_Node, depth: int) -> (Rational, bo
             if !mok {
                 return {}, false
             }
-            return rat_make(m, one, leaf.dotted, false)
+            return rat_make(m, one, leaf.dotted, true)
         }
-        return rat_make(mant, scale, leaf.dotted, false)
+        return rat_make(mant, scale, leaf.dotted, true)
+    case .Ident:
+        return rational_ident(c, file, node, depth)
     case .Binary_Expr:
         b, _ := odinsyntax.as_binary_expr(node)
         lhs, has_lhs := odinsyntax.binary_expr_lhs(&b)
@@ -424,25 +390,27 @@ rational_node :: proc(node: odinsyntax.Syntax_Node, depth: int) -> (Rational, bo
         if !has_lhs || !has_op || !has_rhs {
             return {}, false
         }
-        a, aok := rational_of(lhs, depth + 1)
-        c, cok := rational_of(rhs, depth + 1)
-        if !aok || !cok {
+        l, lok := rational_of(c, file, lhs, depth + 1)
+        r, rok := rational_of(c, file, rhs, depth + 1)
+        if !lok || !rok {
             return {}, false
         }
-        dotted := a.dotted || c.dotted
-        hexfrac := a.hexfrac || c.hexfrac
+        dotted, real := l.dotted || r.dotted, l.real || r.real
+        if l.float || r.float {
+            return float_binary(op.green.kind, l, r)
+        }
         #partial switch op.green.kind {
         case .Add, .Sub:
             if op.green.kind == .Sub {
-                neg, nok := rat_neg(c)
+                neg, nok := rat_neg(r)
                 if !nok {
                     return {}, false
                 }
-                c = neg
+                r = neg
             }
-            x, xok := big_mul(a.num, c.den)
-            y, yok := big_mul(c.num, a.den)
-            d, dok := big_mul(a.den, c.den)
+            x, xok := big_mul(l.num, r.den)
+            y, yok := big_mul(r.num, l.den)
+            d, dok := big_mul(l.den, r.den)
             if !xok || !yok || !dok {
                 return {}, false
             }
@@ -450,27 +418,116 @@ rational_node :: proc(node: odinsyntax.Syntax_Node, depth: int) -> (Rational, bo
             if !sok {
                 return {}, false
             }
-            return rat_make(s, d, dotted, hexfrac)
+            return rat_make(s, d, dotted, real)
         case .Mul:
-            x, xok := big_mul(a.num, c.num)
-            d, dok := big_mul(a.den, c.den)
+            x, xok := big_mul(l.num, r.num)
+            d, dok := big_mul(l.den, r.den)
             if !xok || !dok {
                 return {}, false
             }
-            return rat_make(x, d, dotted, hexfrac)
+            return rat_make(x, d, dotted, real)
         case .Quo:
-            if _, zero, sok := big_sign(c.num); !sok || zero {
+            if _, zero, sok := big_sign(r.num); !sok || zero {
                 return {}, false
             }
-            x, xok := big_mul(a.num, c.den)
-            d, dok := big_mul(a.den, c.num)
+            // Two untyped integers divide as integers.
+            if !real {
+                q, qok := big_div(l.num, r.num)
+                if !qok {
+                    return {}, false
+                }
+                one, ook := big_from(1)
+                if !ook {
+                    return {}, false
+                }
+                return rat_make(q, one, false, false)
+            }
+            x, xok := big_mul(l.num, r.den)
+            d, dok := big_mul(l.den, r.num)
             if !xok || !dok {
                 return {}, false
             }
-            return rat_make(x, d, dotted, hexfrac)
+            return rat_make(x, d, dotted, real)
         }
     }
     return {}, false
+}
+
+// `l op r` where one side comes from a hexadecimal float: the compiler works in f64 from there.
+@(private = "file")
+float_binary :: proc(op: odinsyntax.Token_Kind, l, r: Rational) -> (Rational, bool) {
+    x, xok := rat_to_f64(l)
+    y, yok := rat_to_f64(r)
+    if !xok || !yok {
+        return {}, false
+    }
+    z: f64
+    #partial switch op {
+    case .Add:
+        z = x + y
+    case .Sub:
+        z = x - y
+    case .Mul:
+        z = x * y
+    case .Quo:
+        if y == 0 {
+            return {}, false
+        }
+        z = x / y
+    case:
+        return {}, false
+    }
+    if z != z || abs(z) > max(f64) {
+        return {}, false
+    }
+    return {float = true, f = z, dotted = true}, true
+}
+
+@(private = "file")
+rat_to_f64 :: proc(r: Rational) -> (f64, bool) {
+    if r.float {
+        return r.f, true
+    }
+    f, ok := rat_f64(r)
+    return f, ok && abs(f) <= max(f64)
+}
+
+// The value of the untyped constant `ident` declared as `NAME :: value`; false for any other name.
+@(private = "file")
+rational_ident :: proc(c: ^Checker, file: File_Id, ident: odinsyntax.Syntax_Node, depth: int) -> (Rational, bool) {
+    if len(c.env) > 0 {
+        return {}, false
+    }
+    res := lookup_name(c, file, odinsyntax.node_text(ident), int(ident.offset))
+    value_offset: int
+    decl_file: File_Id
+    #partial switch res.kind {
+    case .Item:
+        item := checker_item(c, res.symbol)
+        if item == nil || item.kind != .Const || item.type_offset >= 0 || item.value_index >= 0 {
+            return {}, false
+        }
+        decl_file, value_offset = res.symbol.file, item.value_offset
+    case .Local:
+        if res.local.kind != .Const || res.local.type_offset >= 0 || res.local.value_index >= 0 {
+            return {}, false
+        }
+        decl_file, value_offset = res.file, res.local.value_offset
+    case:
+        return {}, false
+    }
+    if value_offset < 0 {
+        return {}, false
+    }
+    op := expr_type(c, file, ident)
+    if u, untyped := type_get(&c.table, op.type).(Untyped_Type); op.mode != .Const || !untyped || u.kind != .Float && u.kind != .Int {
+        return {}, false
+    }
+    value, vok := node_at(c, decl_file, value_offset)
+    if !vok {
+        return {}, false
+    }
+    return rational_of(c, decl_file, value, depth + 1)
 }
 
 // The f64 nearest the fraction `r`, infinite beyond the range.
@@ -481,7 +538,9 @@ rat_f64 :: proc(r: Rational) -> (f64, bool) {
     if !sok || !mok {
         return 0, false
     }
-    shifted, shok := big_shl(mag, 64)
+    // Enough bits that the quotient holds a full mantissa however small the fraction is.
+    shift := 64 + max(0, big_bits(r.den) - big_bits(mag))
+    shifted, shok := big_shl(mag, shift)
     if !shok {
         return 0, false
     }
@@ -500,15 +559,17 @@ rat_f64 :: proc(r: Rational) -> (f64, bool) {
         if !parsed && f == 0 {
             return 0, false
         }
-        f = math.ldexp(f, -64)
+        f = math.ldexp(f, -shift)
     }
     return -f if neg else f, true
 }
 
-// A `Literal_Number` that prints the fraction `r`. False for a fraction the compiler prints from
-// a hexadecimal float, which is not reproduced.
+// A `Literal_Number` that prints the value `r`.
 @(private = "file")
 rational_number :: proc(r: Rational) -> (num: Literal_Number, ok: bool) {
+    if r.float {
+        return {hex = true, dotted = true, float = r.f, negative = r.f < 0}, true
+    }
     negative, zero, sok := big_sign(r.num)
     mag, mok := big_abs(r.num)
     one, ook := big_from(1)
@@ -521,9 +582,6 @@ rational_number :: proc(r: Rational) -> (num: Literal_Number, ok: bool) {
         return {}, false
     }
     integral := cmp == 0 || zero
-    if r.hexfrac && !integral {
-        return {}, false
-    }
     digits, dok := big_text(mag)
     if !dok {
         return {}, false
@@ -535,7 +593,7 @@ rational_number :: proc(r: Rational) -> (num: Literal_Number, ok: bool) {
     sign := "-" if negative else ""
     num.negative = negative
     num.digits = "" if zero else digits
-    num.dotted = true
+    num.dotted = r.dotted
     num.float = f
     num.rat = true
     num.rat_integral = integral
@@ -553,6 +611,32 @@ rational_number :: proc(r: Rational) -> (num: Literal_Number, ok: bool) {
     return num, true
 }
 
+// The f64 `f` as the compiler prints it: 17 decimals, each taken from the fraction scaled in f64,
+// so the last ones carry its rounding. `f` is not integral and below 1e18.
+@(private = "file")
+float_text :: proc(f: f64) -> (string, bool) {
+    b := strings.builder_make(context.temp_allocator)
+    a := abs(f)
+    whole := u64(a)
+    fraction := a - f64(whole)
+    if f < 0 {
+        strings.write_byte(&b, '-')
+    }
+    strings.write_u64(&b, whole)
+    strings.write_byte(&b, '.')
+    scale := 1.0
+    for _ in 0 ..< 17 {
+        scale *= 10
+        digit := int(fraction * scale)
+        if digit < 0 || digit > 9 {
+            return "", false
+        }
+        strings.write_int(&b, digit)
+        fraction -= f64(digit) / scale
+    }
+    return strings.to_string(b), true
+}
+
 // The exact value of `num` as the compiler prints it: an integer, or `numerator.0/denominator`
 // in lowest terms. Integral says which. False when the number is too long.
 @(private = "file")
@@ -568,12 +652,8 @@ exact_text :: proc(num: Literal_Number) -> (text: string, integral: bool, ok: bo
         if f == f64(i64(f)) {
             return fmt.tprintf("%d", i64(f)), true, true
         }
-        // The compiler rounds a longer fraction by its own arithmetic; only an exact one is printed.
-        scaled := f * 131072
-        if scaled != f64(i64(scaled)) {
-            return "", false, false
-        }
-        return fmt.tprintf("%.17f", f), false, true
+        digits, dok := float_text(f)
+        return digits, false, dok
     }
     sign := "-" if num.negative && num.digits != "" else ""
     if num.digits == "" {
@@ -665,7 +745,7 @@ float_limit :: proc(kind: Basic_Kind) -> (f64, bool) {
 
 // What the float literal `n` does to the place of type `to`, as the compiler words it. None for
 // anything the checker cannot settle exactly: a computed value, a type with rules of its own.
-literal_fault :: proc(c: ^Checker, to: Type_Id, op: Operand, n: odinsyntax.Syntax_Node) -> Literal_Problem {
+literal_fault :: proc(c: ^Checker, file: File_Id, to: Type_Id, op: Operand, n: odinsyntax.Syntax_Node) -> Literal_Problem {
     t := &c.table
     if to == INVALID_TYPE || op.mode != .Const {
         return {}
@@ -677,7 +757,7 @@ literal_fault :: proc(c: ^Checker, to: Type_Id, op: Operand, n: odinsyntax.Synta
     if !is_basic {
         return {}
     }
-    num, ok := literal_number(n)
+    num, ok := literal_number(c, file, n)
     if !ok {
         return {}
     }
@@ -720,8 +800,8 @@ literal_fault :: proc(c: ^Checker, to: Type_Id, op: Operand, n: odinsyntax.Synta
 }
 
 // The problem report for the float literal `n` put in a place of type `to`; false when there is none.
-literal_type_problem :: proc(c: ^Checker, to: Type_Id, op: Operand, n: odinsyntax.Syntax_Node) -> (Type_Problem, bool) {
-    lp := literal_fault(c, to, op, n)
+literal_type_problem :: proc(c: ^Checker, file: File_Id, to: Type_Id, op: Operand, n: odinsyntax.Syntax_Node) -> (Type_Problem, bool) {
+    lp := literal_fault(c, file, to, op, n)
     if lp.fault == .None {
         return {}, false
     }
@@ -730,4 +810,77 @@ literal_type_problem :: proc(c: ^Checker, to: Type_Id, op: Operand, n: odinsynta
         typed.type = type_untyped(.Int)
     }
     return {value = n, op = typed, to = to, overflow = lp.fault == .Overflow, truncated = lp.fault == .Truncated, got = lp.got}, true
+}
+
+// The expression `n` of a float constant as the compiler prints it from its tree: one space around
+// each operator, no comments. False for a node it does not read.
+float_expr_text :: proc(n: odinsyntax.Syntax_Node) -> (string, bool) {
+    b := strings.builder_make(context.temp_allocator)
+    if !write_expr(&b, n, 0) {
+        return "", false
+    }
+    return strings.to_string(b), true
+}
+
+@(private = "file")
+write_expr :: proc(b: ^strings.Builder, n: odinsyntax.Syntax_Node, depth: int) -> bool {
+    if depth > 32 {
+        return false
+    }
+    #partial switch n.green.kind {
+    case .Literal:
+        lit, _ := odinsyntax.as_literal(n)
+        tok, has_tok := odinsyntax.literal_token(&lit)
+        if !has_tok || tok.green.kind != .Float && tok.green.kind != .Integer {
+            return false
+        }
+        strings.write_string(b, odinsyntax.syntax_token_text(tok))
+    case .Ident:
+        strings.write_string(b, odinsyntax.node_text(n))
+    case .Paren_Expr:
+        p, _ := odinsyntax.as_paren_expr(n)
+        inner, has := odinsyntax.paren_expr_expr(&p)
+        if !has {
+            return false
+        }
+        strings.write_byte(b, '(')
+        if !write_expr(b, inner, depth + 1) {
+            return false
+        }
+        strings.write_byte(b, ')')
+    case .Unary_Expr:
+        u, _ := odinsyntax.as_unary_expr(n)
+        op, has_op := odinsyntax.unary_expr_op(&u)
+        operand, has_operand := odinsyntax.unary_expr_operand(&u)
+        if !has_op || !has_operand || op.green.kind != .Sub {
+            return false
+        }
+        strings.write_byte(b, '-')
+        return write_expr(b, operand, depth + 1)
+    case .Binary_Expr:
+        bin, _ := odinsyntax.as_binary_expr(n)
+        lhs, has_lhs := odinsyntax.binary_expr_lhs(&bin)
+        op, has_op := odinsyntax.binary_expr_op(&bin)
+        rhs, has_rhs := odinsyntax.binary_expr_rhs(&bin)
+        if !has_lhs || !has_op || !has_rhs {
+            return false
+        }
+        sign: string
+        #partial switch op.green.kind {
+        case .Add: sign = " + "
+        case .Sub: sign = " - "
+        case .Mul: sign = " * "
+        case .Quo: sign = " / "
+        case:
+            return false
+        }
+        if !write_expr(b, lhs, depth + 1) {
+            return false
+        }
+        strings.write_string(b, sign)
+        return write_expr(b, rhs, depth + 1)
+    case:
+        return false
+    }
+    return true
 }

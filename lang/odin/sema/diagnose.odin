@@ -1199,7 +1199,7 @@ conversion_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_N
     if const_overflows(c, fn.type, op) {
         return {value = arg, op = op, to = fn.type, overflow = true}, true
     }
-    if lp, found := literal_type_problem(c, fn.type, op, arg); found && lp.truncated == !lp.overflow {
+    if lp, found := literal_type_problem(c, file, fn.type, op, arg); found && lp.truncated == !lp.overflow {
         return lp, true
     }
     if op.mode == .Const && cast_refused(c, fn.type, op.type) || op.mode == .Value && typed_cast_refused(c, fn.type, op.type) {
@@ -1455,7 +1455,7 @@ argument_mismatches :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_
         } else if const_overflows(c, to, op) {
             append(&out, Type_Problem{value = a.node, op = op, to = to, overflow = true})
         } else if .Any_Int not_in param.flags {
-            if lp, found := literal_type_problem(c, to, op, a.node); found {
+            if lp, found := literal_type_problem(c, file, to, op, a.node); found {
                 append(&out, lp)
             }
         }
@@ -1693,7 +1693,7 @@ value_mismatches :: proc(c: ^Checker, file: File_Id, places: []Type_Id, list: od
             append(&out, Type_Problem{value = v, op = op, to = to})
         } else if const_overflows(c, to, op) {
             append(&out, Type_Problem{value = v, op = op, to = to, overflow = true})
-        } else if lp, found := literal_type_problem(c, to, op, v); found {
+        } else if lp, found := literal_type_problem(c, file, to, op, v); found {
             append(&out, lp)
         }
     }
