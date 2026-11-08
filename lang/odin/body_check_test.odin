@@ -1797,6 +1797,55 @@ fine_local :: proc(s: string) -> int {
 temp_name :: proc(s: string) -> string {
 	return strings.clone(s, context.temp_allocator)
 }
+Holder :: struct { name: string, id: int }
+holder: Holder
+later :: proc(s: string) {
+	x: string
+	x = strings.clone(s, context.temp_allocator)
+	keep = x
+}
+reset :: proc(s: string) {
+	x := strings.clone(s, context.temp_allocator)
+	_ = len(x)
+	x = strings.clone(s)
+	keep = x
+}
+branchy :: proc(s: string, c: bool) {
+	x := strings.clone(s)
+	if c {
+		x = strings.clone(s, context.temp_allocator)
+	}
+	keep = x
+}
+trimmed :: proc(s: string) {
+	t := strings.clone(s, context.temp_allocator)
+	keep = strings.trim_space(t)
+}
+cloned :: proc(s: string) {
+	t := strings.clone(s, context.temp_allocator)
+	keep = strings.clone(t)
+}
+field_store :: proc(s: string) {
+	h: Holder
+	h.name = strings.clone(s, context.temp_allocator)
+	holder = h
+}
+field_read :: proc(s: string) {
+	h: Holder
+	h.name = strings.clone(s, context.temp_allocator)
+	keep = h.name
+}
+field_other :: proc(s: string) {
+	h: Holder
+	h.name = strings.clone(s, context.temp_allocator)
+	holder.id = h.id
+}
+field_reset :: proc(s: string) {
+	h: Holder
+	h.name = strings.clone(s, context.temp_allocator)
+	h.name = "x"
+	holder = h
+}
 `
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
     defer free_live(&res)
@@ -1804,6 +1853,10 @@ temp_name :: proc(s: string) -> string {
         {"dup\n}", "Value from the temp allocator is stored and is freed by the next free_all(context.temp_allocator)", 0},
         {"fmt.tprintf(\"hi %s\", name)\n}\ncopied","Value from the temp allocator is stored and is freed by the next free_all(context.temp_allocator)", 0},
         {"b\n}\nfine ::", "Value from the temp allocator is stored and is freed by the next free_all(context.temp_allocator)", 0},
+        {"x\n}\nreset", "Value from the temp allocator is stored and is freed by the next free_all(context.temp_allocator)", 0},
+        {"strings.trim_space(t)", "Value from the temp allocator is stored and is freed by the next free_all(context.temp_allocator)", 0},
+        {"h\n}\nfield_read", "Value from the temp allocator is stored and is freed by the next free_all(context.temp_allocator)", 0},
+        {"h.name\n}\nfield_other", "Value from the temp allocator is stored and is freed by the next free_all(context.temp_allocator)", 0},
     })
     for d in res.report.items {
         testing.expect_value(t, d.code, CODE_TEMP_ESCAPE)
