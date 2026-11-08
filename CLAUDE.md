@@ -88,7 +88,7 @@ Six skills in `.claude/skills/`:
 
 - `verify` — the verification sweep to run after an Odin change: per-package type-check, the Linux
   and macOS cross-checks with their expected noise named, then `build.odin -- test`. It also covers
-  the two lists a change can silently miss: the `packages` list in `run_tests` and `lang/ROADMAP.md`.
+  the two lists a change can silently miss: the `packages` list in `run_tests` and `lang/LANGUAGE_INTELLIGENCE.md`.
 - `ts-probe` — the throwaway `zprobe_test.odin` that dumps a real parse tree. Use it before matching
   a tree-sitter node type, field or child order.
 - `grammar-add` — adds a tree-sitter grammar, keeping `build.odin` and `syntax/syntax.odin` in step,
@@ -169,7 +169,7 @@ be tested headlessly.
   `core:*`, `base:runtime`, `lang`, `lockfree`, `luaconf`, `shell` and `treecache` (for `source_edit`, the byte diff an
   incremental `didChange` needs) — never `setting`, which imports `lang`.
   `lang/odin/syntax` (package `odinsyntax`, not `syntax`, which is taken) is the next engine's
-  front end (`odin-analyzer-plan.md`): the lexer, the error-resilient parser (`parse`) and the
+  front end (`lang/LANGUAGE_INTELLIGENCE.md`): the lexer, the error-resilient parser (`parse`) and the
   lossless green tree. It imports only `core:`. A token is inline in an 8-byte child slot and holds
   no text — read it through the red layer (`syntax_token_text`, `node_text`) — and a node is known
   by its position, not its green pointer. `reparse` consumes the old `Parse`: the new tree owns it
@@ -409,7 +409,7 @@ subprocess LSP client as an optional second backend behind the same seam.
   request) or `manager_request_debounced` (for triggers that fire while typing). A cancelled result
   is freed without reaching the handler, so `ok == false` always means "found nothing".
 - `lang/odin` is the in-client Odin analyzer. This branch is rebuilding it
-  (`odin-analyzer-plan.md`): the tree-sitter engine is removed, and only `engine.odin` (lifetime +
+  (`lang/LANGUAGE_INTELLIGENCE.md`): the tree-sitter engine is removed, and only `engine.odin` (lifetime +
   seam), `check.odin` (`odin check` diagnostics), `formatter.odin` + `format/` (the printer),
   `syntax_check.odin` (live syntax errors), `symbols.odin` (document and workspace symbols),
   `target.odin` + `definition.odin` + `references.odin` (the caret target, definition, references,
@@ -433,7 +433,7 @@ subprocess LSP client as an optional second backend behind the same seam.
   turned off in `lsp.lua` still lists in Settings and can be turned back on, and it stops claiming
   its extensions so a later entry can take the language over. An entry claims routing keys through
   `extensions` (each force-given its leading dot) and `filenames` (whole names, kept verbatim and
-  matched first). `lang/LSP_PLAN.md` is its design.
+  matched first). `lang/LANGUAGE_INTELLIGENCE.md` (section 7) is its design.
   The workspace layer is repo-supplied and names programs, so `client_create` takes
   `trust_workspace` and skips it when false. `thor/lsp_trust.odin` decides: the grant in
   `sessions/lsp-grants.json` keys on (workspace path, SHA-256 of the file), so any edit — a
@@ -469,7 +469,9 @@ subprocess LSP client as an optional second backend behind the same seam.
   Peek definition (`thor/peek.odin`) is the one second consumer of `.Definition`: it dispatches with
   `manager_request` (not `_latest`, which would cancel a go-to) and `thor_on_lang_result` hands it
   the result whose id is `thor.peek.request_id` before the go-to path sees it.
-- **`lang/ROADMAP.md` is the living source of truth** for what works and what is missing. Read it
+- **`lang/LANGUAGE_INTELLIGENCE.md` is the living source of truth** for how the seam, the Odin
+  analyzer and the LSP client work, what is missing and what is broken, and how to add a language
+  (analyzer and formatter). Read it
   before adding a feature here, and update it after.
 
 Tree-sitter grammar shapes (used by highlighting) are a usual source of bugs: node names often do

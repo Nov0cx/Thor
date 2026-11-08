@@ -4,7 +4,7 @@
 // from the item trees of package odinsema, renders package documentation, and goes to
 // definitions, finds references and renames through its scopes, and hovers, completes, gives
 // signature help and classifies identifiers through the checker. The other kinds return with the
-// new engine (`odin-analyzer-plan.md`); until then the engine declines them.
+// new engine (`lang/LANGUAGE_INTELLIGENCE.md`); until then the engine declines them.
 package odin
 
 
