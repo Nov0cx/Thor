@@ -90,20 +90,20 @@ test_recent_workspaces :: proc(t: ^testing.T) {
 // session file. Run from the repository root: odin test thor
 @(test)
 test_restore_drops_a_directory :: proc(t: ^testing.T) {
-    WORKSPACE :: "thor_session_dir_test"
-    SUB :: WORKSPACE + "/sub"
-    NOTE :: WORKSPACE + "/note.txt"
+    workspace := test_fixture_name("thor_session_dir_test")
+    sub := fmt.tprintf("%s/sub", workspace)
+    note := fmt.tprintf("%s/note.txt", workspace)
 
-    testing.expect(t, os.make_directory(WORKSPACE) == nil, "could not create test workspace")
-    defer os.remove(WORKSPACE)
-    testing.expect(t, os.make_directory(SUB) == nil, "could not create test dir")
-    defer os.remove(SUB)
+    testing.expect(t, os.make_directory(workspace) == nil, "could not create test workspace")
+    defer os.remove(workspace)
+    testing.expect(t, os.make_directory(sub) == nil, "could not create test dir")
+    defer os.remove(sub)
     testing.expect(
         t,
-        os.write_entire_file(NOTE, transmute([]u8)string("note\n")) == nil,
+        os.write_entire_file(note, transmute([]u8)string("note\n")) == nil,
         "could not create test file",
     )
-    defer os.remove(NOTE)
+    defer os.remove(note)
 
     if !os.is_dir("sessions") {
         testing.expect(t, os.make_directory("sessions") == nil, "could not create sessions dir")
@@ -112,12 +112,12 @@ test_restore_drops_a_directory :: proc(t: ^testing.T) {
     // The folder comes first, so the saved active tab is position 1.
     data := fmt.tprintf(
         `{{"workspace":%q,"open_files":[%q,%q],"active_file":1,"split_second_file":-1}}`,
-        WORKSPACE,
-        SUB,
-        NOTE,
+        workspace,
+        sub,
+        note,
     )
     path := strings.concatenate(
-        {"sessions/", thor_path_key(WORKSPACE), ".json"},
+        {"sessions/", thor_path_key(workspace), ".json"},
         context.temp_allocator,
     )
     testing.expect(
@@ -134,7 +134,7 @@ test_restore_drops_a_directory :: proc(t: ^testing.T) {
     thor.open_files = make([dynamic]^Open_File)
     thor.zombie_files = make([dynamic]^Open_File)
     thor.pane_file = -1
-    thor.workspace_dir = WORKSPACE
+    thor.workspace_dir = workspace
     defer {
         delete(thor.status_message)
         delete(thor.open_files)
@@ -158,15 +158,15 @@ test_restore_drops_a_directory :: proc(t: ^testing.T) {
 // layout comes up on the default one rather than the folder's before it.
 @(test)
 test_restore_hands_the_dock_layout_on :: proc(t: ^testing.T) {
-    WORKSPACE :: "thor_session_dock_test"
+    workspace := test_fixture_name("thor_session_dock_test")
     LAYOUT :: `[dock.main]
 root = n0
 n0.kind = tabs
 n0.tabs = Explorer
 `
 
-    testing.expect(t, os.make_directory(WORKSPACE) == nil, "could not create test workspace")
-    defer os.remove(WORKSPACE)
+    testing.expect(t, os.make_directory(workspace) == nil, "could not create test workspace")
+    defer os.remove(workspace)
     if !os.is_dir("sessions") {
         testing.expect(t, os.make_directory("sessions") == nil, "could not create sessions dir")
     }
@@ -175,11 +175,11 @@ n0.tabs = Explorer
     escaped, _ := strings.replace_all(LAYOUT, "\n", "\\n", context.temp_allocator)
     data := fmt.tprintf(
         `{{"workspace":%q,"open_files":[],"active_file":-1,"split_second_file":-1,"dock_layout":"%s"}}`,
-        WORKSPACE,
+        workspace,
         escaped,
     )
     path := strings.concatenate(
-        {"sessions/", thor_path_key(WORKSPACE), ".json"},
+        {"sessions/", thor_path_key(workspace), ".json"},
         context.temp_allocator,
     )
     testing.expect(
@@ -196,7 +196,7 @@ n0.tabs = Explorer
     thor.open_files = make([dynamic]^Open_File)
     thor.zombie_files = make([dynamic]^Open_File)
     thor.pane_file = -1
-    thor.workspace_dir = WORKSPACE
+    thor.workspace_dir = workspace
     defer {
         delete(thor.dock_layout)
         delete(thor.status_message)
@@ -218,5 +218,5 @@ n0.tabs = Explorer
     thor_restore_session(thor)
     testing.expect_value(t, thor.dock_layout, "")
     testing.expect(t, !thor.dock_seeded, "a missing session still re-arranges the dock")
-    thor.workspace_dir = WORKSPACE
+    thor.workspace_dir = workspace
 }
