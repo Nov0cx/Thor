@@ -1584,6 +1584,63 @@ main :: proc() {
 }
 
 @(test)
+test_live_const_arith_big :: proc(t: ^testing.T) {
+    root := fixture(t, "live_const_arith_big", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+Max64 :: u64(18446744073709551615)
+Hex64 :: u64(0xFFFF_FFFF_FFFF_FFFF)
+Max128 :: u128(340282366920938463463374607431768211455)
+Min128 :: i128(-170141183460469231731687303715884105728)
+Max128s :: i128(170141183460469231731687303715884105727)
+
+main :: proc() {
+	a := Max64 + 1
+	b := Hex64 * 2
+	c := u64(18446744073709551615) + u64(1)
+	d := Max128 + 1
+	e := Min128 - 1
+	f := -Min128
+	g := Max128s + 1
+	h := Min128 / i128(-1)
+	i := Max64 - 1
+	j := Max64 + 0
+	k := Max64 * 1
+	l := Max128 - 1
+	m := i128(1) << 127
+	n := u128(1) << 128
+	o := u128(1) << 127
+	p := Max128s * 2
+	q := Max64 / 2
+	r := 0xFFFF_FFFF_FFFF_FFFF + u64(1)
+	s := i8(1) << 200
+	_, _, _, _, _, _, _, _, _, _ = a, b, c, d, e, f, g, h, i, j
+	_, _, _, _, _, _, _, _, _ = k, l, m, n, o, p, q, r, s
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"Max64 + 1", "Numeric value '18446744073709551616' from 'Max64 + 1' cannot be represented by 'u64'", 0},
+        {"Hex64 * 2", "Numeric value '36893488147419103230' from 'Hex64 * 2' cannot be represented by 'u64'", 0},
+        {"u64(18446744073709551615) + u64(1)", "Numeric value '18446744073709551616' from 'u64(18446744073709551615) + u64(1)' cannot be represented by 'u64'", 0},
+        {"Max128 + 1", "Numeric value '340282366920938463463374607431768211456' from 'Max128 + 1' cannot be represented by 'u128'", 0},
+        {"Min128 - 1", "Numeric value '-170141183460469231731687303715884105729' from 'Min128 - 1' cannot be represented by 'i128'", 0},
+        {"-Min128", "Numeric value '170141183460469231731687303715884105728' from '-Min128' cannot be represented by 'i128'", 0},
+        {"Max128s + 1", "Numeric value '170141183460469231731687303715884105728' from 'Max128s + 1' cannot be represented by 'i128'", 0},
+        {"Min128 / i128(-1)", "Numeric value '170141183460469231731687303715884105728' from 'Min128 / i128(-1)' cannot be represented by 'i128'", 0},
+        {"i128(1) << 127", "Numeric value '170141183460469231731687303715884105728' from 'i128(1) << 127' cannot be represented by 'i128'", 0},
+        {"u128(1) << 128", "Numeric value '340282366920938463463374607431768211456' from 'u128(1) << 128' cannot be represented by 'u128'", 0},
+        {"Max128s * 2", "Numeric value '340282366920938463463374607431768211454' from 'Max128s * 2' cannot be represented by 'i128'", 0},
+        {"0xFFFF_FFFF_FFFF_FFFF + u64(1)", "Numeric value '18446744073709551616' from '0xFFFF_FFFF_FFFF_FFFF + u64(1)' cannot be represented by 'u64'", 0},
+        {"i8(1) << 200", "Numeric value '1606938044258990275541962092341162602522202993782792835301376' from 'i8(1) << 200' cannot be represented by 'i8'", 0},
+    })
+}
+
+@(test)
 test_live_ignored_error :: proc(t: ^testing.T) {
     root := fixture(t, "live_ignored_error", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
     e := engine_create()

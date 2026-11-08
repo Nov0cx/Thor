@@ -1360,6 +1360,8 @@ instance_key :: proc(c: ^Checker, sym: Symbol, ops: []Operand) -> (string, bool)
         ok := true
         switch x in op.value {
         case i64:    ok = put_int(c, &buf, 'I', x)
+        case Wide_Int:
+            ok = put_int(c, &buf, 'W', x.neg ? 1 : 0) && put_int(c, &buf, 'H', i64(transmute(i128)x.mag >> 64)) && put_int(c, &buf, 'L', i64(x.mag))
         case f64:    ok = put_int(c, &buf, 'F', transmute(i64)x)
         case bool:   ok = put_int(c, &buf, 'B', x ? 1 : 0)
         case rune:   ok = put_int(c, &buf, 'R', i64(x))
@@ -1378,6 +1380,8 @@ instance_key :: proc(c: ^Checker, sym: Symbol, ops: []Operand) -> (string, bool)
 write_const :: proc(sb: ^strings.Builder, v: Const_Value) {
     switch x in v {
     case i64:    strings.write_i64(sb, x)
+    case Wide_Int:
+        strings.write_string(sb, wide_text(x.neg, x.mag, context.temp_allocator))
     case f64:    strings.write_f64(sb, x, 'g')
     case string: strings.write_quoted_string(sb, x)
     case bool:   strings.write_string(sb, x ? "true" : "false")

@@ -983,11 +983,11 @@ const_overflows :: proc(c: ^Checker, to: Type_Id, op: Operand) -> bool {
 // `-` of one, gives and `type` cannot hold. Silent when an operand already does not fit, so the
 // innermost expression of a chain is the one that reports.
 Const_Arith_Problem :: struct {
-    value: i128,
+    value: string, // the exact result in decimal
     type:  Type_Id,
 }
 
-const_arith_overflow :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (Const_Arith_Problem, bool) {
+const_arith_overflow :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, allocator := context.allocator) -> (Const_Arith_Problem, bool) {
     lhs_n, rhs_n: odinsyntax.Syntax_Node
     op: odinsyntax.Token_Kind
     unary := false
@@ -1032,36 +1032,42 @@ const_arith_overflow :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_No
         return {}, false
     }
     lhs := expr_type(c, file, lhs_n)
-    a, a_ok := lhs.value.(i64)
-    if lhs.mode != .Const || !a_ok || !const_wide_holds(c, whole.type, i128(a)) {
+    a: Wide_Int
+    a_ok: bool
+    if lhs.mode == .Const {
+        a.neg, a.mag, a_ok = wide_parts(lhs.value)
+    }
+    if !a_ok || !wide_holds(c, whole.type, a.neg, a.mag) {
         return {}, false
     }
-    value: i128
+    text: string
     if unary {
         // `-x` of an unsigned constant is a different error.
         if basic_unsigned(c, whole.type) {
             return {}, false
         }
-        value = -i128(a)
+        neg := !a.neg && a.mag != 0
+        if wide_holds(c, whole.type, neg, a.mag) {
+            return {}, false
+        }
+        text = wide_text(neg, a.mag, allocator)
     } else {
         rhs := expr_type(c, file, rhs_n)
-        bv, b_ok := rhs.value.(i64)
-        if rhs.mode != .Const || !b_ok {
+        b: Wide_Int
+        b_ok: bool
+        if rhs.mode == .Const {
+            b.neg, b.mag, b_ok = wide_parts(rhs.value)
+        }
+        if !b_ok || (op != .Shl && !wide_holds(c, whole.type, b.neg, b.mag)) {
             return {}, false
         }
-        if op != .Shl && !const_wide_holds(c, whole.type, i128(bv)) {
-            return {}, false
-        }
-        ok: bool
-        value, ok = const_wide_binary(op, a, bv)
-        if !ok {
+        fits, ok: bool
+        text, fits, ok = const_wide_binary(c, whole.type, op, a, b, allocator)
+        if !ok || fits {
             return {}, false
         }
     }
-    if const_wide_holds(c, whole.type, value) {
-        return {}, false
-    }
-    return {value, whole.type}, true
+    return {text, whole.type}, true
 }
 
 // The calls among the values of a variable declaration or an `=` assignment, one value for each

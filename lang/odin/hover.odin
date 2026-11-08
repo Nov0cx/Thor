@@ -591,6 +591,8 @@ const_text :: proc(c: ^odinsema.Checker, type: odinsema.Type_Id, v: odinsema.Con
             }
         }
         return fmt.tprintf("%d", x)
+    case odinsema.Wide_Int:
+        return odinsema.wide_text(x.neg, x.mag, context.temp_allocator)
     case f64:
         return fmt.tprintf("%v", x)
     case string:

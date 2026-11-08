@@ -287,6 +287,7 @@ proc_group_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -
 untyped_of :: proc(v: Const_Value) -> Type_Id {
     switch _ in v {
     case i64:    return type_untyped(.Int)
+    case Wide_Int: return type_untyped(.Int)
     case f64:    return type_untyped(.Float)
     case string: return type_untyped(.String)
     case bool:   return type_untyped(.Bool)

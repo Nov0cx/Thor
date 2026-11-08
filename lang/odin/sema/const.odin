@@ -1,5 +1,6 @@
 package odinsema
 
+import "core:math/big"
 import "core:strconv"
 import "core:strings"
 
@@ -12,6 +13,55 @@ Const_Value :: union {
     string,
     bool,
     rune,
+    Wide_Int,
+}
+
+// An integer outside i64 whose magnitude fits u128; one that fits i64 is an i64 instead.
+Wide_Int :: struct {
+    neg: bool,
+    mag: u128,
+}
+
+// The constant for a signed magnitude: an i64 when it fits.
+wide_value :: proc(neg: bool, mag: u128) -> Const_Value {
+    if !neg && mag <= u128(max(i64)) {
+        return i64(mag)
+    }
+    if neg && mag <= u128(max(i64)) + 1 {
+        return i64(-i128(mag))
+    }
+    return Wide_Int{neg, mag}
+}
+
+// A signed magnitude in decimal.
+wide_text :: proc(neg: bool, mag: u128, allocator := context.allocator) -> string {
+    buf: [41]u8
+    i := len(buf)
+    m := mag
+    for {
+        i -= 1
+        buf[i] = u8('0' + m % 10)
+        m /= 10
+        if m == 0 {
+            break
+        }
+    }
+    if neg {
+        i -= 1
+        buf[i] = '-'
+    }
+    return strings.clone(string(buf[i:]), allocator)
+}
+
+// The sign and magnitude of an integer constant; false for any other value.
+wide_parts :: proc(v: Const_Value) -> (neg: bool, mag: u128, ok: bool) {
+    #partial switch x in v {
+    case i64:
+        return x < 0, x < 0 ? u128(-i128(x)) : u128(x), true
+    case Wide_Int:
+        return x.neg, x.mag, true
+    }
+    return false, 0, false
 }
 
 // The value of the constant expression `n` of `file`. False when it is not constant, not known,
@@ -219,8 +269,7 @@ literal_value :: proc(c: ^Checker, n: odinsyntax.Syntax_Node) -> (Const_Value, b
     text := odinsyntax.syntax_token_text(tok)
     #partial switch tok.green.kind {
     case .Integer:
-        v, iok := parse_integer(text)
-        return v, iok
+        return parse_integer(text)
     case .Float:
         if strings.has_prefix(text, "0h") {
             // 0h is the raw bits of a 16-digit f64 (8 for f32, 4 for f16 are left alone).
@@ -256,11 +305,11 @@ literal_value :: proc(c: ^Checker, n: odinsyntax.Syntax_Node) -> (Const_Value, b
     return nil, false
 }
 
-// An integer literal with an optional base prefix and `_` separators; false when it does not fit i64.
+// An integer literal with an optional base prefix and `_` separators; false when it does not fit u128.
 @(private = "file")
-parse_integer :: proc(text: string) -> (i64, bool) {
+parse_integer :: proc(text: string) -> (Const_Value, bool) {
     s := text
-    base: u64 = 10
+    base: u128 = 10
     if len(s) > 2 && s[0] == '0' {
         switch s[1] {
         case 'b': base, s = 2, s[2:]
@@ -270,32 +319,35 @@ parse_integer :: proc(text: string) -> (i64, bool) {
         case 'x': base, s = 16, s[2:]
         }
     }
-    value: u64
+    value: u128
     digits := 0
     for ch in transmute([]u8)s {
-        d: u64
+        d: u128
         switch ch {
         case '_':
             continue
         case '0' ..= '9':
-            d = u64(ch - '0')
+            d = u128(ch - '0')
         case 'a' ..= 'z':
-            d = u64(ch - 'a') + 10
+            d = u128(ch - 'a') + 10
         case 'A' ..= 'Z':
-            d = u64(ch - 'A') + 10
+            d = u128(ch - 'A') + 10
         case:
-            return 0, false
+            return nil, false
         }
         if d >= base {
-            return 0, false
+            return nil, false
         }
-        if value > (u64(max(i64)) - d) / base {
-            return 0, false
+        if value > (max(u128) - d) / base {
+            return nil, false
         }
         value = value * base + d
         digits += 1
     }
-    return i64(value), digits > 0
+    if digits == 0 {
+        return nil, false
+    }
+    return wide_value(false, value), true
 }
 
 @(private)
@@ -303,16 +355,18 @@ const_unary :: proc(op: odinsyntax.Token_Kind, v: Const_Value) -> (Const_Value, 
     #partial switch op {
     case .Add:
         #partial switch _ in v {
-        case i64, f64, rune:
+        case i64, f64, rune, Wide_Int:
             return v, true
         }
     case .Sub:
         #partial switch x in v {
         case i64:
             if x == min(i64) {
-                return nil, false
+                return Wide_Int{false, u128(max(i64)) + 1}, true
             }
             return -x, true
+        case Wide_Int:
+            return wide_value(!x.neg, x.mag), true
         case f64:
             return -x, true
         case rune:
@@ -484,36 +538,61 @@ int_binary :: proc(op: odinsyntax.Token_Kind, a, b: i64) -> (i64, bool) {
     return 0, false
 }
 
-// `+ - * / << ` of two i64 operands in i128, so a result above i64 stays exact; false on division by zero or a shift count over 100.
-const_wide_binary :: proc(op: odinsyntax.Token_Kind, a, b: i64) -> (i128, bool) {
-    x, y := i128(a), i128(b)
-    #partial switch op {
-    case .Add:
-        return x + y, true
-    case .Sub:
-        return x - y, true
-    case .Mul:
-        return x * y, true
-    case .Quo:
-        if y == 0 {
-            return 0, false
+// `+ - * / <<` of two integers exactly, as decimal text in `allocator`, and whether integer type `t`
+// holds the result. False on division by zero, a negative shift count or one over 1024.
+const_wide_binary :: proc(c: ^Checker, t: Type_Id, op: odinsyntax.Token_Kind, a, b: Wide_Int, allocator := context.allocator) -> (text: string, fits: bool, ok: bool) {
+    if op == .Quo {
+        if b.mag == 0 {
+            return "", false, false
         }
-        return x / y, true
-    case .Shl:
-        if y < 0 || y > 100 {
-            return 0, false
-        }
-        v := x << u128(y)
-        if v >> u128(y) != x {
-            return 0, false
-        }
-        return v, true
+        mag := a.mag / b.mag
+        neg := a.neg != b.neg && mag != 0
+        return wide_text(neg, mag, allocator), wide_holds(c, t, neg, mag), true
     }
-    return 0, false
+    if op == .Shl && (b.neg && b.mag != 0 || b.mag > 1024) {
+        return "", false, false
+    }
+    x, y, r, m: big.Int
+    defer big.int_destroy(&x, &y, &r, &m)
+    if !wide_to_big(&x, a) || !wide_to_big(&y, b) {
+        return "", false, false
+    }
+    err: big.Error
+    #partial switch op {
+    case .Add: err = big.int_add(&r, &x, &y)
+    case .Sub: err = big.int_sub(&r, &x, &y)
+    case .Mul: err = big.int_mul(&r, &x, &y)
+    case .Shl: err = big.int_shl(&r, &x, int(b.mag))
+    case:      return "", false, false
+    }
+    if err != nil {
+        return "", false, false
+    }
+    s, serr := big.int_itoa_string(&r, 10, false, allocator)
+    if serr != nil {
+        return "", false, false
+    }
+    if big.int_abs(&m, &r) != nil {
+        return s, false, true
+    }
+    mag, gerr := big.int_get(&m, u128)
+    if gerr != nil {
+        return s, false, true
+    }
+    neg := r.sign == .Negative && mag != 0
+    return s, wide_holds(c, t, neg, mag), true
 }
 
-// True when the integer type `t` holds `v`; true when its width is unknown.
-const_wide_holds :: proc(c: ^Checker, t: Type_Id, v: i128) -> bool {
+@(private = "file")
+wide_to_big :: proc(dest: ^big.Int, w: Wide_Int) -> bool {
+    if big.int_set_from_integer(dest, w.mag) != nil {
+        return false
+    }
+    return !w.neg || w.mag == 0 || big.int_neg(dest, dest) == nil
+}
+
+// True when the integer type `t` holds the signed magnitude; true when its width is unknown.
+wide_holds :: proc(c: ^Checker, t: Type_Id, neg: bool, mag: u128) -> bool {
     b, is_basic := type_get(&c.table, type_base(&c.table, t)).(Basic_Type)
     if !is_basic || !type_is_integer(&c.table, t) {
         return true
@@ -523,9 +602,10 @@ const_wide_holds :: proc(c: ^Checker, t: Type_Id, v: i128) -> bool {
         return true
     }
     if basic_unsigned(c, t) {
-        return v >= 0 && (bits >= 127 || v < i128(1) << u128(bits))
+        return (!neg || mag == 0) && (bits >= 128 || mag < u128(1) << u128(bits))
     }
-    return bits >= 128 || (v >= -(i128(1) << u128(bits - 1)) && v < i128(1) << u128(bits - 1))
+    limit := u128(1) << u128(bits - 1)
+    return neg ? mag <= limit : mag < limit
 }
 
 @(private = "file")
@@ -591,6 +671,9 @@ const_convert :: proc(c: ^Checker, t: Type_Id, v: Const_Value) -> (Const_Value, 
                 return rune(i64(f)), true
             }
             return i64(f), true
+        }
+        if w, is_wide := v.(Wide_Int); is_wide {
+            return w, true
         }
         i, ok := const_to_i64(v)
         if !ok {

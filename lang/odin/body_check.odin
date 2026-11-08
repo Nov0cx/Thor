@@ -95,10 +95,10 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope
         temp_errors(rc, c, m, whens, n, report)
         dangling_flow_errors(rc, c, m, whens, n, report)
     case .Binary_Expr, .Unary_Expr:
-        if p, ok := odinsema.const_arith_overflow(c, rc.live.id, n); ok {
+        if p, ok := odinsema.const_arith_overflow(c, rc.live.id, n, context.temp_allocator); ok {
             text := strings.join(strings.fields(odinsyntax.node_text(n), context.temp_allocator), " ", context.temp_allocator)
             type := odinsema.type_string(&c.table, p.type, context.temp_allocator)
-            report_error(rc, report, int(n.offset), CODE_OVERFLOW, fmt.aprintf("Numeric value '%d' from '%s' cannot be represented by '%s'", p.value, text, type))
+            report_error(rc, report, int(n.offset), CODE_OVERFLOW, fmt.aprintf("Numeric value '%s' from '%s' cannot be represented by '%s'", p.value, text, type))
         }
     case .Or_Return_Expr:
         or_return_errors(rc, c, n, report)
