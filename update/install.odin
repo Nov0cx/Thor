@@ -102,10 +102,39 @@ in_dev_tree :: proc() -> bool {
     return os.exists(driver)
 }
 
+// The step `install_apply` is in. The worker stores it, the main thread reads it for the title bar.
+Install_Phase :: enum u32 {
+    Idle,
+    Downloading,
+    Verifying,
+    Extracting,
+}
+
+// Bytes of the archive downloaded so far, read from the partial file in the staging folder.
+// Zero before the first byte and when the file is not there.
+staged_bytes :: proc(asset: string) -> i64 {
+    path, ok := stage_path(asset, context.temp_allocator)
+    if !ok {
+        return 0
+    }
+    info, err := os.stat(path, context.temp_allocator)
+    if err != nil {
+        return 0
+    }
+    return info.size
+}
+
+@(private = "file")
+phase_set :: proc(phase: ^Install_Phase, value: Install_Phase) {
+    if phase != nil {
+        sync.atomic_store(phase, value)
+    }
+}
+
 // Downloads, verifies and unpacks a release into STAGE_DIR. On success `root`
 // is the unpacked folder the swap copies from. Runs on a worker thread and
 // reads `cancel` between download slices.
-install_apply :: proc(plan: Install_Plan, agent: string, cancel: ^bool, allocator := context.allocator) -> (result: Install_Result) {
+install_apply :: proc(plan: Install_Plan, agent: string, cancel: ^bool, phase: ^Install_Phase = nil, allocator := context.allocator) -> (result: Install_Result) {
     if ok, why := installable(); !ok {
         result.status = why
         return result
@@ -143,6 +172,7 @@ install_apply :: proc(plan: Install_Plan, agent: string, cancel: ^bool, allocato
         result.status = .Install_Failed
         return result
     }
+    phase_set(phase, .Downloading)
     if !fetch_file(tools, plan.url, archive_path, agent, cancel) {
         result.status = cancelled(cancel) ? .Cancelled : .Download_Failed
         return result
@@ -171,6 +201,7 @@ install_apply :: proc(plan: Install_Plan, agent: string, cancel: ^bool, allocato
         result.status = .No_Asset
         return result
     }
+    phase_set(phase, .Verifying)
     digest, hashed := sha256_file(archive_path)
     if !hashed {
         result.status = .Unreadable_Download
@@ -191,6 +222,7 @@ install_apply :: proc(plan: Install_Plan, agent: string, cancel: ^bool, allocato
         result.status = .Install_Failed
         return result
     }
+    phase_set(phase, .Extracting)
     if !extract_archive(tools, archive_path, unpacked) {
         result.status = .Extract_Failed
         return result
@@ -278,7 +310,7 @@ stage_path :: proc(name: string, allocator := context.allocator) -> (path: strin
     return joined, true
 }
 
-@(private = "file")
+@(private)
 cancelled :: proc(cancel: ^bool) -> bool {
     return cancel != nil && sync.atomic_load(cancel)
 }
@@ -320,8 +352,10 @@ install_restore :: proc(install: string) {
 // there is no binary left to run this.
 install_cleanup_leftovers :: proc() {
     install_restore(".")
-    if err := os.remove_all(STAGE_DIR); err != nil && os.exists(STAGE_DIR) {
-        log.warnf("Could not clear %q: %v", STAGE_DIR, err)
+    for dir in ([?]string{STAGE_DIR, EXT_STAGE_DIR}) {
+        if err := os.remove_all(dir); err != nil && os.exists(dir) {
+            log.warnf("Could not clear %q: %v", dir, err)
+        }
     }
 }
 

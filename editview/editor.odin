@@ -36,6 +36,12 @@ Completion_Accept_Proc :: #type proc(data: rawptr, editor: ^Editor, state: ^text
 // On-type formatting request after `char` (UTF-8) is typed. The owner decides if it is a trigger.
 On_Type_Proc :: #type proc(data: rawptr, editor: ^Editor, state: ^textedit.State, offset: int, char: string)
 
+// Text the editor copied, cut or pasted. Borrowed for the call.
+Clipboard_Proc :: #type proc(data: rawptr, text: string)
+
+// A keymap action ran. `name` is its keybinds name (action_name).
+Action_Proc :: #type proc(data: rawptr, name: string)
+
 // One completion candidate. `insert` and `filter` fall back to `text` when empty.
 // `owner_id` zero is the editor's own buffer word; the fields after it apply only to an owner row.
 Completion_Item :: struct {
@@ -56,6 +62,8 @@ Visual_Row :: struct {
     end:   int, // byte offset one past its last character (before any newline)
     line:  int, // logical line index the row belongs to
     first: bool, // true for the first visual row of the logical line
+    spacer: bool, // an empty row of the zone below `line`, or a lens row above it
+    lens: bool, // a spacer above `line` that carries its lens; start == end == the line's start
 }
 
 // A colored byte range for syntax highlighting; ascending and non-overlapping.
@@ -66,10 +74,11 @@ Highlight_Span :: struct {
     color: ui.Color,
 }
 
-// Diagnostic severity, drives the squiggle and gutter-marker color.
+// Diagnostic severity, worst first; drives the squiggle and gutter-marker color.
 Diagnostic_Severity :: enum {
     Error,
     Warning,
+    Hint,
 }
 
 // A line's status against git HEAD, drives the gutter diff bar's color.
@@ -90,6 +99,8 @@ Diagnostic :: struct {
     line:     int,
     severity: Diagnostic_Severity,
     message:  string,
+    code:     string, // static; the diagnostic id; "" when none
+    lint:     bool,   // a check the compiler does not make
 }
 
 // Right-click handler the application supplies, given the screen position the
@@ -156,10 +167,23 @@ Editor :: struct {
     move_signature:     u64,
     // Syntax highlight spans for the current buffer; borrowed from the owner.
     highlights:         []Highlight_Span,
+    // Inlay hints for the current buffer, ascending by offset. Borrowed.
+    inlays:             []Inlay,
+    // The uses of the symbol at the caret, ascending by start. Borrowed.
+    occurrences:        []Occurrence,
+    // The zone: `zone_rows` empty rows below the line that holds `zone_offset` at
+    // `zone_revision`. No zone when zone_rows is 0.
+    zone_offset:        int,
+    zone_rows:          int,
+    zone_revision:      u64,
+    // Lens rows: one row above each line that holds a lens offset. Ascending by offset. Borrowed.
+    lenses:             []Inlay,
+    lens_offsets:       [dynamic]int, // owned; the offsets the rows were built from
     // Diagnostics for the current buffer, drawn as squiggles and gutter markers. Borrowed.
     diagnostics:            []Diagnostic,
     diagnostic_error_color: ui.Color,
     diagnostic_warn_color:  ui.Color,
+    diagnostic_hint_color:  ui.Color,
     // Git status per line against HEAD, borrowed from the open file. Deleted marks
     // the line after the removal.
     diff_lines:          []Diff_Line_Kind,
@@ -197,6 +221,10 @@ Editor :: struct {
     on_type:             On_Type_Proc,
     on_type_data:        rawptr,
     on_type_enabled:     bool,
+    on_clipboard:        Clipboard_Proc,
+    clipboard_data:      rawptr,
+    on_action:           Action_Proc,
+    action_data:         rawptr,
     // Hover dwell: where and when the cursor settled, the offset last asked
     // about (-1 = none) and last frame's modifier state.
     hover_probe_pos:     ui.Vec2,
@@ -298,6 +326,16 @@ editor_set_completion_semantic :: proc(editor: ^Editor, semantic: bool) {
     editor.completion_semantic = semantic
 }
 
+editor_set_on_clipboard :: proc(editor: ^Editor, on_clipboard: Clipboard_Proc, data: rawptr) {
+    editor.on_clipboard = on_clipboard
+    editor.clipboard_data = data
+}
+
+editor_set_on_action :: proc(editor: ^Editor, on_action: Action_Proc, data: rawptr) {
+    editor.on_action = on_action
+    editor.action_data = data
+}
+
 editor_set_on_type :: proc(editor: ^Editor, on_type: On_Type_Proc, data: rawptr) {
     editor.on_type = on_type
     editor.on_type_data = data
@@ -324,16 +362,34 @@ editor_request_signature :: proc(editor: ^Editor) {
 
 // The identifier run ending at `caret` and whether it is a selector: the word is
 // preceded by a `.` (`pkg.<word>`, `value.<word>`, or a leading `.<word>` implicit
-// enum selector). A selector completes with no minimum prefix, so typing the `.`
-// immediately lists candidates; a plain word waits for COMPLETION_MIN_PREFIX bytes.
+// enum selector), a `.(` type assertion or a `->` call. A selector completes with no
+// minimum prefix, so typing the `.` immediately lists candidates; a plain word waits
+// for COMPLETION_MIN_PREFIX bytes.
 @(private = "file")
 editor_completion_word :: proc(txt: string, caret: int) -> (start: int, member: bool) {
     start = caret
     for start > 0 && editor_is_word_byte(txt[start - 1]) {
         start -= 1
     }
-    member = start > 0 && txt[start - 1] == '.'
+    member = start > 0 && editor_is_selector_end(txt, start)
     return
+}
+
+// True when the text before `end` is `.`, `.(` or `->`.
+@(private = "file")
+editor_is_selector_end :: proc(txt: string, end: int) -> bool {
+    if end < 1 {
+        return false
+    }
+    switch txt[end - 1] {
+    case '.':
+        return true
+    case '(':
+        return end >= 2 && txt[end - 2] == '.'
+    case '>':
+        return end >= 2 && txt[end - 2] == '-'
+    }
+    return false
 }
 
 // Requests semantic completion for the word being typed, gated to a single
@@ -494,6 +550,7 @@ editor_destroy :: proc(editor: ^Editor) {
     editor_dismiss_completion(editor)
     editor_clear_hover(editor)
     editor_clear_signature(editor)
+    delete(editor.lens_offsets)
     delete(editor.snippet_vars.filename)
     delete(editor.snippet_vars.directory)
     delete(editor.snippet_vars.workspace)
@@ -534,6 +591,7 @@ editor_set_state :: proc(editor: ^Editor, state: ^textedit.State) {
     // this rebind (a tab close). The owner pushes the new file's spans back.
     editor.diagnostics = nil
     editor.diff_lines = nil
+    editor.occurrences = nil
     editor.recenter_caret = -1
     // Rows were built from the previous buffer; drop them so layout/draw rebuild
     // against the new one. A bare revision check can miss the swap when the two
@@ -544,6 +602,7 @@ editor_set_state :: proc(editor: ^Editor, state: ^textedit.State) {
     clear(&editor.foldable)
     clear(&editor.folded)
     editor.folds_revision = state != nil ? state.revision : 0
+    editor.zone_rows = 0
     editor_dismiss_completion(editor)
     editor_clear_hover(editor)
     editor_clear_signature(editor)
@@ -625,6 +684,70 @@ editor_visible_row_count :: proc(editor: ^Editor) -> int {
 // the plain text color.
 editor_set_highlights :: proc(editor: ^Editor, highlights: []Highlight_Span) {
     editor.highlights = highlights
+}
+
+// Replaces the inlay hints drawn for the current buffer (borrowed, not copied).
+editor_set_inlays :: proc(editor: ^Editor, inlays: []Inlay) {
+    editor.inlays = inlays
+}
+
+// Replaces the lenses (borrowed, ascending by offset): each opens one row above the line that
+// holds its offset, which the owner paints.
+editor_set_lenses :: proc(editor: ^Editor, lenses: []Inlay) {
+    same := len(lenses) == len(editor.lens_offsets)
+    for lens, i in lenses {
+        if !same || lens.offset != editor.lens_offsets[i] {
+            same = false
+            break
+        }
+    }
+    editor.lenses = lenses
+    if same {
+        return
+    }
+    clear(&editor.lens_offsets)
+    for lens in lenses {
+        append(&editor.lens_offsets, lens.offset)
+    }
+    editor.rows_stale = true
+}
+
+// The lens of the lens row `row`; false when the row is not one.
+editor_row_lens :: proc(editor: ^Editor, row: Visual_Row) -> (Inlay, bool) {
+    if !row.lens {
+        return {}, false
+    }
+    lo, hi := 0, len(editor.lenses)
+    for lo < hi {
+        mid := (lo + hi) / 2
+        if editor.lenses[mid].offset < row.start {
+            lo = mid + 1
+        } else {
+            hi = mid
+        }
+    }
+    if lo < len(editor.lenses) && editor.state != nil && textedit.state_line_index(editor.state, editor.lenses[lo].offset) == row.line {
+        return editor.lenses[lo], true
+    }
+    return {}, false
+}
+
+// Replaces the marked uses of the symbol at the caret (borrowed, not copied).
+editor_set_occurrences :: proc(editor: ^Editor, occurrences: []Occurrence) {
+    editor.occurrences = occurrences
+}
+
+// Selects the use of the symbol at the caret, or adds a cursor on the next one. False when the
+// caret or the selection is not on a marked use.
+editor_select_occurrence :: proc(editor: ^Editor) -> bool {
+    if editor.state == nil || len(editor.occurrences) == 0 {
+        return false
+    }
+    ranges := make([][2]int, len(editor.occurrences), context.temp_allocator)
+    for occ, i in editor.occurrences {
+        ranges[i] = {occ.start, occ.end}
+    }
+    return textedit.select_range_or_next(editor.state, ranges)
 }
 
 // Replaces the diagnostics drawn for the current buffer (borrowed, not copied).
@@ -847,16 +970,23 @@ GUTTER_PAD_RIGHT :: 12
 // gutter, thus it carries the editor background, not the gutter one.
 TEXT_PAD_LEFT :: 6
 
-// Width of the fold-chevron column on the gutter's inner edge, reserved only
-// when the buffer has foldable regions (so plain text keeps a tight gutter).
-editor_fold_col_width :: proc(editor: ^Editor) -> f32 {
+// Width of the diff bar and the diagnostic dot on the gutter's outer edge.
+GUTTER_MARK_WIDTH :: 9
+
+// The fold-chevron column inside the left pad, after the marks, as an x from
+// the gutter's left edge and a width. Zero width when the buffer has no
+// foldable regions.
+editor_fold_col :: proc(editor: ^Editor) -> (x, w: f32) {
     if len(editor.foldable) == 0 {
-        return 0
+        return GUTTER_MARK_WIDTH, 0
     }
-    return cast(f32) editor.font_size
+    return GUTTER_MARK_WIDTH, GUTTER_PAD_LEFT - GUTTER_MARK_WIDTH
 }
 
-// Sizes the gutter to fit the widest line number plus the fold column.
+// Line-number digits the gutter always has room for. A longer count widens it.
+GUTTER_MIN_DIGITS :: 3
+
+// Sizes the gutter to fit the widest line number.
 @(private = "file")
 editor_update_gutter :: proc(editor: ^Editor) {
     if editor.state == nil {
@@ -868,8 +998,7 @@ editor_update_gutter :: proc(editor: ^Editor) {
         digits += 1
     }
     char_width := cast(f32) font.measure("0", editor.font_size)
-    editor.gutter_width = GUTTER_PAD_LEFT + char_width * cast(f32) max(digits, 2) + GUTTER_PAD_RIGHT +
-        editor_fold_col_width(editor)
+    editor.gutter_width = GUTTER_PAD_LEFT + char_width * cast(f32) max(digits, GUTTER_MIN_DIGITS) + GUTTER_PAD_RIGHT
 }
 
 // How far a blank line looks for the block it sits in. A longer gap of empty
@@ -990,6 +1119,7 @@ editor_ensure_visual_rows :: proc(editor: ^Editor) -> bool {
         return false
     }
     editor_remap_folds(editor)
+    editor_remap_zone(editor)
     if editor_rows_fresh(editor) {
         return false
     }
@@ -1050,13 +1180,28 @@ editor_rebuild_visual_rows :: proc(editor: ^Editor) {
     line_start := 0
     line_index := 0
     hidden_until := -1 // lines <= this are collapsed under a fold above; skip them
+    zone_line := editor.zone_rows > 0 ? textedit.state_line_index(editor.state, editor.zone_offset) : -1
+    lens_at := 0
     for {
         line_end := textedit.line_end(text, line_start)
+        has_lens := false
+        for lens_at < len(editor.lenses) && editor.lenses[lens_at].offset <= line_end {
+            has_lens ||= editor.lenses[lens_at].offset >= line_start
+            lens_at += 1
+        }
         if !editor.wrap {
             editor_measure_line(editor, text, line_start, line_end, line_index, tab_width)
         }
         if line_index > hidden_until {
+            if has_lens {
+                append(&editor.visual_rows, Visual_Row{start = line_start, end = line_start, line = line_index, spacer = true, lens = true})
+            }
             editor_wrap_line(&editor.visual_rows, text, line_start, line_end, cols, line_index, tab_width)
+            if editor.zone_rows > 0 && line_index == zone_line && editor_folded_end(editor, line_index) < 0 {
+                for _ in 0 ..< editor.zone_rows {
+                    append(&editor.visual_rows, Visual_Row{start = line_end, end = line_end, line = line_index, spacer = true})
+                }
+            }
             // A collapsed fold starting here hides everything down to its end.
             if end := editor_folded_end(editor, line_index); end > hidden_until {
                 hidden_until = end
@@ -1077,7 +1222,7 @@ editor_rebuild_visual_rows :: proc(editor: ^Editor) {
 @(private)
 editor_patch_visual_rows :: proc(editor: ^Editor) -> bool {
     state := editor.state
-    if editor.rows_stale || len(editor.folded) > 0 || len(editor.visual_rows) == 0 || editor.rows_wrap != editor.wrap {
+    if editor.rows_stale || len(editor.folded) > 0 || editor.zone_rows > 0 || len(editor.lenses) > 0 || len(editor.visual_rows) == 0 || editor.rows_wrap != editor.wrap {
         return false
     }
     if editor.rows_tab_width != textedit.tab_width(state) {
@@ -1169,7 +1314,11 @@ editor_last_row_from :: proc(rows: []Visual_Row, pos: int) -> int {
             hi = mid
         }
     }
-    return max(lo - 1, 0)
+    index := max(lo - 1, 0)
+    for index > 0 && rows[index].spacer {
+        index -= 1
+    }
+    return index
 }
 
 // Takes the line into rows_max_cols when it is the longest so far. A line is
@@ -1235,7 +1384,7 @@ editor_wrap_line :: proc(rows: ^[dynamic]Visual_Row, text: string, line_start, l
     // With wrapping off cols is max(int), so the walk below can never break the
     // line — skip it rather than decoding every rune in the buffer per rebuild.
     if line_start == line_end || cols == max(int) {
-        append(rows, Visual_Row {line_start, line_end, line_index, true})
+        append(rows, Visual_Row {line_start, line_end, line_index, true, false, false})
         return
     }
 
@@ -1249,7 +1398,7 @@ editor_wrap_line :: proc(rows: ^[dynamic]Visual_Row, text: string, line_start, l
         // One cluster always fits an empty row, or a 1-column pane would loop.
         if col + cells > cols && i > seg_start {
             brk := last_break > seg_start ? last_break : i
-            append(rows, Visual_Row {seg_start, brk, line_index, first})
+            append(rows, Visual_Row {seg_start, brk, line_index, first, false, false})
             first = false
             seg_start = brk
             col = 0
@@ -1263,13 +1412,13 @@ editor_wrap_line :: proc(rows: ^[dynamic]Visual_Row, text: string, line_start, l
         }
         i = next
     }
-    append(rows, Visual_Row {seg_start, line_end, line_index, first})
+    append(rows, Visual_Row {seg_start, line_end, line_index, first, false, false})
 }
 
 // Index of the earliest visual row that owns byte offset `pos`; the last row
 // when no row owns it (a collapsed fold hides it) and 0 when empty. Row extents
 // ascend, so this is a binary search for the first row ending at or after `pos`.
-@(private = "file")
+@(private)
 editor_visual_row_index :: proc(editor: ^Editor, pos: int) -> int {
     rows := editor.visual_rows[:]
     low, high := 0, len(rows)
@@ -1282,6 +1431,9 @@ editor_visual_row_index :: proc(editor: ^Editor, pos: int) -> int {
         }
     }
     if low < len(rows) && rows[low].start <= pos {
+        if rows[low].lens && low + 1 < len(rows) {
+            return low + 1
+        }
         // A wrap point belongs to the row it starts, not the one it ends.
         if rows[low].end == pos && editor_row_continues(editor, low) {
             return low + 1
@@ -1293,7 +1445,7 @@ editor_visual_row_index :: proc(editor: ^Editor, pos: int) -> int {
 
 // Whether the row after `index` continues the same line past a soft wrap.
 editor_row_continues :: proc(editor: ^Editor, index: int) -> bool {
-    return index + 1 < len(editor.visual_rows) && !editor.visual_rows[index + 1].first
+    return index + 1 < len(editor.visual_rows) && !editor.visual_rows[index + 1].first && !editor.visual_rows[index + 1].spacer
 }
 
 // `pos` in row `index`, moved off the row's end when that end is a wrap point
@@ -1350,6 +1502,14 @@ editor_type_rune :: proc(editor: ^Editor, r: rune) {
         buffer, width := utf8.encode_rune(r)
         textedit.insert_text(state, string(buffer[:width]))
     }
+}
+
+// Whether Escape has something to close in the editor: a popup, a snippet session or extra cursors.
+editor_has_popup :: proc(editor: ^Editor) -> bool {
+    if editor.completion_active || editor.signature_active || editor.hover_active || editor.snippet_active {
+        return true
+    }
+    return editor.state != nil && len(editor.state.cursors) > 1
 }
 
 editor_handle_key :: proc(editor: ^Editor, event: ui.Key_Event) -> bool {
@@ -1441,6 +1601,9 @@ editor_handle_key :: proc(editor: ^Editor, event: ui.Key_Event) -> bool {
     // The chords keybinds.json can move come first; the keys below are fixed.
     if action, extend := keymap_lookup(event.key, event.mods); action != .None {
         if editor_run_action(editor, action, extend) {
+            if editor.on_action != nil {
+                editor.on_action(editor.action_data, action_name(action))
+            }
             return true
         }
     }
@@ -1503,6 +1666,14 @@ editor_copy :: proc(editor: ^Editor) {
     payload, _ := textedit.copy_payload(editor.state, context.temp_allocator)
     if payload != "" {
         ui.set_clipboard_text(payload)
+        editor_note_clipboard(editor, payload)
+    }
+}
+
+@(private = "file")
+editor_note_clipboard :: proc(editor: ^Editor, text: string) {
+    if editor.on_clipboard != nil {
+        editor.on_clipboard(editor.clipboard_data, text)
     }
 }
 
@@ -1515,6 +1686,7 @@ editor_cut :: proc(editor: ^Editor) {
         return
     }
     ui.set_clipboard_text(payload)
+    editor_note_clipboard(editor, payload)
     if !had_selection {
         textedit.select_line(editor.state)
     }
@@ -1533,6 +1705,7 @@ editor_paste :: proc(editor: ^Editor) {
     normalized, _ := strings.replace_all(clip, "\r\n", "\n", context.temp_allocator)
     normalized, _ = strings.replace_all(normalized, "\r", "\n", context.temp_allocator)
     if normalized != "" {
+        editor_note_clipboard(editor, normalized)
         textedit.insert_text(editor.state, normalized)
     }
 }
@@ -2285,14 +2458,18 @@ editor_handle_hover :: proc(editor: ^Editor, mouse: ui.Vec2, mod: bool, now: f64
         return
     }
     if d, has := editor_hover_diagnostic(editor, pos, whole_line = in_gutter); has {
-        color := d.severity == .Error ? editor.diagnostic_error_color : editor.diagnostic_warn_color
-        editor_show_hover(editor, d.message, d.start, d.end, color)
+        color := editor_severity_color(editor, d.severity)
+        text := d.message
+        if d.code != "" {
+            text = strings.concatenate({d.message, " [", d.code, "]"}, context.temp_allocator)
+        }
+        editor_show_hover(editor, text, d.start, d.end, color)
     }
 }
 
 // The diagnostic a plain dwell explains: the one covering `offset`, or, over the
 // gutter marker (which stands for the whole line), the worst one on that line.
-// An error outranks a warning either way.
+// A worse severity outranks either way.
 @(private)
 editor_hover_diagnostic :: proc(editor: ^Editor, offset: int, whole_line: bool) -> (Diagnostic, bool) {
     line := -1
@@ -2309,7 +2486,7 @@ editor_hover_diagnostic :: proc(editor: ^Editor, offset: int, whole_line: bool) 
         if !hit {
             continue
         }
-        if !found || (d.severity == .Error && best.severity != .Error) {
+        if !found || d.severity < best.severity {
             best = d
             found = true
         }
@@ -2370,7 +2547,8 @@ editor_screen_at :: proc(editor: ^Editor, offset: int) -> (x, y, line_height: f3
     yy := inner_top - editor.scroll_y + cast(f32) row_index * lh
     col := clamp(offset, row.start, row.end)
     xx := text_x + cast(f32) font.measure(text[row.start:col], editor.font_size) +
-        editor_swatch_offset(editor, text[row.start:row.end], col - row.start)
+        editor_swatch_offset(editor, text[row.start:row.end], col - row.start) +
+        editor_inlay_lead(editor, text, row.start, row.end, col)
     return xx, yy, lh, true
 }
 
@@ -2555,13 +2733,165 @@ editor_swatch_offset_scanned :: proc(swatches: []Row_Swatch, span: f32, rel: int
     return total
 }
 
-// Highest-severity diagnostic on logical line `line`, if any. Errors outrank
-// warnings so the gutter dot reflects the worst issue on the line.
+// Opens `rows` empty rows below `line` for the owner's nodes. One zone at a time.
+editor_set_zone :: proc(editor: ^Editor, line, rows: int) {
+    if editor.state == nil || rows <= 0 {
+        editor_clear_zone(editor)
+        return
+    }
+    editor.zone_offset = textedit.state_line_start(editor.state, line)
+    editor.zone_rows = rows
+    editor.zone_revision = editor.state.revision
+    editor.rows_stale = true
+}
+
+editor_clear_zone :: proc(editor: ^Editor) {
+    if editor.zone_rows > 0 {
+        editor.rows_stale = true
+    }
+    editor.zone_rows = 0
+}
+
+// The line the zone follows; false when there is none, or an edit removed its line.
+editor_zone_line :: proc(editor: ^Editor) -> (int, bool) {
+    editor_remap_zone(editor)
+    if editor.zone_rows <= 0 || editor.state == nil {
+        return 0, false
+    }
+    return textedit.state_line_index(editor.state, editor.zone_offset), true
+}
+
+// The screen rect of the zone's rows; false when there is none or a fold hides it.
+editor_zone_rect :: proc(editor: ^Editor) -> (ui.Rect, bool) {
+    editor_ensure_visual_rows(editor)
+    for row, i in editor.visual_rows {
+        if row.spacer && !row.lens {
+            lh := cast(f32) font.line_height(editor.font_size)
+            return ui.Rect{editor.view.x, editor.view.y - editor.scroll_y + cast(f32) i * lh, editor.view.w, cast(f32) editor.zone_rows * lh}, true
+        }
+    }
+    return {}, false
+}
+
+// Moves the zone through the changes since `zone_revision`; a deleted line drops it.
+@(private = "file")
+editor_remap_zone :: proc(editor: ^Editor) {
+    state := editor.state
+    if state == nil || editor.zone_rows <= 0 || editor.zone_revision == state.revision {
+        return
+    }
+    offset := editor.zone_offset
+    for revision := editor.zone_revision + 1; revision <= state.revision; revision += 1 {
+        change, ok := textedit.change_at(state, revision)
+        if !ok || offset > change.lo && offset < change.old_hi {
+            editor_clear_zone(editor)
+            return
+        }
+        if offset >= change.old_hi && offset > change.lo {
+            offset += change.new_hi - change.old_hi
+        }
+    }
+    line := textedit.state_line_index(state, min(offset, len(textedit.text(state))))
+    editor.zone_offset = textedit.state_line_start(state, line)
+    editor.zone_revision = state.revision
+    editor.rows_stale = true
+}
+
+// The nearest row at or past `index` that is not a spacer, looking the way `delta` moves.
+@(private = "file")
+editor_content_row :: proc(editor: ^Editor, index, delta: int) -> int {
+    rows := editor.visual_rows[:]
+    step := delta < 0 ? -1 : 1
+    i := index
+    for i >= 0 && i < len(rows) && rows[i].spacer {
+        i += step
+    }
+    if i < 0 || i >= len(rows) {
+        i = index
+        for i >= 0 && i < len(rows) && rows[i].spacer {
+            i -= step
+        }
+    }
+    return clamp(i, 0, len(rows) - 1)
+}
+
+// One use of the symbol at the caret, over [start, end).
+Occurrence :: struct {
+    start: int,
+    end:   int,
+    write: bool, // a declaration or a store
+}
+
+// Virtual text drawn before the byte at `offset`.
+Inlay :: struct {
+    offset:    int,
+    label:     string, // borrowed
+    parameter: bool,   // a parameter name; else a type
+    pad_left:  bool,
+    pad_right: bool,
+}
+
+// Padding inside an inlay pill, and the space a padded side keeps to the text.
+INLAY_PAD :: 3
+INLAY_MARGIN :: 4
+
+// The font size inlay labels are drawn at.
+editor_inlay_font_size :: proc(editor: ^Editor) -> i32 {
+    return max(editor.font_size - 2, 8)
+}
+
+// The gap an inlay opens: its label, padding and margins.
+editor_inlay_width :: proc(editor: ^Editor, inlay: Inlay) -> f32 {
+    w := cast(f32) font.measure(inlay.label, editor_inlay_font_size(editor)) + 2 * INLAY_PAD
+    if inlay.pad_left {
+        w += INLAY_MARGIN
+    }
+    if inlay.pad_right {
+        w += INLAY_MARGIN
+    }
+    return w
+}
+
+// The inlays drawn on the visual row [row_start, row_end) of `text`. One at row_end belongs to the
+// row only when the row ends its line.
+editor_row_inlays :: proc(editor: ^Editor, text: string, row_start, row_end: int) -> []Inlay {
+    inlays := editor.inlays
+    lo, hi := 0, len(inlays)
+    for lo < hi {
+        mid := (lo + hi) / 2
+        if inlays[mid].offset < row_start {
+            lo = mid + 1
+        } else {
+            hi = mid
+        }
+    }
+    ends_line := row_end >= len(text) || text[row_end] == '\n'
+    end := lo
+    for end < len(inlays) && (inlays[end].offset < row_end || inlays[end].offset == row_end && ends_line) {
+        end += 1
+    }
+    return inlays[lo:end]
+}
+
+// The width the inlays of a row open at or before byte `at`.
+editor_inlay_lead :: proc(editor: ^Editor, text: string, row_start, row_end, at: int) -> f32 {
+    total: f32
+    for inlay in editor_row_inlays(editor, text, row_start, row_end) {
+        if inlay.offset > at {
+            break
+        }
+        total += editor_inlay_width(editor, inlay)
+    }
+    return total
+}
+
+// Highest-severity diagnostic on logical line `line`, if any, for the gutter dot. A line with
+// only hints has none.
 editor_line_diagnostic :: proc(editor: ^Editor, line: int) -> (Diagnostic_Severity, bool) {
     found := false
     worst := Diagnostic_Severity.Warning
     for d in editor.diagnostics {
-        if d.line != line {
+        if d.line != line || d.severity == .Hint {
             continue
         }
         found = true
@@ -2572,12 +2902,23 @@ editor_line_diagnostic :: proc(editor: ^Editor, line: int) -> (Diagnostic_Severi
     return worst, found
 }
 
+// The squiggle and hover color of `severity`.
+editor_severity_color :: proc(editor: ^Editor, severity: Diagnostic_Severity) -> ui.Color {
+    switch severity {
+    case .Error:   return editor.diagnostic_error_color
+    case .Warning: return editor.diagnostic_warn_color
+    case .Hint:    return editor.diagnostic_hint_color
+    }
+    return editor.diagnostic_error_color
+}
+
 // Visual x-position of rune boundary `pos` (a byte offset at or past row.start):
 // measured text width plus any swatch gaps opened before it.
 @(private = "file")
 editor_row_width_at :: proc(editor: ^Editor, text: string, row: Visual_Row, swatches: []Row_Swatch, span: f32, pos: int) -> f32 {
     return cast(f32) font.measure(text[row.start:pos], editor.font_size) +
-        editor_swatch_offset_scanned(swatches, span, pos - row.start)
+        editor_swatch_offset_scanned(swatches, span, pos - row.start) +
+        editor_inlay_lead(editor, text, row.start, row.end, pos)
 }
 
 editor_pos_at :: proc(editor: ^Editor, position: ui.Vec2) -> (int, bool) {
@@ -2592,6 +2933,13 @@ editor_pos_at :: proc(editor: ^Editor, position: ui.Vec2) -> (int, bool) {
 
     target := cast(int) ((position.y - (inner_top - editor.scroll_y)) / line_height)
     target = clamp(target, 0, len(editor.visual_rows) - 1)
+    if editor.visual_rows[target].lens {
+        return editor.visual_rows[target].start, true
+    }
+    if editor.visual_rows[target].spacer {
+        target = editor_content_row(editor, target, -1)
+        return editor.visual_rows[target].end, true
+    }
     row := editor.visual_rows[target]
     target_x := position.x - text_x
 
@@ -2645,6 +2993,17 @@ editor_place_caret_at :: proc(editor: ^Editor, position: ui.Vec2) {
     if pos, ok := editor_pos_at(editor, position); ok {
         textedit.set_single_cursor(editor.state, pos)
     }
+}
+
+// Reports whether byte offset `at` is inside a non-empty selection.
+editor_in_selection :: proc(editor: ^Editor, at: int) -> bool {
+    for cursor in editor.state.cursors {
+        lo, hi := textedit.selection_range(cursor)
+        if lo < hi && at >= lo && at <= hi {
+            return true
+        }
+    }
+    return false
 }
 
 // Drag / shift-click: extends the selection to the position, keeping the anchor.
@@ -2706,7 +3065,8 @@ editor_scroll_to_caret :: proc(editor: ^Editor) {
         text := textedit.text(editor.state)
         col := clamp(caret, row.start, row.end)
         caret_x := cast(f32) font.measure(text[row.start:col], editor.font_size) +
-            editor_swatch_offset(editor, text[row.start:row.end], col - row.start)
+            editor_swatch_offset(editor, text[row.start:row.end], col - row.start) +
+            editor_inlay_lead(editor, text, row.start, row.end, col)
         margin := min(cast(f32) font.measure("0", editor.font_size) * 2, text_width * 0.25)
         if caret_x - margin < editor.scroll_x {
             editor.scroll_x = caret_x - margin
@@ -2737,7 +3097,7 @@ editor_move_visual :: proc(editor: ^Editor, delta: int, extend: bool) {
             col = cursor.preferred_column
         }
 
-        target := clamp(row_index + delta, 0, len(editor.visual_rows) - 1)
+        target := editor_content_row(editor, clamp(row_index + delta, 0, len(editor.visual_rows) - 1), delta)
         trow := editor.visual_rows[target]
         cursor.caret = editor_clamp_to_row(editor, text, target, editor_byte_at_col(text, trow.start, trow.end, col, tab_width))
         cursor.preferred_column = col
@@ -2841,6 +3201,10 @@ editor_press :: proc(
     editor_cancel_jump(editor)
 
     if button == .Right {
+        // A click outside every selection moves the caret, so the menu acts on the clicked word.
+        if at, ok := editor_pos_at(editor, pos); ok && !editor_in_selection(editor, at) {
+            textedit.set_single_cursor(editor.state, at)
+        }
         if editor.on_context_menu != nil {
             editor.on_context_menu(editor.context_menu_data, pos)
         }
@@ -2863,9 +3227,9 @@ editor_press :: proc(
 
     // A click in the fold column toggles that line's fold instead of moving the
     // caret.
-    if fold_col := editor_fold_col_width(editor); fold_col > 0 &&
-       pos.x >= editor.view.x + editor.gutter_width - fold_col &&
-       pos.x < editor.view.x + editor.gutter_width {
+    if fold_x, fold_w := editor_fold_col(editor); fold_w > 0 &&
+       pos.x >= editor.view.x + fold_x &&
+       pos.x < editor.view.x + fold_x + fold_w {
         if at, ok := editor_pos_at(editor, pos); ok {
             editor_toggle_fold_line(editor, textedit.state_line_index(editor.state, at))
         }
@@ -3017,8 +3381,9 @@ editor_text :: proc(editor: ^Editor, codepoint: rune, mods: ui.Mod_Set) -> bool 
         if !(editor.completion_semantic && editor_request_completion(editor)) {
             editor_update_completion(editor)
         }
-    } else if editor.completion_semantic && codepoint == '.' {
-        // Member access: `pkg.` lists the package's symbols right away.
+    } else if editor.completion_semantic && (codepoint == '.' || codepoint == '(' || codepoint == '>') &&
+       editor_is_selector_end(textedit.text(editor.state), textedit.primary_cursor(editor.state).caret) {
+        // Member access: `pkg.`, `x.(` and `x->` list their candidates right away.
         editor_request_completion(editor)
     } else {
         editor_dismiss_completion(editor)

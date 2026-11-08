@@ -158,6 +158,9 @@ test_capabilities_real_reply :: proc(t: ^testing.T) {
             "renameProvider": {"prepareProvider": true},
             "codeActionProvider": {"codeActionKinds": ["quickfix"]},
             "semanticTokensProvider": {"full": true},
+            "inlayHintProvider": true,
+            "documentHighlightProvider": true,
+            "typeDefinitionProvider": true,
             "executeCommandProvider": {"commands": ["clangd.applyFix"]}
         }, "serverInfo": {"name": "clangd", "version": "18"}}`,
     )
@@ -167,7 +170,7 @@ test_capabilities_real_reply :: proc(t: ^testing.T) {
     testing.expect_value(
         t,
         caps.kinds,
-        lang.FEATURES_ALL - {.Diagnostics, .Progress, .Apply_Edit, .Message, .Format, .Format_Range, .Format_On_Type},
+        lang.FEATURES_ALL - {.Diagnostics, .Syntax_Diagnostics, .Progress, .Apply_Edit, .Message, .Format, .Format_Range, .Format_On_Type, .Resolve_Action, .Call_Hierarchy, .Type_Hierarchy, .Implementations, .Selection_Range, .Code_Lens},
     )
 }
 

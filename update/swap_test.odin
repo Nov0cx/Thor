@@ -337,4 +337,46 @@ test_migrate_json_files :: proc(t: ^testing.T) {
     carried, migrated = migrate_json_files(from, to)
     testing.expect(t, !migrated, "a target that holds settings is left alone")
     testing.expect_value(t, carried, 0)
+
+    // A target already converted to Lua is left alone too.
+    lua_to := at(root, "user-lua")
+    write(t, lua_to, "settings.lua", "return {}")
+    carried, migrated = migrate_json_files(from, lua_to)
+    testing.expect(t, !migrated, "a target that holds Lua settings is left alone")
+    testing.expect_value(t, carried, 0)
+}
+
+// A held plugin folder and theme file keep their local copy through the swap,
+// and a held name the install has lost is not brought back.
+@(test)
+test_carry_held_keeps_local_copies :: proc(t: ^testing.T) {
+    root, ok := scratch(t, "carry_held")
+    if !ok {
+        return
+    }
+    defer drop(root)
+
+    install, staged := at(root, "install"), at(root, "staged")
+    write(t, install, "plugins/git/plugin.lua", "local edit")
+    write(t, install, "plugins/lua/plugin.lua", "old lua")
+    write(t, install, "assets/themes/jogo.lua", "local theme")
+    write(t, staged, "plugins/git/plugin.lua", "shipped git")
+    write(t, staged, "plugins/git/extra.lua", "shipped extra")
+    write(t, staged, "plugins/lua/plugin.lua", "new lua")
+    write(t, staged, "plugins/gone/plugin.lua", "shipped gone")
+    write(t, staged, "assets/themes/jogo.lua", "shipped theme")
+
+    failed := carry_held(install, staged, {"plugins/git", "assets/themes/jogo.lua", "plugins/gone"})
+    testing.expect_value(t, failed, 0)
+    testing.expect(t, holds(staged, "plugins/git/plugin.lua", "local edit"), "a held plugin keeps its local copy")
+    testing.expect(t, !present(staged, "plugins/git/extra.lua"), "a held plugin takes nothing of the shipped one")
+    testing.expect(t, holds(staged, "assets/themes/jogo.lua", "local theme"), "a held theme keeps its local copy")
+    testing.expect(t, !present(staged, "plugins/gone"), "a held name the install lost stays gone")
+    testing.expect(t, holds(staged, "plugins/lua/plugin.lua", "new lua"), "a plugin that is not held updates")
+
+    replaced, swap_failed := swap_dirs(install, staged, {"plugins", "assets"})
+    testing.expect_value(t, swap_failed, 0)
+    testing.expect_value(t, replaced, 2)
+    testing.expect(t, holds(install, "plugins/git/plugin.lua", "local edit"), "the edit survives the swap")
+    testing.expect(t, holds(install, "plugins/lua/plugin.lua", "new lua"), "the rest is the new build")
 }

@@ -1,22 +1,25 @@
 package markdown
 
 import "core:fmt"
-import "core:strconv"
 import "core:strings"
 import "core:unicode/utf8"
 
+import ui "../vendor/loom/loom"
+
 @(private)
 Build :: struct {
-    page:  ^Page,
-    pal:   Palette,
-    m:     Metrics,
-    base:  i32,
-    avail: f32,
-    y:     f32,
-    lines: []string,
-    skip:  []bool,             // a reference definition: not drawn
-    refs:  map[string]string,  // lower-case label to url, which borrows the source
-    lists: [dynamic]int,       // the indent of each open list level
+    page:      ^Page,
+    pal:       Palette,
+    m:         Metrics,
+    base:      i32,
+    avail:     f32,
+    y:         f32,
+    source:    string,
+    color:     ui.Color, // the body text color of the container being laid out
+    refs:      map[string]string, // lower-case label to url, which borrows the source
+    footnotes: [dynamic]Footnote,
+    slugs:     map[string]int, // how often each heading slug was taken
+    details:   int, // the `<details>` blocks laid out so far
 }
 
 @(private)
@@ -30,6 +33,9 @@ Align :: enum {
 LIST_INDENT :: f32(24)
 
 @(private = "file")
+QUOTE_INDENT :: f32(18)
+
+@(private = "file")
 CODE_PAD :: f32(8)
 
 @(private = "file")
@@ -38,20 +44,39 @@ IMAGE_GAP :: f32(4)
 @(private = "file")
 BULLET :: f32(5)
 
-// Parses the source into the page's item list. Block detection is line-oriented;
-// inline styling and word wrap happen per block. Every item text borrows from
-// `source`, so the caller keeps that alive as long as the page.
+@(private = "file")
+CHECK_BOX :: f32(12)
+
+@(private = "file")
+TOGGLE_INDENT :: f32(18)
+
+@(private = "file")
+ALERT_TITLES := [Alert_Kind]string {
+    .Note      = "Note",
+    .Tip       = "Tip",
+    .Important = "Important",
+    .Warning   = "Warning",
+    .Caution   = "Caution",
+}
+
+// Parses the source into the page's item list: the blocks first, so a
+// reference defined at the end resolves at the start, then each block laid out
+// in the column it is nested in. Every item text borrows from `source` or the
+// page, so the caller keeps the source alive as long as the page.
 layout :: proc(page: ^Page, source: string, avail: f32, base: i32, pal: Palette, m: Metrics) {
     page_clear(page)
     b := Build {
-        page  = page,
-        pal   = pal,
-        m     = m,
-        base  = base,
-        avail = avail,
-        y     = PAD_TOP,
-        refs  = make(map[string]string, 0, context.temp_allocator),
-        lists = make([dynamic]int, context.temp_allocator),
+        page      = page,
+        pal       = pal,
+        m         = m,
+        base      = base,
+        avail     = avail,
+        y         = PAD_TOP,
+        source    = source,
+        color     = pal.text,
+        refs      = make(map[string]string, 0, context.temp_allocator),
+        footnotes = make([dynamic]Footnote, context.temp_allocator),
+        slugs     = make(map[string]int, 0, context.temp_allocator),
     }
 
     lines := make([dynamic]string, context.temp_allocator)
@@ -59,157 +84,67 @@ layout :: proc(page: ^Page, source: string, avail: f32, base: i32, pal: Palette,
     for line in strings.split_lines_iterator(&it) {
         append(&lines, line)
     }
-    b.lines = lines[:]
-    b.skip = make([]bool, len(lines), context.temp_allocator)
-    collect_refs(&b)
-
-    i := 0
-    for i < len(lines) {
-        trimmed := strings.trim_left_space(lines[i])
-        if b.skip[i] {
-            i += 1
-            continue
-        }
-
-        // Blank line: paragraph spacing. A list stays open across it.
-        if len(trimmed) == 0 {
-            b.y += f32(base) * 0.5
-            i += 1
-            continue
-        }
-
-        marker, content, ordered, num, is_list := list_item(trimmed)
-        is_list = is_list && !is_rule(trimmed)
-        if !is_list {
-            clear(&b.lists)
-        }
-
-        // Fenced code block: gather verbatim lines until the closing fence.
-        if fence, count := fence_open(trimmed); count > 0 {
-            start := i + 1
-            end := start
-            for end < len(lines) && !fence_close(lines[end], fence, count) {
-                end += 1
-            }
-            emit_code_block(&b, lines[start:end])
-            i = end < len(lines) ? end + 1 : end
-            continue
-        }
-
-        if table_at(&b, i) {
-            i = emit_table(&b, i)
-            continue
-        }
-
-        // Horizontal rule: a line of only -, * or _, three or more.
-        if is_rule(trimmed) {
-            b.y += 6
-            append(&page.items, Item{kind = .Rect, y = b.y, w = avail, h = 2, color = pal.rule})
-            b.y += line_height(m, base)
-            i += 1
-            continue
-        }
-
-        if level, rest, ok := heading(trimmed); ok {
-            tokens := inline(&b, rest, pal.heading)
-            emit_heading(&b, level, tokens[:])
-            i += 1
-            continue
-        }
-
-        if trimmed[0] == '>' {
-            i = emit_quote(&b, i)
-            continue
-        }
-
-        if is_list {
-            depth := list_depth(&b, indent_columns(lines[i]))
-            tokens := make([dynamic]Token, context.temp_allocator)
-            st := inline_begin(&b, &tokens)
-            inline_line(&st, content, pal.text)
-            i += 1
-            // A plain line under an item continues it.
-            for i < len(lines) && !starts_block(&b, i, true) {
-                inline_line(&st, lines[i], pal.text)
-                i += 1
-            }
-            emit_list_item(&b, depth, marker, ordered, num, tokens[:])
-            continue
-        }
-
-        // Paragraph: consecutive plain lines fold into one wrapped block, so a
-        // soft line break flows, which is what markdown means by it. A line of
-        // `=` or `-` under it makes it a heading.
-        end := i + 1
-        for end < len(lines) && !starts_block(&b, end) && setext_level(lines[end]) == 0 {
-            end += 1
-        }
-        level := end < len(lines) ? setext_level(lines[end]) : 0
-        tokens := make([dynamic]Token, context.temp_allocator)
-        st := inline_begin(&b, &tokens)
-        for line in lines[i:end] {
-            inline_line(&st, line, level > 0 ? pal.heading : pal.text)
-        }
-        if level > 0 {
-            emit_heading(&b, level, tokens[:])
-            i = end + 1
-            continue
-        }
-        b.y += wrap_run(&b, tokens[:], 0, b.y, avail, base)
-        b.y += f32(base) * 0.35
-        i = end
-    }
-
+    blocks := parse_blocks(&b, lines[:])
+    layout_blocks(&b, blocks[:], 0, avail, false)
+    emit_footnotes(&b)
     page.content_height = b.y + PAD_BOTTOM
 }
 
-// Takes the `[label]: url` lines out of the flow. A fenced block is not read.
+// The byte offset of `s` in the source, or -1 when it is not a slice of it.
+@(private)
+src_of :: proc(b: ^Build, s: string) -> int {
+    if len(s) == 0 || len(b.source) == 0 {
+        return -1
+    }
+    at := int(uintptr(raw_data(s))) - int(uintptr(raw_data(b.source)))
+    return at >= 0 && at + len(s) <= len(b.source) ? at : -1
+}
+
+// The space between two blocks of one container.
 @(private = "file")
-collect_refs :: proc(b: ^Build) {
-    fence: u8
-    count := 0
-    for line, i in b.lines {
-        trimmed := strings.trim_left_space(line)
-        if count > 0 {
-            if fence_close(line, fence, count) {
-                count = 0
-            }
-            continue
+block_gap :: proc(b: ^Build, tight: bool) -> f32 {
+    return f32(b.base) * (tight ? 0.2 : 0.8)
+}
+
+@(private = "file")
+layout_blocks :: proc(b: ^Build, blocks: []^Block, x, w: f32, tight: bool) {
+    for blk, i in blocks {
+        if i > 0 {
+            b.y += block_gap(b, tight)
         }
-        if fence, count = fence_open(trimmed); count > 0 {
-            continue
-        }
-        if label, url, ok := ref_definition(line); ok {
-            key := ref_key(label)
-            if !(key in b.refs) {
-                b.refs[key] = url
-            }
-            b.skip[i] = true
-        }
+        layout_block(b, blk, x, w, tight)
     }
 }
 
-// True when line `at` ends the paragraph or the list item above it.
-@(private)
-starts_block :: proc(b: ^Build, at: int, in_list := false) -> bool {
-    t := strings.trim_left_space(b.lines[at])
-    if len(t) == 0 || b.skip[at] || t[0] == '>' || is_rule(t) {
-        return true
+@(private = "file")
+layout_block :: proc(b: ^Build, blk: ^Block, x, w: f32, tight: bool) {
+    switch blk.kind {
+    case .Paragraph:
+        tokens := make([dynamic]Token, context.temp_allocator)
+        st := inline_begin(b, &tokens)
+        for line in blk.lines {
+            inline_line(&st, line, b.color)
+        }
+        b.y += wrap_run(b, tokens[:], x, b.y, w, b.base)
+    case .Heading:
+        emit_heading(b, blk, x, w)
+    case .Rule:
+        b.y += 6
+        append(&b.page.items, Item{kind = .Rect, x = x, y = b.y, w = w, h = 2, color = b.pal.rule, src = -1})
+        b.y += 8
+    case .Code:
+        emit_code_block(b, blk, x, w)
+    case .Table:
+        emit_table(b, blk.lines, x, w)
+    case .Quote, .Alert:
+        emit_quote(b, blk, x, w)
+    case .List:
+        emit_list(b, blk, x, w)
+    case .Item:
+        layout_blocks(b, blk.children[:], x, w, tight)
+    case .Details:
+        emit_details(b, blk, x, w)
     }
-    if _, count := fence_open(t); count > 0 {
-        return true
-    }
-    if _, _, ok := heading(t); ok {
-        return true
-    }
-    if table_at(b, at) {
-        return true
-    }
-    // Only a list that starts at 1 interrupts running text.
-    if _, _, ordered, num, ok := list_item(t); ok && (in_list || !ordered || num == 1) {
-        return true
-    }
-    return false
 }
 
 // Font size for a heading level (1..6), stepping down toward the body size.
@@ -231,268 +166,344 @@ heading_size :: proc(base: i32, level: int) -> i32 {
 }
 
 @(private = "file")
-emit_heading :: proc(b: ^Build, level: int, tokens: []Token) {
+emit_heading :: proc(b: ^Build, blk: ^Block, x, w: f32) {
+    level := blk.level
     size := heading_size(b.base, level)
-    b.y += f32(b.base) * (level <= 2 ? 0.8 : 0.4)
-    b.y += wrap_run(b, tokens, 0, b.y, b.avail, size)
-    if level <= 2 {
-        b.y += 4
-        append(&b.page.items, Item{kind = .Rect, y = b.y, w = b.avail, h = 1, color = b.pal.rule})
-        b.y += 6
-    }
-}
+    b.y += f32(b.base) * (level <= 2 ? 0.6 : 0.3)
 
-// Lays out the run of `>` lines that starts at `at` behind one bar. A bare `>`
-// is a paragraph break inside it. Returns the line after the run.
-@(private = "file")
-emit_quote :: proc(b: ^Build, at: int) -> int {
-    top := b.y
+    anchor := heading_slug(b, blk.lines)
+    if anchor != "" && !(anchor in b.page.anchors) {
+        b.page.anchors[strings.clone(anchor)] = b.y
+    }
+
     tokens := make([dynamic]Token, context.temp_allocator)
     st := inline_begin(b, &tokens)
-    i := at
-    for i < len(b.lines) {
-        trimmed := strings.trim_left_space(b.lines[i])
-        if len(trimmed) == 0 || trimmed[0] != '>' {
-            break
-        }
-        content := strings.trim_left_space(trimmed[1:])
-        if content == "" && len(tokens) > 0 {
-            b.y += wrap_run(b, tokens[:], 18, b.y, b.avail - 18, b.base)
-            b.y += f32(b.base) * 0.35
-            clear(&tokens)
-        } else if content != "" {
-            inline_line(&st, content, b.pal.quote)
-        }
-        i += 1
+    for line in blk.lines {
+        inline_line(&st, line, b.pal.heading, {.Bold})
     }
-    if len(tokens) > 0 || b.y == top {
-        b.y += wrap_run(b, tokens[:], 18, b.y, b.avail - 18, b.base)
+    b.y += wrap_run(b, tokens[:], x, b.y, w, size)
+    if level <= 2 {
+        b.y += 4
+        append(&b.page.items, Item{kind = .Rect, x = x, y = b.y, w = w, h = 1, color = b.pal.rule, src = -1})
+        b.y += 4
     }
-    append(&b.page.items, Item{kind = .Rect, y = top, w = 3, h = b.y - top, color = b.pal.accent})
-    return i
 }
 
+// The anchor GitHub gives a heading: its text in lower case, punctuation
+// dropped, spaces as `-`, and `-1`, `-2`, ... on a repeat. In the temp allocator.
 @(private)
-is_rule :: proc(s: string) -> bool {
-    if len(s) < 3 {
-        return false
-    }
-    c := s[0]
-    if c != '-' && c != '*' && c != '_' {
-        return false
-    }
-    count := 0
-    for i in 0 ..< len(s) {
-        switch s[i] {
-        case c:
-            count += 1
-        case ' ', '\t':
-        // spacing between markers is allowed
-        case:
-            return false
+heading_slug :: proc(b: ^Build, lines: []string) -> string {
+    sb := strings.builder_make(context.temp_allocator)
+    for line, n in lines {
+        if n > 0 {
+            strings.write_byte(&sb, '-')
+        }
+        i := 0
+        for i < len(line) {
+            c := line[i]
+            // A link's target is not part of its text.
+            if c == ']' && i + 1 < len(line) && line[i + 1] == '(' {
+                if close := strings.index_byte(line[i:], ')'); close > 0 {
+                    i += close + 1
+                    continue
+                }
+            }
+            switch {
+            case c >= 'A' && c <= 'Z':
+                strings.write_byte(&sb, c + ('a' - 'A'))
+            case (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c >= 0x80:
+                strings.write_byte(&sb, c)
+            case c == ' ' || c == '\t':
+                strings.write_byte(&sb, '-')
+            }
+            i += 1
         }
     }
-    return count >= 3
+    slug := strings.to_string(sb)
+    seen := b.slugs[slug]
+    b.slugs[slug] = seen + 1
+    if seen > 0 {
+        return fmt.tprintf("%s-%d", slug, seen)
+    }
+    return slug
 }
 
-// Splits an ATX heading `### Title` into its level and title text. A closing
-// run of `#` is not part of the title.
+// A quote or an alert: its blocks behind one bar, in the quote color. An alert
+// takes its kind's color and title.
 @(private = "file")
-heading :: proc(s: string) -> (level: int, rest: string, ok: bool) {
-    n := 0
-    for n < len(s) && s[n] == '#' {
-        n += 1
-    }
-    if n == 0 || n > 6 || n >= len(s) || s[n] != ' ' {
-        return 0, "", false
-    }
-    rest = strings.trim_space(s[n + 1:])
-    end := len(rest)
-    for end > 0 && rest[end - 1] == '#' {
-        end -= 1
-    }
-    if end < len(rest) && (end == 0 || rest[end - 1] == ' ') {
-        rest = strings.trim_space(rest[:end])
-    }
-    return n, rest, true
-}
-
-// The heading level a setext underline gives the paragraph above it: 1 for a
-// line of `=`, 2 for a line of `-`, 0 for any other line.
-@(private = "file")
-setext_level :: proc(line: string) -> int {
-    s := strings.trim_space(line)
-    if len(s) < 2 || (s[0] != '=' && s[0] != '-') {
-        return 0
-    }
-    for i in 1 ..< len(s) {
-        if s[i] != s[0] {
-            return 0
-        }
-    }
-    return s[0] == '=' ? 1 : 2
-}
-
-// The fence character and length when `s` opens a fenced code block.
-@(private)
-fence_open :: proc(s: string) -> (fence: u8, count: int) {
-    if len(s) < 3 || (s[0] != '`' && s[0] != '~') {
-        return 0, 0
-    }
-    for count < len(s) && s[count] == s[0] {
-        count += 1
-    }
-    if count < 3 {
-        return 0, 0
-    }
-    return s[0], count
-}
-
-// True when `line` closes a fence of `count` `fence` characters.
-@(private)
-fence_close :: proc(line: string, fence: u8, count: int) -> bool {
-    s := strings.trim_space(line)
-    if len(s) < count {
-        return false
-    }
-    for i in 0 ..< len(s) {
-        if s[i] != fence {
-            return false
-        }
-    }
-    return true
-}
-
-// Recognizes a list marker at the head of a line, returning the display marker,
-// the remaining content and, for an ordered item, the parsed number.
-@(private = "file")
-list_item :: proc(
-    s: string,
-) -> (
-    marker: string,
-    content: string,
-    ordered: bool,
-    num: int,
-    ok: bool,
-) {
-    if len(s) >= 2 && (s[0] == '-' || s[0] == '*' || s[0] == '+') && s[1] == ' ' {
-        return "", strings.trim_left_space(s[2:]), false, 0, true
-    }
-    // Ordered: one or more digits, then '.' or ')', then a space.
-    d := 0
-    for d < len(s) && s[d] >= '0' && s[d] <= '9' {
-        d += 1
-    }
-    if d > 0 && d + 1 < len(s) && (s[d] == '.' || s[d] == ')') && s[d + 1] == ' ' {
-        // A number too long for an int is not a list marker.
-        value, parsed := strconv.parse_int(s[:d])
-        if !parsed {
-            return "", "", false, 0, false
-        }
-        return "", strings.trim_left_space(s[d + 2:]), true, value, true
-    }
-    return "", "", false, 0, false
-}
-
-// The width of a line's leading white space, a tab counting four.
-@(private = "file")
-indent_columns :: proc(line: string) -> int {
-    columns := 0
-    for i in 0 ..< len(line) {
-        switch line[i] {
-        case ' ':
-            columns += 1
-        case '\t':
-            columns += 4
-        case:
-            return columns
-        }
-    }
-    return columns
-}
-
-// The nesting level of a list item indented `columns`: deeper than the open
-// level opens one more, shallower closes down to the level it lines up with.
-@(private = "file")
-list_depth :: proc(b: ^Build, columns: int) -> int {
-    for len(b.lists) > 0 && columns < b.lists[len(b.lists) - 1] {
-        pop(&b.lists)
-    }
-    if len(b.lists) == 0 || columns >= b.lists[len(b.lists) - 1] + 2 {
-        append(&b.lists, columns)
-    }
-    return len(b.lists) - 1
-}
-
-// Emits a bullet or number and its wrapped content, indented under the marker.
-@(private = "file")
-emit_list_item :: proc(b: ^Build, depth: int, marker: string, ordered: bool, num: int, tokens: []Token) {
-    label := marker
-    if ordered {
-        s := fmt.aprintf("%d.", num)
-        append(&b.page.owned, s)
-        label = s
-    }
-    left := LIST_INDENT * f32(depth)
-    if ordered {
+emit_quote :: proc(b: ^Build, blk: ^Block, x, w: f32) {
+    top := b.y
+    bar := b.pal.accent
+    saved := b.color
+    b.color = b.pal.quote
+    if blk.kind == .Alert {
+        bar = b.pal.alert[blk.alert]
+        b.color = b.pal.text
+        title := ALERT_TITLES[blk.alert]
+        tw := measure(b.m, title, b.base, {.Bold})
+        h := line_height(b.m, b.base)
         append(
             &b.page.items,
-            Item{kind = .Text, x = left + 6, y = b.y, text = label, size = b.base, color = b.pal.accent},
+            Item {
+                kind = .Text,
+                x = x + QUOTE_INDENT,
+                y = b.y,
+                w = tw,
+                h = h,
+                text = title,
+                size = b.base,
+                color = bar,
+                style = {.Bold},
+                src = -1,
+            },
         )
-    } else {
-        // A square, not a glyph: the bullet character is not in every face.
-        mid := b.y + line_height(b.m, b.base) * 0.5
-        append(
-            &b.page.items,
-            Item{kind = .Rect, x = left + 8, y = mid - BULLET * 0.5, w = BULLET, h = BULLET, color = b.pal.accent},
-        )
+        b.y += h + f32(b.base) * 0.2
     }
-    indent := left + LIST_INDENT
-    b.y += wrap_run(b, tokens, indent, b.y, b.avail - indent, b.base)
+    if len(blk.children) > 0 {
+        layout_blocks(b, blk.children[:], x + QUOTE_INDENT, w - QUOTE_INDENT, false)
+    } else if b.y == top {
+        b.y += line_height(b.m, b.base)
+    }
+    b.color = saved
+    append(&b.page.items, Item{kind = .Rect, x = x, y = top, w = 3, h = b.y - top, color = bar, src = -1})
 }
 
-// A background panel and each source line verbatim. A line wider than the panel
-// continues on the next row.
+// Each item's marker at the list's left edge and its blocks indented under it.
 @(private = "file")
-emit_code_block :: proc(b: ^Build, lines: []string) {
-    if len(lines) == 0 {
+emit_list :: proc(b: ^Build, blk: ^Block, x, w: f32) {
+    tight := !blk.loose
+    for item, n in blk.children {
+        if n > 0 {
+            b.y += block_gap(b, tight)
+        }
+        top := b.y
+        emit_marker(b, blk, item, n, x)
+        if len(item.children) > 0 {
+            layout_blocks(b, item.children[:], x + LIST_INDENT, w - LIST_INDENT, tight)
+        } else {
+            b.y += line_height(b.m, b.base)
+        }
+        b.y = max(b.y, top + line_height(b.m, b.base))
+    }
+}
+
+// A number, a bullet or a task box at the head of item `n`.
+@(private = "file")
+emit_marker :: proc(b: ^Build, list, item: ^Block, n: int, x: f32) {
+    line_h := line_height(b.m, b.base)
+    mid := b.y + line_h * 0.5
+    if item.task != .None {
+        box := Item{kind = .Rect, x = x + 6, y = mid - CHECK_BOX * 0.5, w = CHECK_BOX, h = CHECK_BOX, src = -1}
+        if item.task == .Done {
+            box.color = b.pal.accent
+            append(&b.page.items, box)
+            check := "✓"
+            cw := measure(b.m, check, b.base - 3)
+            append(
+                &b.page.items,
+                Item {
+                    kind = .Text,
+                    x = box.x + (CHECK_BOX - cw) * 0.5,
+                    y = mid - line_height(b.m, b.base - 3) * 0.5,
+                    w = cw,
+                    h = line_height(b.m, b.base - 3),
+                    text = check,
+                    size = b.base - 3,
+                    color = b.pal.code_bg,
+                    style = {.Bold},
+                    src = -1,
+                },
+            )
+            return
+        }
+        box.color = b.pal.rule
+        append(&b.page.items, box)
+        inner := box
+        inner.x += 1
+        inner.y += 1
+        inner.w -= 2
+        inner.h -= 2
+        inner.color = b.pal.code_bg
+        append(&b.page.items, inner)
         return
     }
+    if list.ordered {
+        label := fmt.aprintf("%d.", list.start + n)
+        append(&b.page.owned, label)
+        // Right-aligned, so a number of two digits ends where one of one does.
+        lw := measure(b.m, label, b.base)
+        append(
+            &b.page.items,
+            Item{kind = .Text, x = x + max(0, LIST_INDENT - 6 - lw), y = b.y, w = lw, h = line_h, text = label, size = b.base, color = b.pal.accent, src = -1},
+        )
+        return
+    }
+    // A square, not a glyph: the bullet character is not in every face.
+    append(
+        &b.page.items,
+        Item{kind = .Rect, x = x + 8, y = mid - BULLET * 0.5, w = BULLET, h = BULLET, color = b.pal.accent, src = -1},
+    )
+}
+
+// A `<details>` block: its summary row is the toggle, and its blocks show
+// only while the reader has it open.
+@(private = "file")
+emit_details :: proc(b: ^Build, blk: ^Block, x, w: f32) {
+    ref := b.details
+    b.details += 1
+    open := b.page.open[ref]
     line_h := line_height(b.m, b.base)
-    max_w := b.avail - CODE_PAD * 2
-    rows := make([dynamic]string, 0, len(lines), context.temp_allocator)
-    for line in lines {
+    top := b.y
+    tokens := inline(b, blk.summary, b.color)
+    h := wrap_run(b, tokens[:], x + TOGGLE_INDENT, b.y, w - TOGGLE_INDENT, b.base)
+    append(
+        &b.page.items,
+        Item{kind = .Toggle, x = x, y = top, w = w, h = max(h, line_h), size = open ? 1 : 0, ref = ref, color = b.pal.accent, src = -1},
+    )
+    b.y += h
+    if open && len(blk.children) > 0 {
+        b.y += block_gap(b, false)
+        layout_blocks(b, blk.children[:], x + TOGGLE_INDENT, w - TOGGLE_INDENT, false)
+    }
+}
+
+// The footnote definitions under a rule, each anchored at `^label`.
+@(private = "file")
+emit_footnotes :: proc(b: ^Build) {
+    if len(b.footnotes) == 0 {
+        return
+    }
+    size := max(b.base - 2, 8)
+    b.y += f32(b.base)
+    append(&b.page.items, Item{kind = .Rect, y = b.y, w = b.avail, h = 1, color = b.pal.rule, src = -1})
+    b.y += f32(b.base) * 0.5
+    for note, n in b.footnotes {
+        if n > 0 {
+            b.y += f32(b.base) * 0.2
+        }
+        key := strings.concatenate({"^", note.label})
+        if key in b.page.anchors {
+            delete(key)
+        } else {
+            b.page.anchors[key] = b.y
+        }
+        append(
+            &b.page.items,
+            Item {
+                kind = .Text,
+                y = b.y,
+                w = measure(b.m, note.label, size),
+                h = line_height(b.m, size),
+                text = note.label,
+                size = size,
+                color = b.pal.accent,
+                src = src_of(b, note.label),
+            },
+        )
+        tokens := make([dynamic]Token, context.temp_allocator)
+        st := inline_begin(b, &tokens)
+        for line in note.lines {
+            inline_line(&st, line, b.pal.quote)
+        }
+        b.y += wrap_run(b, tokens[:], LIST_INDENT, b.y, b.avail - LIST_INDENT, size)
+    }
+}
+
+// A code block: a panel, each source line verbatim and colored by the host's
+// highlighter, and the copy area over the whole panel. A line wider than the
+// panel continues on the next row.
+@(private = "file")
+emit_code_block :: proc(b: ^Build, blk: ^Block, x, w: f32) {
+    if len(blk.lines) == 0 {
+        return
+    }
+    code := strings.join(blk.lines, "\n")
+    append(&b.page.owned, code)
+    spans: []Color_Span
+    if b.m.highlight != nil && blk.lang != "" {
+        spans = b.m.highlight(blk.lang, code, b.m.user)
+    }
+
+    Row :: struct {
+        text: string,
+        at:   int, // the offset of `text` in `code`
+    }
+    line_h := line_height(b.m, b.base)
+    max_w := w - CODE_PAD * 2
+    rows := make([dynamic]Row, 0, len(blk.lines), context.temp_allocator)
+    at := 0
+    for line in blk.lines {
         rest := line
+        offset := at
         for {
             n := fit(b, rest, max_w, b.base)
-            append(&rows, rest[:n])
+            append(&rows, Row{text = rest[:n], at = offset})
             rest = rest[n:]
+            offset += n
             if len(rest) == 0 {
                 break
             }
         }
+        at += len(line) + 1
     }
 
     top := b.y
     height := line_h * f32(len(rows)) + CODE_PAD * 2
-    append(
-        &b.page.items,
-        Item{kind = .Rect, y = top, w = b.avail, h = height, color = b.pal.code_bg},
-    )
+    append(&b.page.items, Item{kind = .Rect, x = x, y = top, w = w, h = height, color = b.pal.code_bg, src = -1})
     ty := top + CODE_PAD
+    next := 0
     for row in rows {
-        append(
-            &b.page.items,
-            Item{kind = .Text, x = CODE_PAD, y = ty, text = row, size = b.base, color = b.pal.code},
-        )
+        emit_code_row(b, row.text, row.at, spans, &next, x + CODE_PAD, ty, line_h)
         ty += line_h
     }
-    b.y = top + height + f32(b.base) * 0.4
+    append(
+        &b.page.items,
+        Item{kind = .Copy, x = x, y = top, w = w, h = height, text = code, url = blk.lang, size = b.base, color = b.pal.quote, src = -1},
+    )
+    b.y = top + height
+}
+
+// One row of a code block, cut where the highlight spans change color. `next`
+// is the first span that may still reach this row, so the walk is forward only.
+@(private = "file")
+emit_code_row :: proc(b: ^Build, text: string, at: int, spans: []Color_Span, next: ^int, x, y, line_h: f32) {
+    if len(text) == 0 {
+        return
+    }
+    end := at + len(text)
+    for next^ < len(spans) && spans[next^].end <= at {
+        next^ += 1
+    }
+    pos := at
+    pen := x
+    piece :: proc(b: ^Build, text: string, color: ui.Color, pen: ^f32, y, line_h: f32) {
+        if len(text) == 0 {
+            return
+        }
+        w := measure(b.m, text, b.base)
+        append(
+            &b.page.items,
+            Item{kind = .Text, x = pen^, y = y, w = w, h = line_h, text = text, size = b.base, color = color, src = src_of(b, text)},
+        )
+        pen^ += w
+    }
+    for k := next^; k < len(spans) && spans[k].start < end; k += 1 {
+        span := spans[k]
+        lo := clamp(span.start, pos, end)
+        hi := clamp(span.end, pos, end)
+        if lo >= hi {
+            continue
+        }
+        piece(b, text[pos - at:lo - at], b.pal.code, &pen, y, line_h)
+        piece(b, text[lo - at:hi - at], span.color, &pen, y, line_h)
+        pos = hi
+    }
+    piece(b, text[pos - at:], b.pal.code, &pen, y, line_h)
 }
 
 // How many bytes of `s` fit in `max_w`: cut at a rune, after a space when one
 // is near, and at least one rune.
-@(private = "file")
+@(private)
 fit :: proc(b: ^Build, s: string, max_w: f32, size: i32) -> int {
     if len(s) == 0 || measure(b.m, s, size) <= max_w {
         return len(s)
@@ -526,6 +537,16 @@ Placed :: struct {
     token: int,
     x:     f32,
     w:     f32,
+}
+
+// The width a token takes on a row: a key cap has room on each side.
+@(private = "file")
+token_width :: proc(b: ^Build, tok: Token, size: i32) -> f32 {
+    w := measure(b.m, tok.text, size, tok.style)
+    if tok.kbd {
+        w += 8
+    }
+    return w
 }
 
 // Lays a token run out in the column [x, x + max_w) from `y` down and returns
@@ -574,7 +595,7 @@ wrap_run :: proc(
                 }
                 append(
                     &b.page.items,
-                    Item{kind = .Image, x = left, y = row_y, w = w, h = h, text = tok.text, url = tok.url},
+                    Item{kind = .Image, x = left, y = row_y, w = w, h = h, text = tok.text, url = tok.url, src = -1},
                 )
             }
             row_y += h + IMAGE_GAP
@@ -589,7 +610,7 @@ wrap_run :: proc(
         first := len(row)
         unit_w := f32(0)
         for k in i ..< last {
-            w := measure(b.m, tokens[k].text, size)
+            w := token_width(b, tokens[k], size)
             append(&row, Placed{token = k, x = unit_w, w = w})
             unit_w += w
         }
@@ -627,8 +648,9 @@ wrap_run :: proc(
     return row_y - y
 }
 
-// Adds one row of placed tokens to the page. A code token gets a chip, a link
-// an underline right after its text, a struck token a line through it.
+// Adds one row of placed tokens to the page. A code token gets a chip, a key
+// cap a chip with a rule under it, a link an underline right after its text, a
+// struck token a line through it.
 @(private = "file")
 emit_row :: proc(
     b: ^Build,
@@ -647,14 +669,26 @@ emit_row :: proc(
     case .Right:
         left += max(0, max_w - row_w)
     }
-    for placed in row {
+    for placed, n in row {
         tok := tokens[placed.token]
         tx := left + placed.x
+        tw := placed.w
+        // A link's underline runs on under the space to the next word of it.
+        under := tw
+        if tok.link && n + 1 < len(row) && tokens[row[n + 1].token].url == tok.url {
+            under = row[n + 1].x - placed.x
+        }
         if tok.code {
             append(
                 &b.page.items,
-                Item{kind = .Rect, x = tx - 2, y = y, w = placed.w + 4, h = line_h, color = b.pal.code_bg},
+                Item{kind = .Rect, x = tx - 2, y = y, w = tw + 4, h = line_h, color = b.pal.code_bg, src = -1},
             )
+        }
+        if tok.kbd {
+            append(&b.page.items, Item{kind = .Rect, x = tx, y = y + 1, w = tw, h = line_h - 2, color = b.pal.code_bg, src = -1})
+            append(&b.page.items, Item{kind = .Rect, x = tx, y = y + line_h - 2, w = tw, h = 1, color = b.pal.rule, src = -1})
+            tx += 4
+            tw -= 8
         }
         // A text item carries its whole box: the draw culls with it, and a link
         // is hit-tested against it.
@@ -664,24 +698,26 @@ emit_row :: proc(
                 kind = .Text,
                 x = tx,
                 y = y,
-                w = placed.w,
+                w = tw,
                 h = line_h,
                 text = tok.text,
                 size = size,
                 color = tok.color,
                 url = tok.url,
+                style = tok.style,
+                src = src_of(b, tok.text),
             },
         )
         if tok.link {
             append(
                 &b.page.items,
-                Item{kind = .Rect, x = tx, y = y + line_h - 3, w = placed.w, h = 1, color = tok.color},
+                Item{kind = .Rect, x = tx, y = y + line_h - 3, w = max(tw, under), h = 1, color = tok.color, src = -1},
             )
         }
         if tok.strike {
             append(
                 &b.page.items,
-                Item{kind = .Rect, x = tx, y = y + line_h * 0.5, w = placed.w, h = 1, color = tok.color},
+                Item{kind = .Rect, x = tx, y = y + line_h * 0.5, w = tw, h = 1, color = tok.color, src = -1},
             )
         }
     }

@@ -3,7 +3,6 @@ package shell
 
 import "core:c"
 import "core:strings"
-import "core:sync"
 import "core:sys/posix"
 
 // A child process on three pipes. It leads its own process group, so a kill
@@ -38,12 +37,7 @@ child_start :: proc(spec: Child_Spec) -> (^Child, bool) {
     // A write to a child that already exited must fail, not end the editor.
     posix.signal(.SIGPIPE, auto_cast posix.SIG_IGN)
 
-    sync.mutex_lock(&spawn_mutex)
-    locked := true
-    defer if locked {
-        sync.mutex_unlock(&spawn_mutex)
-    }
-
+    limit := fd_limit()
     in_fds, out_fds, err_fds, status_fds: [2]posix.FD
     if !pipe_cloexec(&out_fds) {
         return nil, false
@@ -83,6 +77,8 @@ child_start :: proc(spec: Child_Spec) -> (^Child, bool) {
         posix.close(err_fds[0])
         posix.close(err_fds[1])
         posix.close(status_fds[0])
+        // What another thread opened meanwhile stays out of the child.
+        close_inherited(int(status_fds[1]), limit)
         // Closed by a successful exec, which is how the parent reads success.
         // A failure here would leave it open across a successful exec too,
         // hanging start_succeeded's read instead of ending it with success.
@@ -102,8 +98,6 @@ child_start :: proc(spec: Child_Spec) -> (^Child, bool) {
     // The child owns the far ends now; the parent's copies must go so a read sees
     // the end of a stream when the child exits.
     close_fds(in_fds[0], out_fds[1], err_fds[1], status_fds[1])
-    sync.mutex_unlock(&spawn_mutex)
-    locked = false
     // Also set in the parent, since either side may run first.
     posix.setpgid(pid, pid)
 
@@ -273,18 +267,32 @@ read_fd :: proc(fd: posix.FD, buf: []u8) -> int {
     }
 }
 
-// Opens a pipe with both ends close-on-exec. Call it with `spawn_mutex` held, so
-// no fork on another thread runs before the flags are set.
+// fds_linux.odin and fds_posix.odin supply:
+//   pipe_cloexec :: proc(fds: ^[2]posix.FD) -> bool
+//   close_inherited :: proc "contextless" (keep: int, limit: int)
+
+// Most descriptors close_each walks when close_inherited has no faster way.
+@(private = "file")
+FD_LIMIT_MAX :: 65536
+
+// The bound close_inherited closes up to. Read it before a fork: sysconf is not async-signal-safe.
 @(private)
-pipe_cloexec :: proc(fds: ^[2]posix.FD) -> bool {
-    if posix.pipe(fds) != .OK {
-        return false
+fd_limit :: proc() -> int {
+    limit := int(posix.sysconf(._OPEN_MAX))
+    if limit <= 0 || limit > FD_LIMIT_MAX {
+        return FD_LIMIT_MAX
     }
-    if posix.fcntl(fds[0], .SETFD, posix.FD_CLOEXEC) < 0 || posix.fcntl(fds[1], .SETFD, posix.FD_CLOEXEC) < 0 {
-        close_fds(fds[0], fds[1])
-        return false
+    return limit
+}
+
+// Closes the descriptors in [low, high) except `keep`. Async-signal-safe.
+@(private)
+close_each :: proc "contextless" (low, high, keep: int) {
+    for fd in low ..< high {
+        if fd != keep {
+            posix.close(posix.FD(fd))
+        }
     }
-    return true
 }
 
 @(private)

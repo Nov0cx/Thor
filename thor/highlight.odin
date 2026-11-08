@@ -13,26 +13,31 @@ import "../editview"
 // ok is false when no pane shows the file, or its rows are not built yet.
 @(private = "file")
 thor_highlight_window :: proc(thor: ^Thor, file: ^Open_File) -> (start, end: int, ok: bool) {
-    for index, pane in thor.pane_file {
-        if index < 0 || index >= len(thor.open_files) || thor.open_files[index] != file {
-            continue
-        }
-        editor := thor_pane_editor(thor, pane)
+    take :: proc(editor: ^editview.Editor, start, end: ^int, ok: ^bool) {
         margin := max(editview.editor_visible_row_count(editor), 1)
-        // A pane whose rows are not built yet answers nothing; the other pane
-        // showing the same file may already have them.
+        // An editor whose rows are not built yet answers nothing.
         if s, e, got := editview.editor_visible_byte_range(editor, margin); got {
-            return s, e, true
+            start^ = ok^ ? min(start^, s) : s
+            end^ = ok^ ? max(end^, e) : e
+            ok^ = true
         }
     }
-    return 0, 0, false
+    for index, pane in thor.pane_file {
+        if index >= 0 && index < len(thor.open_files) && thor.open_files[index] == file {
+            take(thor_pane_editor(thor, pane), &start, &end, &ok)
+        }
+    }
+    if thor.peek.open && thor.peek.editor.state == &file.state {
+        take(&thor.peek.editor, &start, &end, &ok)
+    }
+    return
 }
 
 // Rebuilds `file`'s highlight spans (resolved to theme colors) over the window
 // the pane showing it displays. Only files shown in a pane are highlighted, so
 // this runs when their buffers change or their view scrolls off the window.
 thor_update_highlights :: proc(thor: ^Thor, file: ^Open_File) {
-    key := thor_highlight_key(&thor.plugins, file.name)
+    key := thor_file_highlight_key(thor, file)
 
     win_start, win_end, windowed := thor_highlight_window(thor, file)
     if !windowed {
@@ -100,7 +105,7 @@ thor_update_folds :: proc(thor: ^Thor, file: ^Open_File) {
     if time.tick_since(file.last_edit) < FOLD_IDLE_DELAY {
         return
     }
-    key := thor_highlight_key(&thor.plugins, file.name)
+    key := thor_file_highlight_key(thor, file)
     if !plugin.supports(&thor.plugins, key) {
         // A plugin reload can leave folds behind that the new language did not
         // derive, so drop them rather than keep another grammar's answer.
@@ -167,7 +172,17 @@ thor_merge_semantic :: proc(
     }
 
     over := make([dynamic]editview.Highlight_Span, 0, len(tokens), context.temp_allocator)
-    thor_semantic_spans(&over, tokens, colors, mapped, win_start, win_end)
+    mod_colors: [lang.Token_Modifier]ui.Color
+    mod_mapped: bit_set[lang.Token_Modifier]
+    for mod in lang.Token_Modifier {
+        role := plugin.role_for(&thor.plugins, key, thor_modifier_capture(mod))
+        if role == "" {
+            continue
+        }
+        mod_colors[mod] = theme.role_color(thor.theme, role)
+        mod_mapped += {mod}
+    }
+    thor_semantic_spans(&over, tokens, colors, mapped, win_start, win_end, mod_colors, mod_mapped)
     thor_overlay_spans(&file.highlights, grammar, over[:])
 }
 
@@ -189,7 +204,10 @@ thor_rebase_semantic :: proc(
         if token.end <= prefix {
             append(out, token)
         } else if token.start >= tail {
-            append(out, lang.Semantic_Token{token.start + delta, token.end + delta, token.kind})
+            moved := token
+            moved.start += delta
+            moved.end += delta
+            append(out, moved)
         }
     }
 }
@@ -205,19 +223,33 @@ thor_semantic_spans :: proc(
     colors: [lang.Token_Kind]ui.Color,
     mapped: bit_set[lang.Token_Kind],
     win_start, win_end: int,
+    mod_colors := [lang.Token_Modifier]ui.Color{},
+    mod_mapped := bit_set[lang.Token_Modifier]{},
 ) {
     // Advanced by every accepted token, even one the window clips away, so the
     // emitted spans stay ascending and non-overlapping.
     cut := 0
     for token in tokens {
-        if token.kind not_in mapped || token.start < cut {
+        // The first mapped modifier recolors the token; a constant value has no kind color of its own.
+        color: ui.Color
+        has_color := token.kind in mapped
+        if has_color {
+            color = colors[token.kind]
+        }
+        for mod in lang.Token_Modifier {
+            if mod in token.modifiers && mod in mod_mapped {
+                color, has_color = mod_colors[mod], true
+                break
+            }
+        }
+        if !has_color || token.start < cut {
             continue
         }
         cut = token.end
         start := max(token.start, win_start)
         end := min(token.end, win_end)
         if start < end {
-            append(out, editview.Highlight_Span{start, end, colors[token.kind]})
+            append(out, editview.Highlight_Span{start, end, color})
         }
     }
 }
@@ -286,6 +318,19 @@ thor_token_capture :: proc(kind: lang.Token_Kind) -> string {
     case .Enum_Member: return "constant"
     case .Package:     return "namespace"
     case .Unresolved:  return "unresolved"
+    case .Inactive:    return "inactive"
+    }
+    return ""
+}
+
+// The capture name a token modifier recolors its token with.
+@(private = "file")
+thor_modifier_capture :: proc(mod: lang.Token_Modifier) -> string {
+    switch mod {
+    case .Deprecated: return "deprecated"
+    case .Distinct:   return "type.distinct"
+    case .Constant:   return "constant"
+    case .Mutable:    return "variable.mutable"
     }
     return ""
 }

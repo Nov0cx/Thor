@@ -4,7 +4,6 @@ package shell
 import "core:c"
 import "core:fmt"
 import "core:strings"
-import "core:sync"
 import "core:sys/posix"
 import "core:time"
 
@@ -48,12 +47,7 @@ run_argv :: proc(argv: []cstring, search_path: bool, cwd: string, timeout: time.
         cwd_c = strings.clone_to_cstring(cwd, context.temp_allocator)
     }
 
-    sync.mutex_lock(&spawn_mutex)
-    locked := true
-    defer if locked {
-        sync.mutex_unlock(&spawn_mutex)
-    }
-
+    limit := fd_limit()
     out_fds, status_fds: [2]posix.FD
     if !pipe_cloexec(&out_fds) {
         return strings.clone("[shell] could not create pipe\n"), -1, false
@@ -87,6 +81,8 @@ run_argv :: proc(argv: []cstring, search_path: bool, cwd: string, timeout: time.
             posix.close(null)
         }
         close_fds(out_fds[0], out_fds[1], status_fds[0])
+        // What another thread opened meanwhile stays out of the child.
+        close_inherited(int(status_fds[1]), limit)
         // Closed by a successful exec, which is how the parent reads success.
         if posix.fcntl(status_fds[1], .SETFD, posix.FD_CLOEXEC) < 0 {
             report_start_failure(status_fds[1])
@@ -108,8 +104,6 @@ run_argv :: proc(argv: []cstring, search_path: bool, cwd: string, timeout: time.
     // The child owns the far ends now; the parent's copy of the write end must go
     // so the read sees the end of the stream when the child exits.
     close_fds(out_fds[1], status_fds[1])
-    sync.mutex_unlock(&spawn_mutex)
-    locked = false
     // Also set in the parent, since either side may run first.
     posix.setpgid(pid, pid)
 
@@ -172,7 +166,6 @@ run_argv :: proc(argv: []cstring, search_path: bool, cwd: string, timeout: time.
         if status, waited := wait_until(pid, left); waited {
             return strings.to_string(builder), exit_status(status), true
         }
-        timed_out = true
     }
     // The whole group, so a command that left a child in the background dies with
     // it. `pid` is the group and never the editor's own; a group that never formed
@@ -255,12 +248,7 @@ spawn :: proc(exe: string, arg: string, cwd: string) -> bool {
     // A fork cannot report a failed exec, and the intermediate child exits with 0
     // whatever the grandchild does, so its status says nothing. The grandchild
     // sends its errno over this pipe instead and a successful exec closes it.
-    sync.mutex_lock(&spawn_mutex)
-    locked := true
-    defer if locked {
-        sync.mutex_unlock(&spawn_mutex)
-    }
-
+    limit := fd_limit()
     status_fds: [2]posix.FD
     if !pipe_cloexec(&status_fds) {
         return false
@@ -280,6 +268,7 @@ spawn :: proc(exe: string, arg: string, cwd: string) -> bool {
         if second == 0 {
             // Its own session: a Ctrl+C in a debug console stops here.
             posix.setsid()
+            close_inherited(int(status_fds[1]), limit)
             // Closed by a successful exec, which is how the parent reads success.
             if posix.fcntl(status_fds[1], .SETFD, posix.FD_CLOEXEC) < 0 {
                 report_start_failure(status_fds[1])
@@ -296,8 +285,6 @@ spawn :: proc(exe: string, arg: string, cwd: string) -> bool {
     }
 
     close_fds(status_fds[1])
-    sync.mutex_unlock(&spawn_mutex)
-    locked = false
     // The intermediate child exits at once; reaping it here leaves no zombie.
     status: c.int
     for posix.waitpid(pid, &status, {}) < 0 && posix.errno() == .EINTR {

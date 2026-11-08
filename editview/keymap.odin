@@ -19,6 +19,8 @@ Action :: enum {
     Redo_Alt,
     Delete_Word_Left,
     Delete_Word_Right,
+    Delete_To_Line_End,
+    Delete_To_Line_Start,
     Indent,
     Outdent,
     Insert_Line_Above,
@@ -81,6 +83,8 @@ ACTIONS := [Action]Action_Info {
     .Redo_Alt                   = {"redo_alt", {.Y, {.Ctrl}}, false},
     .Delete_Word_Left           = {"delete_word_left", {.Backspace, {.Ctrl}}, false},
     .Delete_Word_Right          = {"delete_word_right", {.Delete, {.Ctrl}}, false},
+    .Delete_To_Line_End         = {"delete_to_line_end", {.Delete, {.Ctrl, .Shift}}, false},
+    .Delete_To_Line_Start       = {"delete_to_line_start", {}, false},
     .Indent                     = {"indent", {.Tab, {}}, false},
     .Outdent                    = {"outdent", {.Tab, {.Shift}}, false},
     .Insert_Line_Above          = {"insert_line_above", {.Enter, {.Ctrl, .Shift}}, false},
@@ -203,6 +207,14 @@ editor_run_action :: proc(editor: ^Editor, action: Action, extend: bool) -> bool
         textedit.delete_word_forward(state)
         editor_dismiss_completion(editor)
         editor_refresh_signature(editor)
+    case .Delete_To_Line_End:
+        textedit.delete_to_line_end(state)
+        editor_dismiss_completion(editor)
+        editor_refresh_signature(editor)
+    case .Delete_To_Line_Start:
+        textedit.delete_to_line_start(state)
+        editor_dismiss_completion(editor)
+        editor_refresh_signature(editor)
     case .Indent:
         if textedit.has_any_selection(state) {
             textedit.indent_lines(state)
@@ -273,7 +285,9 @@ editor_run_action :: proc(editor: ^Editor, action: Action, extend: bool) -> bool
         textedit.clear_selections(state)
         return true
     case .Select_Word:
-        textedit.select_word_or_next(state, true)
+        if !editor_select_occurrence(editor) {
+            textedit.select_word_or_next(state, true)
+        }
     case .Select_Word_Substring:
         textedit.select_word_or_next(state, false)
     case .Select_Line:

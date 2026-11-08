@@ -29,6 +29,7 @@ DEADLINE_HEAVY :: 15 * time.Second
 @(private)
 METHODS := [lang.Request_Kind]string {
     .Definition        = "textDocument/definition",
+    .Type_Definition   = "textDocument/typeDefinition",
     .Hover             = "textDocument/hover",
     .Document_Symbols  = "textDocument/documentSymbol",
     .Workspace_Symbols = "workspace/symbol",
@@ -38,13 +39,22 @@ METHODS := [lang.Request_Kind]string {
     .Package_Doc       = "textDocument/hover",
     .Rename            = "textDocument/rename",
     .Diagnostics       = "textDocument/diagnostic",
+    .Syntax_Diagnostics = "", // in-client only
     .Code_Actions      = "textDocument/codeAction",
     .Semantic_Tokens   = "textDocument/semanticTokens/full",
+    .Inlay_Hints       = "textDocument/inlayHint",
+    .Document_Highlight = "textDocument/documentHighlight",
     .Format            = "textDocument/formatting",
     .Format_Range      = "textDocument/rangeFormatting",
     .Format_On_Type    = "textDocument/onTypeFormatting",
     .Execute_Command   = "workspace/executeCommand",
     .Resolve_Completion = "completionItem/resolve",
+    .Resolve_Action    = "", // in-client only
+    .Call_Hierarchy    = "", // in-client only
+    .Type_Hierarchy    = "", // in-client only
+    .Implementations   = "textDocument/implementation",
+    .Selection_Range   = "", // in-client only
+    .Code_Lens         = "", // in-client only
     .Progress          = "", // unsolicited push, never sent as an outgoing request
     .Apply_Edit        = "", // unsolicited push, never sent as an outgoing request
     .Message           = "", // unsolicited push, never sent as an outgoing request
@@ -177,8 +187,8 @@ request_params :: proc(ask: ^Ask) -> string {
             append(&out, `,"previousResultId":`)
             write_quoted(&out, ask.semantic_previous_result_id)
         }
-    case .Format_Range:
-        // A selection, aligned to whole lines by the host before dispatch.
+    case .Format_Range, .Inlay_Hints:
+        // Format_Range: a selection aligned to whole lines; Inlay_Hints: the visible window.
         start_line, start_character := position_from_offset(&ask.lines, ask.req.offset)
         end_line, end_character := position_from_offset(&ask.lines, ask.req.end)
         append(&out, `,"range":{"start":{"line":`)
@@ -345,6 +355,7 @@ ask_source :: proc(ask: ^Ask, path: string) -> (string, bool) {
         return text, text != ""
     }
     if text, held := server_document_text(ask.server, path, context.temp_allocator); held {
+        // thor:ignore mem/temp-escape
         ask.texts[clone_temp(path)] = text
         return text, true
     }
@@ -368,6 +379,7 @@ ask_raw_index :: proc(ask: ^Ask, path: string) -> ^Line_Index {
     }
     index := new(Line_Index, context.temp_allocator)
     index^ = line_index_build(raw, ask.server.caps.encoding, context.temp_allocator)
+    // thor:ignore mem/temp-escape
     ask.raws[key] = index
     return index
 }

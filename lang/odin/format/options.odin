@@ -1,4 +1,4 @@
-// The formatter's option schema, read from `<workspace>/.thor/odin-formatter.json`
+// The formatter's option schema, read from `<workspace>/.thor/odin-formatter.lua`
 // (parsing lives in lang/odin/formatter.odin — this package stays JSON-free).
 package odinfmt
 
@@ -37,6 +37,10 @@ Options :: struct {
     align_struct_values:              bool,
     align_struct_declarations:        bool,
     align_constant_definitions:       bool,
+    align_variable_declarations:      bool,
+    align_comments:                   bool,
+    align_case_comments:              bool,
+    align_field_defaults:             bool,
 }
 
 default_options :: proc() -> Options {
@@ -57,8 +61,12 @@ default_options :: proc() -> Options {
         space_single_line_blocks     = false,
         align_struct_fields          = true,
         align_struct_values          = true,
-        align_struct_declarations    = false,
-        align_constant_definitions   = false,
+        align_struct_declarations    = true,
+        align_constant_definitions   = true,
+        align_variable_declarations  = true,
+        align_comments               = true,
+        align_case_comments          = true,
+        align_field_defaults         = true,
     }
 }
 

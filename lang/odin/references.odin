@@ -1,791 +1,945 @@
-// Find-usages: not the occurrences that share a spelling, the ones that bind to
-// the same declaration. The caret's name resolves to a `Ref_Target` and every
-// occurrence is judged against it — a local by goto's own lexical rules (an
-// inner redeclaration is a different variable), a package symbol by the package
-// declaring it (bare there, qualified elsewhere), a field by the struct
-// declaring it (`a.x` and `b.x` are two fields).
-//
-// Exclusion needs proof, inclusion does not: rename runs this scan, and a usage
-// it drops is code left broken. A `using` in reach, an operand whose type does
-// not infer, a name that resolves nowhere — each falls back to the flat name
-// match this used to be. A `v.name` whose `v` does not infer still names a field
-// of something, so it falls back to field positions only, never to a bare name.
-//
-// The declaration is the one occurrence the two consumers disagree about: it is
-// not a use of itself, but a rename that skipped it would leave it behind. The
-// scan finds it either way and drops it only for `.References`.
+// References and rename from the scopes of package odinsema: locals, import aliases, file-scope
+// declarations of a package with their qualified uses in other packages, the names of the universe
+// scope, fields, enum members and parameters. A use of a field, a member or a parameter through a
+// selector, an implicit selector, a field name, a named argument or a bare name a `using` brings in counts
+// when the checker gives its declaration.
 package odin
 
-import "core:fmt"
+import "base:runtime"
 import "core:path/filepath"
 import "core:slice"
 import "core:strings"
 import "core:sync"
 
 import lang ".."
-import ts "../../vendor/odin-tree-sitter"
+import odinsema "sema"
+import odinsyntax "syntax"
 
-// What the name under the caret turned out to be, which is what decides whether
-// another occurrence of it is the same thing.
-@(private)
-Ref_Kind :: enum {
-    Any,       // resolved to nothing: every occurrence of the name, as before
-    Local,     // a local or a parameter: one declaration, in one file
-    Package,   // a top-level declaration: bare in its package, qualified outside it
-    Field,     // a struct field: member position on a value of that struct
-    Field_Any, // a field of a type that does not infer: every field position
-}
-
-@(private)
-Ref_Target :: struct {
-    name:       string,
-    kind:       Ref_Kind,
-    decl_start: int,       // Local: the declaring identifier, so a shadowing one is not it
-    dir:        string,    // Package: the declaring package's directory, temp-owned
-    own_pkg:    bool,      // Package: the request file is one of that package's own
-    one_file:   bool,      // Package: `@(private = "file")`, so its reach is the buffer alone
-    unbound:    bool,      // Any: no declaration a rename can move (an import alias, a builtin)
-    owner:      Field_Site, // Field
-}
-
-// The struct a field belongs to: its name and the package directory declaring
-// it, which two structs of one name cannot share. With the field name the scan
-// is already keyed on, that identifies the field — separating `Point.x` from
-// `Rect.x`, and (through `using` embedding and `X :: Y` aliases) letting an outer
-// struct answer with the inner one's identity.
-//
-// Not the declaring identifier's file and offset, which is the obvious identity
-// and the wrong one: the same field is at one offset in an unsaved buffer and
-// another in the on-disk copy other files resolve through.
-@(private)
-Field_Site :: struct {
-    owner: string,
-    dir:   string,
-}
-
-// Where an identifier sits, which decides what it can possibly name. The grammar
-// spells most of these the same way (a bare `identifier`), so the position is
-// read off the parent rather than the node.
-@(private)
-Ref_Pos :: enum {
-    Value,      // a bare name standing for something in scope
-    Member,     // the `b` of `a.b`
-    Field_Decl, // the name of a struct field's declaration
-    Field_Init, // the `x` of `T{x = 1}` — names a field of T
-    Named_Arg,  // the `x` of `f(x = 1)` — names a parameter of f
-    Ignored,    // a package clause, an import alias, an attribute, a label
-}
-
-// How many operand types one file's scan will infer before it stops proving and
-// starts accepting. Each inference can cost a file read and a parse, and a field
-// name like `x` can appear thousands of times in one file; past this the scan
-// keeps the occurrences it can no longer judge rather than dropping them.
-@(private)
-REF_INFER_LIMIT :: 512
-
-// One file's worth of scan state: the tree being walked and everything the
-// target needs to judge an occurrence in it.
-@(private)
+// One search for the identifiers that name a target.
+@(private = "file")
 Ref_Scan :: struct {
-    e:          ^Engine,
-    parser:     ts.Parser,
-    root:       ts.Node,
-    req:        ^lang.Request, // describes *this* file: its source and its path
-    target:     ^Ref_Target,
-    buffer:     bool,     // this is the live request buffer, not a workspace file
-    defs:       []Def,    // Package/Local: this file's declarations, fields dropped
-    qualifiers: map[string]bool, // Package: import aliases here naming the target package
-    in_package: bool,     // Package: this file belongs to the target's package
-    opaque:     bool,     // a `using` in reach: fall back to matching the name
-    skip_decl:  bool,     // find-usages: the declaration is not one of its own uses
-    sites:      map[string]Field_Site_Hit, // Field: inferred operand types, per file
-    budget:     ^int,
-    res:        ^lang.Result,
+    ctx:       ^Request_Context,
+    target:    Ref_Target,
+    with_decl: bool,
+    dir_key:   string, // path_key of target.dir
+    decl_key:  string, // path_key of target.path; "" for a buffer with no file
+    checker:   ^odinsema.Checker,    // borrowed from the request; nil when it does not start
+    hits:      [dynamic]lang.Symbol, // owned; strings in context.allocator
+    bound:     map[string]bool,      // owned; Builtin: whether the package of a directory key binds the name
+    visit:     Ref_Visit,            // nil when no caller reads the files
+    visit_data: rawptr,
+    stopped:   bool,                 // `visit` gave false
+    batch:     ^Batch_Count,         // set by count_references; files then add to its counts only
 }
 
-@(private)
-Field_Site_Hit :: struct {
-    site: Field_Site,
-    ok:   bool,
+// Which files of a batch count a target: its buffer, the files of its package, or an importer.
+@(private = "file")
+Batch_Reach :: enum {
+    Buffer,
+    Package,
+    Importer,
 }
 
-// Gathers every occurrence of the identifier under the caret ("find usages").
-// The caret's name is resolved once (ref_target) and every candidate is then
-// bound-checked against it; the files searched are the live buffer plus, for
-// anything not confined to one scope, the workspace files the symbol index says
-// mention the name (the rest cannot contain a usage). Each occurrence becomes a
-// lang.Symbol carrying its file, line, offset and the source line it sits on for
-// a code-context preview — every occurrence but the declaration, which is a use
-// of the symbol only to rename (see the note at the head of this file).
+// The state of one count_references call.
+@(private = "file")
+Batch_Count :: struct {
+    targets: []Ref_Target,
+    counts:  []int,
+    names:   map[string][dynamic]int, // name -> indices of the targets that spell it; temp-allocated
+    reach:   Batch_Reach,             // of the files being scanned
+}
+
+// One file of a reference search with the offsets of its hits. Valid only during the call.
 @(private)
-collect_references :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Request, res: ^lang.Result) {
-    ident, ok := identifier_at(root, req.source, req.offset)
-    if !ok {
+Ref_File :: struct {
+    path:   string,
+    source: string,
+    parsed: odinsyntax.Parse,
+    tree:   ^odinsema.Item_Tree,
+    lines:  []int,
+    hits:   []int,
+}
+
+// Called once per file that holds a hit, while its parse is pinned. False stops the search.
+@(private)
+Ref_Visit :: #type proc(data: rawptr, f: Ref_File) -> bool
+
+// Calls `visit` for each file with a hit of `target`. False when the request is cancelled or `visit` stops it.
+@(private)
+visit_references :: proc(ctx: ^Request_Context, target: Ref_Target, with_decl: bool, visit: Ref_Visit, data: rawptr) -> bool {
+    s := Ref_Scan{ctx = ctx, target = target, with_decl = with_decl, visit = visit, visit_data = data}
+    ok := scan(&s)
+    hits_free(s.hits[:])
+    delete(s.hits)
+    return ok && !s.stopped
+}
+
+// Fills `counts[i]` with the number of identifiers that name `targets[i]`, the declaration
+// excluded, as visit_references would count it. Every target is a Package_Item of one package.
+// Each file is read once whatever the number of targets. False when the request is cancelled.
+@(private)
+count_references :: proc(ctx: ^Request_Context, targets: []Ref_Target, counts: []int) -> bool {
+    if len(targets) == 0 || len(counts) < len(targets) {
+        return true
+    }
+    b := Batch_Count{targets = targets, counts = counts, names = make(map[string][dynamic]int, context.temp_allocator)}
+    for t, i in targets {
+        _, list, _, err := map_entry(&b.names, t.name)
+        if err != nil || list == nil {
+            return false
+        }
+        if list^ == nil {
+            list^ = make([dynamic]int, context.temp_allocator)
+        }
+        append(list, i)
+    }
+    s := Ref_Scan{ctx = ctx, batch = &b, target = targets[0]}
+    s.hits = make([dynamic]lang.Symbol)
+    defer delete(s.hits)
+    s.decl_key = targets[0].path != "" ? odinsema.path_key(targets[0].path) : ""
+    if targets[0].dir != "" {
+        s.dir_key = odinsema.path_key(targets[0].dir)
+    }
+    live := live_scan_file(ctx)
+    req := ctx.req
+    b.reach = .Buffer
+    scan_file(&s, &live)
+    // A buffer with no file or outside a workspace stands alone, as in definition.
+    if live.dir_key == s.dir_key && (ctx.live.path == "" || req.workspace == "") {
+        return !lang.request_cancelled(req)
+    }
+    b.reach = .Package
+    if view := request_package(ctx, targets[0].dir); view != nil {
+        for id in view.files {
+            if lang.request_cancelled(req) {
+                return false
+            }
+            if id != ctx.live.id {
+                scan_disk_file(&s, id)
+            }
+        }
+    }
+    public := false
+    for t in targets {
+        public ||= t.visibility == .Public
+    }
+    if !public || req.workspace == "" {
+        return !lang.request_cancelled(req)
+    }
+    b.reach = .Importer
+    for id in workspace_importers(&s) {
+        if lang.request_cancelled(req) {
+            return false
+        }
+        scan_disk_file(&s, id)
+    }
+    return !lang.request_cancelled(req)
+}
+
+// One file a scan reads. Strings are temp-allocated or borrowed from the snapshot.
+@(private = "file")
+Scan_File :: struct {
+    id:          odinsema.File_Id,
+    path:        string,
+    key:         string,
+    dir:         string,
+    dir_key:     string,
+    source:      string,
+    parsed:      odinsyntax.Parse,
+    tree:        ^odinsema.Item_Tree,
+    lines:       []int,
+    imports:     []odinsema.File_Import,
+    has_imports: bool,
+}
+
+// Fills `res.symbols` with every identifier that names the declaration under the caret, the
+// declaration excluded, sorted by path and offset.
+@(private)
+references :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
+    ctx: Request_Context
+    opened := request_open(e, req, &ctx)
+    defer request_close(&ctx)
+    if !opened {
         return
     }
-    name := ts.node_text(ident, req.source)
-    target := ref_target(e, parser, root, req, ident, name)
-    collect_target_references(e, parser, root, req, &target, res)
+    target := ref_target(&ctx)
+    if target.kind == .Unbound {
+        return
+    }
+    s := Ref_Scan{ctx = &ctx, target = target}
+    if !scan(&s) {
+        hits_free(s.hits[:])
+        delete(s.hits)
+        return
+    }
+    res.symbols = s.hits
+    res.ok = true
 }
 
-// Gathers every occurrence that binds to `target`.
+// Fills `res.edits` with the edits that rename the declaration under the caret and every identifier
+// that names it to req.new_name. Answers nothing when the new name is not an identifier or is the
+// old one, when the caret names nothing the scopes bind, or when the declaration is outside the
+// workspace.
 @(private)
-collect_target_references :: proc(
-    e: ^Engine,
-    parser: ts.Parser,
-    root: ts.Node,
-    req: ^lang.Request,
-    target: ^Ref_Target,
-    res: ^lang.Result,
-) {
-    name := target.name
-    budget := REF_INFER_LIMIT
-
-    ref_scan_tree(e, parser, root, req, target, true, &budget, res)
-
-    // A local lives and dies in one scope of one file, and so does a
-    // `@(private = "file")` declaration; everything else can be named from
-    // another file in its package, or from any file importing it. A name the
-    // other files cannot reach is a name they cannot use, so scanning them would
-    // only find unrelated declarations — and rename would break them.
-    if target.kind != .Local && !target.one_file && req.workspace != "" {
-        paths := make([dynamic]string, context.temp_allocator)
-        sync.lock(&e.index.mutex)
-        index_sync(e, parser, req)
-        index_ref_files(e, name, req.path, &paths)
-        sync.unlock(&e.index.mutex)
-        for path in paths {
-            if lang.request_cancelled(req) {
-                return
-            }
-            budget = REF_INFER_LIMIT
-            ref_scan_file(e, parser, path, req, target, &budget, res)
-        }
+rename :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
+    if !odinsema.is_identifier(req.new_name) {
+        return
     }
-
-    slice.sort_by(res.symbols[:], proc(a, b: lang.Symbol) -> bool {
-        if a.path != b.path {
-            return a.path < b.path
+    ctx: Request_Context
+    opened := request_open(e, req, &ctx)
+    defer request_close(&ctx)
+    if !opened {
+        return
+    }
+    target := ref_target(&ctx)
+    if target.kind == .Unbound || target.name == req.new_name || !rename_allowed(&ctx, target) {
+        return
+    }
+    s := Ref_Scan{ctx = &ctx, target = target, with_decl = true}
+    if !scan(&s) {
+        hits_free(s.hits[:])
+        delete(s.hits)
+        return
+    }
+    defer delete(s.hits)
+    for &hit in s.hits {
+        edit := lang.Text_Edit {
+            path     = hit.path,
+            start    = hit.offset,
+            end      = hit.offset + len(target.name),
+            old_text = strings.clone(target.name),
+            new_text = strings.clone(req.new_name),
         }
-        return a.offset < b.offset
+        if _, err := append(&res.edits, edit); err != nil {
+            delete(edit.path)
+            delete(edit.old_text)
+            delete(edit.new_text)
+        }
+        hit.path = ""
+        delete(hit.name)
+        delete(hit.kind)
+        delete(hit.signature)
+    }
+    res.ok = len(res.edits) > 0
+}
+
+// Fills `res.highlights` with the identifiers of the buffer that name the declaration under the
+// caret, the declaration included. A declaration or a place of a plain `=` is a write.
+@(private)
+document_highlight :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
+    ctx: Request_Context
+    opened := request_open(e, req, &ctx)
+    defer request_close(&ctx)
+    if !opened {
+        return
+    }
+    target := ref_target(&ctx)
+    if target.kind == .Unbound {
+        return
+    }
+    s := Ref_Scan{ctx = &ctx, target = target, with_decl = true}
+    s.decl_key = target.path != "" ? odinsema.path_key(target.path) : ""
+    if target.dir != "" {
+        s.dir_key = odinsema.path_key(target.dir)
+    }
+    if target.typed {
+        s.checker = request_checker(&ctx)
+    }
+    s.bound = make(map[string]bool)
+    defer {
+        for key in s.bound {
+            delete(key)
+        }
+        delete(s.bound)
+    }
+    live := live_scan_file(&ctx)
+    m, err := odinsema.scope_map(ctx.parsed)
+    if err != nil {
+        return
+    }
+    defer odinsema.scope_map_destroy(m)
+    res.highlights = make([dynamic]lang.Document_Highlight)
+    for ref in m.refs {
+        if ref.name != target.name {
+            continue
+        }
+        hit, is_decl: bool
+        if target.kind == .Local {
+            hit = ref.kind == .Local && ref.decl == target.decl
+        } else {
+            hit, is_decl = classify(&s, &live, m, ref)
+        }
+        if !hit {
+            continue
+        }
+        end := ref.end > ref.start ? ref.end : ref.start + len(ref.name)
+        append(&res.highlights, lang.Document_Highlight {
+            start = ref.start,
+            end   = end,
+            kind  = is_decl || ref.is_decl || ref.is_store ? .Write : .Read,
+        })
+    }
+    slice.sort_by(res.highlights[:], proc(a, b: lang.Document_Highlight) -> bool {
+        return a.start < b.start
     })
-    res.ok = len(res.symbols) > 0
+    kept := 0
+    for h in res.highlights {
+        if kept > 0 && res.highlights[kept - 1].start == h.start {
+            continue
+        }
+        res.highlights[kept] = h
+        kept += 1
+    }
+    resize(&res.highlights, kept)
+    res.ok = kept > 0
 }
 
-// What the caret's identifier names, which is what the rest of the scan matches
-// against. Every branch that cannot establish a binding answers `.Any`, the flat
-// name match this scan used to be.
+// True when the declaration of `target` can be renamed: an implicit import alias cannot, and a
+// declaration outside the workspace (or, with no workspace, outside the buffer) is not the user's.
 @(private)
-ref_target :: proc(
-    e: ^Engine,
-    parser: ts.Parser,
-    root: ts.Node,
-    req: ^lang.Request,
-    ident: ts.Node,
-    name: string,
-) -> Ref_Target {
-    pos, operand := ref_position(ident)
-    switch pos {
-    case .Field_Decl:
-        // The declaration itself: the struct around it is what every use has to
-        // resolve to. A field of a union or a bit_field has no struct to name.
-        if site, ok := enclosing_struct_site(ident, req); ok {
-            return Ref_Target{name = name, kind = .Field, owner = site}
-        }
-    case .Field_Init:
-        // `T{name = 1}` names a field of T, the same as `v.name` does.
-        if lit, has := ancestor_type(ident, "struct"); has {
-            if site, ok := literal_field_site(e, parser, root, req, lit, name); ok {
-                return Ref_Target{name = name, kind = .Field, owner = site}
-            }
-        }
-    case .Member:
-        if ts.node_is_null(operand) {
-            break // an implicit enum selector (`.Vertical`): nothing to resolve
-        }
-        // `pkg.name` — the symbol belongs to that package wherever it is written,
-        // so the package it names is the whole target.
-        if is_identifier(operand) {
-            if raw, found := import_path(root, req.source, ts.node_text(operand, req.source)); found {
-                if dir, dok := package_dir(e, raw, req.path, req.workspace); dok {
-                    return Ref_Target {
-                        name = name,
-                        kind = .Package,
-                        dir = strings.clone(dir, context.temp_allocator),
-                    }
-                }
-                break // an unknown collection: the package cannot be located
-            }
-        }
-        // `value.name` — a field of whatever struct the operand's type is.
-        if site, ok := operand_field_site(e, parser, root, req, operand, name); ok {
-            return Ref_Target{name = name, kind = .Field, owner = site}
-        }
-        return Ref_Target{name = name, kind = .Field_Any}
-    case .Value:
-        return ref_value_target(e, parser, root, req, name)
-    case .Named_Arg, .Ignored:
-        // An enum member is named the same way at every use, so a flat rename holds.
-        parent := ts.node_parent(ident)
-        if !ts.node_is_null(parent) && string(ts.node_type(parent)) == "enum_declaration" {
-            break
-        }
-        return Ref_Target{name = name, kind = .Any, unbound = true}
+rename_allowed :: proc(ctx: ^Request_Context, target: Ref_Target) -> bool {
+    if target.kind == .Import_Alias {
+        return target.explicit
     }
-    return Ref_Target{name = name, kind = .Any}
+    if target.kind == .Builtin {
+        return false
+    }
+    if target.path == ctx.req.path && ctx.req.workspace == "" {
+        return true
+    }
+    if ctx.req.workspace == "" || target.path == "" {
+        return false
+    }
+    root := strings.trim_right(odinsema.path_key(ctx.req.workspace), "/")
+    key := odinsema.path_key(target.path)
+    return key == root || strings.has_prefix(key, strings.concatenate({root, "/"}, context.temp_allocator))
 }
 
-// The target for a bare name: the declaration it binds to here, or — when this
-// file declares nothing of the name — the package that does.
+// Collects the hits of `s.target`, sorted by path and offset. False when the request is cancelled.
 @(private = "file")
-ref_value_target :: proc(
-    e: ^Engine,
-    parser: ts.Parser,
-    root: ts.Node,
-    req: ^lang.Request,
-    name: string,
-) -> Ref_Target {
-    defs := ref_defs(e, root, req.source)
-    d, found := resolve_local(defs, name, req.offset)
-    if found && !d.top_level {
-        return Ref_Target{name = name, kind = .Local, decl_start = d.ident_start}
+scan :: proc(s: ^Ref_Scan) -> bool {
+    ctx := s.ctx
+    s.hits = make([dynamic]lang.Symbol)
+    s.decl_key = s.target.path != "" ? odinsema.path_key(s.target.path) : ""
+    if s.target.dir != "" {
+        s.dir_key = odinsema.path_key(s.target.dir)
     }
-    // An import alias or the package clause: what it names is a directory, not a
-    // declaration this scan can bind occurrences to.
-    // An import name is per file, so its uses are in this file alone.
-    if found && d.kind == "namespace" {
-        return Ref_Target{name = name, kind = .Any, one_file = true, unbound = true}
-    }
-    if _, imported := import_path(root, req.source, name); imported {
-        return Ref_Target{name = name, kind = .Any, one_file = true, unbound = true}
+    live := live_scan_file(ctx)
+    if s.target.typed {
+        s.checker = request_checker(ctx)
     }
 
-    dir, declared := ref_own_package(e, parser, req, name)
-    if found || declared {
-        return Ref_Target {
-            name     = name,
-            kind     = .Package,
-            dir      = dir,
-            own_pkg  = true,
-            one_file = found && d.visibility == .File,
+    switch s.target.kind {
+    case .Unbound:
+        return true
+    case .Local:
+        offsets, err := odinsema.local_references(ctx.parsed, s.target.decl, context.temp_allocator)
+        if err != nil {
+            return true
+        }
+        for offset in offsets {
+            if offset != s.target.decl || s.with_decl {
+                add_hit(s, &live, offset)
+            }
+        }
+    case .Import_Alias:
+        scan_file(s, &live)
+    case .Package_Item, .Member, .Param:
+        if !scan_package(s, &live) {
+            return false
+        }
+    case .Builtin:
+        if !scan_workspace(s, &live) {
+            return false
         }
     }
-    // Neither this file nor its package declares it: a name from the implicit
-    // scope, or a typo. Nothing to bind to, so nothing is excluded either — and a
-    // builtin is not renameable in any case, its declaration being the toolchain's.
-    return Ref_Target{name = name, kind = .Any, unbound = true}
+    sort_hits(s)
+    return true
 }
 
-// The requesting file's package directory, and whether that package declares
-// `name` in some file other than the request's own. Takes the index mutex.
+// The buffer of the request as a scan file.
 @(private = "file")
-ref_own_package :: proc(e: ^Engine, parser: ts.Parser, req: ^lang.Request, name: string) -> (dir: string, declares: bool) {
+live_scan_file :: proc(ctx: ^Request_Context) -> Scan_File {
+    dir := live_dir(ctx)
+    return Scan_File {
+        id      = ctx.live.id,
+        path    = ctx.req.path,
+        key     = ctx.live.key,
+        dir     = dir,
+        dir_key = ctx.live.dir_key,
+        source  = ctx.req.source,
+        parsed  = ctx.parsed,
+        tree    = ctx.live.tree,
+        lines   = ctx.live.lines,
+    }
+}
+
+// Scans the buffer, the files of the target's package and the files of the workspace that import it.
+// A file-private target is reached from its own file only, a package-private one from its package only.
+// Files out of the build count, so a rename keeps the platform halves of a package in step.
+@(private = "file")
+scan_package :: proc(s: ^Ref_Scan, live: ^Scan_File) -> bool {
+    ctx := s.ctx
+    req := ctx.req
+    if s.target.visibility == .File {
+        if s.decl_key == ctx.live.key {
+            scan_file(s, live)
+        } else {
+            scan_disk_file(s, odinsema.db_file_id(&ctx.snap, s.target.path))
+        }
+        return !lang.request_cancelled(req)
+    }
+    scan_file(s, live)
+    // A buffer with no file or outside a workspace stands alone, as in definition.
+    if live.dir_key == s.dir_key && (ctx.live.path == "" || req.workspace == "") {
+        return true
+    }
+    if view := request_package(ctx, s.target.dir); view != nil {
+        for id in view.files {
+            if s.stopped || lang.request_cancelled(req) {
+                return false
+            }
+            if id != ctx.live.id {
+                scan_disk_file(s, id)
+            }
+        }
+    }
+    if s.target.visibility != .Public || req.workspace == "" {
+        return !lang.request_cancelled(req)
+    }
+    for id in workspace_importers(s) {
+        if s.stopped || lang.request_cancelled(req) {
+            return false
+        }
+        scan_disk_file(s, id)
+    }
+    return !lang.request_cancelled(req)
+}
+
+// Scans the buffer and every file of the workspace.
+@(private = "file")
+scan_workspace :: proc(s: ^Ref_Scan, live: ^Scan_File) -> bool {
+    ctx := s.ctx
+    req := ctx.req
+    // Outside the temp allocator: scan_disk_file rewinds it after each file.
+    s.bound = make(map[string]bool)
+    defer {
+        for key in s.bound {
+            delete(key)
+        }
+        delete(s.bound)
+        s.bound = nil
+    }
+    scan_file(s, live)
     if req.workspace == "" {
-        // Nothing outside the buffer is searched, so the directory is never used
-        // to place another file — only the buffer's own membership matters.
-        return filepath.dir(req.path), false
+        return !lang.request_cancelled(req)
     }
-    sync.lock(&e.index.mutex)
-    index_sync(e, parser, req)
-    d := index_package_dir(e, req.path)
-    _, found := index_first_path(e, name, req.path, "", d, true)
-    dir = strings.clone(d, context.temp_allocator) // survives the unlock
-    sync.unlock(&e.index.mutex)
-    return dir, found
+    for id in workspace_files(s) {
+        if s.stopped || lang.request_cancelled(req) {
+            return false
+        }
+        scan_disk_file(s, id)
+    }
+    return !lang.request_cancelled(req)
 }
 
-// This file's declarations with the struct fields dropped. A field is captured
-// by the LOCALS query and sits in no block, so it lands in `collect_defs` as a
-// file-scope declaration — which it is not: a field is named through a value of
-// its struct, never bare, and leaving it in would let an unrelated field decide
-// what a bare name binds to.
+// The workspace files other than the buffer, sorted by path.
 @(private = "file")
-ref_defs :: proc(e: ^Engine, root: ts.Node, source: string) -> []Def {
-    all := collect_defs(e, root, source)
-    out := make([dynamic]Def, 0, len(all), context.temp_allocator)
-    for d in all {
-        if d.kind != "field" {
-            append(&out, d)
+workspace_files :: proc(s: ^Ref_Scan) -> []odinsema.File_Id {
+    ctx := s.ctx
+    out := make([dynamic]odinsema.File_Id, context.temp_allocator)
+    for id in odinsema.db_workspace(&ctx.snap, ctx.req.workspace) {
+        if id != ctx.live.id {
+            append(&out, id)
         }
     }
     return out[:]
 }
 
-// Walks one parsed file, appending the occurrences that bind to the target.
-// `req` describes the tree being walked (its source and path), so the type
-// inference a field target needs resolves against the right file.
+// The workspace files outside the target's package that import it, sorted by path.
 @(private = "file")
-ref_scan_tree :: proc(
-    e: ^Engine,
-    parser: ts.Parser,
-    root: ts.Node,
-    req: ^lang.Request,
-    target: ^Ref_Target,
-    buffer: bool,
-    budget: ^int,
-    res: ^lang.Result,
-) {
-    scan := Ref_Scan {
-        e         = e,
-        parser    = parser,
-        root      = root,
-        req       = req,
-        target    = target,
-        buffer    = buffer,
-        skip_decl = req.kind == .References,
-        budget    = budget,
-        res       = res,
-    }
-    ref_prepare(&scan)
-    ref_walk(&scan, root)
-}
-
-// Re-parses one workspace file and scans it. Called only for files the index
-// flagged as mentioning the name.
-@(private = "file")
-ref_scan_file :: proc(
-    e: ^Engine,
-    parser: ts.Parser,
-    path: string,
-    req: ^lang.Request,
-    target: ^Ref_Target,
-    budget: ^int,
-    res: ^lang.Result,
-) {
-    source, sok := source_read(path)
-    if !sok {
-        return
-    }
-
-    tree := ts.parser_parse_string(parser, source)
-    if tree == nil {
-        return
-    }
-    defer ts.tree_delete(tree)
-
-    // The request as this file sees it: same workspace and cancellation flag, its
-    // own source and path, so every lookup below resolves against this file's
-    // scopes and imports rather than the buffer's.
-    sub := req^
-    sub.source = source
-    sub.path = path
-    sub.offset = 0
-    ref_scan_tree(e, parser, ts.tree_root_node(tree), &sub, target, false, budget, res)
-}
-
-// Works out, once per file, everything the target needs to judge an occurrence
-// in it: whether the file is beyond the engine's reach, which of its declarations
-// could shadow the name, whether it belongs to the target's package, and which of
-// its import aliases name that package.
-@(private = "file")
-ref_prepare :: proc(s: ^Ref_Scan) {
-    s.sites = make(map[string]Field_Site_Hit, 0, context.temp_allocator)
-    if s.target.kind == .Any {
-        return
-    }
-    // A `using` injects names from a scope the engine does not follow, so nothing
-    // about a name in this file can be proved. Written `using import` does not
-    // even parse, hence the textual half of the test.
-    s.opaque = has_using(s.root) || strings.contains(s.req.source, "using import")
-    if s.opaque {
-        return
-    }
-
-    #partial switch s.target.kind {
-    case .Local:
-        s.defs = ref_defs(s.e, s.root, s.req.source)
-    case .Package:
-        s.defs = ref_defs(s.e, s.root, s.req.source)
-        s.in_package = s.buffer ? s.target.own_pkg : path_in_dir(s.req.path, s.target.dir)
-        s.qualifiers = make(map[string]bool, 0, context.temp_allocator)
-        ref_collect_qualifiers(s)
-    }
-}
-
-// Records every import alias in this file that resolves to the target's package
-// directory — the qualifiers a use of the symbol has to be written behind here.
-@(private = "file")
-ref_collect_qualifiers :: proc(s: ^Ref_Scan) {
-    for i in 0 ..< ts.node_named_child_count(s.root) {
-        child := ts.node_named_child(s.root, i)
-        if string(ts.node_type(child)) != "import_declaration" {
+workspace_importers :: proc(s: ^Ref_Scan) -> []odinsema.File_Id {
+    ctx := s.ctx
+    snap := &ctx.snap
+    out := make([dynamic]odinsema.File_Id, context.temp_allocator)
+    for id in odinsema.db_workspace(snap, ctx.req.workspace) {
+        if lang.request_cancelled(ctx.req) {
+            break
+        }
+        if id == ctx.live.id {
             continue
         }
-        name, raw, ok := import_name_and_path(child, s.req.source)
-        if !ok {
+        data := odinsema.db_file(snap, id)
+        if data == nil || !imports_package(data.tree) || odinsema.path_key(filepath.dir(odinsema.db_file_path(snap, id))) == s.dir_key {
             continue
         }
-        if dir, dok := package_dir(s.e, raw, s.req.path, s.req.workspace); dok && same_dir(dir, s.target.dir) {
-            s.qualifiers[name] = true
-        }
-    }
-}
-
-// Every identifier in the subtree, in source order. An identifier node has no
-// identifier children, so a match ends the descent.
-@(private = "file")
-ref_walk :: proc(s: ^Ref_Scan, node: ts.Node) {
-    if is_identifier(node) {
-        if ts.node_text(node, s.req.source) == s.target.name {
-            if binds, decl := ref_binds(s, node); binds && !(decl && s.skip_decl) {
-                ref_append(s, node)
+        for imp in odinsema.db_imports(snap, id) {
+            if imp.exists && odinsema.path_key(imp.dir) == s.dir_key {
+                append(&out, id)
+                break
             }
         }
+    }
+    return out[:]
+}
+
+// True when the file has a package import.
+@(private = "file")
+imports_package :: proc(tree: ^odinsema.Item_Tree) -> bool {
+    for item in tree.items {
+        if item.kind == .Import {
+            return true
+        }
+    }
+    return false
+}
+
+// Scans one file on disk when it names the target. Files out of the build count too.
+@(private = "file")
+scan_disk_file :: proc(s: ^Ref_Scan, id: odinsema.File_Id) {
+    if id == odinsema.NO_FILE {
         return
     }
-    for i in 0 ..< ts.node_child_count(node) {
-        ref_walk(s, ts.node_child(node, i))
+    runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
+    snap := &s.ctx.snap
+    if s.batch != nil && count_cached_file(s, id) {
+        return
+    }
+    parsed := odinsema.db_parse(snap, id)
+    defer odinsema.db_parse_release(snap, parsed)
+    if parsed == nil || parsed.tree == nil {
+        return
+    }
+    if s.batch != nil {
+        if !mentions_any(parsed.tree.text, s.batch.names) {
+            return
+        }
+    } else if !strings.contains(parsed.tree.text, s.target.name) {
+        return
+    }
+    data := odinsema.db_file(snap, id)
+    if data == nil {
+        return
+    }
+    path := odinsema.db_file_path(snap, id)
+    dir := filepath.dir(path)
+    f := Scan_File {
+        id      = id,
+        path    = path,
+        key     = odinsema.db_file_key(snap, id),
+        dir     = dir,
+        dir_key = odinsema.path_key(dir),
+        source  = parsed.tree.text,
+        parsed  = parsed^,
+        tree    = data.tree,
+        lines   = data.lines,
+    }
+    scan_file(s, &f)
+}
+
+// Adds the identifiers of one file that name the target.
+@(private = "file")
+scan_file :: proc(s: ^Ref_Scan, f: ^Scan_File) {
+    m, err := odinsema.scope_map(f.parsed)
+    if err != nil {
+        return
+    }
+    defer odinsema.scope_map_destroy(m)
+    if s.batch != nil {
+        count_file(s, f, m)
+        if f.id != s.ctx.live.id {
+            count_cache_store(s, f, m)
+        }
+        return
+    }
+    offsets := make([dynamic]int, context.temp_allocator)
+    for ref in m.refs {
+        if ref.name != s.target.name {
+            continue
+        }
+        hit, is_decl := classify(s, f, m, ref)
+        if hit && (!is_decl || s.with_decl) {
+            add_hit(s, f, ref.start)
+            append(&offsets, ref.start)
+        }
+    }
+    visit_file(s, f, offsets[:])
+}
+
+// Adds the references of one file to the counts of the batch.
+@(private = "file")
+count_file :: proc(s: ^Ref_Scan, f: ^Scan_File, m: ^odinsema.Scope_Map) {
+    b := s.batch
+    for ref in m.refs {
+        indices, found := b.names[ref.name]
+        if !found {
+            continue
+        }
+        for i in indices {
+            t := b.targets[i]
+            switch b.reach {
+            case .Buffer:
+            case .Package:
+                if t.visibility == .File {
+                    continue
+                }
+            case .Importer:
+                if t.visibility != .Public {
+                    continue
+                }
+            }
+            s.target = t
+            if hit, is_decl := classify(s, f, m, ref); hit && !is_decl {
+                b.counts[i] += 1
+            }
+        }
     }
 }
 
-// Whether this occurrence of the name binds to the target, and whether it is the
-// declaration of it rather than a use — which find-usages drops and rename keeps.
+// Stores the name counts of a disk file scanned for a batch, unless the cache holds them.
 @(private = "file")
-ref_binds :: proc(s: ^Ref_Scan, node: ts.Node) -> (binds: bool, decl: bool) {
-    if s.target.kind == .Any || s.opaque {
-        // Nothing was proved about the name, so nothing here is known to be its
-        // declaration either; every occurrence stands.
-        return true, false
+count_cache_store :: proc(s: ^Ref_Scan, f: ^Scan_File, m: ^odinsema.Scope_Map) {
+    data := odinsema.db_file(&s.ctx.snap, f.id)
+    if data == nil {
+        return
     }
-    start := int(ts.node_start_byte(node))
-    pos, operand := ref_position(node)
-    switch s.target.kind {
-    case .Local:
-        // The same lexical resolution goto runs, at this offset: a redeclaration
-        // in an inner block answers with itself, and is therefore not this one.
-        if pos != .Value {
+    fc := file_counts_build(m, data.changed_at)
+    c := &s.ctx.e.counts
+    sync.guard(&c.mutex)
+    c.builds += 1
+    count_cache_put(c, f.key, fc)
+}
+
+// Adds the counts a cache entry holds for a disk file to the batch. False when the entry is
+// missing or older than the file, so the caller scans the file.
+@(private = "file")
+count_cached_file :: proc(s: ^Ref_Scan, id: odinsema.File_Id) -> bool {
+    snap := &s.ctx.snap
+    data := odinsema.db_file(snap, id)
+    if data == nil {
+        return false
+    }
+    key := odinsema.db_file_key(snap, id)
+    path := odinsema.db_file_path(snap, id)
+    dir := filepath.dir(path)
+    f := Scan_File {
+        id      = id,
+        path    = path,
+        key     = key,
+        dir     = dir,
+        dir_key = odinsema.path_key(dir),
+        tree    = data.tree,
+    }
+    c := &s.ctx.e.counts
+    sync.guard(&c.mutex)
+    fc, found := &c.files[key]
+    if !found || fc.changed_at != data.changed_at {
+        return false
+    }
+    b := s.batch
+    for name, indices in b.names {
+        entry, has := fc.names[name]
+        if !has {
+            continue
+        }
+        for i in indices {
+            t := b.targets[i]
+            switch b.reach {
+            case .Buffer:
+            case .Package:
+                if t.visibility == .File {
+                    continue
+                }
+            case .Importer:
+                if t.visibility != .Public {
+                    continue
+                }
+            }
+            s.target = t
+            if f.dir_key == s.dir_key {
+                if !shadowed(s, &f) {
+                    b.counts[i] += entry.free
+                }
+                continue
+            }
+            for alias, n in entry.qualified {
+                imp, is_import := file_import(s, &f, alias)
+                if is_import && imp.exists && odinsema.path_key(imp.dir) == s.dir_key {
+                    b.counts[i] += n
+                }
+            }
+        }
+    }
+    return true
+}
+
+// True when the source spells an identifier that is a key of `names`.
+@(private = "file")
+mentions_any :: proc(source: string, names: map[string][dynamic]int) -> bool {
+    start := -1
+    for i in 0 ..= len(source) {
+        c: u8 = i < len(source) ? source[i] : 0
+        word := c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c >= 0x80
+        if word {
+            if start < 0 {
+                start = i
+            }
+        } else if start >= 0 {
+            if source[start:i] in names {
+                return true
+            }
+            start = -1
+        }
+    }
+    return false
+}
+
+// Hands the hits of one file to `s.visit`.
+@(private = "file")
+visit_file :: proc(s: ^Ref_Scan, f: ^Scan_File, offsets: []int) {
+    if s.visit == nil || s.stopped || len(offsets) == 0 {
+        return
+    }
+    rf := Ref_File{path = f.path, source = f.source, parsed = f.parsed, tree = f.tree, lines = f.lines, hits = offsets}
+    if !s.visit(s.visit_data, rf) {
+        s.stopped = true
+    }
+}
+
+// Whether `ref` names the target, and whether it is a declaration of it.
+@(private = "file")
+classify :: proc(s: ^Ref_Scan, f: ^Scan_File, m: ^odinsema.Scope_Map, ref: odinsema.Name_Ref) -> (hit, is_decl: bool) {
+    t := &s.target
+    switch t.kind {
+    case .Unbound, .Local:
+        return false, false
+    case .Import_Alias:
+        #partial switch ref.kind {
+        case .Free:
+            return true, false
+        case .Top_Level:
+            return ref.decl_kind == .Import, true
+        }
+    case .Package_Item:
+        in_package := f.dir_key == s.dir_key
+        #partial switch ref.kind {
+        case .Free:
+            return in_package && !shadowed(s, f), false
+        case .Top_Level:
+            return in_package && ref.decl_kind != .Import && !shadowed(s, f), true
+        case .Package_Qualified:
+            if in_package {
+                return false, false
+            }
+            imp, found := file_import(s, f, ref.operand)
+            return found && imp.exists && odinsema.path_key(imp.dir) == s.dir_key, false
+        }
+    case .Builtin:
+        if ref.kind == .Free {
+            return !package_binds(s, f), false
+        }
+    case .Param:
+        #partial switch ref.kind {
+        case .Local:
+            return f.key == s.decl_key && ref.decl == t.decl, ref.start == t.decl
+        case .Field_Name:
+            return names_symbol(s, f, ref), false
+        }
+    case .Member:
+        if s.checker != nil {
+            #partial switch ref.kind {
+            case .Member_Decl:
+                return f.key == s.decl_key && ref.start == t.decl, true
+            case .Package_Qualified:
+                if _, is_import := file_import(s, f, ref.operand); is_import {
+                    return false, false
+                }
+                return names_symbol(s, f, ref), false
+            case .Field_Or_Member, .Field_Name, .Implicit_Selector:
+                return names_symbol(s, f, ref), false
+            case .Free, .Local:
+                return names_using_symbol(s, f, m, ref), false
+            }
             return false, false
         }
-        d, found := resolve_local(s.defs, s.target.name, start)
-        return found && d.ident_start == s.target.decl_start, start == s.target.decl_start
-    case .Package:
-        #partial switch pos {
-        case .Value:
-            // A bare name reaches a package-level declaration only from inside
-            // that package, and only where nothing nearer shadows it.
-            if !s.in_package {
-                return false, false
-            }
-            d, found := resolve_local(s.defs, s.target.name, start)
-            if found && (!d.top_level || d.kind == "namespace") {
-                return false, false
-            }
-            // Its own declaring identifier — in whichever of the package's files
-            // it is written; procedure groups make that more than one.
-            return true, found && d.ident_start == start
-        case .Member:
-            // Outside the package the symbol is reachable only behind a qualifier
-            // naming it; inside, a `v.name` is a field of some value instead.
-            qualified :=
-                !ts.node_is_null(operand) && is_identifier(operand) &&
-                ts.node_text(operand, s.req.source) in s.qualifiers
-            return qualified, false
-        }
-        return false, false
-    case .Field:
-        #partial switch pos {
-        case .Field_Decl:
-            site, ok := enclosing_struct_site(node, s.req)
-            return ok && ref_site_equal(site, s.target.owner), true
-        case .Member:
-            if ts.node_is_null(operand) {
-                return false, false // `.name` is an enum member, not a field of anything
-            }
-            return ref_field_matches(s, operand), false
-        case .Field_Init:
-            lit, has := ancestor_type(node, "struct")
-            if !has {
-                return true, false
-            }
-            site, ok := literal_field_site(s.e, s.parser, s.root, s.req, lit, s.target.name)
-            return !ok || ref_site_equal(site, s.target.owner), false
-        }
-        return false, false
-    case .Field_Any:
-        // Every place a field or an enum member is named, never a bare value or
-        // a package's own symbol behind its qualifier.
-        #partial switch pos {
-        case .Field_Decl:
-            return true, true
-        case .Field_Init:
+        #partial switch ref.kind {
+        case .Member_Decl:
+            return f.key == s.decl_key && ref.start == t.decl, true
+        case .Implicit_Selector:
             return true, false
-        case .Member:
-            if ts.node_is_null(operand) {
-                return true, false
+        case .Package_Qualified:
+            if _, is_import := file_import(s, f, ref.operand); is_import {
+                return false, false
             }
-            return !operand_names_import(s.root, s.req.source, operand), false
-        case .Ignored:
-            parent := ts.node_parent(node)
-            member := !ts.node_is_null(parent) && string(ts.node_type(parent)) == "enum_declaration"
-            return member, member
-        }
-        return false, false
-    case .Any:
-        return true, false
-    }
-    return true, false
-}
-
-// Whether `operand.name` reaches the field the target is. An operand whose type
-// does not infer, or a struct the engine cannot locate, leaves the occurrence
-// unproven — and therefore kept.
-@(private = "file")
-ref_field_matches :: proc(s: ^Ref_Scan, operand: ts.Node) -> bool {
-    site, ok := ref_operand_site(s, operand)
-    if !ok {
-        return true
-    }
-    return ref_site_equal(site, s.target.owner)
-}
-
-// operand_field_site with a per-file memo: one file names the same value in the
-// same block over and over, and each miss costs an inference plus, across
-// packages, a read and a parse of the file declaring the struct.
-@(private = "file")
-ref_operand_site :: proc(s: ^Ref_Scan, operand: ts.Node) -> (Field_Site, bool) {
-    key, keyed := ref_operand_key(s, operand)
-    if keyed {
-        if hit, seen := s.sites[key]; seen {
-            return hit.site, hit.ok
+            return !operand_names_other(s, f, m, ref), false
+        case .Field_Or_Member, .Field_Name:
+            return !operand_names_other(s, f, m, ref), false
         }
     }
-    site, ok := Field_Site{}, false
-    if s.budget^ > 0 {
-        s.budget^ -= 1
-        site, ok = operand_field_site(s.e, s.parser, s.root, s.req, operand, s.target.name)
-    }
-    if keyed {
-        s.sites[key] = Field_Site_Hit{site = site, ok = ok}
-    }
-    return site, ok
+    return false, false
 }
 
-// Memo key for an operand: its text, in the block it is written in — which is
-// what its type is resolved from. A compound operand (`a.b.c`, `f().x`) is keyed
-// the same way, since its type is static too.
+// True when the checker gives the target's declaration for the name of `ref`.
 @(private = "file")
-ref_operand_key :: proc(s: ^Ref_Scan, operand: ts.Node) -> (string, bool) {
-    if ts.node_is_null(operand) {
-        return "", false
+names_symbol :: proc(s: ^Ref_Scan, f: ^Scan_File, ref: odinsema.Name_Ref) -> bool {
+    if s.checker == nil {
+        return false
     }
-    scope := 0
-    if block, has := enclosing_scope(operand); has {
-        scope = int(ts.node_start_byte(block))
-    }
-    return fmt.tprintf("%d|%s", scope, ts.node_text(operand, s.req.source)), true
+    sym, ok := odinsema.selector_symbol(s.checker, f.id, ref.start)
+    return ok && sym == s.target.symbol
 }
 
-// The declaring site of the `field` member of the struct `operand` evaluates to.
-@(private)
-operand_field_site :: proc(
-    e: ^Engine,
-    parser: ts.Parser,
-    root: ts.Node,
-    req: ^lang.Request,
-    operand: ts.Node,
-    field: string,
-) -> (Field_Site, bool) {
-    tr, ok := infer_expr_type(e, parser, root, req, operand)
-    if !ok {
+// True when the checker gives the target's declaration for the bare name of `ref` through a `using`.
+@(private = "file")
+names_using_symbol :: proc(s: ^Ref_Scan, f: ^Scan_File, m: ^odinsema.Scope_Map, ref: odinsema.Name_Ref) -> bool {
+    if s.checker == nil || !m.has_using || ref.is_decl {
+        return false
+    }
+    sym, ok := odinsema.using_symbol(s.checker, f.id, ref.start)
+    return ok && sym == s.target.symbol
+}
+
+// True when a file of the package binds the target's name to something else: an import alias of
+// the file, or a file-private declaration of another file.
+@(private = "file")
+shadowed :: proc(s: ^Ref_Scan, f: ^Scan_File) -> bool {
+    for item in f.tree.items {
+        if item.name != s.target.name {
+            continue
+        }
+        if item.kind == .Import || item.kind == .Foreign_Import {
+            return true
+        }
+        if item.visibility == .File && f.key != s.decl_key {
+            return true
+        }
+    }
+    return false
+}
+
+// True when the file or its package binds the target's name, which hides the universe scope.
+@(private = "file")
+package_binds :: proc(s: ^Ref_Scan, f: ^Scan_File) -> bool {
+    for item in f.tree.items {
+        if item.name == s.target.name {
+            return true
+        }
+    }
+    if bound, known := s.bound[f.dir_key]; known {
+        return bound
+    }
+    cands := make([dynamic]Def_Candidate, context.temp_allocator)
+    package_candidates(s.ctx, f.dir, s.target.name, "", true, &cands)
+    bound := len(cands) > 0
+    key, err := strings.clone(f.dir_key)
+    if err != nil {
+        return bound
+    }
+    _, value, inserted, merr := map_entry(&s.bound, key)
+    if merr != nil || !inserted {
+        delete(key)
+    }
+    if value != nil {
+        value^ = bound
+    }
+    return bound
+}
+
+// The import of `f` that binds `alias`.
+@(private = "file")
+file_import :: proc(s: ^Ref_Scan, f: ^Scan_File, alias: string) -> (odinsema.File_Import, bool) {
+    if !f.has_imports {
+        f.has_imports = true
+        f.imports = odinsema.db_imports(&s.ctx.snap, f.id)
+    }
+    imp, found := odinsema.lookup_import(f.imports, alias)
+    if !found {
         return {}, false
     }
-    // An `#soa` array holds its element's fields, one array each.
-    if layer, lok := outer_container(tr); lok && layer.soa {
-        tr, _, _ = unwrap_container(tr)
-    }
-    return field_site(e, parser, root, req, tr, field)
+    return imp^, true
 }
 
-// The declaring site of the `field` member of a composite literal's type
-// (`T{field = 1}`). A qualified literal (`pkg.T{...}`) keeps the `pkg` outside
-// the literal node, so the qualifier is read off the selector around it.
+// True when the operand of a selector, a composite literal or a call is proven to name a type or
+// procedure other than the member's type.
 @(private = "file")
-literal_field_site :: proc(
-    e: ^Engine,
-    parser: ts.Parser,
-    root: ts.Node,
-    req: ^lang.Request,
-    lit: ts.Node,
-    field: string,
-) -> (Field_Site, bool) {
-    tr, ok := composite_type_name(lit, req.source)
-    if !ok {
-        return {}, false
+operand_names_other :: proc(s: ^Ref_Scan, f: ^Scan_File, m: ^odinsema.Scope_Map, ref: odinsema.Name_Ref) -> bool {
+    if ref.operand_start < 0 || ref.operand_end > len(f.source) || ref.operand_start >= ref.operand_end {
+        return false
     }
-    if tr.pkg == "" {
-        holder := ts.node_parent(lit)
-        if !ts.node_is_null(holder) && string(ts.node_type(holder)) == "member_expression" {
-            qualifier := ts.node_named_child(holder, 0)
-            if is_identifier(qualifier) && !same_node(qualifier, lit) {
-                tr.pkg = ts.node_text(qualifier, req.source)
-            }
+    if pkg, type_name, qualified := qualified_type_operand(f.source, m, ref); qualified {
+        imp, found := file_import(s, f, pkg)
+        if !found || !imp.exists {
+            return false
+        }
+        return odinsema.path_key(imp.dir) != s.dir_key || type_name != s.target.owner
+    }
+    text := strings.trim_space(f.source[ref.operand_start:ref.operand_end])
+    if !odinsema.is_identifier(text) {
+        return false
+    }
+    head, found := odinsema.ref_at(m, ref.operand_start)
+    if !found || head.kind != .Free {
+        return false
+    }
+    if text == s.target.owner && f.dir_key == s.dir_key {
+        return false
+    }
+    cands := make([dynamic]Def_Candidate, context.temp_allocator)
+    package_candidates(s.ctx, f.dir, text, "", true, &cands)
+    for c in cands {
+        #partial switch c.kind {
+        case .Struct, .Enum, .Union, .Bit_Set, .Bit_Field, .Proc, .Proc_Group:
+            return true
         }
     }
-    return field_site(e, parser, root, req, tr, field)
+    return false
 }
 
-// Locates the struct `tr` names and, in it, the declaration of `field` — through
-// an alias and through any struct embedded with `using`, so the answer is the
-// struct the field is really declared by. Cloned into scratch: the tree and the
-// source it was read from are gone by the time the caller compares it.
+// Appends the identifier at `offset` of `f` as a reference row.
 @(private = "file")
-field_site :: proc(
-    e: ^Engine,
-    parser: ts.Parser,
-    root: ts.Node,
-    req: ^lang.Request,
-    tr: Type_Ref,
-    field: string,
-) -> (Field_Site, bool) {
-    ctx := Member_Ctx {
-        field = field,
-        env = Embed_Env{e = e, parser = parser, root = root, req = req},
-    }
-    if !visit_type_decl(e, parser, root, req, tr, "struct_declaration", "type", member_visitor, &ctx, &ctx.args) || !ctx.got {
-        return {}, false
-    }
-    if ctx.owner == "" {
-        return {}, false
-    }
-    return ref_site(ctx.owner, ctx.path), true
-}
-
-// The struct declaration a field's own declaration sits in, as a site.
-@(private = "file")
-enclosing_struct_site :: proc(ident: ts.Node, req: ^lang.Request) -> (Field_Site, bool) {
-    sd, has := ancestor_type(ident, "struct_declaration")
-    if !has {
-        return {}, false
-    }
-    owner := decl_name(sd, req.source)
-    if owner == "" {
-        return {}, false
-    }
-    return ref_site(owner, req.path), true
-}
-
-// A site from the struct's name and the file declaring it, both copied into
-// scratch so neither borrows a parse that is about to be thrown away.
-@(private = "file")
-ref_site :: proc(owner, path: string) -> Field_Site {
-    return Field_Site {
-        owner = strings.clone(owner, context.temp_allocator),
-        dir = strings.clone(filepath.dir(path), context.temp_allocator),
-    }
-}
-
-@(private = "file")
-ref_site_equal :: proc(a, b: Field_Site) -> bool {
-    return a.owner == b.owner && same_dir(a.dir, b.dir)
-}
-
-// Whether two directories are the same one, comparing the spellings first and
-// their absolute forms (a syscall) only when that fails. The spellings come from
-// different producers — an index key, a request path, an import joined onto one
-// — and a mismatch here fails *closed*, dropping a usage, so it is worth a
-// second try.
-@(private)
-same_dir :: proc(a, b: string) -> bool {
-    if lang.path_equal(a, b) {
-        return true
-    }
-    abs_a, err_a := filepath.abs(a, context.temp_allocator)
-    abs_b, err_b := filepath.abs(b, context.temp_allocator)
-    return err_a == nil && err_b == nil && lang.path_equal(abs_a, abs_b)
-}
-
-// Where an identifier sits, and — for a member — the operand it is a member of
-// (null for an implicit enum selector, which has none).
-@(private)
-ref_position :: proc(node: ts.Node) -> (Ref_Pos, ts.Node) {
-    parent := ts.node_parent(node)
-    if ts.node_is_null(parent) {
-        return .Ignored, {}
-    }
-    switch string(ts.node_type(parent)) {
-    case "package_declaration",
-         "import_declaration",
-         "attribute",
-         "tag",
-         "label_statement",
-         "using_statement",
-         "foreign_block",
-         "polymorphic_parameters":
-        return .Ignored, {}
-    case "field":
-        // A struct field's declaration: the names precede the `(type ...)` child,
-        // which holds every identifier that is not one of them.
-        return .Field_Decl, {}
-    case "struct_field":
-        // `T{name = value}`: the leading identifier names the field, the rest is
-        // the value assigned to it.
-        if same_node(ts.node_named_child(parent, 0), node) {
-            return .Field_Init, {}
-        }
-    case "enum_declaration":
-        // The enum's own name is a declaration like any other; everything after
-        // it is a member, which is named through the enum rather than bare.
-        if !same_node(ts.node_named_child(parent, 0), node) {
-            return .Ignored, {}
-        }
-    case "call_expression":
-        // `f(name = 1)` — a named argument, laid out flat inside the call. The
-        // name is the callee's parameter, not anything in scope here.
-        next := ts.node_next_sibling(node)
-        if !ts.node_is_null(next) && string(ts.node_type(next)) == "=" {
-            return .Named_Arg, {}
-        }
-    }
-
-    // The selector test runs on the node standing in for this identifier — a
-    // called, indexed or braced member sits inside its wrapper rather than beside
-    // the operand (`pkg.run(x)`, `pkg.Rect{}`).
-    subject := selector_subject(node)
-    holder := ts.node_parent(subject)
-    if ts.node_is_null(holder) {
-        return .Value, {}
-    }
-    switch string(ts.node_type(holder)) {
-    case "member_expression", "field_type":
-        first := ts.node_named_child(holder, 0)
-        if ts.node_is_null(first) || !same_node(first, subject) {
-            return .Member, first
-        }
-        // An implicit enum selector (`.Vertical`) is its holder's first child too,
-        // but starts past the dot the holder starts at.
-        if ts.node_start_byte(subject) != ts.node_start_byte(holder) {
-            return .Member, {}
-        }
-    }
-    return .Value, {}
-}
-
-// Appends one occurrence as a reference row: the source line it sits on is the
-// preview, path/line/offset the jump target. Owned strings use context.allocator
-// (the Manager's).
-@(private = "file")
-ref_append :: proc(s: ^Ref_Scan, node: ts.Node) {
-    start := int(ts.node_start_byte(node))
-    append(&s.res.symbols, lang.Symbol {
+add_hit :: proc(s: ^Ref_Scan, f: ^Scan_File, offset: int) {
+    line, _ := offset_line_col(f.lines, offset)
+    start := f.lines[line - 1]
+    end := strings.index_byte(f.source[start:], '\n')
+    end = end < 0 ? len(f.source) : start + end
+    append(&s.hits, lang.Symbol {
         name      = strings.clone(s.target.name),
         kind      = strings.clone("reference"),
-        signature = source_line(s.req.source, start),
-        path      = strings.clone(s.req.path),
-        line      = strings.count(s.req.source[:clamp(start, 0, len(s.req.source))], "\n") + 1,
-        offset    = start,
+        signature = strings.clone(strings.trim_space(f.source[start:end])),
+        path      = strings.clone(f.path),
+        line      = line,
+        offset    = offset,
     })
 }
 
-// The whole source line `offset` falls on, trimmed — a reference row's code
-// preview. Cloned into context.allocator.
-@(private)
-source_line :: proc(source: string, offset: int) -> string {
-    lo := clamp(offset, 0, len(source))
-    start := strings.last_index_byte(source[:lo], '\n') + 1 // -1 + 1 == 0 for the first line
-    end := len(source)
-    if nl := strings.index_byte(source[lo:], '\n'); nl >= 0 {
-        end = lo + nl
+// Sorts the hits by path and offset and drops the duplicates.
+@(private = "file")
+sort_hits :: proc(s: ^Ref_Scan) {
+    slice.sort_by(s.hits[:], proc(a, b: lang.Symbol) -> bool {
+        if a.path != b.path {
+            return a.path < b.path
+        }
+        return a.offset < b.offset
+    })
+    kept := 0
+    for i in 0 ..< len(s.hits) {
+        h := s.hits[i]
+        if kept > 0 && s.hits[kept - 1].path == h.path && s.hits[kept - 1].offset == h.offset {
+            hits_free({h})
+            continue
+        }
+        s.hits[kept] = h
+        kept += 1
     }
-    return strings.clone(strings.trim_space(source[start:end]))
+    resize(&s.hits, kept)
 }
 
+@(private = "file")
+hits_free :: proc(hits: []lang.Symbol) {
+    for h in hits {
+        delete(h.name)
+        delete(h.kind)
+        delete(h.signature)
+        delete(h.path)
+    }
+}

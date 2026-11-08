@@ -24,7 +24,7 @@ Client :: struct {
 
 // Reads the server table and builds an idle server for each entry. No process is
 // started here: a server that is never asked for costs one struct.
-// `trust_workspace` lets `<workspace>/.thor/lsp.json` join the table.
+// `trust_workspace` lets `<workspace>/.thor/lsp.lua` join the table.
 client_create :: proc(workspace: string, trust_workspace: bool, allocator := context.allocator) -> ^Client {
     c := new(Client, allocator)
     c.allocator = allocator
@@ -320,9 +320,9 @@ client_server_ids :: proc(c: ^Client, allocator := context.temp_allocator) -> []
     return out
 }
 
-// The admin gate `id` starts at, as its lsp.json entry states it. What the
+// The admin gate `id` starts at, as its lsp.lua entry states it. What the
 // settings fall back to for a backend they say nothing about, so a server turned
-// off in lsp.json reads as off in Settings instead of on.
+// off in lsp.lua reads as off in Settings instead of on.
 client_server_defaults :: proc(c: ^Client, id: string) -> (enabled: bool, features: bit_set[lang.Request_Kind], ok: bool) {
     if c == nil {
         return true, lang.FEATURES_ALL, false
@@ -367,7 +367,7 @@ client_restart_server :: proc(c: ^Client, id: string) -> bool {
 }
 
 // Settings-driven per-kind gate for one configured server, by id. False when
-// no server has that id. ANDed with the server's own lsp.json features.
+// no server has that id. ANDed with the server's own lsp.lua features.
 client_set_server_features :: proc(c: ^Client, id: string, features: bit_set[lang.Request_Kind]) -> bool {
     for s in c.servers {
         if s.config.id == id {

@@ -2,13 +2,13 @@
 -- compile_commands.json clangd needs (see buildsystem.lua). Reached from
 -- Settings > Language Servers > clangd > "Set Up This Project", which runs the
 -- `configure-compile-commands` command below; the entry that names it is
--- `"setup_command"` in settings/lsp.json.
+-- `setup_command` in settings/lsp.lua.
 --
 -- Whether clangd itself is installed is not asked here: the editor looks on
 -- PATH natively and offers the install. This plugin is only the part that
 -- tracks external build tooling, which is why it stays Lua.
 
-local TASKS_FILE = ".thor/tasks.json"
+local TASKS_FILE = ".thor/tasks.lua"
 
 -- "Windows_NT" expands from cmd.exe's %OS% but reaches /bin/sh as the literal
 -- text, so this tells the two apart without a dedicated host API.
@@ -48,17 +48,19 @@ local ESCAPE = {
     ["\t"] = "\\t", ["\b"] = "\\b", ["\f"] = "\\f",
 }
 
-local UNESCAPE = {b = "\b", f = "\f", n = "\n", r = "\r", t = "\t"}
+local UNESCAPE = {a = "\a", b = "\b", f = "\f", n = "\n", r = "\r", t = "\t", v = "\v"}
 
-local function json_escape(s)
+-- The body of a Lua string literal for `s`. A control byte is written as three
+-- decimal digits, so a digit after it cannot join the escape.
+local function lua_escape(s)
     return (s:gsub('[%c\\"]', function(c)
-        return ESCAPE[c] or string.format("\\u%04X", c:byte())
+        return ESCAPE[c] or string.format("\\%03d", c:byte())
     end))
 end
 
--- Decodes the escapes JSON defines, \uXXXX included. A surrogate pair is
--- joined, so a character outside the basic plane survives the round trip.
-local function json_unescape(s)
+-- Decodes the escapes a Lua short string defines: the letter escapes, \ddd,
+-- \xXX and \u{XXX}.
+local function lua_unescape(s)
     if not s:find("\\", 1, true) then
         return s
     end
@@ -71,28 +73,34 @@ local function json_unescape(s)
         end
         out[#out + 1] = s:sub(i, at - 1)
         local c = s:sub(at + 1, at + 1)
-        if c ~= "u" then
+        if c:match("%d") then
+            local digits = s:match("^%d%d?%d?", at + 1)
+            out[#out + 1] = string.char(tonumber(digits) % 256)
+            i = at + 1 + #digits
+        elseif c == "x" then
+            local hex = s:sub(at + 2, at + 3)
+            out[#out + 1] = string.char(tonumber(hex, 16) or 0)
+            i = at + 4
+        elseif c == "u" then
+            local hex, close = s:match("^{(%x+)}()", at + 2)
+            if hex then
+                out[#out + 1] = utf8.char(tonumber(hex, 16))
+                i = close
+            else
+                out[#out + 1] = "u"
+                i = at + 2
+            end
+        else
             out[#out + 1] = UNESCAPE[c] or c
             i = at + 2
-        else
-            local code = tonumber(s:sub(at + 2, at + 5), 16)
-            i = at + 6
-            if code and code >= 0xD800 and code <= 0xDBFF and s:sub(i, i + 1) == "\\u" then
-                local low = tonumber(s:sub(i + 2, i + 5), 16)
-                if low and low >= 0xDC00 and low <= 0xDFFF then
-                    code = 0x10000 + (code - 0xD800) * 0x400 + (low - 0xDC00)
-                    i = i + 6
-                end
-            end
-            out[#out + 1] = code and utf8.char(code) or s:sub(at, at + 5)
         end
     end
     return table.concat(out)
 end
 
--- Walks the JSON string that opens at `i`, honouring backslash escapes so an
--- embedded \" does not end it early. Returns the raw body and the index after
--- the closing quote, or nil when the string never closes.
+-- Walks the double-quoted string that opens at `i`, honouring backslash
+-- escapes so an embedded \" does not end it early. Returns the raw body and the
+-- index after the closing quote, or nil when the string never closes.
 local function scan_string(s, i)
     if s:sub(i, i) ~= '"' then
         return nil
@@ -111,7 +119,7 @@ local function scan_string(s, i)
     return nil
 end
 
--- Splits an array body into its top-level objects. A brace inside a string is
+-- Splits a list body into its top-level tables. A brace inside a string is
 -- text, not structure — the difference %b{} cannot tell.
 local function scan_objects(body)
     local objects, i = {}, 1
@@ -153,9 +161,9 @@ local function scan_objects(body)
     return objects
 end
 
--- Reads a flat { "key": "value" } object. A key is matched as a key, never as
--- a substring, so "display_name" is not "name". A value that is not a string
--- is a shape this plugin must not rewrite, so it refuses.
+-- Reads a flat { key = "value" } table. A key is matched as a key, never as a
+-- substring, so display_name is not name. A value that is not a double-quoted
+-- string is a shape this plugin must not rewrite, so it refuses.
 local function object_fields(obj)
     local fields, i = {}, obj:find("{")
     if not i then
@@ -167,33 +175,29 @@ local function object_fields(obj)
         if not at or obj:sub(at, at) == "}" then
             return fields
         end
-        local key, after = scan_string(obj, at)
-        if not after then
+        local key, eq_end = obj:match("^([%a_][%w_]*)%s*=%s*()", at)
+        if not key then
             return nil
         end
-        local _, colon_end = obj:find("^%s*:%s*", after)
-        if not colon_end then
-            return nil
-        end
-        local value, next_i = scan_string(obj, colon_end + 1)
+        local value, next_i = scan_string(obj, eq_end)
         if not next_i then
             return nil
         end
-        fields[json_unescape(key)] = json_unescape(value)
+        fields[key] = lua_unescape(value)
         i = next_i
     end
 end
 
--- Reads the {name, command} pairs out of tasks.json. Understands only the
--- flat shape Thor itself writes; anything else (an unknown key, a missing
--- "tasks" array) reports ok = false, so a hand-edited file is never rewritten
--- from a parse that lost part of it.
+-- Reads the {name, command} pairs out of tasks.lua. Understands only the plain
+-- shape Thor itself writes; anything else (a comment, code, an unknown key, a
+-- missing tasks list) reports ok = false, so a hand-edited file is never
+-- rewritten from a parse that lost part of it.
 local function read_tasks()
     local text = thor.read(TASKS_FILE) or ""
     if text:match("^%s*$") then
         return {}, true
     end
-    local body = text:match('"tasks"%s*:%s*%[(.-)%]%s*}%s*$')
+    local body = text:match("^%s*return%s*{%s*tasks%s*=%s*{(.*)}%s*,?%s*}%s*$")
     if not body then
         return nil, false
     end
@@ -221,12 +225,12 @@ local function read_tasks()
 end
 
 local function write_tasks(tasks)
-    local parts = {"{\n    \"tasks\": [\n"}
-    for i, t in ipairs(tasks) do
-        parts[#parts + 1] = '        { "name": "' .. json_escape(t.name) .. '", "command": "' .. json_escape(t.command) .. '" }'
-        parts[#parts + 1] = i < #tasks and ",\n" or "\n"
+    local parts = {"return {\n    tasks = {\n"}
+    for _, t in ipairs(tasks) do
+        parts[#parts + 1] = '        {\n            name = "' .. lua_escape(t.name) .. '",\n'
+        parts[#parts + 1] = '            command = "' .. lua_escape(t.command) .. '",\n        },\n'
     end
-    parts[#parts + 1] = "    ]\n}\n"
+    parts[#parts + 1] = "    },\n}\n"
     thor.write(TASKS_FILE, table.concat(parts))
 end
 
@@ -242,7 +246,7 @@ local function add_task(name, command)
 
     local tasks, ok = read_tasks()
     if not ok then
-        return refuse("tasks.json has a shape this plugin does not recognise; add \"" .. name .. "\" by hand")
+        return refuse("tasks.lua has a shape this plugin does not recognise; add \"" .. name .. "\" by hand")
     end
     for _, t in ipairs(tasks) do
         if t.name == name then

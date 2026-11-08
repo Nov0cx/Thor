@@ -1,0 +1,498 @@
+package odinsema
+
+import "core:os"
+import "core:path/filepath"
+import "core:strings"
+import "core:testing"
+
+import odinsyntax "../syntax"
+
+@(private = "file")
+build_tree :: proc(t: ^testing.T, src: string) -> ^Item_Tree {
+    parsed, err := odinsyntax.parse(src)
+    testing.expect_value(t, err, nil)
+    defer odinsyntax.parse_destroy(&parsed)
+    tree, terr := item_tree(parsed)
+    testing.expect_value(t, terr, nil)
+    return tree
+}
+
+@(private = "file")
+find_item :: proc(tree: ^Item_Tree, name: string) -> (Item, bool) {
+    for item in tree.items {
+        if item.name == name {
+            return item, true
+        }
+    }
+    return {}, false
+}
+
+@(test)
+test_item_tree_kinds_and_signatures :: proc(t: ^testing.T) {
+    src := `package demo
+
+import "core:fmt"
+import str "core:strings"
+
+Color :: enum u8 { Red, Green = 2 }
+Point :: struct {
+    x, y: f32, // position
+    using base: Base,
+}
+Value :: union { int, f64 }
+Flags :: bit_set[Color; u8]
+Id :: distinct int
+Bits :: bit_field u16 { low: u8 | 4 }
+Handle :: int
+MAX :: 100
+counter: int
+ready := true
+
+add :: proc(a: int, // left
+            b: int) -> int {
+    return a + b
+}
+sizes :: proc{add, fmt.sub}
+Generic :: struct($T: typeid) where size_of(T) > 0 { items: []T }
+`
+    tree := build_tree(t, src)
+    defer item_tree_destroy(tree)
+
+    testing.expect_value(t, tree.package_name, "demo")
+    testing.expect_value(t, tree.package_offset, 8)
+
+    Want :: struct {
+        name:      string,
+        kind:      Item_Kind,
+        signature: string,
+    }
+    wants := []Want {
+        {"fmt", .Import, `import "core:fmt"`},
+        {"str", .Import, `import str "core:strings"`},
+        {"Color", .Enum, "Color :: enum u8"},
+        {"Point", .Struct, "Point :: struct"},
+        {"Value", .Union, "Value :: union"},
+        {"Flags", .Bit_Set, "Flags :: bit_set[Color; u8]"},
+        {"Id", .Type, "Id :: distinct int"},
+        {"Bits", .Bit_Field, "Bits :: bit_field u16"},
+        {"Handle", .Type, "Handle :: int"},
+        {"MAX", .Const, "MAX :: 100"},
+        {"counter", .Var, "counter: int"},
+        {"ready", .Var, "ready := true"},
+        {"add", .Proc, "add :: proc(a: int, b: int) -> int"},
+        {"sizes", .Proc_Group, "sizes :: proc{add, fmt.sub}"},
+        {"Generic", .Struct, "Generic :: struct($T: typeid) where size_of(T) > 0"},
+    }
+    testing.expect_value(t, len(tree.items), len(wants))
+    for want, i in wants {
+        if i >= len(tree.items) {
+            break
+        }
+        item := tree.items[i]
+        testing.expect_value(t, item.name, want.name)
+        testing.expect_value(t, item.kind, want.kind)
+        testing.expect_value(t, item.signature, want.signature)
+        testing.expect_value(t, item.guard, -1)
+        if item.kind != .Import {
+            testing.expectf(t, strings.has_prefix(src[item.name_offset:], item.name), "%s: offset %d", item.name, item.name_offset)
+        }
+    }
+
+    imp, _ := find_item(tree, "str")
+    testing.expect_value(t, imp.path, "core:strings")
+    testing.expect_value(t, imp.visibility, Visibility.File)
+
+    point, _ := find_item(tree, "Point")
+    testing.expect_value(t, len(point.children), 3)
+    if len(point.children) == 3 {
+        testing.expect_value(t, point.children[0].name, "x")
+        testing.expect_value(t, point.children[0].signature, "x, y: f32")
+        testing.expect_value(t, point.children[1].name, "y")
+        testing.expect_value(t, point.children[1].signature, "y: f32")
+        testing.expect_value(t, point.children[2].name, "base")
+        testing.expect_value(t, point.children[2].kind, Item_Kind.Field)
+    }
+    color, _ := find_item(tree, "Color")
+    testing.expect_value(t, len(color.children), 2)
+    if len(color.children) == 2 {
+        testing.expect_value(t, color.children[0].name, "Red")
+        testing.expect_value(t, color.children[1].name, "Green")
+        testing.expect_value(t, color.children[1].signature, "Green = 2")
+        testing.expect_value(t, color.children[1].kind, Item_Kind.Enum_Member)
+    }
+    bits, _ := find_item(tree, "Bits")
+    testing.expect_value(t, len(bits.children), 1)
+    sizes, _ := find_item(tree, "sizes")
+    testing.expect_value(t, len(sizes.members), 2)
+    if len(sizes.members) == 2 {
+        testing.expect_value(t, sizes.members[0].name, "add")
+        testing.expect_value(t, sizes.members[0].operand, "")
+        testing.expect_value(t, sizes.members[0].offset, strings.index(src, "add, fmt"))
+        testing.expect_value(t, sizes.members[1].name, "sub")
+        testing.expect_value(t, sizes.members[1].operand, "fmt")
+        testing.expect_value(t, sizes.members[1].offset, strings.index(src, "sub}"))
+    }
+}
+
+@(test)
+test_item_tree_visibility_and_attributes :: proc(t: ^testing.T) {
+    src := `#+private
+package demo
+
+a :: 1
+@(private = "file")
+b :: 2
+@(require_results, deprecated = "use d")
+c :: proc() -> int { return 0 }
+`
+    tree := build_tree(t, src)
+    defer item_tree_destroy(tree)
+
+    testing.expect_value(t, tree.private, Visibility.Package)
+    testing.expect_value(t, len(tree.tags), 1)
+    a, _ := find_item(tree, "a")
+    testing.expect_value(t, a.visibility, Visibility.Package)
+    b, _ := find_item(tree, "b")
+    testing.expect_value(t, b.visibility, Visibility.File)
+    c, _ := find_item(tree, "c")
+    testing.expect_value(t, len(c.attributes), 2)
+    if len(c.attributes) == 2 {
+        testing.expect_value(t, c.attributes[0].name, "require_results")
+        testing.expect_value(t, c.attributes[0].value, "")
+        testing.expect_value(t, c.attributes[1].name, "deprecated")
+        testing.expect_value(t, c.attributes[1].value, `"use d"`)
+    }
+    testing.expect_value(t, c.start, strings.index(src, "@(require"))
+
+    file_src := "#+private file\npackage demo\n\n@(private)\nx :: 1\ny :: 2\n"
+    file_tree := build_tree(t, file_src)
+    defer item_tree_destroy(file_tree)
+    testing.expect_value(t, file_tree.private, Visibility.File)
+    x, _ := find_item(file_tree, "x")
+    testing.expect_value(t, x.visibility, Visibility.Package)
+    y, _ := find_item(file_tree, "y")
+    testing.expect_value(t, y.visibility, Visibility.File)
+}
+
+@(test)
+test_item_tree_when_and_foreign :: proc(t: ^testing.T) {
+    src := `package demo
+
+foreign import libc "system:c"
+foreign import "system:Comdlg32.lib"
+foreign import "system:libfoo.so.1"
+foreign import { "system:a.lib", "system:b.lib" }
+
+@(private)
+foreign libc {
+    puts :: proc(s: cstring) -> i32 ---
+    errno: i32
+}
+
+when ODIN_OS == .Windows {
+    OS :: "windows"
+} else when ODIN_OS == .Linux {
+    OS :: "linux"
+    when ODIN_ARCH == .amd64 do WIDE :: true
+} else {
+    OS :: "other"
+}
+`
+    tree := build_tree(t, src)
+    defer item_tree_destroy(tree)
+
+    libc, _ := find_item(tree, "libc")
+    testing.expect_value(t, libc.kind, Item_Kind.Foreign_Import)
+    testing.expect_value(t, libc.path, "system:c")
+    comdlg, has_comdlg := find_item(tree, "Comdlg32")
+    testing.expect(t, has_comdlg, "a foreign import with no name binds its file name")
+    testing.expect_value(t, comdlg.kind, Item_Kind.Foreign_Import)
+    foreign_count := 0
+    for item in tree.items {
+        if item.kind == .Foreign_Import {
+            foreign_count += 1
+        }
+    }
+    testing.expect_value(t, foreign_count, 2)
+
+    puts, _ := find_item(tree, "puts")
+    testing.expect_value(t, puts.kind, Item_Kind.Proc)
+    testing.expect(t, puts.in_foreign)
+    testing.expect_value(t, puts.visibility, Visibility.Package)
+    testing.expect_value(t, puts.signature, "puts :: proc(s: cstring) -> i32")
+    errno, _ := find_item(tree, "errno")
+    testing.expect_value(t, errno.kind, Item_Kind.Var)
+    testing.expect(t, errno.in_foreign)
+
+    testing.expect_value(t, len(tree.guards), 4)
+    os_items := make([dynamic]Item, context.temp_allocator)
+    for item in tree.items {
+        if item.name == "OS" {
+            append(&os_items, item)
+        }
+    }
+    testing.expect_value(t, len(os_items), 3)
+    if len(os_items) == 3 && len(tree.guards) == 4 {
+        g0 := tree.guards[os_items[0].guard]
+        testing.expect_value(t, g0.cond, "ODIN_OS == .Windows")
+        testing.expect_value(t, g0.previous, -1)
+        g1 := tree.guards[os_items[1].guard]
+        testing.expect_value(t, g1.cond, "ODIN_OS == .Linux")
+        testing.expect_value(t, g1.previous, os_items[0].guard)
+        g2 := tree.guards[os_items[2].guard]
+        testing.expect_value(t, g2.cond, "")
+        testing.expect_value(t, g2.previous, os_items[1].guard)
+    }
+    wide, ok := find_item(tree, "WIDE")
+    testing.expect(t, ok)
+    if ok {
+        g := tree.guards[wide.guard]
+        testing.expect_value(t, g.cond, "ODIN_ARCH == .amd64")
+        testing.expect_value(t, g.parent, os_items[1].guard if len(os_items) == 3 else -2)
+    }
+}
+
+@(test)
+test_item_tree_legacy_tags_and_broken_source :: proc(t: ^testing.T) {
+    tree := build_tree(t, "//+build linux\n//+private\npackage demo\n\nx :: proc(\n")
+    defer item_tree_destroy(tree)
+    testing.expect_value(t, len(tree.tags), 2)
+    if len(tree.tags) == 2 {
+        testing.expect_value(t, tree.tags[0], "#+build linux")
+        testing.expect_value(t, tree.tags[1], "#+private")
+    }
+    testing.expect_value(t, tree.private, Visibility.Package)
+
+    empty := build_tree(t, "")
+    defer item_tree_destroy(empty)
+    testing.expect_value(t, len(empty.items), 0)
+    testing.expect_value(t, empty.package_offset, -1)
+}
+
+@(test)
+test_item_tree_doc_comments :: proc(t: ^testing.T) {
+    src := "//+build linux\n// Package demo pings.\n//\n//   Indented.\npackage demo\n\n" +
+        "// Pings the server.\n//Returns the round-trip.\nping :: proc() -> int { return 1 }\n\n" +
+        "// Not the doc of pong.\n\npong :: 1\n" +
+        "x :: 1 // trailing\ny :: 2\n" +
+        "/* block */\nz :: 3\n" +
+        "// Above the attribute.\n@(private)\nhidden :: 4\n\n" +
+        "// Imports fmt.\nimport \"core:fmt\"\n\n" +
+        "// A point.\nPoint :: struct {\n    // Horizontal.\n    x, y: f32, // tail\n    z: f32,\n}\n\n" +
+        "Color :: enum {\n    // The first.\n    Red,\n\n    Green,\n}\n\n" +
+        "when ODIN_OS == .Linux {\n    // Inside when.\n    W :: 1\n}\r\n// Carriage.\r\nCR :: 5\n"
+    tree := build_tree(t, src)
+    defer item_tree_destroy(tree)
+
+    testing.expect_value(t, tree.package_doc, "Package demo pings.\n\n  Indented.")
+    Want :: struct {
+        name: string,
+        doc:  string,
+    }
+    wants := []Want {
+        {"ping", "Pings the server.\nReturns the round-trip."},
+        {"pong", ""},
+        {"x", ""},
+        {"y", ""},
+        {"z", "block"},
+        {"hidden", "Above the attribute."},
+        {"fmt", "Imports fmt."},
+        {"Point", "A point."},
+        {"W", "Inside when."},
+        {"CR", "Carriage."},
+    }
+    for w in wants {
+        item, found := find_item(tree, w.name)
+        testing.expectf(t, found, "%s: not found", w.name)
+        testing.expectf(t, item.doc == w.doc, "%s: doc %q, want %q", w.name, item.doc, w.doc)
+    }
+    point, _ := find_item(tree, "Point")
+    testing.expect_value(t, len(point.children), 3)
+    if len(point.children) == 3 {
+        testing.expect_value(t, point.children[0].doc, "Horizontal.")
+        testing.expect_value(t, point.children[1].doc, "Horizontal.")
+        testing.expect_value(t, point.children[2].doc, "")
+    }
+    color, _ := find_item(tree, "Color")
+    testing.expect_value(t, len(color.children), 2)
+    if len(color.children) == 2 {
+        testing.expect_value(t, color.children[0].doc, "The first.")
+        testing.expect_value(t, color.children[1].doc, "")
+    }
+}
+
+@(test)
+test_item_tree_block_doc_comments :: proc(t: ^testing.T) {
+    src := "/*\n\tPackage demo.\n*/\npackage demo\n\n" +
+        "/*\n\tAn `enum` value.\n\tPossible values:\n\t\t`.A`, `.B`.\n*/\nARCH :: 1\n\n" +
+        "/*\n * Starred.\n *\n * Second.\n */\nstarred :: 2\n\n" +
+        "/* Opened.\n   Continued.\n*/\nopened :: 3\n\n" +
+        "/* Too far. */\n\nfar :: 4\n\n" +
+        "y :: 5 /* trailing */\nafter :: 6\n\n" +
+        "/* Not mixed. */\n// Line.\nmixed :: 7\n\r\n" +
+        "/*\r\n\tCarriage.\r\n*/\r\nCR :: 8\n\n" +
+        "Point :: struct {\n\t/* Horizontal. */\n\tx: f32,\n}\n"
+    tree := build_tree(t, src)
+    defer item_tree_destroy(tree)
+
+    testing.expect_value(t, tree.package_doc, "Package demo.")
+    Want :: struct {
+        name: string,
+        doc:  string,
+    }
+    wants := []Want {
+        {"ARCH", "An `enum` value.\nPossible values:\n\t`.A`, `.B`."},
+        {"starred", "Starred.\n\nSecond."},
+        {"opened", "Opened.\nContinued."},
+        {"far", ""},
+        {"after", ""},
+        {"mixed", "Line."},
+        {"CR", "Carriage."},
+    }
+    for w in wants {
+        item, found := find_item(tree, w.name)
+        testing.expectf(t, found, "%s: not found", w.name)
+        testing.expectf(t, item.doc == w.doc, "%s: doc %q, want %q", w.name, item.doc, w.doc)
+    }
+    point, _ := find_item(tree, "Point")
+    if testing.expect_value(t, len(point.children), 1) {
+        testing.expect_value(t, point.children[0].doc, "Horizontal.")
+    }
+}
+
+// A field declared with `using` keeps it in its signature.
+@(test)
+test_item_tree_using_field_signature :: proc(t: ^testing.T) {
+    tree := build_tree(t, "package demo\n\nEntity :: struct {\n\tusing pos: Vec2,\n\tname: string,\n}\n")
+    defer item_tree_destroy(tree)
+    entity, found := find_item(tree, "Entity")
+    testing.expect(t, found, "Entity: not found")
+    if testing.expect_value(t, len(entity.children), 2) {
+        testing.expect_value(t, entity.children[0].name, "pos")
+        testing.expect_value(t, entity.children[0].signature, "using pos: Vec2")
+        testing.expect_value(t, entity.children[1].signature, "name: string")
+    }
+}
+
+// Every .odin file of the repository gives an item tree. Run from the repository root.
+@(test)
+test_item_tree_repository :: proc(t: ^testing.T) {
+    count := 0
+    walk_repository(t, ".", &count)
+    testing.expectf(t, count > 100, "only %d files were read", count)
+}
+
+@(private = "file")
+walk_repository :: proc(t: ^testing.T, dir: string, count: ^int) {
+    handle, err := os.open(dir)
+    if err != nil {
+        return
+    }
+    defer os.close(handle)
+    infos, rerr := os.read_dir(handle, -1, context.temp_allocator)
+    if rerr != nil {
+        return
+    }
+    for info in infos {
+        path, jerr := filepath.join({dir, info.name}, context.temp_allocator)
+        if jerr != nil {
+            continue
+        }
+        if info.type == .Directory {
+            if strings.has_prefix(info.name, ".") || (dir == "." && (info.name == "vendor" || info.name == "bin")) {
+                continue
+            }
+            walk_repository(t, path, count)
+            continue
+        }
+        if !strings.has_suffix(info.name, ".odin") {
+            continue
+        }
+        data, derr := os.read_entire_file(path, context.temp_allocator)
+        if derr != nil {
+            continue
+        }
+        parsed, perr := odinsyntax.parse(string(data))
+        if perr != nil {
+            testing.expectf(t, false, "%s: parse failed", path)
+            continue
+        }
+        tree, terr := item_tree(parsed)
+        odinsyntax.parse_destroy(&parsed)
+        testing.expectf(t, terr == nil, "%s: item tree failed", path)
+        if terr == nil {
+            testing.expectf(t, tree.package_name != "", "%s: no package name", path)
+            item_tree_destroy(tree)
+        }
+        count^ += 1
+    }
+}
+
+// Whether the source at `offset` starts with `want`; "" wants -1.
+@(private = "file")
+starts_with :: proc(src: string, offset: int, want: string) -> bool {
+    if want == "" {
+        return offset == -1
+    }
+    return offset >= 0 && offset < len(src) && strings.has_prefix(src[offset:], want)
+}
+
+@(test)
+test_item_tree_type_and_value_offsets :: proc(t: ^testing.T) {
+    src := "package demo\n" +
+        "x: int = 5\n" +
+        "y := 7\n" +
+        "a, b := f()\n" +
+        "c, d := 1, 2\n" +
+        "f :: proc() -> (int, int) { return 1, 2 }\n" +
+        "P :: struct { u, v: f32, w: ^P }\n" +
+        "E :: enum { A, B = 4 }\n" +
+        "Bf :: bit_field u8 { lo: u8 | 4 }\n" +
+        "import \"core:fmt\"\n"
+    tree := build_tree(t, src)
+    defer item_tree_destroy(tree)
+
+    Want :: struct {
+        name:  string,
+        type:  string,
+        value: string,
+        index: int,
+    }
+    cases := []Want {
+        {"x", "int", "5", -1},
+        {"y", "", "7", -1},
+        {"a", "", "f(", 0},
+        {"b", "", "f(", 1},
+        {"c", "", "1", -1},
+        {"d", "", "2", -1},
+        {"f", "", "proc(", -1},
+        {"fmt", "", "", -1},
+    }
+    for c in cases {
+        item, ok := find_item(tree, c.name)
+        if !testing.expectf(t, ok, "%s missing", c.name) {
+            continue
+        }
+        testing.expectf(t, starts_with(src, item.type_offset, c.type), "%s type: %d", c.name, item.type_offset)
+        testing.expectf(t, starts_with(src, item.value_offset, c.value), "%s value: %d", c.name, item.value_offset)
+        testing.expectf(t, item.value_index == c.index, "%s index: %d", c.name, item.value_index)
+    }
+
+    p, pok := find_item(tree, "P")
+    if testing.expect(t, pok) && testing.expect_value(t, len(p.children), 3) {
+        testing.expect(t, starts_with(src, p.children[0].type_offset, "f32"))
+        testing.expect(t, starts_with(src, p.children[1].type_offset, "f32"))
+        testing.expect(t, starts_with(src, p.children[2].type_offset, "^P"))
+        testing.expect_value(t, p.children[0].value_offset, -1)
+    }
+    e, eok := find_item(tree, "E")
+    if testing.expect(t, eok) && testing.expect_value(t, len(e.children), 2) {
+        testing.expect_value(t, e.children[0].value_offset, -1)
+        testing.expect(t, starts_with(src, e.children[1].value_offset, "4"))
+        testing.expect_value(t, e.children[1].type_offset, -1)
+    }
+    bf, bok := find_item(tree, "Bf")
+    if testing.expect(t, bok) && testing.expect_value(t, len(bf.children), 1) {
+        testing.expect(t, starts_with(src, bf.children[0].type_offset, "u8 |"))
+    }
+}

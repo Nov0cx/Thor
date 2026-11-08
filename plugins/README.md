@@ -52,14 +52,24 @@ This contains buggy and rogue plugins. It is not a boundary against native code.
 
 ## Permissions
 
-A plugin declares what it needs in `plugin.json` beside `plugin.lua`:
+A plugin declares what it needs in `manifest.lua` beside `plugin.lua`:
 
-```json
-{
-    "name": "Git LFS",
-    "permissions": ["exec", "ui"]
+```lua
+return {
+    name = "compile_commands.json",
+    permissions = { "exec", "read", "write", "ui" },
 }
 ```
+
+The manifest runs in the config sandbox (see `docs/configuration.md`), apart
+from the plugin, so its permissions are known before any plugin code runs. A
+`plugin.json` from an older version is converted to `manifest.lua` at start.
+
+Two optional keys let Thor check the plugin for updates (see `docs/plugins.md`):
+`version = "1.2.0"` and `source = "owner/repo"`, the GitHub repository whose
+latest release tag holds the newer version. Its source archive must have
+`plugin.lua` at its root. A plugin folder that is a git clone needs neither key,
+because Thor checks it against its upstream branch.
 
 | Permission | Grants |
 | ---------- | ------ |
@@ -173,6 +183,9 @@ returns `true`.
 
 `thor.on_command(name, fn)` names a command. A name another plugin registered
 first stays with that plugin, and the second registration is logged and ignored.
+Each command is also in the command palette as "Plugin: <name> (<plugin id>)",
+and the user can bind it in `keybinds.lua` as `["plugin.<name>"] = "ctrl+..."`.
+A name a built-in command already has (`tutorial`) is not listed twice.
 
 ## Files
 

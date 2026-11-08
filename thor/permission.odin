@@ -28,6 +28,8 @@ Permission_Dialog :: struct {
     data:         rawptr,
     // Pane key the focus goes back to when the prompt closes.
     return_focus: string,
+    // The box takes the focus on the next frame, so no pane reads keys under it.
+    focus_pending: bool,
 }
 
 thor_permission_init :: proc(thor: ^Thor) {
@@ -75,6 +77,7 @@ thor_permission_open :: proc(
     if !thor.permission_open {
         d.return_focus = thor.focus_owner
     }
+    d.focus_pending = true
     thor.permission_open = true
 }
 
@@ -139,10 +142,10 @@ thor_permission_view :: proc(thor: ^Thor) {
 permission_box :: proc(thor: ^Thor) {
     d := &thor.permission
 
-    ui.scope(
+    box := ui.scope(
         {
             key = "perm-box",
-            flags = {.Clickable},
+            flags = {.Clickable, .Focusable},
             props = {
                 w = ui.Px(PERMISSION_WIDTH),
                 max_w = ui.viewport().x - 60,
@@ -157,6 +160,10 @@ permission_box :: proc(thor: ^Thor) {
             },
         },
     )
+    if d.focus_pending {
+        ui.set_focus(box.id)
+        d.focus_pending = false
+    }
 
     ui.label(
         d.title,

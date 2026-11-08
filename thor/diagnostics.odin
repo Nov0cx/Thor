@@ -56,8 +56,14 @@ thor_apply_diagnostics :: proc(thor: ^Thor, res: ^lang.Result) {
             thor_clear_file_diagnostics(file)
         }
     }
+    thor_package_problems_store(thor, res)
     for d in res.report.items {
         thor_apply_diagnostic(thor, d, res.revision)
+    }
+    for file in thor.open_files {
+        if file.loaded && !file.closed {
+            thor_merge_file_diagnostics(file)
+        }
     }
 }
 
@@ -77,6 +83,7 @@ thor_clear_file_diagnostics :: proc(file: ^Open_File) {
         delete(d.message)
     }
     clear(&file.diagnostics)
+    thor_merge_file_diagnostics(file)
 }
 
 // Adds one diagnostic to its matching open file, converting line:col to a byte
@@ -93,26 +100,174 @@ thor_apply_diagnostic :: proc(thor: ^Thor, d: lang.Diagnostic, revision: u64) {
     if !report_matches_file(file, revision) {
         return
     }
+    append(&file.diagnostics, editor_diagnostic(file, d))
+    file.diagnostics_revision = file.state.revision
+}
+
+// `d` mapped onto `file`'s live buffer, with its message cloned.
+@(private = "file")
+editor_diagnostic :: proc(file: ^Open_File, d: lang.Diagnostic) -> editview.Diagnostic {
     text := textedit.text(&file.state)
     line0 := d.line - 1
     start := textedit.state_line_start(&file.state, line0) + (d.col - 1)
     start = clamp(start, 0, len(text))
-    end := diagnostic_token_end(text, start)
-    append(&file.diagnostics, editview.Diagnostic {
+    return editview.Diagnostic {
         start    = start,
-        end      = end,
+        end      = diagnostic_token_end(text, start),
         line     = line0,
         severity = editor_severity(d.severity),
         message  = strings.clone(d.message),
-    })
-    file.diagnostics_revision = file.state.revision
+        code     = d.code,
+        lint     = d.lint,
+    }
 }
 
-// The seam's severity as the editor's. Both carry the same two levels; the split
-// is what keeps the language layer free of widget types.
+// Queues a live syntax check of the file a pane shows. Called every frame; one
+// request at a time for every file, and none while the file's errors are current.
+thor_request_pane_syntax_diagnostics :: proc(thor: ^Thor, pane: int) {
+    if thor.syntax_request_id != 0 {
+        return
+    }
+    index := thor.pane_file[pane]
+    if index < 0 || index >= len(thor.open_files) {
+        return
+    }
+    file := thor.open_files[index]
+    if !file.loaded || (file.syntax_ready && file.syntax_revision == file.state.revision) {
+        return
+    }
+    ext := thor_lang_key(thor, file.name)
+    if !lang.manager_allows(&thor.lang_manager, ext, .Syntax_Diagnostics) {
+        return
+    }
+    thor.syntax_request_id = lang.manager_request_debounced(
+        &thor.lang_manager,
+        .Syntax_Diagnostics,
+        file.path,
+        ext,
+        textedit.text(&file.state),
+        0,
+        file.state.revision,
+        thor.workspace_dir,
+        delay = lang.DEBOUNCE_HOVER,
+    )
+}
+
+// Stores a live syntax check on its file. A result for an older revision is
+// dropped; the next frame asks again for the current one.
+thor_apply_syntax_diagnostics :: proc(thor: ^Thor, res: ^lang.Result) {
+    if res.id != thor.syntax_request_id {
+        return
+    }
+    thor.syntax_request_id = 0
+    if !res.ok {
+        return
+    }
+    file, _ := thor_find_open_file(thor, res.report.scope)
+    if file == nil || !file.loaded || res.revision != file.state.revision {
+        return
+    }
+    thor_clear_file_syntax_diagnostics(file)
+    for d in res.report.items {
+        if thor_same_path(d.path, res.report.scope) {
+            append(&file.syntax_diagnostics, editor_diagnostic(file, d))
+        }
+    }
+    file.syntax_revision = res.revision
+    file.syntax_ready = true
+    thor_merge_file_diagnostics(file)
+    if res.report.package_wide {
+        thor_apply_package_syntax_diagnostics(thor, file, res)
+    }
+}
+
+// Stores the items of a package-wide live check on the other open, unmodified files of the
+// directory of `primary`; the report is read from disk, so a modified buffer keeps its own check.
 @(private = "file")
+thor_apply_package_syntax_diagnostics :: proc(thor: ^Thor, primary: ^Open_File, res: ^lang.Result) {
+    dir := filepath.dir(primary.path)
+    for other in thor.open_files {
+        if other == primary || other.closed || !other.loaded || thor_file_dirty(other) {
+            continue
+        }
+        if !thor_same_path(filepath.dir(other.path), dir) {
+            continue
+        }
+        thor_clear_file_syntax_diagnostics(other)
+        for d in res.report.items {
+            if thor_same_path(d.path, other.path) {
+                append(&other.syntax_diagnostics, editor_diagnostic(other, d))
+            }
+        }
+        other.syntax_revision = other.state.revision
+        other.syntax_ready = true
+        thor_merge_file_diagnostics(other)
+    }
+}
+
+// Frees a file's live syntax errors and marks them stale.
+thor_clear_file_syntax_diagnostics :: proc(file: ^Open_File) {
+    for d in file.syntax_diagnostics {
+        delete(d.message)
+    }
+    clear(&file.syntax_diagnostics)
+    file.syntax_revision = 0
+    file.syntax_ready = false
+    thor_merge_file_diagnostics(file)
+}
+
+// Rebuilds `merged_diagnostics`: the compiler's items and the lint items of the live check,
+// empty when the live check has none.
+@(private = "file")
+thor_merge_file_diagnostics :: proc(file: ^Open_File) {
+    clear(&file.merged_diagnostics)
+    lints := 0
+    for d in file.syntax_diagnostics {
+        if d.lint {
+            lints += 1
+        }
+    }
+    if lints == 0 {
+        return
+    }
+    reserve(&file.merged_diagnostics, len(file.diagnostics) + lints)
+    append(&file.merged_diagnostics, ..file.diagnostics[:])
+    for d in file.syntax_diagnostics {
+        if d.lint {
+            append(&file.merged_diagnostics, d)
+        }
+    }
+}
+
+// The diagnostics to show for `file` at its current revision: the compiler's
+// when current, with the live lint items when those are current too, else the
+// live diagnostics, else none.
+thor_file_live_diagnostics :: proc(file: ^Open_File) -> []editview.Diagnostic {
+    if !file.loaded {
+        return nil
+    }
+    live := file.syntax_ready && file.syntax_revision == file.state.revision
+    if file.diagnostics_revision == file.state.revision {
+        if live && len(file.merged_diagnostics) > 0 {
+            return file.merged_diagnostics[:]
+        }
+        return file.diagnostics[:]
+    }
+    if file.syntax_ready && file.syntax_revision == file.state.revision {
+        return file.syntax_diagnostics[:]
+    }
+    return nil
+}
+
+// The seam's severity as the editor's. Both carry the same levels; the split
+// is what keeps the language layer free of widget types.
 editor_severity :: proc(severity: lang.Diagnostic_Severity) -> editview.Diagnostic_Severity {
-    return severity == .Warning ? .Warning : .Error
+    switch severity {
+    case .Error:   return .Error
+    case .Warning: return .Warning
+    case .Hint:    return .Hint
+    }
+    return .Error
 }
 
 // End of the token to underline from `start`: the run of identifier characters,

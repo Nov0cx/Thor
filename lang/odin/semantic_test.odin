@@ -1,547 +1,543 @@
-// Semantic classification: the kinds the analyzer proves that the grammar
-// cannot, the positions it deliberately says nothing about, and the guards that
-// give up the right to dim an undeclared name.
 package odin
 
-import "core:fmt"
+import "core:log"
 import "core:os"
 import "core:strings"
 import "core:testing"
+import "core:time"
 
 import lang ".."
-import ts "../../vendor/odin-tree-sitter"
 
-// Classifies `source` whole. Callers own res.tokens.
-@(private)
-semantic_at :: proc(e: ^Engine, source: string, workspace := "", path := "buffer.odin") -> lang.Result {
-    req := lang.Request{kind = .Semantic_Tokens, path = path, ext = ".odin", source = source, workspace = workspace}
+// Runs a Semantic_Tokens request over `source`. Free the tokens with delete.
+@(private = "file")
+semantic_at :: proc(e: ^Engine, source: string, workspace := "", path := "buffer.odin", offset := 0, end := 0) -> lang.Result {
+    req := lang.Request {
+        kind      = .Semantic_Tokens,
+        path      = path,
+        ext       = ".odin",
+        source    = source,
+        offset    = offset,
+        end       = end,
+        workspace = workspace,
+    }
     res := lang.Result{kind = .Semantic_Tokens}
     resolve(e, &req, &res)
     return res
 }
 
-// The kind classified at the first occurrence of `needle`, if any.
-@(private)
-kind_at :: proc(res: ^lang.Result, source, needle: string) -> (lang.Token_Kind, bool) {
-    at := strings.index(source, needle)
+// The token that starts at the first `needle` after the first `after`, plus `skip`.
+@(private = "file")
+token_at :: proc(res: ^lang.Result, src, needle: string, after := "", skip := 0) -> (lang.Semantic_Token, bool) {
+    at := after == "" ? strings.index(src, needle) : offset_after(src, needle, after)
+    if at < 0 {
+        return {}, false
+    }
+    at += skip
     for tok in res.tokens {
         if tok.start == at {
-            return tok.kind, true
+            return tok, true
         }
     }
     return {}, false
 }
 
-// True when any token was emitted for the first occurrence of `needle`.
-@(private)
-classified :: proc(res: ^lang.Result, source, needle: string) -> bool {
-    _, ok := kind_at(res, source, needle)
-    return ok
+@(private = "file")
+expect_kind :: proc(t: ^testing.T, res: ^lang.Result, src, needle: string, want: lang.Token_Kind, after := "", skip := 0, loc := #caller_location) {
+    tok, ok := token_at(res, src, needle, after, skip)
+    if !testing.expectf(t, ok, "%q (after %q): expected a token", needle, after, loc = loc) {
+        return
+    }
+    testing.expectf(t, tok.kind == want, "%q (after %q): got %v, want %v", needle, after, tok.kind, want, loc = loc)
 }
 
-@(test)
-test_semantic_separates_parameter_from_local :: proc(t: ^testing.T) {
-    e := engine_create()
-    defer engine_destroy(e)
+@(private = "file")
+expect_none :: proc(t: ^testing.T, res: ^lang.Result, src, needle: string, after := "", skip := 0, loc := #caller_location) {
+    tok, ok := token_at(res, src, needle, after, skip)
+    testing.expectf(t, !ok, "%q (after %q): want no token, got %v", needle, after, tok.kind, loc = loc)
+}
 
-    // The grammar paints every one of these `@variable`: only resolution tells a
-    // parameter from a local from a package from a procedure.
-    src := `package demo
+// Expects the tokens ascending and non-overlapping, each on an identifier of `src`.
+@(private = "file")
+expect_ordered :: proc(t: ^testing.T, res: ^lang.Result, src: string, loc := #caller_location) {
+    cut := 0
+    for tok, i in res.tokens {
+        if !testing.expectf(t, tok.start >= cut && tok.start < tok.end && tok.end <= len(src), "token %d [%d, %d) after %d", i, tok.start, tok.end, cut, loc = loc) {
+            return
+        }
+        cut = tok.end
+    }
+}
+
+@(private = "file")
+KINDS_SRC :: `package demo
 
 import "core:fmt"
 
-Point :: struct {
-	x: int,
-}
-
-scale :: proc(p: Point, factor: int) -> int {
-	total := factor * 2
-	fmt.println(total)
-	return total
-}
-`
-    res := semantic_at(e, src)
-    defer delete(res.tokens)
-
-    cases := [][2]string {
-        {"factor * 2", "parameter use"},
-        {"p: Point", "parameter declaration"},
-    }
-    for c in cases {
-        kind, ok := kind_at(&res, src, c[0])
-        testing.expectf(t, ok, "expected a token for the %s", c[1])
-        if ok {
-            testing.expectf(t, kind == .Parameter, "%s: got %v, want Parameter", c[1], kind)
-        }
-    }
-
-    local, lok := kind_at(&res, src, "total\n")
-    testing.expect(t, lok, "expected a token for the local's use")
-    if lok {
-        testing.expectf(t, local == .Local, "local use: got %v, want Local", local)
-    }
-
-    pkg, pok := kind_at(&res, src, "fmt.println")
-    testing.expect(t, pok, "expected a token for the package operand")
-    if pok {
-        testing.expectf(t, pkg == .Package, "package operand: got %v, want Package", pkg)
-    }
-
-    proc_kind, prok := kind_at(&res, src, "scale ::")
-    testing.expect(t, prok, "expected a token for the procedure name")
-    if prok {
-        testing.expectf(t, proc_kind == .Procedure, "procedure: got %v, want Procedure", proc_kind)
-    }
-
-    type_kind, tok := kind_at(&res, src, "Point, factor")
-    testing.expect(t, tok, "expected a token for the parameter's type")
-    if tok {
-        testing.expectf(t, type_kind == .Type, "type use: got %v, want Type", type_kind)
-    }
-}
-
-@(test)
-test_semantic_skips_grammar_positions :: proc(t: ^testing.T) {
-    e := engine_create()
-    defer engine_destroy(e)
-
-    // Everywhere the parse already proves what the identifier is. A token here
-    // could only overrule a correct color with a worse one.
-    src := `package demo
-
-import rl "core:fmt"
-
-Axis :: enum {
-	Vertical,
-}
-
-Point :: struct {
-	x: int,
-}
-
-read :: proc(p: Point) -> int {
-	return p.x
-}
-`
-    res := semantic_at(e, src)
-    defer delete(res.tokens)
-
-    skipped := [][2]string {
-        {"demo", "the package clause"},
-        {"rl \"core:fmt\"", "an import alias"},
-        {"Vertical", "an enum member declaration"},
-        {"x: int", "a struct field declaration"},
-    }
-    for s in skipped {
-        testing.expectf(t, !classified(&res, src, s[0]), "expected no token for %s", s[1])
-    }
-
-    // Both type declarations are named the same way, so both keep a token.
-    for needle in ([]string{"Axis ::", "Point ::"}) {
-        kind, ok := kind_at(&res, src, needle)
-        testing.expectf(t, ok, "expected a token for %q", needle)
-        if ok {
-            testing.expectf(t, kind == .Type, "%q: got %v, want Type", needle, kind)
-        }
-    }
-
-    // `p.x` is a qualified selector's member with a resolvable struct operand,
-    // so unlike the declaration sites above it now carries its own token.
-    kind, ok := kind_at(&res, src, "x\n}")
-    testing.expectf(t, ok, "expected a token for the selector's field use")
-    if ok {
-        testing.expectf(t, kind == .Field, "selector field use: got %v, want Field", kind)
-    }
-}
-
-@(test)
-test_semantic_qualified_enum_member :: proc(t: ^testing.T) {
-    e := engine_create()
-    defer engine_destroy(e)
-
-    src := `package demo
-
 Axis :: enum {
 	Vertical,
 	Horizontal,
 }
 
-pick :: proc() -> Axis {
-	return Axis.Vertical
+Point :: struct {
+	x: int,
+	on_move: proc(),
+}
+
+My_Int :: int
+LIMIT :: 4
+counter: int
+helper :: other
+
+other :: proc() {}
+
+scale :: proc(p: Point, factor: int) -> (total: int) {
+	Local_Kind :: struct { v: int }
+	local_proc :: proc() {}
+	sum := factor * 2
+	fmt.println(sum, LIMIT, counter, len("x"))
+	n: My_Int = 3
+	a := Axis.Vertical
+	b: Axis = .Horizontal
+	p.on_move()
+	local_proc()
+	k := Local_Kind{v = 1}
+	_ = k.v
+	helper()
+	return sum + p.x + int(n)
 }
 `
+
+@(test)
+test_semantic_token_kinds :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := KINDS_SRC
     res := semantic_at(e, src)
     defer delete(res.tokens)
+    expect_ordered(t, &res, src)
 
-    kind, ok := kind_at(&res, src, "Vertical\n}")
-    testing.expectf(t, ok, "expected a token for the qualified enum member")
-    if ok {
-        testing.expectf(t, kind == .Enum_Member, "Axis.Vertical: got %v, want Enum_Member", kind)
+    expect_kind(t, &res, src, "p: Point", .Parameter)
+    expect_kind(t, &res, src, "factor * 2", .Parameter)
+    expect_kind(t, &res, src, "factor: int", .Parameter)
+    expect_kind(t, &res, src, "total: int", .Parameter)
+    expect_kind(t, &res, src, "sum :=", .Local)
+    expect_kind(t, &res, src, "sum, LIMIT", .Local)
+    expect_kind(t, &res, src, "a :=", .Local)
+    expect_kind(t, &res, src, "x: int", .Field)
+    expect_kind(t, &res, src, "x + int", .Field)
+    expect_kind(t, &res, src, "v: int", .Field)
+    expect_kind(t, &res, src, "v = 1", .Field)
+    expect_kind(t, &res, src, "v\n", .Field, after = "k.")
+    expect_kind(t, &res, src, "on_move()", .Procedure)
+    expect_kind(t, &res, src, "on_move:", .Procedure)
+    expect_kind(t, &res, src, "scale ::", .Procedure)
+    expect_kind(t, &res, src, "other ::", .Procedure)
+    expect_kind(t, &res, src, "other\n", .Procedure, after = "helper ::")
+    expect_kind(t, &res, src, "helper ::", .Procedure)
+    expect_kind(t, &res, src, "helper()", .Procedure)
+    expect_kind(t, &res, src, "local_proc ::", .Procedure)
+    expect_kind(t, &res, src, "local_proc()", .Procedure)
+    expect_kind(t, &res, src, "println", .Procedure)
+    expect_kind(t, &res, src, "Point ::", .Type)
+    expect_kind(t, &res, src, "Point, factor", .Type)
+    expect_kind(t, &res, src, "Axis ::", .Type)
+    expect_kind(t, &res, src, "Axis.Vertical", .Type)
+    expect_kind(t, &res, src, "My_Int ::", .Type)
+    expect_kind(t, &res, src, "My_Int = 3", .Type)
+    expect_kind(t, &res, src, "Local_Kind ::", .Type)
+    expect_kind(t, &res, src, "Local_Kind{", .Type)
+    expect_kind(t, &res, src, "Vertical,", .Enum_Member)
+    expect_kind(t, &res, src, "Vertical\n", .Enum_Member, after = "Axis.")
+    expect_kind(t, &res, src, "Horizontal\n", .Enum_Member, after = "= .")
+    expect_kind(t, &res, src, "fmt.println", .Package)
+
+    // A constant value is a Local with the Constant modifier. A package variable, a builtin and a basic type keep the grammar's color.
+    expect_kind(t, &res, src, "LIMIT ::", .Local)
+    expect_kind(t, &res, src, "LIMIT, counter", .Local)
+    expect_none(t, &res, src, "counter: int")
+    expect_none(t, &res, src, "counter, len")
+    expect_none(t, &res, src, "len(")
+    expect_none(t, &res, src, "int,")
+    expect_none(t, &res, src, "demo")
+    for tok in res.tokens {
+        testing.expectf(t, tok.kind != .Unresolved, "no workspace: no Unresolved, got one at %d", tok.start)
     }
 }
 
 @(test)
-test_semantic_implicit_enum_selector :: proc(t: ^testing.T) {
+test_semantic_selectors_through_using_and_pointer :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    // An implicit selector is typed by the position it sits in, the same walk
-    // completion uses: a result, an assignment, a comparison, a case, a field
-    // of a literal, a call argument and a bit_set literal.
     src := `package demo
 
-Axis :: enum {
-	Vertical,
-	Horizontal,
-	Depth,
-	Width,
-	Height,
-	Length,
-	Size,
+Base :: struct {
+	id: int,
 }
+
+Node :: struct {
+	using base: Base,
+	next: ^Node,
+	kind: Kind,
+}
+
+Kind :: enum { Leaf, Branch }
+
+walk :: proc(n: ^Node, using b: ^Base) -> int {
+	m := n.next
+	if m.kind == .Leaf {
+		return m.next.id + n.base.id + id
+	}
+	return n.id
+}
+`
+    res := semantic_at(e, src)
+    defer delete(res.tokens)
+    expect_ordered(t, &res, src)
+
+    expect_kind(t, &res, src, "next\n", .Field, after = "n.")
+    expect_kind(t, &res, src, "kind ==", .Field)
+    expect_kind(t, &res, src, "next.id", .Field)
+    expect_kind(t, &res, src, "id + n", .Field)
+    expect_kind(t, &res, src, "base.id", .Field)
+    expect_kind(t, &res, src, "id + id", .Field, after = "base.")
+    expect_kind(t, &res, src, "id\n", .Field, after = "return n.")
+    expect_kind(t, &res, src, "Leaf {", .Enum_Member, after = "== .")
+    expect_kind(t, &res, src, "b: ^Base", .Parameter)
+    // A name a `using` parameter brings in is its field.
+    expect_kind(t, &res, src, "id\n", .Field, after = "+ n.base.id + ")
+}
+
+@(test)
+test_semantic_implicit_members_fields_and_named_arguments :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+Axis :: enum { X, Y, Z }
 
 Box :: struct {
 	axis: Axis,
+	size: int,
 }
 
-take :: proc(a: Axis) {}
+take :: proc(axis: Axis, count := 1) {}
 
-pick :: proc(a: Axis) -> Axis {
-	x: Axis
-	x = .Horizontal
-	if a == .Depth {
+main :: proc() {
+	b := Box{axis = .Y, size = 2}
+	take(.Z, count = 3)
+	s := bit_set[Axis]{.X}
+	switch b.axis {
+	case .X:
 	}
-	switch a {
-	case .Width:
-	}
-	b := Box{axis = .Height}
-	take(.Length)
-	s := bit_set[Axis]{.Size}
-	return .Vertical
+	_ = s
 }
 `
     res := semantic_at(e, src)
     defer delete(res.tokens)
+    expect_ordered(t, &res, src)
 
-    for needle in ([]string{"Horizontal\n\tif", "Depth {", "Width:", "Height}", "Length)", "Size}", "Vertical\n}"}) {
-        kind, ok := kind_at(&res, src, needle)
-        testing.expectf(t, ok, "expected a token for the implicit selector at %q", needle)
-        if ok {
-            testing.expectf(t, kind == .Enum_Member, "%q: got %v, want Enum_Member", needle, kind)
-        }
-    }
+    expect_kind(t, &res, src, "axis = .Y", .Field)
+    expect_kind(t, &res, src, "size = 2", .Field)
+    expect_kind(t, &res, src, "Y, size", .Enum_Member)
+    expect_kind(t, &res, src, "Z, count", .Enum_Member)
+    expect_kind(t, &res, src, "count = 3", .Parameter)
+    expect_kind(t, &res, src, "X}", .Enum_Member)
+    expect_kind(t, &res, src, "X:", .Enum_Member)
+    expect_kind(t, &res, src, "axis {", .Field)
 }
 
 @(test)
-test_semantic_implicit_selector_unknown_member_stays_unclassified :: proc(t: ^testing.T) {
+test_semantic_cross_package :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    // A name the expected enum does not declare is left to the highlighter.
-    src := `package demo
+    lib_src := `package lib
 
-Axis :: enum {
-	Vertical,
+Shape :: struct {
+	width: int,
 }
 
-pick :: proc() -> Axis {
-	return .Verticl
+Mode :: enum { Fast, Slow }
+
+area :: proc(s: Shape) -> int {
+	return s.width
+}
+
+DEFAULT_WIDTH :: 3
+global_count: int
+`
+    main_src := `package app
+
+import "../lib"
+
+main :: proc() {
+	s := lib.Shape{width = lib.DEFAULT_WIDTH}
+	_ = lib.area(s) + s.width + lib.global_count
+	m := lib.Mode.Slow
+	_ = m
 }
 `
-    res := semantic_at(e, src)
+    root := fixture(t, "semantic_packages", {{"lib/lib.odin", lib_src}, {"app/main.odin", main_src}})
+    res := semantic_at(e, main_src, workspace = root, path = fixture_path(root, "app/main.odin"))
     defer delete(res.tokens)
+    expect_ordered(t, &res, main_src)
 
-    testing.expect(t, !classified(&res, src, "Verticl\n}"), "expected the misspelt member to stay unclassified")
-}
-
-@(test)
-test_semantic_package_selector_stays_unclassified :: proc(t: ^testing.T) {
-    e := engine_create()
-    defer engine_destroy(e)
-
-    // A package qualifier is not a field or enum member — must not be swept up
-    // by the new member resolution just because it sits in the same grammar
-    // position.
-    src := `package demo
-
-import "core:fmt"
-
-run :: proc() {
-	fmt.println("hi")
-}
-`
-    res := semantic_at(e, src)
-    defer delete(res.tokens)
-
-    testing.expect(t, !classified(&res, src, `println("hi")`), "a package member must stay unclassified by the new field/enum resolution")
-}
-
-@(test)
-test_semantic_member_resolution_is_capped :: proc(t: ^testing.T) {
-    e := engine_create()
-    defer engine_destroy(e)
-
-    // Every one of these resolves cleanly on its own — the cap is what stops
-    // the pass past SEMANTIC_MEMBER_LIMIT, not a resolution failure.
-    total := SEMANTIC_MEMBER_LIMIT + 50
-    b := strings.builder_make(context.temp_allocator)
-    strings.write_string(&b, "package demo\n\nPoint :: struct {\n\tx: int,\n}\n\nrun :: proc(p: Point) {\n")
-    for _ in 0 ..< total {
-        strings.write_string(&b, "\t_ = p.x\n")
-    }
-    strings.write_string(&b, "}\n")
-    src := strings.to_string(b)
-
-    res := semantic_at(e, src)
-    defer delete(res.tokens)
-
-    fields := 0
+    expect_kind(t, &res, main_src, "lib.Shape", .Package)
+    expect_kind(t, &res, main_src, "Shape{", .Type)
+    expect_kind(t, &res, main_src, "width = ", .Field)
+    expect_kind(t, &res, main_src, "area(", .Procedure)
+    expect_kind(t, &res, main_src, "width +", .Field)
+    expect_kind(t, &res, main_src, "Mode.", .Type)
+    expect_kind(t, &res, main_src, "Slow", .Enum_Member)
+    expect_kind(t, &res, main_src, "DEFAULT_WIDTH", .Local)
+    expect_none(t, &res, main_src, "global_count")
     for tok in res.tokens {
-        if tok.kind == .Field {
-            fields += 1
-        }
-    }
-    testing.expectf(
-        t, fields == SEMANTIC_MEMBER_LIMIT,
-        "expected exactly %d field tokens once the budget is spent, got %d", SEMANTIC_MEMBER_LIMIT, fields,
-    )
-}
-
-@(test)
-test_semantic_tokens_are_ordered :: proc(t: ^testing.T) {
-    e := engine_create()
-    defer engine_destroy(e)
-
-    // The seam promises the editor ascending, non-overlapping tokens: it merges
-    // them against the syntax spans with one cursor that only moves forward.
-    src := `package demo
-
-add :: proc(a: int, b: int) -> int {
-	sum := a + b
-	doubled := sum + sum
-	return doubled
-}
-`
-    res := semantic_at(e, src)
-    defer delete(res.tokens)
-
-    testing.expect(t, len(res.tokens) > 0, "expected the file to classify something")
-    prev := 0
-    for tok in res.tokens {
-        testing.expectf(t, tok.start >= prev, "token at %d starts before the previous one ended (%d)", tok.start, prev)
-        testing.expectf(t, tok.end > tok.start, "empty token at %d", tok.start)
-        prev = tok.end
+        testing.expectf(t, tok.kind != .Unresolved, "unexpected Unresolved at %q", main_src[tok.start:tok.end])
     }
 }
 
 @(test)
-test_semantic_dims_undeclared_name :: proc(t: ^testing.T) {
+test_semantic_unresolved_only_when_undeclared :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    // With a workspace to check against, a name nothing declares is the one
-    // thing the analyzer knows that no amount of parsing could.
-    root := "thor_lang_sem_ws"
-    _ = os.make_directory(root)
-    helper := strings.concatenate({root, "/helper.odin"}, context.temp_allocator)
-    _ = os.write_entire_file(helper, transmute([]byte) string("package demo\n\nknown :: 1\n"))
-    defer os.remove(root)
-    defer os.remove(helper)
+    main_src := `package app
 
-    path := strings.concatenate({root, "/main.odin"}, context.temp_allocator)
-    src := `package demo
+Point :: struct { x: int }
 
-run :: proc(value: int) -> int {
-	return value + known + missing_name
-}
-`
-    res := semantic_at(e, src, root, path)
-    defer delete(res.tokens)
+FLAG :: #config(APP_FLAG, false)
 
-    kind, ok := kind_at(&res, src, "missing_name")
-    testing.expect(t, ok, "expected the undeclared name to classify")
-    if ok {
-        testing.expectf(t, kind == .Unresolved, "missing_name: got %v, want Unresolved", kind)
-    }
-    testing.expect(t, !classified(&res, src, "known +"), "a workspace declaration must not be dimmed")
-    testing.expect(t, !classified(&res, src, "int"), "a builtin type must not be dimmed")
-}
-
-@(test)
-test_semantic_dims_nothing_reachable :: proc(t: ^testing.T) {
-    e := engine_create()
-    defer engine_destroy(e)
-
-    // Everything here is declared somewhere the engine can reach: the builtin
-    // scope, an imported package, the file itself. Dimming any of it reads as an
-    // error the compiler never reported, which is the one thing this pass must
-    // never do.
-    root := "thor_lang_sem_reach_ws"
-    _ = os.make_directory(root)
-    helper := strings.concatenate({root, "/helper.odin"}, context.temp_allocator)
-    _ = os.write_entire_file(helper, transmute([]byte)string("package demo\n\nknown :: 1\n"))
-    defer os.remove(root)
-    defer os.remove(helper)
-
-    path := strings.concatenate({root, "/main.odin"}, context.temp_allocator)
-    src := `package demo
-
-import "core:fmt"
-import "core:os"
-
-Axis :: enum {
-	Vertical,
-}
-
-sized_a :: proc(a: int) -> int {return a}
-sized_b :: proc(a, b: int) -> int {return a + b}
-
-sizes :: proc{sized_a, sized_b}
-
-split :: proc(text: string) -> (head, tail: string, ok: bool) {
-	head = text
-	return head, tail, ok
-}
-
-run :: proc(loud: bool) -> int {
-	items := make([]int, 4)
-	defer delete(items)
-	append(&items, known)
-	for &item in items {
-		item += 1
+main :: proc() {
+	v := not_declared_anywhere(1)
+	w := v.missing_field
+	o := offset_of(Point, x)
+	_ = sibling_proc() + w + o + len("a")
+	_ = posix_only
+	when ODIN_OS == .Windows {
 	}
-	fmt.println(os.args, len(items), Axis.Vertical, sizes)
-	total := split(fmt.tprintf("%v", loud))
-	handle, _ := os.open("x")
-	os.close(handle)
-	a: Axis = .Vertical
-	_ = a
-	_ = total
-	return run(loud = true)
 }
 `
-    res := semantic_at(e, src, root, path)
-    defer delete(res.tokens)
+    sibling_src := `package app
 
-    dimmed := make([dynamic]string, context.temp_allocator)
+sibling_proc :: proc() -> int { return 1 }
+`
+    // Out of the build on every target but its own, and still a declaration of the package.
+    other_src := `package app
+
+posix_only :: 1
+`
+    root := fixture(t, "semantic_unresolved", {{"app/main.odin", main_src}, {"app/sibling.odin", sibling_src}, {"app/other_haiku.odin", other_src}})
+    res := semantic_at(e, main_src, workspace = root, path = fixture_path(root, "app/main.odin"))
+    defer delete(res.tokens)
+    expect_ordered(t, &res, main_src)
+
+    expect_kind(t, &res, main_src, "not_declared_anywhere", .Unresolved)
+    // Declared, though the checker cannot type it.
+    expect_kind(t, &res, main_src, "v :=", .Local)
+    expect_kind(t, &res, main_src, "v.missing", .Local)
+    expect_none(t, &res, main_src, "missing_field")
+    expect_none(t, &res, main_src, "APP_FLAG")
+    expect_none(t, &res, main_src, "x)")
+    expect_kind(t, &res, main_src, "sibling_proc()", .Procedure)
+    expect_none(t, &res, main_src, "posix_only")
+    expect_none(t, &res, main_src, "len(")
+    expect_none(t, &res, main_src, "ODIN_OS")
+    unresolved := 0
     for tok in res.tokens {
         if tok.kind == .Unresolved {
-            append(&dimmed, src[tok.start:tok.end])
+            unresolved += 1
         }
     }
-    testing.expectf(t, len(dimmed) == 0, "nothing here is undeclared, but %v was dimmed", dimmed[:])
+    testing.expectf(t, unresolved == 1, "got %d Unresolved tokens, want 1", unresolved)
 
-    // The guards did not simply give up: the file was judged, it just found
-    // nothing to flag.
-    testing.expect(t, len(res.tokens) > 0, "expected the file to classify something")
+    // A buffer with no workspace cannot prove a name undeclared.
+    bare := semantic_at(e, main_src)
+    defer delete(bare.tokens)
+    expect_none(t, &bare, main_src, "not_declared_anywhere")
+}
 
-    kind, ok := kind_at(&res, src, "head = text")
-    testing.expect(t, ok, "expected a token for a named result")
-    if ok {
-        testing.expectf(t, kind == .Parameter, "named result: got %v, want Parameter", kind)
+@(test)
+test_semantic_range_request :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := KINDS_SRC
+    lo := strings.index(src, "scale ::")
+    hi := strings.index(src, "fmt.println")
+    res := semantic_at(e, src, offset = lo, end = hi)
+    defer delete(res.tokens)
+    expect_ordered(t, &res, src)
+    testing.expect(t, len(res.tokens) > 0, "expected tokens in the range")
+    for tok in res.tokens {
+        testing.expectf(t, tok.start >= lo && tok.end <= hi, "token [%d, %d) outside [%d, %d)", tok.start, tok.end, lo, hi)
+    }
+    expect_kind(t, &res, src, "factor * 2", .Parameter)
+}
+
+// Real files of the repository: ascending, non-overlapping, and no name marked undeclared.
+@(test)
+test_semantic_real_files :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    for path in ([]string{"lang/odin/sema/check.odin", "thor/view.odin", "editview/editor.odin", "thor/lang_host.odin"}) {
+        data, err := os.read_entire_file(path, context.allocator)
+        if !testing.expectf(t, err == nil, "%s: could not read", path) {
+            continue
+        }
+        defer delete(data)
+        src := string(data)
+        start := time.tick_now()
+        res := semantic_at(e, src, workspace = ".", path = path)
+        cold := time.tick_since(start)
+        delete(res.tokens)
+        start = time.tick_now()
+        res = semantic_at(e, src, workspace = ".", path = path)
+        warm := time.tick_since(start)
+        defer delete(res.tokens)
+        log.infof("%s: %d tokens, cold %v, warm %v", path, len(res.tokens), cold, warm)
+        testing.expectf(t, len(res.tokens) > 100, "%s: only %d tokens", path, len(res.tokens))
+        expect_ordered(t, &res, src)
+        for tok in res.tokens {
+            if tok.kind == .Unresolved {
+                testing.expectf(t, false, "%s: %q marked Unresolved at %d", path, src[tok.start:tok.end], tok.start)
+            }
+        }
     }
 }
 
 @(test)
-test_semantic_dimming_needs_a_workspace :: proc(t: ^testing.T) {
+test_semantic_using_bare_names :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    // The kill switches all fail open, and each gives up dimming only —
-    // classification carries on, so the file keeps its parameter and local colors.
     src := `package demo
 
-run :: proc(value: int) -> int {
-	return value + missing_name
+Vec :: struct { x, y: f32 }
+Shade :: enum { Dark, Light }
+
+paint :: proc(v: Vec) -> f32 {
+	using v
+	using Shade
+	s := Light
+	{
+		x := 2
+		return x + y
+	}
 }
 `
     res := semantic_at(e, src)
     defer delete(res.tokens)
+    expect_ordered(t, &res, src)
 
-    testing.expect(t, !classified(&res, src, "missing_name"), "no workspace: nothing may be dimmed")
-    kind, ok := kind_at(&res, src, "value +")
-    testing.expect(t, ok, "no workspace: classification must continue")
-    if ok {
-        testing.expectf(t, kind == .Parameter, "value: got %v, want Parameter", kind)
+    expect_kind(t, &res, src, "y\n", .Field, after = "return x + ")
+    expect_kind(t, &res, src, "Light\n", .Enum_Member, after = "s := ")
+    expect_kind(t, &res, src, "x + y", .Local)
+}
+
+// The token at the first `needle`, with its modifiers.
+@(private = "file")
+expect_mods :: proc(t: ^testing.T, res: ^lang.Result, src, needle: string, want: lang.Token_Modifiers, after := "", loc := #caller_location) {
+    tok, ok := token_at(res, src, needle, after)
+    if !testing.expectf(t, ok, "%q: expected a token", needle, loc = loc) {
+        return
     }
+    testing.expectf(t, tok.modifiers == want, "%q: got %v, want %v", needle, tok.modifiers, want, loc = loc)
 }
 
 @(test)
-test_semantic_dimming_gives_up_on_using :: proc(t: ^testing.T) {
+test_semantic_modifiers :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    // A `using` statement injects names from a scope this engine does not
-    // follow, so nothing in the file can be called undeclared any more.
-    root := "thor_lang_sem_using_ws"
-    _ = os.make_directory(root)
-    helper := strings.concatenate({root, "/helper.odin"}, context.temp_allocator)
-    _ = os.write_entire_file(helper, transmute([]byte) string("package demo\n\nknown :: 1\n"))
-    defer os.remove(root)
-    defer os.remove(helper)
-
-    path := strings.concatenate({root, "/main.odin"}, context.temp_allocator)
     src := `package demo
 
-Point :: struct {
+Handle :: distinct int
+
+Plain :: struct {
 	x: int,
 }
 
-run :: proc(p: Point) -> int {
-	using p
-	return x + missing_name
+@(deprecated = "use fresh")
+old :: proc() {}
+
+fresh :: proc() {}
+
+LIMIT :: 4
+
+main :: proc(arg: int) {
+	count := 1
+	LOCAL :: 2
+	h: Handle
+	old()
+	fresh()
+	_ = count + LOCAL + LIMIT + arg
+	p: Plain
+	_ = p.x
+	_ = h
 }
 `
-    res := semantic_at(e, src, root, path)
+    res := semantic_at(e, src)
     defer delete(res.tokens)
+    expect_ordered(t, &res, src)
 
-    testing.expect(t, !classified(&res, src, "missing_name"), "a using statement must stop dimming")
-    kind, ok := kind_at(&res, src, "p: Point")
-    testing.expect(t, ok, "classification must continue in a file holding a using statement")
-    if ok {
-        testing.expectf(t, kind == .Parameter, "p: got %v, want Parameter", kind)
-    }
+    expect_mods(t, &res, src, "Handle :: ", {.Distinct})
+    expect_mods(t, &res, src, "Handle\n", {.Distinct}, after = "h: ")
+    expect_mods(t, &res, src, "Plain :: ", {})
+    expect_mods(t, &res, src, "old :: ", {.Deprecated})
+    expect_mods(t, &res, src, "old()", {.Deprecated})
+    expect_mods(t, &res, src, "fresh()", {})
+    expect_mods(t, &res, src, "count :=", {.Mutable})
+    expect_mods(t, &res, src, "count +", {.Mutable})
+    expect_mods(t, &res, src, "LOCAL +", {.Constant})
+    expect_mods(t, &res, src, "LIMIT +", {.Constant})
+    expect_mods(t, &res, src, "arg: int", {})
+    expect_mods(t, &res, src, "x\n", {.Mutable}, after = "p.")
 }
 
-// A source of `n` procedures, each declaring its own uniquely named local —
-// grows len(defs) without growing how many declarations share any one name.
-@(private)
-synth_defs_source :: proc(n: int) -> string {
-    b := strings.builder_make(context.temp_allocator)
-    strings.write_string(&b, "package demo\n\n")
-    for i in 0 ..< n {
-        fmt.sbprintf(&b, "proc_%d :: proc() {{\n\tlocal_%d := %d\n\t_ = local_%d\n}}\n\n", i, i, i, i)
-    }
-    return strings.to_string(b)
-}
-
-// defs, and the size of `name`'s bucket in group_defs_by_name, for `source`.
-@(private)
-defs_and_bucket :: proc(e: ^Engine, source, name: string) -> (defs_count, bucket_count: int) {
-    parser := ts.parser_new()
-    defer ts.parser_delete(parser)
-    ts.parser_set_language(parser, e.language)
-    tree := ts.parser_parse_string(parser, source)
-    defer ts.tree_delete(tree)
-    defs := collect_defs(e, ts.tree_root_node(tree), source)
-    by_name := group_defs_by_name(defs[:])
-    return len(defs), len(by_name[name])
-}
-
+// A `when` branch the target makes false is one Inactive range without identifier tokens inside.
 @(test)
-test_semantic_grouped_resolution_bucket_stays_bounded :: proc(t: ^testing.T) {
+test_semantic_inactive_when :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    // The whole point of group_defs_by_name: classify_identifier's per-name
-    // lookup should cost the shadowing depth at that one name, not the size of
-    // the file. A uniquely named local's bucket must stay at 1 whether the file
-    // holds 20 procedures or 200 — an asymptotic-shape assertion rather than a
-    // wall-clock one, since the four CI platforms cannot compare fairly on time.
-    small_defs, small_bucket := defs_and_bucket(e, synth_defs_source(20), "local_0")
-    big_defs, big_bucket := defs_and_bucket(e, synth_defs_source(200), "local_0")
+    src := `package demo
 
-    testing.expectf(t, big_defs > small_defs, "expected the bigger source to declare more defs: %d vs %d", big_defs, small_defs)
-    testing.expectf(t, small_bucket == 1, "a uniquely named local's bucket should hold exactly its one declaration, got %d", small_bucket)
-    testing.expectf(t, big_bucket == 1, "growing the file tenfold must not grow a uniquely named local's bucket: got %d", big_bucket)
+when ODIN_OS == .Windows {
+	win_only :: proc() {}
+} else {
+	other_only :: proc() {}
+}
+
+main :: proc() {}
+`
+    res := semantic_at(e, src)
+    defer delete(res.tokens)
+    expect_ordered(t, &res, src)
+
+    inactive := 0
+    for tok in res.tokens {
+        if tok.kind != .Inactive {
+            continue
+        }
+        inactive += 1
+        text := src[tok.start:tok.end]
+        when ODIN_OS == .Windows {
+            testing.expect(t, strings.contains(text, "other_only"), "the else branch is inactive")
+        } else {
+            testing.expect(t, strings.contains(text, "win_only"), "the when branch is inactive")
+        }
+    }
+    testing.expect_value(t, inactive, 1)
+    when ODIN_OS == .Windows {
+        expect_kind(t, &res, src, "win_only", .Procedure)
+        expect_none(t, &res, src, "other_only")
+    } else {
+        expect_kind(t, &res, src, "other_only", .Procedure)
+        expect_none(t, &res, src, "win_only")
+    }
+    expect_kind(t, &res, src, "main", .Procedure)
 }

@@ -223,10 +223,11 @@ swap_dirs :: proc(install: string, staged: string, dirs: []string) -> (replaced:
 }
 
 // Copies the *.json files of `from` into `to`, creating it. A `to` that already
-// holds a JSON file is left alone, so this carries an older layout over at most
-// once. The log alone in `to` does not count: it is written at every start.
+// holds a JSON or Lua config file is left alone, so this carries an older layout
+// over at most once; Thor converts what it carried to Lua at the next start. The
+// log alone in `to` does not count: it is written at every start.
 migrate_json_files :: proc(from: string, to: string) -> (carried: int, ok: bool) {
-    if !os.is_dir(from) || holds_json(to) {
+    if !os.is_dir(from) || holds_config(to) {
         return 0, false
     }
     entries, err := os.read_all_directory_by_path(from, context.temp_allocator)
@@ -257,10 +258,10 @@ migrate_json_files :: proc(from: string, to: string) -> (carried: int, ok: bool)
     return carried, true
 }
 
-// Whether `dir` holds a *.json file. A directory that cannot be read counts as
-// holding one, so nothing is carried over a layout that cannot be seen.
+// Whether `dir` holds a *.json or *.lua file. A directory that cannot be read
+// counts as holding one, so nothing is carried over a layout that cannot be seen.
 @(private = "file")
-holds_json :: proc(dir: string) -> bool {
+holds_config :: proc(dir: string) -> bool {
     if !os.is_dir(dir) {
         return false
     }
@@ -270,7 +271,7 @@ holds_json :: proc(dir: string) -> bool {
         return true
     }
     for entry in entries {
-        if entry.type != .Directory && strings.has_suffix(entry.name, ".json") {
+        if entry.type != .Directory && (strings.has_suffix(entry.name, ".json") || strings.has_suffix(entry.name, ".lua")) {
             return true
         }
     }

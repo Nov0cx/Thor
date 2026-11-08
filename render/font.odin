@@ -27,14 +27,15 @@ half_leading :: proc(size: f32) -> f32 {
     return (f32(font.line_height(i32(size))) - size) * 0.5
 }
 
-// Registers `name` and reports the handle that addresses it.
-register_family :: proc(b: ^Backend, name: string) -> ui.Font {
+// Registers `name` in `style` and reports the handle that addresses it. A
+// handle names a family and a synthetic style together.
+register_family :: proc(b: ^Backend, name: string, style: font.Style = {}) -> ui.Font {
     for f, i in b.families {
-        if f == name {
+        if f.name == name && f.style == style {
             return ui.Font(i + 1)
         }
     }
-    append(&b.families, name)
+    append(&b.families, Family_Handle{name = name, style = style})
     return ui.Font(len(b.families))
 }
 
@@ -44,7 +45,16 @@ family_of :: proc(b: ^Backend, h: ui.Font) -> string {
     if i < 0 || i >= len(b.families) {
         return ""
     }
-    return b.families[i]
+    return b.families[i].name
+}
+
+// The synthetic style a handle draws in.
+style_of :: proc(b: ^Backend, h: ui.Font) -> font.Style {
+    i := int(h) - 1
+    if i < 0 || i >= len(b.families) {
+        return {}
+    }
+    return b.families[i].style
 }
 
 font_metrics :: proc(f: ui.Font, size: f32, user: rawptr) -> ui.Font_Metrics {
@@ -68,7 +78,7 @@ measure_run :: proc(f: ui.Font, size: f32, text: string, spacing: f32, user: raw
         return 0
     }
     b := (^Backend)(user)
-    return f32(font.measure(text, i32(size), family_of(b, f)))
+    return f32(font.measure(text, i32(size), family_of(b, f), 0, style_of(b, f)))
 }
 
 // The x of byte offset `at`, from the shaped line: right across a ligature,

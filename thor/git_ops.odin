@@ -6,11 +6,11 @@ import "core:os"
 import "core:path/filepath"
 import "core:strconv"
 import "core:strings"
-import "core:sync"
 import "core:thread"
 import "core:time"
 
 import "../shell"
+import "../lockfree"
 
 // Async git commands for the git view: one Git_Op_Job per operation, run on a
 // worker thread and drained by thor_process_io. The parsers are pure and take
@@ -64,6 +64,7 @@ GIT_CLONE_TIMEOUT :: 120 * time.Second
 // worker never reads Thor state; generation and serial let the main thread
 // drop results the view no longer wants.
 Git_Op_Job :: struct {
+    queue_next: ^Git_Op_Job, // link in Thor.finished_git_ops
     owner:      ^Thor,
     allocator:  runtime.Allocator,
     worker:     ^thread.Thread,
@@ -172,16 +173,14 @@ git_op_worker :: proc(job: ^Git_Op_Job) {
         git_run_simple(job)
     }
 
-    sync.lock(&job.owner.io_mutex)
-    append(&job.owner.finished_git_ops, job)
-    sync.unlock(&job.owner.io_mutex)
+    lockfree.stack_push(&job.owner.finished_git_ops, job)
 }
 
 // Snapshot slots: aux[0] = rev-parse --abbrev-ref HEAD, aux[1] = short HEAD
 // hash (only when detached), aux[2] = upstream ahead/behind counts.
 @(private = "file")
 git_run_snapshot :: proc(job: ^Git_Op_Job) {
-    job.output, job.code, job.ok = shell.run_status("git status --porcelain -z", job.cwd, GIT_LOCAL_TIMEOUT)
+    job.output, job.code, job.ok = shell.run_status("git --no-optional-locks status --porcelain -z", job.cwd, GIT_LOCAL_TIMEOUT)
     job.aux[0], job.aux_codes[0], _ = shell.run_status("git rev-parse --abbrev-ref HEAD", job.cwd, GIT_LOCAL_TIMEOUT)
     if strings.trim_space(job.aux[0]) == "HEAD" {
         job.aux[1], job.aux_codes[1], _ = shell.run_status("git rev-parse --short HEAD", job.cwd, GIT_LOCAL_TIMEOUT)
@@ -234,7 +233,7 @@ git_run_diff_file :: proc(job: ^Git_Op_Job) {
         return
     }
     cached := job.flag ? "--cached " : ""
-    cmd := strings.concatenate({"git diff ", cached, "--no-color -- ", quoted}, context.temp_allocator)
+    cmd := strings.concatenate({"git --no-optional-locks diff ", cached, "--no-color -- ", quoted}, context.temp_allocator)
     job.output, job.code, job.ok = shell.run_status(cmd, job.cwd, GIT_LOCAL_TIMEOUT)
 }
 

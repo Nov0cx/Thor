@@ -2,7 +2,6 @@
 package shell
 
 import "core:strings"
-import "core:sync"
 import win32 "core:sys/windows"
 
 // A child process on three pipes. The job object holds it and everything it
@@ -19,45 +18,36 @@ Child :: struct {
 
 // Starts `spec` with stdin, stdout and stderr on three separate pipes.
 child_start :: proc(spec: Child_Spec) -> (^Child, bool) {
-    sa := win32.SECURITY_ATTRIBUTES {
-        nLength        = size_of(win32.SECURITY_ATTRIBUTES),
-        bInheritHandle = true,
-    }
-
-    sync.mutex_lock(&spawn_mutex)
-    locked := true
-    defer if locked {
-        sync.mutex_unlock(&spawn_mutex)
-    }
-
+    // No end is inheritable; the child gets its three by the handle list alone.
     in_r, in_w, out_r, out_w, err_r, err_w: win32.HANDLE
-    if !win32.CreatePipe(&out_r, &out_w, &sa, 0) {
+    if !win32.CreatePipe(&out_r, &out_w, nil, 0) {
         return nil, false
     }
-    if !win32.CreatePipe(&err_r, &err_w, &sa, 0) {
+    if !win32.CreatePipe(&err_r, &err_w, nil, 0) {
         close_handles(out_r, out_w)
         return nil, false
     }
-    if !win32.CreatePipe(&in_r, &in_w, &sa, 0) {
+    if !win32.CreatePipe(&in_r, &in_w, nil, 0) {
         close_handles(out_r, out_w, err_r, err_w)
         return nil, false
     }
-    // The parent's ends stay with the parent; keep them out of the child. An end
-    // that stays inheritable would reach a later child and hold the pipe open
-    // after this process exits, so a failure here ends the start.
-    if !win32.SetHandleInformation(out_r, win32.HANDLE_FLAG_INHERIT, 0) ||
-       !win32.SetHandleInformation(err_r, win32.HANDLE_FLAG_INHERIT, 0) ||
-       !win32.SetHandleInformation(in_w, win32.HANDLE_FLAG_INHERIT, 0) {
+    inherited := [3]win32.HANDLE{in_r, out_w, err_w}
+    attributes, attributes_ok := inherit_only(inherited[:])
+    if !attributes_ok {
         close_handles(out_r, out_w, err_r, err_w, in_r, in_w)
         return nil, false
     }
+    defer attribute_list_free(attributes)
 
-    si := win32.STARTUPINFOW {
-        cb         = size_of(win32.STARTUPINFOW),
-        dwFlags    = win32.STARTF_USESTDHANDLES,
-        hStdInput  = in_r,
-        hStdOutput = out_w,
-        hStdError  = err_w,
+    si := STARTUPINFOEXW {
+        StartupInfo = {
+            cb         = size_of(STARTUPINFOEXW),
+            dwFlags    = win32.STARTF_USESTDHANDLES,
+            hStdInput  = in_r,
+            hStdOutput = out_w,
+            hStdError  = err_w,
+        },
+        lpAttributeList = raw_data(attributes),
     }
     pi: win32.PROCESS_INFORMATION
 
@@ -68,7 +58,7 @@ child_start :: proc(spec: Child_Spec) -> (^Child, bool) {
     }
 
     // Suspended so the job owns the process before it can start a child of its own.
-    flags := win32.DWORD(win32.CREATE_NO_WINDOW | win32.CREATE_SUSPENDED)
+    flags := win32.DWORD(win32.CREATE_NO_WINDOW | win32.CREATE_SUSPENDED | win32.EXTENDED_STARTUPINFO_PRESENT)
     environment: win32.LPVOID
     if len(spec.env) > 0 {
         block, block_ok := environment_block(spec.env, context.temp_allocator)
@@ -80,12 +70,10 @@ child_start :: proc(spec: Child_Spec) -> (^Child, bool) {
         flags |= win32.CREATE_UNICODE_ENVIRONMENT
     }
 
-    ok := win32.CreateProcessW(nil, cmdline, nil, nil, true, flags, environment, wdir, &si, &pi)
+    ok := win32.CreateProcessW(nil, cmdline, nil, nil, true, flags, environment, wdir, cast(^win32.STARTUPINFOW)&si, &pi)
     // The child owns the far ends now; the parent's copies must go so a read sees
     // the end of a stream when the child exits.
     close_handles(out_w, err_w, in_r)
-    sync.mutex_unlock(&spawn_mutex)
-    locked = false
     if !ok {
         close_handles(out_r, err_r, in_w)
         return nil, false

@@ -210,9 +210,9 @@ thor_open_folder_in_new_window :: proc(thor: ^Thor, dir: string) {
 // to open a folder, which reloads anyway.
 thor_persist_open_folder_in :: proc(thor: ^Thor, choice: setting.Open_Folder_In) {
     value := setting.open_folder_in_value(choice)
-    path := strings.concatenate({setting.USER_DIR, "/settings.json"}, context.temp_allocator)
-    if !setting.persist_string(path, "open_folder_in", value) {
-        thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
+    path := setting.USER_SETTINGS
+    if err := setting.persist_string(path, "open_folder_in", value); err != .None {
+        thor_settings_save_failed(thor, path, err)
         return
     }
     delete(thor.config.general.open_folder_in)
@@ -265,6 +265,7 @@ thor_open_folder :: proc(thor: ^Thor, dir: string) {
     thor_drain_io(thor)
     thor_set_active_file(thor, -1)
     thor_clear_git_status(thor)
+    thor_package_problems_clear(thor)
     thor_git_view_reset(thor)
     thor_clear_file_index(thor)
     thor.pending_goto_active = false
@@ -282,6 +283,12 @@ thor_open_folder :: proc(thor: ^Thor, dir: string) {
     thor.workspace_prefix = strings.concatenate({thor.workspace_dir, filepath.SEPARATOR_STRING})
     thor_apply_git_repo(thor, thor.workspace_dir)
 
+    // A folder an older version set up still holds JSON config.
+    converted := len(thor.lua_converted)
+    thor_migrate_json_config(thor_workspace_config_dir(thor.workspace_dir), &thor.lua_converted)
+    if len(thor.lua_converted) > converted {
+        thor_lua_notice_check(thor, thor.workspace_dir)
+    }
     // The new folder's .thor/ overlay can change theme, font and keybinds.
     thor_reload_settings(thor)
     // ... and .thor/plugins/ carries plugins of its own. Reloaded before the
@@ -300,10 +307,7 @@ thor_open_folder :: proc(thor: ^Thor, dir: string) {
 
     thor_restore_session(thor)
     thor_apply_layout_state(thor)
-    thor_apply_split(thor)
-    if thor.split_visible {
-        thor_bind_pane(thor, 1)
-    }
+    thor_bind_extra_panes(thor)
     thor_refresh_git_status(thor)
     thor_refresh_file_index(thor)
     thor_init_watcher(thor)

@@ -1,0 +1,593 @@
+Root@0..844
+  Package_Decl@0..13
+    Package@0..7 "package"
+    Ident@8..13
+      Ident@8..13 "procs"
+  Value_Decl@15..62
+    Name_List@15..21
+      Ident@15..21
+        Ident@15..21 "c_proc"
+    Colon@22..23 ":"
+    Colon@23..24 ":"
+    Expr_List@25..62
+      Proc_Lit@25..62
+        Proc_Type@25..49
+          Proc@25..29 "proc"
+          String@30..33 "\"c\""
+          Param_List@34..42
+            Open_Paren@34..35 "("
+            Field@35..41
+              Name_List@35..36
+                Ident@35..36
+                  Ident@35..36 "x"
+              Colon@36..37 ":"
+              Ident@38..41
+                Ident@38..41 "i32"
+            Close_Paren@41..42 ")"
+          Result_List@43..49
+            Arrow_Right@43..45 "->"
+            Field@46..49
+              Ident@46..49
+                Ident@46..49 "i32"
+        Block@50..62
+          Open_Brace@50..51 "{"
+          Return_Stmt@52..60
+            Return@52..58 "return"
+            Expr_List@59..60
+              Ident@59..60
+                Ident@59..60 "x"
+          Close_Brace@61..62 "}"
+  Value_Decl@63..140
+    Name_List@63..74
+      Ident@63..74
+        Ident@63..74 "inline_call"
+    Colon@75..76 ":"
+    Colon@76..77 ":"
+    Expr_List@78..140
+      Proc_Lit@78..140
+        Proc_Type@78..84
+          Proc@78..82 "proc"
+          Param_List@82..84
+            Open_Paren@82..83 "("
+            Close_Paren@83..84 ")"
+        Block@85..140
+          Open_Brace@85..86 "{"
+          Expr_Stmt@87..110
+            Tag_Expr@87..110
+              Directive@87..100
+                Hash@87..88 "#"
+                Ident@88..100 "force_inline"
+              Call_Expr@101..110
+                Ident@101..107
+                  Ident@101..107 "c_proc"
+                Arg_List@107..110
+                  Open_Paren@107..108 "("
+                  Literal@108..109
+                    Integer@108..109 "1"
+                  Close_Paren@109..110 ")"
+          Semicolon@110..111 ";"
+          Expr_Stmt@112..138
+            Tag_Expr@112..138
+              Directive@112..128
+                Hash@112..113 "#"
+                Ident@113..128 "force_no_inline"
+              Call_Expr@129..138
+                Ident@129..135
+                  Ident@129..135 "c_proc"
+                Arg_List@135..138
+                  Open_Paren@135..136 "("
+                  Literal@136..137
+                    Integer@136..137 "2"
+                  Close_Paren@137..138 ")"
+          Close_Brace@139..140 "}"
+  Value_Decl@141..178
+    Name_List@141..151
+      Ident@141..151
+        Ident@141..151 "lit_inline"
+    Colon@152..153 ":"
+    Colon@153..154 ":"
+    Expr_List@155..178
+      Tag_Expr@155..178
+        Directive@155..168
+          Hash@155..156 "#"
+          Ident@156..168 "force_inline"
+        Proc_Lit@169..178
+          Proc_Type@169..175
+            Proc@169..173 "proc"
+            Param_List@173..175
+              Open_Paren@173..174 "("
+              Close_Paren@174..175 ")"
+          Block@176..178
+            Open_Brace@176..177 "{"
+            Close_Brace@177..178 "}"
+  Value_Decl@179..243
+    Name_List@179..186
+      Ident@179..186
+        Ident@179..186 "ok_proc"
+    Colon@187..188 ":"
+    Colon@188..189 ":"
+    Expr_List@190..243
+      Proc_Lit@190..243
+        Proc_Type@190..224
+          Proc@190..194 "proc"
+          Param_List@194..196
+            Open_Paren@194..195 "("
+            Close_Paren@195..196 ")"
+          Result_List@197..211
+            Arrow_Right@197..199 "->"
+            Open_Paren@200..201 "("
+            Field@201..204
+              Ident@201..204
+                Ident@201..204 "int"
+            Comma@204..205 ","
+            Field@206..210
+              Ident@206..210
+                Ident@206..210 "bool"
+            Close_Paren@210..211 ")"
+          Directive@212..224
+            Hash@212..213 "#"
+            Ident@213..224 "optional_ok"
+        Block@225..243
+          Open_Brace@225..226 "{"
+          Return_Stmt@227..241
+            Return@227..233 "return"
+            Expr_List@234..241
+              Literal@234..235
+                Integer@234..235 "0"
+              Comma@235..236 ","
+              Ident@237..241
+                Ident@237..241 "true"
+          Close_Brace@242..243 "}"
+  Value_Decl@244..308
+    Name_List@244..249
+      Ident@244..249
+        Ident@244..249 "named"
+    Colon@250..251 ":"
+    Colon@251..252 ":"
+    Expr_List@253..308
+      Proc_Lit@253..308
+        Proc_Type@253..297
+          Proc@253..257 "proc"
+          Param_List@257..273
+            Open_Paren@257..258 "("
+            Field@258..264
+              Name_List@258..259
+                Ident@258..259
+                  Ident@258..259 "a"
+              Colon@259..260 ":"
+              Ident@261..264
+                Ident@261..264 "int"
+            Comma@264..265 ","
+            Field@266..272
+              Name_List@266..267
+                Ident@266..267
+                  Ident@266..267 "b"
+              Colon@268..269 ":"
+              Eq@269..270 "="
+              Literal@271..272
+                Integer@271..272 "2"
+            Close_Paren@272..273 ")"
+          Result_List@274..297
+            Arrow_Right@274..276 "->"
+            Open_Paren@277..278 "("
+            Field@278..286
+              Name_List@278..281
+                Ident@278..281
+                  Ident@278..281 "sum"
+              Colon@281..282 ":"
+              Ident@283..286
+                Ident@283..286 "int"
+            Comma@286..287 ","
+            Field@288..296
+              Name_List@288..290
+                Ident@288..290
+                  Ident@288..290 "ok"
+              Colon@290..291 ":"
+              Ident@292..296
+                Ident@292..296 "bool"
+            Close_Paren@296..297 ")"
+        Block@298..308
+          Open_Brace@298..299 "{"
+          Return_Stmt@300..306
+            Return@300..306 "return"
+          Close_Brace@307..308 "}"
+  Value_Decl@309..357
+    Name_List@309..317
+      Ident@309..317
+        Ident@309..317 "variadic"
+    Colon@318..319 ":"
+    Colon@319..320 ":"
+    Expr_List@321..357
+      Proc_Lit@321..357
+        Proc_Type@321..354
+          Proc@321..325 "proc"
+          Param_List@325..354
+            Open_Paren@325..326 "("
+            Field@326..340
+              Name_List@326..332
+                Ident@326..332
+                  Ident@326..332 "prefix"
+              Colon@332..333 ":"
+              Ident@334..340
+                Ident@334..340 "string"
+            Comma@340..341 ","
+            Field@342..353
+              Name_List@342..346
+                Ident@342..346
+                  Ident@342..346 "args"
+              Colon@346..347 ":"
+              Ellipsis_Type@348..353
+                Ellipsis@348..350 ".."
+                Ident@350..353
+                  Ident@350..353 "any"
+            Close_Paren@353..354 ")"
+        Block@355..357
+          Open_Brace@355..356 "{"
+          Close_Brace@356..357 "}"
+  Value_Decl@358..421
+    Name_List@358..368
+      Ident@358..368
+        Ident@358..368 "c_variadic"
+    Colon@369..370 ":"
+    Colon@370..371 ":"
+    Expr_List@372..421
+      Proc_Lit@372..421
+        Proc_Type@372..418
+          Proc@372..376 "proc"
+          String@377..380 "\"c\""
+          Param_List@381..418
+            Open_Paren@381..382 "("
+            Field@382..394
+              Name_List@382..385
+                Ident@382..385
+                  Ident@382..385 "fmt"
+              Colon@385..386 ":"
+              Ident@387..394
+                Ident@387..394 "cstring"
+            Comma@394..395 ","
+            Field@396..417
+              Directive@396..405
+                Hash@396..397 "#"
+                Ident@397..405 "c_vararg"
+              Name_List@406..410
+                Ident@406..410
+                  Ident@406..410 "args"
+              Colon@410..411 ":"
+              Ellipsis_Type@412..417
+                Ellipsis@412..414 ".."
+                Ident@414..417
+                  Ident@414..417 "any"
+            Close_Paren@417..418 ")"
+        Block@419..421
+          Open_Brace@419..420 "{"
+          Close_Brace@420..421 "}"
+  Value_Decl@422..502
+    Name_List@422..427
+      Ident@422..427
+        Ident@422..427 "flags"
+    Colon@428..429 ":"
+    Colon@429..430 ":"
+    Expr_List@431..502
+      Proc_Lit@431..502
+        Proc_Type@431..499
+          Proc@431..435 "proc"
+          Param_List@435..499
+            Open_Paren@435..436 "("
+            Field@436..451
+              Directive@436..444
+                Hash@436..437 "#"
+                Ident@437..444 "any_int"
+              Name_List@445..446
+                Ident@445..446
+                  Ident@445..446 "n"
+              Colon@446..447 ":"
+              Ident@448..451
+                Ident@448..451 "int"
+            Comma@451..452 ","
+            Field@453..467
+              Directive@453..460
+                Hash@453..454 "#"
+                Ident@454..460 "by_ptr"
+              Name_List@461..462
+                Ident@461..462
+                  Ident@461..462 "p"
+              Colon@462..463 ":"
+              Ident@464..467
+                Ident@464..467 "Big"
+            Comma@467..468 ","
+            Field@469..486
+              Directive@469..478
+                Hash@469..470 "#"
+                Ident@470..478 "no_alias"
+              Name_List@479..480
+                Ident@479..480
+                  Ident@479..480 "q"
+              Colon@480..481 ":"
+              Pointer_Type@482..486
+                Pointer@482..483 "^"
+                Ident@483..486
+                  Ident@483..486 "int"
+            Comma@486..487 ","
+            Field@488..498
+              Using@488..493 "using"
+              Name_List@494..495
+                Ident@494..495
+                  Ident@494..495 "s"
+              Colon@495..496 ":"
+              Ident@497..498
+                Ident@497..498 "S"
+            Close_Paren@498..499 ")"
+        Block@500..502
+          Open_Brace@500..501 "{"
+          Close_Brace@501..502 "}"
+  Value_Decl@503..553
+    Name_List@503..507
+      Ident@503..507
+        Ident@503..507 "poly"
+    Colon@508..509 ":"
+    Colon@509..510 ":"
+    Expr_List@511..553
+      Proc_Lit@511..553
+        Proc_Type@511..539
+          Proc@511..515 "proc"
+          Param_List@515..531
+            Open_Paren@515..516 "("
+            Field@516..521
+              Name_List@516..517
+                Ident@516..517
+                  Ident@516..517 "x"
+              Colon@517..518 ":"
+              Poly_Type@519..521
+                Dollar@519..520 "$"
+                Ident@520..521
+                  Ident@520..521 "T"
+            Comma@521..522 ","
+            Field@523..530
+              Name_List@523..525
+                Poly_Type@523..525
+                  Dollar@523..524 "$"
+                  Ident@524..525
+                    Ident@524..525 "N"
+              Colon@525..526 ":"
+              Ident@527..530
+                Ident@527..530 "int"
+            Close_Paren@530..531 ")"
+          Result_List@532..539
+            Arrow_Right@532..534 "->"
+            Field@535..539
+              Array_Type@535..539
+                Open_Bracket@535..536 "["
+                Ident@536..537
+                  Ident@536..537 "N"
+                Close_Bracket@537..538 "]"
+                Ident@538..539
+                  Ident@538..539 "T"
+        Block@540..553
+          Open_Brace@540..541 "{"
+          Return_Stmt@542..551
+            Return@542..548 "return"
+            Expr_List@549..551
+              Comp_Lit@549..551
+                Open_Brace@549..550 "{"
+                Close_Brace@550..551 "}"
+          Close_Brace@552..553 "}"
+  Value_Decl@554..631
+    Name_List@554..558
+      Ident@554..558
+        Ident@554..558 "spec"
+    Colon@559..560 ":"
+    Colon@560..561 ":"
+    Expr_List@562..631
+      Proc_Lit@562..631
+        Proc_Type@562..594
+          Proc@562..566 "proc"
+          Param_List@566..589
+            Open_Paren@566..567 "("
+            Field@567..582
+              Name_List@567..569
+                Poly_Type@567..569
+                  Dollar@567..568 "$"
+                  Ident@568..569
+                    Ident@568..569 "T"
+              Colon@569..570 ":"
+              Typeid_Type@571..582
+                Typeid@571..577 "typeid"
+                Quo@577..578 "/"
+                Array_Type@578..582
+                  Open_Bracket@578..579 "["
+                  Close_Bracket@579..580 "]"
+                  Poly_Type@580..582
+                    Dollar@580..581 "$"
+                    Ident@581..582
+                      Ident@581..582 "E"
+            Comma@582..583 ","
+            Field@584..588
+              Name_List@584..585
+                Ident@584..585
+                  Ident@584..585 "v"
+              Colon@585..586 ":"
+              Ident@587..588
+                Ident@587..588 "T"
+            Close_Paren@588..589 ")"
+          Result_List@590..594
+            Arrow_Right@590..592 "->"
+            Field@593..594
+              Ident@593..594
+                Ident@593..594 "E"
+        Where_Clause@595..615
+          Where@595..600 "where"
+          Binary_Expr@601..615
+            Call_Expr@601..611
+              Ident@601..608
+                Ident@601..608 "size_of"
+              Arg_List@608..611
+                Open_Paren@608..609 "("
+                Ident@609..610
+                  Ident@609..610 "E"
+                Close_Paren@610..611 ")"
+            Gt@612..613 ">"
+            Literal@614..615
+              Integer@614..615 "1"
+        Block@616..631
+          Open_Brace@616..617 "{"
+          Return_Stmt@618..629
+            Return@618..624 "return"
+            Expr_List@625..629
+              Index_Expr@625..629
+                Ident@625..626
+                  Ident@625..626 "v"
+                Open_Bracket@626..627 "["
+                Literal@627..628
+                  Integer@627..628 "0"
+                Close_Bracket@628..629 "]"
+          Close_Brace@630..631 "}"
+  Value_Decl@632..659
+    Name_List@632..637
+      Ident@632..637
+        Ident@632..637 "group"
+    Colon@638..639 ":"
+    Colon@639..640 ":"
+    Expr_List@641..659
+      Proc_Group@641..659
+        Proc@641..645 "proc"
+        Open_Brace@645..646 "{"
+        Ident@647..651
+          Ident@647..651 "poly"
+        Comma@651..652 ","
+        Ident@653..657
+          Ident@653..657 "spec"
+        Close_Brace@658..659 "}"
+  Value_Decl@660..704
+    Name_List@660..668
+      Ident@660..668
+        Ident@660..668 "Callback"
+    Colon@669..670 ":"
+    Colon@670..671 ":"
+    Expr_List@672..704
+      Helper_Type@672..704
+        Directive@672..677
+          Hash@672..673 "#"
+          Ident@673..677 "type"
+        Proc_Type@678..704
+          Proc@678..682 "proc"
+          Param_List@682..696
+            Open_Paren@682..683 "("
+            Field@683..695
+              Name_List@683..687
+                Ident@683..687
+                  Ident@683..687 "data"
+              Colon@687..688 ":"
+              Ident@689..695
+                Ident@689..695 "rawptr"
+            Close_Paren@695..696 ")"
+          Result_List@697..704
+            Arrow_Right@697..699 "->"
+            Field@700..704
+              Ident@700..704
+                Ident@700..704 "bool"
+  Value_Decl@705..736
+    Name_List@705..710
+      Ident@705..710
+        Ident@705..710 "never"
+    Colon@711..712 ":"
+    Colon@712..713 ":"
+    Expr_List@714..736
+      Proc_Lit@714..736
+        Proc_Type@714..725
+          Proc@714..718 "proc"
+          Param_List@718..720
+            Open_Paren@718..719 "("
+            Close_Paren@719..720 ")"
+          Result_List@721..725
+            Arrow_Right@721..723 "->"
+            Not@724..725 "!"
+        Block@726..736
+          Open_Brace@726..727 "{"
+          For_Stmt@728..734
+            For@728..731 "for"
+            Block@732..734
+              Open_Brace@732..733 "{"
+              Close_Brace@733..734 "}"
+          Close_Brace@735..736 "}"
+  Value_Decl@737..824
+    Name_List@737..743
+      Ident@737..743
+        Ident@737..743 "nested"
+    Colon@744..745 ":"
+    Colon@745..746 ":"
+    Expr_List@747..824
+      Proc_Lit@747..824
+        Proc_Type@747..753
+          Proc@747..751 "proc"
+          Param_List@751..753
+            Open_Paren@751..752 "("
+            Close_Paren@752..753 ")"
+        Block@754..824
+          Open_Brace@754..755 "{"
+          Value_Decl@760..805
+            Name_List@760..765
+              Ident@760..765
+                Ident@760..765 "inner"
+            Colon@766..767 ":"
+            Colon@767..768 ":"
+            Expr_List@769..805
+              Proc_Lit@769..805
+                Proc_Type@769..788
+                  Proc@769..773 "proc"
+                  Param_List@773..781
+                    Open_Paren@773..774 "("
+                    Field@774..780
+                      Name_List@774..775
+                        Ident@774..775
+                          Ident@774..775 "x"
+                      Colon@775..776 ":"
+                      Ident@777..780
+                        Ident@777..780 "int"
+                    Close_Paren@780..781 ")"
+                  Result_List@782..788
+                    Arrow_Right@782..784 "->"
+                    Field@785..788
+                      Ident@785..788
+                        Ident@785..788 "int"
+                Block@789..805
+                  Open_Brace@789..790 "{"
+                  Return_Stmt@791..803
+                    Return@791..797 "return"
+                    Expr_List@798..803
+                      Binary_Expr@798..803
+                        Ident@798..799
+                          Ident@798..799 "x"
+                        Mul@800..801 "*"
+                        Literal@802..803
+                          Integer@802..803 "2"
+                  Close_Brace@804..805 "}"
+          Assign_Stmt@810..822
+            Expr_List@810..811
+              Ident@810..811
+                Ident@810..811 "_"
+            Eq@812..813 "="
+            Expr_List@814..822
+              Call_Expr@814..822
+                Ident@814..819
+                  Ident@814..819 "inner"
+                Arg_List@819..822
+                  Open_Paren@819..820 "("
+                  Literal@820..821
+                    Integer@820..821 "1"
+                  Close_Paren@821..822 ")"
+          Close_Brace@823..824 "}"
+  Value_Decl@825..843
+    Name_List@825..829
+      Ident@825..829
+        Ident@825..829 "bare"
+    Colon@830..831 ":"
+    Colon@831..832 ":"
+    Expr_List@833..843
+      Proc_Lit@833..843
+        Proc_Type@833..839
+          Proc@833..837 "proc"
+          Param_List@837..839
+            Open_Paren@837..838 "("
+            Close_Paren@838..839 ")"
+        Undef@840..843 "---"
+  EOF@844..844 ""

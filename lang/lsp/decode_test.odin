@@ -176,6 +176,11 @@ result_release :: proc(res: ^lang.Result) {
     }
     delete(res.completions)
     delete(res.tokens)
+    for hint in res.inlays {
+        delete(hint.label)
+    }
+    delete(res.inlays)
+    delete(res.highlights)
     delete(res.report.scope)
     for item in res.report.items {
         delete(item.path)
@@ -286,6 +291,27 @@ test_decode_definition_candidates :: proc(t: ^testing.T) {
     testing.expect_value(t, res.symbols[1].signature, "gamma delta")
     testing.expect_value(t, res.symbols[1].offset, 11)
     testing.expect_value(t, res.symbols[1].line, 2)
+}
+
+// A type definition reply has the shape of a definition reply.
+@(test)
+test_decode_type_definition_location_array :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Type_Definition, SOURCE, 0)
+
+    res := decode_reply(
+        s,
+        &req,
+        `[{"uri":"` + FILE_URI + `","range":{"start":{"line":1,"character":6},"end":{"line":1,"character":11}}}]`,
+    )
+    defer result_release(&res)
+
+    testing.expect(t, res.ok, "one location should resolve")
+    testing.expect_value(t, len(res.symbols), 0)
+    testing.expect_value(t, res.location.path, FILE)
+    testing.expect_value(t, res.location.start, 17)
+    testing.expect_value(t, res.location.end, 22)
 }
 
 // A URI that names no file leaves nothing, rather than a jump to the top of one.
@@ -1111,7 +1137,7 @@ test_decode_diagnostic_severities :: proc(t: ^testing.T) {
     defer result_release(&res)
 
     testing.expect(t, decoded)
-    want := [5]lang.Diagnostic_Severity{.Error, .Warning, .Warning, .Warning, .Error}
+    want := [5]lang.Diagnostic_Severity{.Error, .Warning, .Hint, .Hint, .Error}
     testing.expect_value(t, len(res.report.items), len(want))
     if len(res.report.items) != len(want) {
         return
@@ -1764,4 +1790,105 @@ test_decode_format_overlapping_edits_refused :: proc(t: ^testing.T) {
 
     testing.expect(t, !res.ok)
     testing.expect_value(t, len(res.edits), 0)
+}
+
+// Inlay hints: a string label and a label of parts, the kind and the padding,
+// sorted by offset.
+@(test)
+test_decode_inlay_hints :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Inlay_Hints, SOURCE)
+
+    res := decode_reply(s, &req, `[
+        {"position":{"line":1,"character":6},"label":[{"value":"name"},{"value":":"}],"kind":2,"paddingRight":true},
+        {"position":{"line":0,"character":5},"label":": int","paddingLeft":false},
+        {"position":{"line":0,"character":1},"label":""}
+    ]`)
+    defer result_release(&res)
+
+    testing.expect(t, res.ok)
+    testing.expect_value(t, len(res.inlays), 2)
+    if len(res.inlays) != 2 {
+        return
+    }
+    testing.expect_value(t, res.inlays[0].offset, 5)
+    testing.expect_value(t, res.inlays[0].label, ": int")
+    testing.expect_value(t, res.inlays[0].kind, lang.Inlay_Kind.Type)
+    testing.expect_value(t, res.inlays[1].offset, 17)
+    testing.expect_value(t, res.inlays[1].label, "name:")
+    testing.expect_value(t, res.inlays[1].kind, lang.Inlay_Kind.Parameter)
+    testing.expect(t, res.inlays[1].pad_right)
+}
+
+// Document highlights: the kinds, a missing kind as Text, sorted by start.
+@(test)
+test_decode_document_highlights :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Document_Highlight, SOURCE)
+
+    res := decode_reply(s, &req, `[
+        {"range":{"start":{"line":1,"character":6},"end":{"line":1,"character":11}},"kind":3},
+        {"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"kind":2},
+        {"range":{"start":{"line":0,"character":6},"end":{"line":0,"character":10}}},
+        {"kind":2}
+    ]`)
+    defer result_release(&res)
+
+    testing.expect(t, res.ok)
+    testing.expect_value(t, len(res.highlights), 3)
+    if len(res.highlights) != 3 {
+        return
+    }
+    testing.expect_value(t, res.highlights[0], lang.Document_Highlight{start = 0, end = 5, kind = .Read})
+    testing.expect_value(t, res.highlights[1], lang.Document_Highlight{start = 6, end = 10, kind = .Text})
+    testing.expect_value(t, res.highlights[2], lang.Document_Highlight{start = 17, end = 22, kind = .Write})
+}
+
+// A null reply is no highlight.
+@(test)
+test_decode_document_highlights_null :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Document_Highlight, SOURCE)
+
+    res := decode_reply(s, &req, `null`)
+    defer result_release(&res)
+
+    testing.expect(t, !res.ok)
+    testing.expect_value(t, len(res.highlights), 0)
+}
+
+// The highlight request names the caret as a position.
+@(test)
+test_document_highlight_params :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Document_Highlight, SOURCE, 12)
+
+    ask := ask_for(s, &req)
+    params := request_params(&ask)
+    testing.expect_value(
+        t,
+        params,
+        `{"textDocument":{"uri":"` + FILE_URI + `"},"position":{"line":1,"character":1}}`,
+    )
+}
+
+// The hint request names the window as a range.
+@(test)
+test_inlay_hints_params :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Inlay_Hints, SOURCE, 0)
+    req.end = 16
+
+    ask := ask_for(s, &req)
+    params := request_params(&ask)
+    testing.expect_value(
+        t,
+        params,
+        `{"textDocument":{"uri":"` + FILE_URI + `"},"range":{"start":{"line":0,"character":0},"end":{"line":1,"character":5}}}`,
+    )
 }

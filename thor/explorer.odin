@@ -475,6 +475,7 @@ thor_explorer_view :: proc(thor: ^Thor) {
             },
         },
     )
+    thor.region_rects[.Explorer] = panel.rect
     if panel.focused {
         thor.focus_owner = "explorer"
     }
@@ -488,6 +489,9 @@ thor_explorer_view :: proc(thor: ^Thor) {
             "No files",
             {key = "empty", props = {pad = ui.xy(12, 8), color = thor.theme.disabled}},
         )
+        if panel.right_clicked {
+            explorer_right_click_root(thor)
+        }
         return
     }
 
@@ -527,6 +531,10 @@ thor_explorer_view :: proc(thor: ^Thor) {
                 explorer_click(thor, row.node)
             }
         }
+    }
+
+    if panel.right_clicked {
+        explorer_right_click_root(thor)
     }
 
     e.panel_rect = panel.rect
@@ -701,6 +709,11 @@ explorer_click :: proc(thor: ^Thor, node: ^Explorer_Node) {
         explorer_set_expanded(e, node, !node.expanded)
         return
     }
+    // Alt+click opens the file to the side.
+    if .Alt in ui.mods() {
+        thor_open_file_in_pane(thor, node.path, thor_side_pane(thor))
+        return
+    }
     thor_tree_open(thor, node.path)
 }
 
@@ -711,6 +724,13 @@ explorer_right_click :: proc(thor: ^Thor, node: ^Explorer_Node) {
         explorer_select_single(e, node.path)
     }
     thor_explorer_context_menu(thor, node.path, ui.mouse_pos())
+}
+
+// Opens the context menu of the workspace root, for a right click outside the rows.
+@(private = "file")
+explorer_right_click_root :: proc(thor: ^Thor) {
+    explorer_clear_selection(&thor.explorer)
+    thor_explorer_context_menu(thor, "", ui.mouse_pos())
 }
 
 // Tracks the live drag: the target folder while the pointer is inside the panel,
@@ -808,6 +828,13 @@ explorer_keys :: proc(thor: ^Thor) {
         } else {
             thor_tree_open(thor, node.path)
         }
+    }
+    // ctrl+enter opens the file to the side, shift+enter asks for the pane.
+    if (ui.take_key(.Enter, {.Ctrl}) || ui.take_key(.Pad_Enter, {.Ctrl})) && index >= 0 && !rows[index].node.is_dir {
+        thor_open_file_in_pane(thor, rows[index].node.path, thor_side_pane(thor))
+    }
+    if (ui.take_key(.Enter, {.Shift}) || ui.take_key(.Pad_Enter, {.Shift})) && index >= 0 && !rows[index].node.is_dir {
+        thor_pane_pick_begin(thor, rows[index].node.path)
     }
     // Folders included: the confirmation sits in front of the removal, and
     // silently ignoring the key reads as a broken Delete.

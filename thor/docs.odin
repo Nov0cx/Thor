@@ -38,7 +38,6 @@ thor_cmd_docs :: proc(data: rawptr) {
 
 // Opens one page of the manual, turning the Markdown preview on so the page
 // arrives rendered and not as its source.
-@(private = "file")
 thor_open_docs_page :: proc(thor: ^Thor, name: string) {
     path := thor_docs_path(name)
     if !os.exists(path) {

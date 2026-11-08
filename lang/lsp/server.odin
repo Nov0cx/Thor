@@ -96,7 +96,7 @@ Server :: struct {
     state:       Server_State, // atomic
     // The admin gate the settings own. config.enabled/config.features seed it in
     // server_create and state nothing after that, so a server turned off in
-    // lsp.json can be turned back on in Settings. Atomic: resolve (worker
+    // lsp.lua can be turned back on in Settings. Atomic: resolve (worker
     // thread) reaches it through client_server_for.
     admin_enabled: bool, // atomic
     // The per-kind half of that gate, seeded from config.features. Atomic:
@@ -594,8 +594,7 @@ Apply_Wait :: struct {
     done:      sync.Sema,
     applied:   bool,
     allocator: runtime.Allocator,
-    mutex:     sync.Mutex, // guards `refs`
-    refs:      int,
+    refs:      int, // atomic
     // Atomic: APPLY_OPEN, then APPLY_TAKEN by the main thread or APPLY_EXPIRED by the reader.
     claim:     int,
 }
@@ -609,11 +608,7 @@ APPLY_EXPIRED :: 2
 
 @(private)
 apply_wait_release :: proc(wait: ^Apply_Wait) {
-    sync.lock(&wait.mutex)
-    wait.refs -= 1
-    last := wait.refs == 0
-    sync.unlock(&wait.mutex)
-    if last {
+    if sync.atomic_sub(&wait.refs, 1) == 1 {
         free(wait, wait.allocator)
     }
 }
@@ -1353,6 +1348,7 @@ CLIENT_CAPABILITIES :: `{` +
 `"signatureHelp":{"dynamicRegistration":false,` +
 `"signatureInformation":{"documentationFormat":["plaintext"],"parameterInformation":{"labelOffsetSupport":true}}},` +
 `"definition":{"dynamicRegistration":false,"linkSupport":true},` +
+`"typeDefinition":{"dynamicRegistration":false,"linkSupport":true},` +
 `"references":{"dynamicRegistration":false},` +
 `"documentSymbol":{"dynamicRegistration":false,"hierarchicalDocumentSymbolSupport":true},` +
 `"codeAction":{"dynamicRegistration":false,` +
@@ -1363,6 +1359,8 @@ CLIENT_CAPABILITIES :: `{` +
 `"rangeFormatting":{"dynamicRegistration":false},` +
 `"onTypeFormatting":{"dynamicRegistration":false},` +
 `"publishDiagnostics":{"relatedInformation":false,"versionSupport":true},` +
+`"inlayHint":{"dynamicRegistration":false},` +
+`"documentHighlight":{"dynamicRegistration":false},` +
 `"semanticTokens":{"dynamicRegistration":false,"requests":{"full":true},"formats":["relative"],` +
 `"tokenModifiers":[],` +
 `"tokenTypes":["namespace","type","class","enum","interface","struct","typeParameter","parameter",` +

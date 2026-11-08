@@ -20,17 +20,22 @@ SETTINGS_POLL_INTERVAL :: 0.4
 // paths for the overlay). settings/ and user/ are relative to the exe dir (the CWD).
 @(private = "file")
 thor_settings_files :: proc(thor: ^Thor, out: ^[dynamic]string) {
+    names := []string{setting.SETTINGS_FILE, setting.KEYBINDS_FILE, setting.COMMENTS_FILE, setting.TIPS_FILE}
     for dir in ([]string{setting.GLOBAL_DIR, setting.USER_DIR}) {
-        for name in ([]string{"/settings.json", "/keybinds.json", "/comments.json"}) {
-            append(out, strings.concatenate({dir, name}, context.temp_allocator))
+        for name in names {
+            append(out, strings.concatenate({dir, "/", name}, context.temp_allocator))
         }
     }
     if thor.workspace_initialized {
         dir := thor_workspace_config_dir(thor.workspace_dir)
-        append(out, strings.concatenate({dir, "/settings.json"}, context.temp_allocator))
-        append(out, strings.concatenate({dir, "/keybinds.json"}, context.temp_allocator))
-        append(out, strings.concatenate({dir, "/comments.json"}, context.temp_allocator))
+        for name in names {
+            append(out, strings.concatenate({dir, "/", name}, context.temp_allocator))
+        }
     }
+    // The active theme, so a hand edit of it applies live.
+    name := thor_theme_configured_name(thor)
+    append(out, thor_user_theme_path(name))
+    append(out, strings.concatenate({SHIPPED_THEME_DIR, "/", name, THEME_EXT}, context.temp_allocator))
     // Unconditional: a tasks file written into a not-yet-initialized workspace
     // still has to reload.
     append(out, thor_tasks_file(thor.workspace_dir))
@@ -59,7 +64,7 @@ thor_settings_mark_clean :: proc(thor: ^Thor) {
     thor.settings_sig = thor_settings_signature(thor)
 }
 
-// The three lsp.json layers, in load order. Kept apart from the settings files
+// The three lsp.lua layers, in load order. Kept apart from the settings files
 // above: a settings reload re-applies settings and does not rebuild the LSP
 // client, so one signature cannot serve both.
 @(private = "file")
@@ -67,8 +72,8 @@ thor_lsp_files :: proc(thor: ^Thor, out: ^[dynamic]string) {
     // lsp's own path constants, so the watcher and the loader cannot drift.
     append(out, lsp.GLOBAL_CONFIG)
     append(out, lsp.USER_CONFIG)
-    // Unconditional, like the tasks file: a folder can carry .thor/lsp.json with
-    // no settings.json of its own.
+    // Unconditional, like the tasks file: a folder can carry .thor/lsp.lua with
+    // no settings.lua of its own.
     if thor.workspace_dir != "" {
         dir := thor_workspace_config_dir(thor.workspace_dir)
         append(out, strings.concatenate({dir, "/", lsp.WORKSPACE_CONFIG}, context.temp_allocator))
@@ -89,7 +94,7 @@ thor_lsp_signature :: proc(thor: ^Thor) -> i64 {
     return sig
 }
 
-// Rebaselines the lsp.json signature. Called after every client rebuild, so a
+// Rebaselines the lsp.lua signature. Called after every client rebuild, so a
 // reload Thor caused does not read as an external edit next tick.
 thor_lsp_mark_clean :: proc(thor: ^Thor) {
     thor.lsp_sig = thor_lsp_signature(thor)
@@ -97,7 +102,7 @@ thor_lsp_mark_clean :: proc(thor: ^Thor) {
 
 // Run-loop tick: throttled check that reloads when the config files changed on
 // disk since the last load. thor_reload_settings rebaselines, so this fires once
-// per external edit. An lsp.json edit only raises the pending flag —
+// per external edit. An lsp.lua edit only raises the pending flag —
 // thor_poll_lang_reload acts on it at the head of the loop, since a rebuild
 // destroys the backend a dispatch here could be standing on.
 thor_poll_settings :: proc(thor: ^Thor) {

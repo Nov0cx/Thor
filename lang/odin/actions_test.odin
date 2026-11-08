@@ -1,524 +1,519 @@
-// Code actions: the fixes offered at the caret and the text each one produces.
-// Assertions run against the applied source rather than raw edit ranges — what
-// matters is the code the user ends up with.
 package odin
 
-import "core:os"
-import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 import "core:testing"
 
 import lang ".."
 
+@(private)
+ACTION_CONFIG :: `return { target = { os = "windows", arch = "amd64" } }`
+
+// The quick fixes for `source` with the caret at the `skip`th occurrence of `marker`.
+@(private)
+actions_at :: proc(t: ^testing.T, e: ^Engine, root, source, marker: string, skip := 0) -> lang.Result {
+    at := -1
+    from := 0
+    for _ in 0 ..= skip {
+        i := strings.index(source[from:], marker)
+        if i < 0 {
+            testing.fail_now(t, "marker not found")
+        }
+        at = from + i
+        from = at + 1
+    }
+    req := lang.Request {
+        kind      = .Code_Actions,
+        path      = fixture_path(root, "app/main.odin"),
+        ext       = ".odin",
+        source    = source,
+        workspace = root,
+        offset    = at,
+        end       = at,
+    }
+    res: lang.Result
+    code_actions(e, &req, &res)
+    return res
+}
+
+@(private)
+free_actions :: proc(res: ^lang.Result) {
+    for a in res.actions {
+        free_action(a)
+    }
+    delete(res.actions)
+}
+
+@(private)
+titles :: proc(res: ^lang.Result) -> []string {
+    out := make([]string, len(res.actions), context.temp_allocator)
+    for a, i in res.actions {
+        out[i] = a.title
+    }
+    return out
+}
+
+// `source` after the action titled `title`; "" when there is none.
+@(private)
+applied :: proc(t: ^testing.T, res: ^lang.Result, source, title: string, loc := #caller_location) -> string {
+    for a in res.actions {
+        if a.title != title {
+            continue
+        }
+        out := source
+        #reverse for edit in a.edits {
+            testing.expectf(t, out[edit.start:edit.end] == edit.old_text, "old text %q does not match", edit.old_text, loc = loc)
+            out = strings.concatenate({out[:edit.start], edit.new_text, out[edit.end:]}, context.temp_allocator)
+        }
+        return out
+    }
+    testing.expectf(t, false, "no action %q in %v", title, titles(res), loc = loc)
+    return ""
+}
+
 @(test)
-test_remove_unused_import :: proc(t: ^testing.T) {
+test_action_switch_cases :: proc(t: ^testing.T) {
+    SRC :: `package app
+
+E :: enum { A, B, C }
+
+f :: proc(e: E, u: union { int, string }) {
+    switch e {
+    case .A:
+    }
+    switch v in u {
+    case int:
+        _ = v
+    }
+    switch e {}
+}
+`
+    root := fixture(t, "action_switch", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
     e := engine_create()
     defer engine_destroy(e)
 
-    // `strings` is imported but never named; `fmt` is used, so it stays.
-    src := `package demo
+    res := actions_at(t, e, root, SRC, "case .A")
+    defer free_actions(&res)
+    filled, _ := strings.replace(SRC, "    case .A:\n    }\n", "    case .A:\n    case .B:\n    case .C:\n    }\n", 1, context.temp_allocator)
+    testing.expect_value(t, applied(t, &res, SRC, "Add 2 missing cases"), filled)
+    partial, _ := strings.replace(SRC, "switch e {\n", "#partial switch e {\n", 1, context.temp_allocator)
+    testing.expect_value(t, applied(t, &res, SRC, "Add #partial"), partial)
+
+    union_res := actions_at(t, e, root, SRC, "_ = v")
+    defer free_actions(&union_res)
+    got := applied(t, &union_res, SRC, "Add missing case: string")
+    testing.expect(t, strings.contains(got, "    case int:\n        _ = v\n    case string:\n    }\n"), got)
+
+    inline_res := actions_at(t, e, root, SRC, "switch e {}")
+    defer free_actions(&inline_res)
+    got = applied(t, &inline_res, SRC, "Add 3 missing cases")
+    testing.expect(t, strings.contains(got, "    switch e {\n    case .A:\n    case .B:\n    case .C:\n    }\n}"), got)
+}
+
+@(test)
+test_action_unused_imports :: proc(t: ^testing.T) {
+    SRC :: `package app
 
 import "core:fmt"
 import "core:strings"
+import "core:mem"
 
-main :: proc() {
-	fmt.println("hi")
+f :: proc() {
+    fmt.println()
 }
 `
-    res := actions_at(e, src, "core:strings")
-    defer free_actions(&res)
-
-    testing.expect(t, res.ok, "expected an action on an unused import")
-    action, found := find_action(&res, `Remove unused import "core:strings"`)
-    testing.expect(t, found, "missing the remove-unused-import action")
-
-    out := apply_action(src, action)
-    testing.expect(t, !strings.contains(out, "core:strings"), "the unused import survived")
-    testing.expect(t, strings.contains(out, `import "core:fmt"`), "the used import was removed too")
-    testing.expect(t, !strings.contains(out, "\n\n\nmain"), "removing the line left a blank behind")
-}
-
-@(test)
-test_used_import_is_not_offered :: proc(t: ^testing.T) {
+    root := fixture(t, "action_imports", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
     e := engine_create()
     defer engine_destroy(e)
 
-    src := `package demo
-
-import "core:fmt"
-
-main :: proc() {
-	fmt.println("hi")
-}
-`
-    res := actions_at(e, src, "core:fmt")
+    res := actions_at(t, e, root, SRC, "core:strings")
     defer free_actions(&res)
+    one, _ := strings.replace(SRC, "import \"core:strings\"\n", "", 1, context.temp_allocator)
+    testing.expect_value(t, applied(t, &res, SRC, "Remove unused import 'strings'"), one)
+    both, _ := strings.replace(one, "import \"core:mem\"\n", "", 1, context.temp_allocator)
+    testing.expect_value(t, applied(t, &res, SRC, "Remove 2 unused imports"), both)
 
-    _, found := find_action(&res, `Remove unused import "core:fmt"`)
-    testing.expect(t, !found, "a used import was offered for removal")
+    // Away from the imports only the bulk fix is offered.
+    away := actions_at(t, e, root, SRC, "fmt.println")
+    defer free_actions(&away)
+    testing.expect(t, !slice.contains(titles(&away), "Remove unused import 'strings'"))
+    testing.expect_value(t, applied(t, &away, SRC, "Remove 2 unused imports"), both)
 }
 
 @(test)
-test_blank_alias_import_is_kept :: proc(t: ^testing.T) {
-    e := engine_create()
-    defer engine_destroy(e)
+test_action_add_import :: proc(t: ^testing.T) {
+    SRC :: `package app
 
-    // `import _ "..."` is imported for its side effects, so it is never unused.
-    src := `package demo
-
-import _ "core:fmt"
-
-main :: proc() {
+f :: proc() {
+    fmt.println("x")
 }
 `
-    res := actions_at(e, src, "core:fmt")
-    defer free_actions(&res)
-
-    for action in res.actions {
-        testing.expectf(t, !strings.contains(action.title, "unused"), "offered %q on a blank-alias import", action.title)
-    }
-}
-
-@(test)
-test_remove_all_unused_imports :: proc(t: ^testing.T) {
+    root := fixture(t, "action_add_import", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
     e := engine_create()
     defer engine_destroy(e)
 
-    src := `package demo
+    res := actions_at(t, e, root, SRC, "mt.println")
+    defer free_actions(&res)
+    want, _ := strings.replace(SRC, "package app\n", "package app\n\nimport \"core:fmt\"\n", 1, context.temp_allocator)
+    testing.expect_value(t, applied(t, &res, SRC, "Import \"core:fmt\""), want)
 
-import "core:fmt"
+    WITH :: `package app
+
 import "core:strings"
-import "core:os"
 
-main :: proc() {
+f :: proc() {
+    _ = strings.clone
+    fmt.println("x")
 }
 `
-    res := actions_at(e, src, "main")
-    defer free_actions(&res)
+    with := actions_at(t, e, root, WITH, "fmt.println")
+    defer free_actions(&with)
+    want, _ = strings.replace(WITH, "import \"core:strings\"\n", "import \"core:strings\"\nimport \"core:fmt\"\n", 1, context.temp_allocator)
+    testing.expect_value(t, applied(t, &with, WITH, "Import \"core:fmt\""), want)
 
-    action, found := find_action(&res, "Remove 3 unused imports")
-    testing.expect(t, found, "missing the bulk removal action")
-    testing.expectf(t, len(action.edits) == 3, "expected 3 edits, got %d", len(action.edits))
-
-    out := apply_action(src, action)
-    testing.expect(t, !strings.contains(out, "import"), "an import survived the bulk removal")
-    testing.expect(t, strings.contains(out, "package demo"), "the package clause was damaged")
-}
-
-@(test)
-test_add_missing_import :: proc(t: ^testing.T) {
-    e := engine_create()
-    defer engine_destroy(e)
-
-    // `fmt` is qualified but never imported: offer the core collection's package.
-    src := `package demo
-
-main :: proc() {
-	fmt.println("hi")
-}
-`
-    res := actions_at(e, src, "fmt.println")
-    defer free_actions(&res)
-
-    action, found := find_action(&res, `Import "core:fmt"`)
-    testing.expect(t, found, "missing the add-import action")
-
-    out := apply_action(src, action)
-    testing.expect(t, strings.contains(out, `import "core:fmt"`), "the import was not inserted")
-    // It must land above the code that needs it, under the package clause.
-    testing.expect(
-        t,
-        strings.index(out, "import") < strings.index(out, "main ::"),
-        "the import was inserted below the code",
-    )
-}
-
-@(test)
-test_fix_diagnostic_widens_add_import :: proc(t: ^testing.T) {
-    e := engine_create()
-    defer engine_destroy(e)
-
-    src := `package demo
-
-main :: proc() {
-	fmt.println("hi")
-}
-`
-    call := `fmt.println("hi")`
-    call_start := strings.index(src, call)
-    // A diagnostic can span more than the bare identifier (the whole call, as
-    // a checker might report it) while still starting exactly on `fmt` — the
-    // caret sits inside the string argument, nowhere identifier_at alone would
-    // resolve, so only the diagnostic's own range can reach the fix.
-    diagnostics := []lang.Diagnostic_Ref {
-        {start = call_start, end = call_start + len(call), message = "'fmt' undeclared"},
+    // A selector on a value is not a package qualifier.
+    value := actions_at(t, e, root, WITH, "strings.clone")
+    defer free_actions(&value)
+    for title in titles(&value) {
+        testing.expect(t, !strings.has_prefix(title, "Import"), title)
     }
-    res := actions_at(e, src, `"hi"`, diagnostics = diagnostics)
-    defer free_actions(&res)
-
-    action, found := find_action(&res, `Import "core:fmt"`)
-    testing.expect(t, found, "the diagnostic-anchored fix did not widen past the caret's own token")
-
-    out := apply_action(src, action)
-    testing.expect(t, strings.contains(out, `import "core:fmt"`), "the import was not inserted")
 }
 
 @(test)
-test_fix_diagnostic_ignores_unrelated_message :: proc(t: ^testing.T) {
+test_action_unused_variable :: proc(t: ^testing.T) {
+    SRC :: `package app
+
+g :: proc() -> (int, bool) { return 1, true }
+
+f :: proc(xs: []int) {
+    x := g()
+    a, b := g()
+    _ = b
+    p, q := g()
+    y: int
+    for k in xs {}
+}
+`
+    root := fixture(t, "action_unused_var", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
     e := engine_create()
     defer engine_destroy(e)
 
-    src := `package demo
-
-main :: proc() {
-	fmt.println("hi")
-}
-`
-    call := `fmt.println("hi")`
-    call_start := strings.index(src, call)
-    diagnostics := []lang.Diagnostic_Ref {
-        {start = call_start, end = call_start + len(call), message = "expected ';'"},
+    cases := [?]struct {
+        marker, title, from, to: string,
+    } {
+        {"x := g()", "Assign the value of 'x' to '_'", "x := g()", "_ = g()"},
+        {"a, b", "Rename 'a' to '_'", "a, b := g()", "_, b := g()"},
+        {"p, q", "Rename 'p' to '_'", "p, q := g()", "_, q := g()"},
+        {"y: int", "Remove 'y'", "    y: int\n", ""},
+        {"for k", "Rename 'k' to '_'", "for k in", "for _ in"},
     }
-    res := actions_at(e, src, `"hi"`, diagnostics = diagnostics)
-    defer free_actions(&res)
+    for c in cases {
+        res := actions_at(t, e, root, SRC, c.marker)
+        want, _ := strings.replace(SRC, c.from, c.to, 1, context.temp_allocator)
+        testing.expect_value(t, applied(t, &res, SRC, c.title), want)
+        free_actions(&res)
+    }
 
-    _, found := find_action(&res, `Import "core:fmt"`)
-    testing.expect(t, !found, "offered an import fix for a diagnostic that never named an undeclared identifier")
+    // The last name of a declaration whose other names are `_` makes it an assignment.
+    BLANK :: `package app
+
+g :: proc() -> (int, bool) { return 1, true }
+
+f :: proc() {
+    _, q := g()
+}
+`
+    res := actions_at(t, e, root, BLANK, "q :=")
+    defer free_actions(&res)
+    want, _ := strings.replace(BLANK, "_, q := g()", "_, _ = g()", 1, context.temp_allocator)
+    testing.expect_value(t, applied(t, &res, BLANK, "Assign the value of 'q' to '_'"), want)
 }
 
 @(test)
-test_add_import_spans_sibling_files :: proc(t: ^testing.T) {
+test_action_ignore :: proc(t: ^testing.T) {
+    SRC :: `package app
+
+f :: proc() {
+    x := 1
+    {
+        x := 2
+        _ = x
+    }
+    {
+        // thor:ignore flow/dead-store
+        x := 3
+        _ = x
+    }
+    _ = x
+}
+`
+    root := fixture(t, "action_ignore", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
     e := engine_create()
     defer engine_destroy(e)
 
-    // `helper.odin` sits beside the requesting file, on disk, using `fmt`
-    // without importing it too; the fix must widen to cover it. The requesting
-    // file itself is never written — the index only ever sees its sibling.
-    rel := "thor_lang_multi_import_ws"
-    _ = os.make_directory(rel)
-    abs, abs_err := filepath.abs(rel, context.temp_allocator)
-    testing.expect(t, abs_err == nil, "could not absolutize the test workspace")
-    defer os.remove(abs)
+    res := actions_at(t, e, root, SRC, "x := 2")
+    defer free_actions(&res)
+    line, _ := strings.replace(SRC, "        x := 2\n", "        // thor:ignore vet/shadowing\n        x := 2\n", 1, context.temp_allocator)
+    testing.expect_value(t, applied(t, &res, SRC, "Ignore vet/shadowing on this line"), line)
+    file, _ := strings.replace(SRC, "package app\n", "package app\n// thor:ignore-file vet/shadowing\n", 1, context.temp_allocator)
+    testing.expect_value(t, applied(t, &res, SRC, "Ignore vet/shadowing in this file"), file)
 
-    helper_path := strings.concatenate({abs, "/helper.odin"}, context.temp_allocator)
-    helper_src := "package demo\n\nhelper :: proc() {\n\tfmt.println(\"y\")\n}\n"
-    _ = os.write_entire_file(helper_path, transmute([]byte) helper_src)
-    defer os.remove(helper_path)
+    // An ignore comment above the line takes the id.
+    more := actions_at(t, e, root, SRC, "x := 3")
+    defer free_actions(&more)
+    added, _ := strings.replace(SRC, "// thor:ignore flow/dead-store", "// thor:ignore flow/dead-store vet/shadowing", 1, context.temp_allocator)
+    testing.expect_value(t, applied(t, &more, SRC, "Ignore vet/shadowing on this line"), added)
+}
 
-    main_path := strings.concatenate({abs, "/main.odin"}, context.temp_allocator)
-    src := `package demo
+@(test)
+test_action_syntax_error :: proc(t: ^testing.T) {
+    SRC :: `package app
 
-main :: proc() {
-	fmt.println("hi")
+f :: proc() {
+    x := )
 }
 `
-    res := actions_at(e, src, "fmt.println", workspace = abs, path = main_path)
+    root := fixture(t, "action_syntax", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    res := actions_at(t, e, root, SRC, "x :=")
     defer free_actions(&res)
+    testing.expect_value(t, len(res.actions), 2)
+    want, _ := strings.replace(SRC, "    x := )", "    // thor:ignore syntax/error\n    x := )", 1, context.temp_allocator)
+    testing.expect_value(t, applied(t, &res, SRC, "Ignore syntax/error on this line"), want)
+}
 
-    action, found := find_action(&res, `Import "core:fmt" in 2 files`)
-    testing.expect(t, found, "missing the multi-file add-import action")
-    testing.expectf(t, len(action.edits) == 2, "expected one edit per file, got %d", len(action.edits))
+@(test)
+test_action_struct_fields :: proc(t: ^testing.T) {
+    SRC :: `package app
 
-    saw_main, saw_helper := false, false
-    for edit in action.edits {
-        if lang.path_equal(edit.path, main_path) {
-            saw_main = true
+E :: enum { A, B }
+S :: struct { a: int, b: string, e: E, p: ^S }
+
+f :: proc() {
+    one := S{b = "x"}
+    empty := S{}
+    many := S{
+        a = 1,
+    }
+    typed: S = {}
+    _, _, _, _ = one, empty, many, typed
+}
+`
+    root := fixture(t, "action_struct_fields", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    one := actions_at(t, e, root, SRC, `b = "x"`)
+    defer free_actions(&one)
+    got := applied(t, &one, SRC, "Add 3 missing fields")
+    testing.expect(t, strings.contains(got, `one := S{b = "x", a = 0, e = .A, p = nil}`), got)
+
+    empty := actions_at(t, e, root, SRC, "S{}")
+    defer free_actions(&empty)
+    got = applied(t, &empty, SRC, "Add 4 missing fields")
+    testing.expect(t, strings.contains(got, `empty := S{a = 0, b = "", e = .A, p = nil}`), got)
+
+    many := actions_at(t, e, root, SRC, "a = 1")
+    defer free_actions(&many)
+    got = applied(t, &many, SRC, "Add 3 missing fields")
+    testing.expect(t, strings.contains(got, "many := S{\n        a = 1,\n        b = \"\",\n        e = .A,\n        p = nil,\n    }"), got)
+
+    typed := actions_at(t, e, root, SRC, "{}", 1)
+    defer free_actions(&typed)
+    got = applied(t, &typed, SRC, "Add 4 missing fields")
+    testing.expectf(t, strings.contains(got, `typed: S = {a = 0, b = "", e = .A, p = nil}`), "%s", got)
+}
+
+@(test)
+test_action_or_return :: proc(t: ^testing.T) {
+    SRC :: `package app
+
+Error :: enum { None, Bad }
+two :: proc() -> (int, Error) { return 1, .None }
+
+f :: proc() -> Error {
+    x := two()
+    _ = x
+    return .None
+}
+g :: proc() -> bool {
+    y := two()
+    _ = y
+    return true
+}
+`
+    root := fixture(t, "action_or_return", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    res := actions_at(t, e, root, SRC, "x := two")
+    defer free_actions(&res)
+    got := applied(t, &res, SRC, "Add or_return")
+    testing.expect(t, strings.contains(got, "x := two() or_return\n"), got)
+
+    wrong := actions_at(t, e, root, SRC, "y := two")
+    defer free_actions(&wrong)
+    testing.expect(t, !slice.contains(titles(&wrong), "Add or_return"), "no or_return when the result cannot take the error")
+}
+
+@(test)
+test_action_create_decl :: proc(t: ^testing.T) {
+    SRC :: `package app
+
+import "../lib"
+
+f :: proc(count: int, name: string, h: lib.Handle) {
+    ok: bool = check(count, name, h, 2.5)
+    p := Point{x = 1, label = "a"}
+    total = count
+    _ = ok
+    _ = p
+    take(missing)
+}
+
+take :: proc(s: string) {}
+`
+    root := fixture(t, "action_create_decl", {
+        {".thor/odin-analyzer.lua", ACTION_CONFIG},
+        {"lib/lib.odin", "package lib\n\nHandle :: distinct int\n"},
+    })
+    e := engine_create()
+    defer engine_destroy(e)
+
+    call := actions_at(t, e, root, SRC, "check(")
+    defer free_actions(&call)
+    got := applied(t, &call, SRC, "Create procedure 'check'")
+    testing.expect(t, strings.contains(got, "\n}\n\ncheck :: proc(count: int, name: string, h: lib.Handle, p4: f64) -> bool {\n    unimplemented()\n}\n\ntake ::"), got)
+
+    lit := actions_at(t, e, root, SRC, "Point{")
+    defer free_actions(&lit)
+    got = applied(t, &lit, SRC, "Create struct 'Point'")
+    testing.expect(t, strings.contains(got, "\n}\n\nPoint :: struct {\n    x: int,\n    label: string,\n}\n\ntake ::"), got)
+
+    store := actions_at(t, e, root, SRC, "total")
+    defer free_actions(&store)
+    got = applied(t, &store, SRC, "Declare 'total' with :=")
+    testing.expect(t, strings.contains(got, "    total := count\n"), got)
+
+    variable := actions_at(t, e, root, SRC, "missing")
+    defer free_actions(&variable)
+    got = applied(t, &variable, SRC, "Create variable 'missing'")
+    testing.expect(t, strings.contains(got, "    missing: string\n    take(missing)\n"), got)
+}
+
+@(test)
+test_action_compiler_lines :: proc(t: ^testing.T) {
+    SRC :: `package app
+
+f :: proc(n: int, s: []int) -> int {
+    n += 1
+    return n + len(s)
+}
+
+g :: proc() {
+    x := 5
+    x := 6
+    _ = x
+}
+
+h :: proc(n: int) { n += 1 }
+`
+    root := fixture(t, "action_compiler_lines", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    at :: proc(src, marker: string, skip := 0) -> int {
+        from := 0
+        for _ in 0 ..< skip {
+            from += strings.index(src[from:], marker) + 1
         }
-        if lang.path_equal(edit.path, helper_path) {
-            saw_helper = true
-            testing.expect(t, strings.contains(edit.new_text, `import "core:fmt"`), "sibling edit did not add the import")
+        return from + strings.index(src[from:], marker)
+    }
+    run :: proc(e: ^Engine, root: string, offset: int, message: string) -> lang.Result {
+        diags := []lang.Diagnostic_Ref{{start = offset, end = offset + 1, severity = .Error, message = message}}
+        req := lang.Request {
+            kind        = .Code_Actions,
+            path        = fixture_path(root, "app/main.odin"),
+            ext         = ".odin",
+            source      = SRC,
+            workspace   = root,
+            offset      = offset,
+            end         = offset,
+            diagnostics = diags,
         }
+        res: lang.Result
+        code_actions(e, &req, &res)
+        return res
     }
-    testing.expect(t, saw_main, "missing the edit for the requesting file")
-    testing.expect(t, saw_helper, "missing the edit for the sibling file")
-}
 
-@(test)
-test_add_import_joins_existing_block :: proc(t: ^testing.T) {
-    e := engine_create()
-    defer engine_destroy(e)
+    res := run(e, root, at(SRC, "n += 1"), "Cannot assign to 'n' which is a procedure parameter")
+    want, _ := strings.replace(SRC, "    n += 1\n    return", "    n := n\n    n += 1\n    return", 1, context.temp_allocator)
+    testing.expect_value(t, applied(t, &res, SRC, "Copy parameter 'n' into a local variable"), want)
+    free_actions(&res)
 
-    src := `package demo
+    res = run(e, root, at(SRC, "x := 6"), "Redeclaration of 'x' in this scope")
+    want, _ = strings.replace(SRC, "x := 6", "x = 6", 1, context.temp_allocator)
+    testing.expect_value(t, applied(t, &res, SRC, "Assign to the existing 'x' instead of declaring it again"), want)
+    free_actions(&res)
 
-import "core:os"
-
-main :: proc() {
-	fmt.println(os.args)
-}
-`
-    res := actions_at(e, src, "fmt.println")
-    defer free_actions(&res)
-
-    action, found := find_action(&res, `Import "core:fmt"`)
-    testing.expect(t, found, "missing the add-import action")
-
-    out := apply_action(src, action)
-    lines := strings.split_lines(out, context.temp_allocator)
-    // The new import sits on the line after the existing one, not somewhere else.
-    for line, i in lines {
-        if strings.contains(line, `import "core:os"`) {
-            testing.expectf(
-                t,
-                i + 1 < len(lines) && strings.contains(lines[i + 1], `import "core:fmt"`),
-                "expected the new import directly below the existing block, got %q",
-                i + 1 < len(lines) ? lines[i + 1] : "<eof>",
-            )
-        }
+    // A body on the line of its parameters gets no fix.
+    res = run(e, root, at(SRC, "n += 1", 1), "Cannot assign to 'n' which is a procedure parameter")
+    for a in res.actions {
+        testing.expect(t, !strings.has_prefix(a.title, "Copy parameter"), "one-line body")
     }
+    free_actions(&res)
 }
 
 @(test)
-test_no_import_offered_when_already_imported :: proc(t: ^testing.T) {
+test_action_missing_comma :: proc(t: ^testing.T) {
+    SRC :: "package app\n\nE :: enum {\n    A,\n    B // last\n}\n"
+    root := fixture(t, "action_comma", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
     e := engine_create()
     defer engine_destroy(e)
 
-    src := `package demo
-
-import "core:fmt"
-
-main :: proc() {
-	fmt.println("hi")
-}
-`
-    res := actions_at(e, src, "fmt.println")
-    defer free_actions(&res)
-
-    _, found := find_action(&res, `Import "core:fmt"`)
-    testing.expect(t, !found, "offered an import the file already has")
-}
-
-@(test)
-test_no_import_offered_for_a_value_member :: proc(t: ^testing.T) {
-    e := engine_create()
-    defer engine_destroy(e)
-
-    // `p` is a local, so `p.x` is member access — not a package qualifier that
-    // needs importing.
-    src := `package demo
-
-Point :: struct {
-	x: int,
-}
-
-main :: proc() {
-	p := Point{}
-	p.x = 1
-}
-`
-    res := actions_at(e, src, "p.x")
-    defer free_actions(&res)
-
-    for action in res.actions {
-        testing.expectf(t, !strings.has_prefix(action.title, "Import"), "offered %q for a struct member", action.title)
+    offset := strings.index(SRC, "\n}")
+    diags := []lang.Diagnostic_Ref{{start = offset, end = offset + 1, severity = .Warning, message = "Expected a comma, got a newline"}}
+    req := lang.Request {
+        kind        = .Code_Actions,
+        path        = fixture_path(root, "app/main.odin"),
+        ext         = ".odin",
+        source      = SRC,
+        workspace   = root,
+        offset      = offset,
+        end         = offset,
+        diagnostics = diags,
     }
+    res: lang.Result
+    code_actions(e, &req, &res)
+    defer free_actions(&res)
+    want, _ := strings.replace(SRC, "B // last", "B, // last", 1, context.temp_allocator)
+    testing.expect_value(t, applied(t, &res, SRC, "Add the missing trailing comma"), want)
 }
 
 @(test)
-test_fill_switch_cases :: proc(t: ^testing.T) {
+test_action_unneeded_semicolon :: proc(t: ^testing.T) {
+    SRC :: "package app\n\nf :: proc() {\n    x := 1 ;\n    _ = x\n}\n"
+    root := fixture(t, "action_semicolon", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
     e := engine_create()
     defer engine_destroy(e)
 
-    src := `package demo
-
-Axis :: enum {
-	Horizontal,
-	Vertical,
-	Depth,
-}
-
-main :: proc() {
-	a: Axis = .Horizontal
-	switch a {
-	case .Horizontal:
-	}
-}
-`
-    res := actions_at(e, src, "switch a")
-    defer free_actions(&res)
-
-    testing.expect(t, res.ok, "expected an action on an incomplete switch")
-    action, found := find_action(&res, "Add 2 missing cases")
-    testing.expect(t, found, "missing the fill-switch action")
-
-    out := apply_action(src, action)
-    testing.expect(t, strings.contains(out, "case .Vertical:"), "Vertical was not added")
-    testing.expect(t, strings.contains(out, "case .Depth:"), "Depth was not added")
-    // The existing case is untouched and the new ones share its indentation.
-    testing.expect(t, strings.contains(out, "\tcase .Horizontal:\n"), "the existing case was disturbed")
-    testing.expect(t, strings.contains(out, "\tcase .Vertical:\n"), "the new case is misindented")
-    // They go inside the switch, above its closing brace.
-    testing.expect(
-        t,
-        strings.index(out, "case .Depth:") < strings.index(out, "\n\t}"),
-        "the new cases landed outside the switch",
-    )
-}
-
-@(test)
-test_fill_switch_counts_qualified_cases :: proc(t: ^testing.T) {
-    e := engine_create()
-    defer engine_destroy(e)
-
-    // `Axis.Vertical` covers the member just as `.Vertical` does.
-    src := `package demo
-
-Axis :: enum {
-	Horizontal,
-	Vertical,
-}
-
-main :: proc() {
-	a: Axis = .Horizontal
-	switch a {
-	case .Horizontal:
-	case Axis.Vertical:
-	}
-}
-`
-    res := actions_at(e, src, "switch a")
-    defer free_actions(&res)
-
-    for action in res.actions {
-        testing.expectf(t, !strings.contains(action.title, "missing case"), "offered %q on a complete switch", action.title)
+    offset := strings.index_byte(SRC, ';')
+    diags := []lang.Diagnostic_Ref{{start = offset, end = offset + 1, severity = .Warning, message = "Found unneeded semicolon"}}
+    req := lang.Request {
+        kind        = .Code_Actions,
+        path        = fixture_path(root, "app/main.odin"),
+        ext         = ".odin",
+        source      = SRC,
+        workspace   = root,
+        offset      = offset,
+        end         = offset,
+        diagnostics = diags,
     }
-}
-
-@(test)
-test_complete_switch_offers_nothing :: proc(t: ^testing.T) {
-    e := engine_create()
-    defer engine_destroy(e)
-
-    src := `package demo
-
-Axis :: enum {
-	Horizontal,
-	Vertical,
-}
-
-main :: proc() {
-	a: Axis = .Horizontal
-	switch a {
-	case .Horizontal:
-	case .Vertical:
-	}
-}
-`
-    res := actions_at(e, src, "switch a")
+    res: lang.Result
+    code_actions(e, &req, &res)
     defer free_actions(&res)
-
-    for action in res.actions {
-        testing.expectf(t, !strings.contains(action.title, "missing"), "offered %q on a complete switch", action.title)
-    }
-}
-
-@(test)
-test_declare_variable_with_short_decl :: proc(t: ^testing.T) {
-    e := engine_create()
-    defer engine_destroy(e)
-
-    // Nothing declares `count`, so `=` should have been `:=`.
-    src := `package demo
-
-main :: proc() {
-	count = 1
-	_ = count
-}
-`
-    res := actions_at(e, src, "count = 1")
-    defer free_actions(&res)
-
-    testing.expect(t, res.ok, "expected an action on an undeclared assignment")
-    action, found := find_action(&res, `Declare "count" with :=`)
-    testing.expect(t, found, "missing the declare-variable action")
-
-    out := apply_action(src, action)
-    testing.expect(t, strings.contains(out, "count := 1"), "the assignment was not turned into a declaration")
-}
-
-@(test)
-test_declare_variable_with_inferred_type :: proc(t: ^testing.T) {
-    e := engine_create()
-    defer engine_destroy(e)
-
-    // `a + b` types as `int`, so the fix should name it instead of a bare `:=`.
-    src := `package demo
-
-main :: proc(a: int, b: int) {
-	count = a + b
-	_ = count
-}
-`
-    res := actions_at(e, src, "count = a + b")
-    defer free_actions(&res)
-
-    testing.expect(t, res.ok, "expected an action on an undeclared assignment")
-    action, found := find_action(&res, `Declare "count" as int`)
-    testing.expect(t, found, "missing the typed declare-variable action")
-
-    out := apply_action(src, action)
-    testing.expect(t, strings.contains(out, "count: int := a + b"), "the assignment was not turned into a typed declaration")
-}
-
-@(test)
-test_declare_variable_skips_declared_names :: proc(t: ^testing.T) {
-    e := engine_create()
-    defer engine_destroy(e)
-
-    src := `package demo
-
-main :: proc() {
-	count := 0
-	count = 1
-	_ = count
-}
-`
-    res := actions_at(e, src, "count = 1")
-    defer free_actions(&res)
-
-    _, found := find_action(&res, `Declare "count" with :=`)
-    testing.expect(t, !found, "offered a declaration for an already-declared name")
-}
-
-@(test)
-test_declare_variable_skips_non_names :: proc(t: ^testing.T) {
-    e := engine_create()
-    defer engine_destroy(e)
-
-    // `p.x` is a place, not a name — `:=` cannot declare it.
-    src := `package demo
-
-Point :: struct {
-	x: int,
-}
-
-main :: proc() {
-	p := Point{}
-	p.x = 1
-}
-`
-    res := actions_at(e, src, "p.x = 1")
-    defer free_actions(&res)
-
-    for action in res.actions {
-        testing.expectf(t, !strings.has_prefix(action.title, "Declare"), "offered %q for a field assignment", action.title)
-    }
-}
-
-@(test)
-test_no_actions_on_clean_code :: proc(t: ^testing.T) {
-    e := engine_create()
-    defer engine_destroy(e)
-
-    src := `package demo
-
-import "core:fmt"
-
-main :: proc() {
-	fmt.println("hi")
-}
-`
-    res := actions_at(e, src, "println")
-    defer free_actions(&res)
-
-    testing.expectf(t, !res.ok, "expected no actions, got %d", len(res.actions))
+    want, _ := strings.replace(SRC, " ;", "", 1, context.temp_allocator)
+    testing.expect_value(t, applied(t, &res, SRC, "Remove the unneeded semicolon"), want)
 }

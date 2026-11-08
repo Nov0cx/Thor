@@ -14,7 +14,7 @@ import ui "../vendor/loom/loom"
 Palette_Command :: struct {
     title:    string, // borrowed; owned by the registrar
     shortcut: string, // owned; "" when the command has no keybind
-    action:   string, // borrowed static keybinds.json name; "" when it has none
+    action:   string, // borrowed static keybinds.lua name; "" when it has none
     run:      proc(data: rawptr),
     data:     rawptr,
 }
@@ -538,6 +538,7 @@ palette_activate :: proc(thor: ^Thor) {
             return
         }
         command := p.commands[p.matches[p.selected].index]
+        thor_note_action(thor, command.action != "" ? command.action : command.title)
         if command.run != nil {
             command.run(command.data)
         }
@@ -637,7 +638,7 @@ thor_palette_view :: proc(thor: ^Thor) {
                 h = ui.Grow(1),
                 dir = .Column,
                 align = .Center,
-                z = 400,
+                z = 460,
                 bg = ui.Color{0, 0, 0, 120},
             },
         },
@@ -653,10 +654,10 @@ thor_palette_view :: proc(thor: ^Thor) {
 palette_box :: proc(thor: ^Thor) {
     p := &thor.palette
 
-    ui.scope(
+    box := ui.scope(
         {
             key = "palette-box",
-            flags = {.Clickable},
+            flags = {.Clickable, .Focusable},
             props = {
                 w = ui.Px(PALETTE_WIDTH),
                 max_w = ui.viewport().x - 80,
@@ -674,6 +675,10 @@ palette_box :: proc(thor: ^Thor) {
     )
 
     if p.mode == .Confirm {
+        if p.focus_pending {
+            ui.set_focus(box.id)
+            p.focus_pending = false
+        }
         ui.label(
             p.prompt_label,
             {key = "msg", props = {pad = ui.xy(8, 10), color = thor.theme.foreground}},
@@ -724,6 +729,23 @@ palette_keep_digits :: proc(buf: ^[dynamic]u8) {
     resize(buf, keep)
 }
 
+// Opens the selected quick-open file to the side, or through the pane picker.
+@(private = "file")
+palette_open_file_in :: proc(thor: ^Thor, pick: bool) {
+    p := &thor.palette
+    if p.selected < 0 || p.selected >= len(p.matches) {
+        return
+    }
+    // Copy: closing the palette may free the list.
+    path := strings.clone(p.files[p.matches[p.selected].index], context.temp_allocator)
+    thor_palette_close(thor)
+    if pick {
+        thor_pane_pick_begin(thor, path)
+    } else {
+        thor_open_file_in_pane(thor, path, thor_side_pane(thor))
+    }
+}
+
 @(private = "file")
 palette_keys :: proc(thor: ^Thor) {
     if ui.take_key(.Escape) {
@@ -733,6 +755,17 @@ palette_keys :: proc(thor: ^Thor) {
     if ui.take_key(.Enter) || ui.take_key(.Pad_Enter) {
         palette_activate(thor)
         return
+    }
+    // Quick open: ctrl+enter opens the file to the side, shift+enter asks for the pane.
+    if thor.palette.mode == .Files {
+        if ui.take_key(.Enter, {.Ctrl}) || ui.take_key(.Pad_Enter, {.Ctrl}) {
+            palette_open_file_in(thor, false)
+            return
+        }
+        if ui.take_key(.Enter, {.Shift}) || ui.take_key(.Pad_Enter, {.Shift}) {
+            palette_open_file_in(thor, true)
+            return
+        }
     }
     if ui.take_key(.Up) {
         palette_move(thor, -1)

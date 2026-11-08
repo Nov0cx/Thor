@@ -1,235 +1,27 @@
-// Completion, including the expected-type inference that lets a leading `.`
-// offer an enum's members.
+// Completion: the members after `x.`, the enum members of an implicit `.`, and the names in scope
+// for a bare identifier prefix, ranked by the type the caret expects.
 package odin
 
-import "core:os"
-import "core:path/filepath"
+import "core:fmt"
 import "core:slice"
 import "core:strings"
-import "core:sync"
 
 import lang ".."
-import ts "../../vendor/odin-tree-sitter"
+import odinsema "sema"
+import odinsyntax "syntax"
 
-// The type expected at `offset` — the `.` of an implicit selector — so the enum
-// it selects from can be found. A lone `.` is not an expression, so the tree the
-// request carries is derailed in exactly the spot that matters; when the walk
-// over it comes up empty the file is re-parsed with a filler identifier spliced
-// in after the dot, which puts the selector back into a well-formed expression.
-// The splice only adds bytes after the dot and every name the walk reads lies
-// before it, so both parses see the same text where it counts.
-@(private)
-expected_type_at :: proc(
-    e: ^Engine,
-    parser: ts.Parser,
-    root: ts.Node,
-    req: ^lang.Request,
-    offset: int,
-) -> (Type_Ref, bool) {
-    if tr, ok := expected_type_in_tree(e, parser, root, req, offset); ok {
-        return tr, true
-    }
-    src := req.source
-    at := clamp(offset + 1, 0, len(src))
-    repaired := strings.concatenate({src[:at], SELECTOR_FILLER, src[at:]}, context.temp_allocator)
-    tree := ts.parser_parse_string(parser, repaired)
-    defer ts.tree_delete(tree)
-    fixed := req^
-    fixed.source = repaired
-    // The Type_Ref slices `repaired`, which outlives the request; visit_type_decl
-    // matches it by name, so it never touches this tree again.
-    return expected_type_in_tree(e, parser, ts.tree_root_node(tree), &fixed, offset)
-}
+// Most package-level values typed to rank them against the expected type.
+@(private = "file")
+EXPECTED_TYPED_MAX :: 64
 
-// Identifier spliced in after a bare `.` to make the surrounding expression parse.
-@(private)
-SELECTOR_FILLER :: "_"
-
-// expected_type_at over one parse: walks up from the dot to the nearest construct
-// that pins the type down — a `var_declaration`'s annotated type, the left-hand
-// variable of an `assignment_statement`, the named field of a composite literal,
-// the parameter a call argument fills, the other side of a comparison, the value
-// a `switch` is over, or the enclosing procedure's result. The innermost one wins,
-// so `f(P{axis = .})` answers with the field's type, not the parameter's.
-@(private)
-expected_type_in_tree :: proc(
-    e: ^Engine,
-    parser: ts.Parser,
-    root: ts.Node,
-    req: ^lang.Request,
-    offset: int,
-) -> (Type_Ref, bool) {
-    source := req.source
-    off := u32(clamp(offset, 0, len(source)))
-    n := ts.node_named_descendant_for_byte_range(root, off, off)
-    for !ts.node_is_null(n) {
-        switch string(ts.node_type(n)) {
-        case "var_declaration":
-            for i in 0 ..< ts.node_named_child_count(n) {
-                c := ts.node_named_child(n, i)
-                if string(ts.node_type(c)) == "type" {
-                    return type_ref_from_node(c, source)
-                }
-            }
-            return {}, false
-        case "assignment_statement":
-            lhs := ts.node_named_child(n, 0)
-            if is_identifier(lhs) {
-                return binding_type_ref(e, parser, root, req, ts.node_text(lhs, source), int(ts.node_start_byte(lhs)))
-            }
-            return {}, false
-        case "struct_field":
-            // `Point{axis = .}` — the literal names its struct, the struct names
-            // the field's type. A positional field carries no name to look up, and
-            // is where a container literal's elements sit (`bit_set[Axis] = {.}`),
-            // so the walk climbs on to whatever pins the literal's own type down.
-            name := ts.node_named_child(n, 0)
-            lit := ts.node_parent(n)
-            if !is_identifier(name) || ts.node_is_null(lit) {
-                break
-            }
-            tr, ok := composite_type_name(lit, source)
-            if !ok {
-                return {}, false
-            }
-            ctx := Member_Ctx {
-                field = ts.node_text(name, source),
-                env = Embed_Env{e = e, parser = parser, root = root, req = req},
-            }
-            if !visit_type_decl(e, parser, root, req, tr, "struct_declaration", "type", member_visitor, &ctx, &ctx.args) || !ctx.got {
-                return {}, false
-            }
-            return ctx.field_type, true
-        case "struct", "bit_set":
-            // `bit_set[Axis]{.}`, `[]Axis{.}` — a container literal that writes its
-            // own type. A struct's positional field names nothing to select from.
-            if tr, ok := composite_type_name(n, source); ok && !type_is_bare(tr) {
-                return tr, true
-            }
-        case "call_expression":
-            // `f(1, .)` — the parameter this argument fills, by position.
-            fn := ts.node_child_by_field_name(n, "function")
-            if ts.node_is_null(fn) {
-                return {}, false
-            }
-            src, path, d, found := resolve_call_target(e, parser, root, req, n, fn)
-            if !found || d.kind != "function" {
-                return {}, false
-            }
-            tr, ok := proc_param_type(src, d, call_active_param(n, offset))
-            if !ok {
-                return {}, false
-            }
-            // Spelled in the callee's file, so that file's imports qualify it.
-            tr.origin = path
-            return tr, true
-        case "index_expression":
-            // `m[.]` — a map is indexed by its key type. An array is indexed by an
-            // integer, which no enum selects.
-            op, ok := infer_expr_type(e, parser, root, req, ts.node_named_child(n, 0))
-            if !ok {
-                return {}, false
-            }
-            layer, lok := outer_container(op)
-            if !lok {
-                return {}, false
-            }
-            return map_key_type(op, layer)
-        case "binary_expression":
-            // `dir == .` — the other operand carries the type both sides share.
-            other := ts.node_child_by_field_name(n, "left")
-            if !ts.node_is_null(other) && int(ts.node_end_byte(other)) > offset {
-                other = ts.node_child_by_field_name(n, "right")
-            }
-            if ts.node_is_null(other) {
-                return {}, false
-            }
-            return infer_expr_type(e, parser, root, req, other)
-        case "switch_case":
-            // `case .:` — the value being switched over.
-            sw := ts.node_parent(n)
-            if ts.node_is_null(sw) {
-                return {}, false
-            }
-            cond := ts.node_child_by_field_name(sw, "condition")
-            if ts.node_is_null(cond) {
-                return {}, false
-            }
-            return infer_expr_type(e, parser, root, req, cond)
-        case "return_statement":
-            // `return .` — the enclosing procedure's result, in this slot.
-            return enclosing_result_type(n, source, offset)
-        }
-        n = ts.node_parent(n)
-    }
-    return {}, false
-}
-
-// lang.Result type of the procedure a `return` sits in, picking the slot the returned
-// expression at `offset` occupies. A parenthesized result list is a `tuple_type`
-// whose entries may be named (`-> (a: Axis, ok: bool)`); a lone result is the
-// procedure's one `type` child.
-@(private)
-enclosing_result_type :: proc(ret: ts.Node, source: string, offset: int) -> (Type_Ref, bool) {
-    slot := 0
-    for i in 0 ..< ts.node_named_child_count(ret) {
-        if int(ts.node_end_byte(ts.node_named_child(ret, i))) < offset {
-            slot += 1
-        }
-    }
-    proc_node := ts.node_parent(ret)
-    for !ts.node_is_null(proc_node) && string(ts.node_type(proc_node)) != "procedure" {
-        proc_node = ts.node_parent(proc_node)
-    }
-    if ts.node_is_null(proc_node) {
-        return {}, false
-    }
-    results: ts.Node
-    for i in 0 ..< ts.node_named_child_count(proc_node) {
-        c := ts.node_named_child(proc_node, i)
-        if string(ts.node_type(c)) == "type" {
-            results = c
-            break
-        }
-    }
-    if ts.node_is_null(results) {
-        return {}, false
-    }
-    inner := ts.node_named_child(results, 0)
-    if !ts.node_is_null(inner) && string(ts.node_type(inner)) == "tuple_type" {
-        entry := ts.node_named_child(inner, u32(slot))
-        if ts.node_is_null(entry) {
-            return {}, false
-        }
-        if string(ts.node_type(entry)) == "named_type" {
-            entry = ts.node_named_child(entry, ts.node_named_child_count(entry) - 1)
-        }
-        return type_ref_from_node(entry, source)
-    }
-    if slot != 0 {
-        return {}, false
-    }
-    return type_ref_from_node(results, source)
-}
-
-// Trimmed text of a byte range, cloned into context.allocator — a member hover's
-// field declaration (`x: int`).
-@(private)
-declaration_text_range :: proc(source: string, start, end: int) -> string {
-    s := clamp(start, 0, len(source))
-    e := clamp(end, s, len(source))
-    return strings.clone(strings.trim_space(source[s:e]))
-}
-
-// Odin keywords and builtin types offered as completion candidates alongside the
-// resolved identifiers.
-@(private)
+// Keywords and basic type names offered for a bare prefix.
+@(private = "file")
 ODIN_KEYWORDS :: [?]string {
     "auto_cast", "bit_field", "bit_set", "break", "case", "cast", "context",
     "continue", "defer", "distinct", "do", "dynamic", "else", "enum",
     "fallthrough", "for", "foreign", "if", "import", "in", "map", "matrix",
-    "not_in", "or_else", "or_return", "package", "proc", "return", "struct",
-    "switch", "transmute", "typeid", "union", "using", "when", "where",
+    "not_in", "or_break", "or_continue", "or_else", "or_return", "package", "proc",
+    "return", "struct", "switch", "transmute", "typeid", "union", "using", "when", "where",
     "bool", "b8", "b16", "b32", "b64",
     "int", "i8", "i16", "i32", "i64", "i128",
     "uint", "u8", "u16", "u32", "u64", "u128", "uintptr",
@@ -240,496 +32,1084 @@ ODIN_KEYWORDS :: [?]string {
     "true", "false", "nil",
 }
 
-// Bytes that make up an Odin identifier, for finding the partial word the caret
-// is completing.
+// The group a candidate is listed in, first to last.
+@(private = "file")
+Tier :: enum u8 {
+    Expected,   // its type is the one the caret expects
+    Field_Name, // a field a composite literal does not set yet
+    Member,
+    Postfix, // a template that rewrites `x.` and the operand
+    Local,
+    Package,
+    Import,
+    Universe,
+    Auto_Import, // a package the buffer does not import yet
+}
+
+// One candidate. Strings are temp-allocated or borrow the checker or the snapshot.
+@(private = "file")
+Candidate :: struct {
+    label:       string,
+    kind:        string,
+    detail:      string,
+    insert:      string,
+    snippet:     string, // a snippet template that replaces `insert`; "" when none
+    import_path: string, // the import the candidate adds to the buffer; "" when none
+    tier:        Tier,
+    order:       int, // the declaration order of a member; 0 for the others
+    from:        int, // the start of the range the insert replaces; -1 for the typed word
+    to:          int, // one past the end of that range
+}
+
+@(private = "file")
+Completer :: struct {
+    ctx:       ^Request_Context,
+    c:         ^odinsema.Checker, // nil when the checker cannot start
+    prefix:    string,
+    expected:  odinsema.Type_Id,
+    items:     [dynamic]Candidate,
+    seen:      map[string]struct{},
+    typed:     int, // the declarations typed for the expected type
+    snippets:  bool, // a procedure candidate inserts a call snippet
+    arrow:     bool, // the members of `x->`: procedures only, the receiver is implicit
+    importing: string, // the import every candidate added now carries; "" when none
+}
+
+// Fills res.completions with the candidates for the word that ends at req.offset.
+@(private)
+completion :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
+    ctx: Request_Context
+    opened := request_open(e, req, &ctx)
+    defer request_close(&ctx)
+    if !opened {
+        return
+    }
+    cm := Completer {
+        ctx      = &ctx,
+        expected = odinsema.INVALID_TYPE,
+        items    = make([dynamic]Candidate, context.temp_allocator),
+        seen     = make(map[string]struct{}, context.temp_allocator),
+    }
+    collect(&cm)
+    if len(cm.items) == 0 || lang.request_cancelled(req) {
+        return
+    }
+    slice.sort_by(cm.items[:], proc(a, b: Candidate) -> bool {
+        if a.tier != b.tier {
+            return a.tier < b.tier
+        }
+        if a.order != b.order {
+            return a.order < b.order
+        }
+        return a.label < b.label
+    })
+    emit(&cm, res)
+}
+
+// Clones the candidates into res.completions in the order the editor lists them.
+@(private = "file")
+emit :: proc(cm: ^Completer, res: ^lang.Result) {
+    out, merr := make([dynamic]lang.Completion_Item, 0, len(cm.items))
+    if merr != nil {
+        return
+    }
+    res.completions = out
+    for cand, i in cm.items {
+        item := lang.Completion_Item{start = cand.from, end = cand.from < 0 ? -1 : cand.to, preselect = i == 0 && cand.tier == .Expected}
+        ok := [5]bool{}
+        item.label, ok[0] = clone_ok(cand.label)
+        item.kind, ok[1] = clone_ok(cand.kind)
+        item.detail, ok[2] = clone_ok(cand.detail)
+        item.insert, ok[3] = clone_ok(cand.insert)
+        item.sort, ok[4] = clone_ok(fmt.tprintf("%05d", i))
+        if cand.snippet != "" && ok[3] {
+            delete(item.insert)
+            item.insert, ok[3] = clone_ok(cand.snippet)
+            item.snippet = true
+        }
+        if cand.import_path != "" && !slice.contains(ok[:], false) {
+            ok[0] = add_import_edit(cm, &item, cand.import_path)
+        }
+        if slice.contains(ok[:], false) {
+            completion_item_free(item)
+            break
+        }
+        if _, aerr := append(&res.completions, item); aerr != nil {
+            completion_item_free(item)
+            break
+        }
+    }
+    res.ok = len(res.completions) > 0
+}
+
+// A clone in context.allocator, and false when it fails.
+@(private = "file")
+clone_ok :: proc(s: string) -> (string, bool) {
+    if s == "" {
+        return "", true
+    }
+    out, err := strings.clone(s)
+    return out, err == nil
+}
+
+@(private = "file")
+completion_item_free :: proc(item: lang.Completion_Item) {
+    delete(item.label)
+    delete(item.kind)
+    delete(item.detail)
+    delete(item.insert)
+    delete(item.sort)
+    for edit in item.extra_edits {
+        delete(edit.path)
+        delete(edit.old_text)
+        delete(edit.new_text)
+    }
+    delete(item.extra_edits)
+}
+
+// Gives `item` the edit that adds `import "<path>"` to the buffer. False when it cannot allocate.
+@(private = "file")
+add_import_edit :: proc(cm: ^Completer, item: ^lang.Completion_Item, import_path: string) -> bool {
+    at, text := import_insert(cm.ctx, import_path)
+    path, pok := clone_ok(cm.ctx.req.path)
+    new_text, tok := clone_ok(text)
+    edits, merr := make([dynamic]lang.Text_Edit, 0, 1)
+    if !pok || !tok || merr != nil {
+        delete(path)
+        delete(new_text)
+        delete(edits)
+        return false
+    }
+    append(&edits, lang.Text_Edit{path = path, start = at, end = at, new_text = new_text})
+    item.extra_edits = edits
+    return true
+}
+
+// Collects the candidates for the context of the caret.
+@(private = "file")
+collect :: proc(cm: ^Completer) {
+    src := cm.ctx.req.source
+    off := clamp(cm.ctx.req.offset, 0, len(src))
+    if in_literal(cm.ctx, off) {
+        return
+    }
+    start := off
+    for start > 0 && is_word_byte(src[start - 1]) {
+        start -= 1
+    }
+    if start < off && src[start] >= '0' && src[start] <= '9' {
+        return
+    }
+    cm.prefix = src[start:off]
+    cm.c = request_checker(cm.ctx)
+    end := off
+    for end < len(src) && is_word_byte(src[end]) {
+        end += 1
+    }
+    cm.snippets = (end >= len(src) || src[end] != '(') && config_snippets(cm.ctx.e, cm.ctx.req.workspace)
+    if start >= 2 && src[start - 1] == '(' && src[start - 2] == '.' {
+        assertion_completions(cm, start - 1)
+        return
+    }
+    if start >= 2 && src[start - 1] == '>' && src[start - 2] == '-' {
+        cm.arrow = true
+        dot_completions(cm, start - 2)
+        return
+    }
+    if start > 0 && src[start - 1] == '.' && (start < 2 || src[start - 2] != '.') {
+        dot_completions(cm, start - 1)
+        return
+    }
+    bare_completions(cm, start)
+}
+
 @(private)
 is_word_byte :: proc(b: u8) -> bool {
     return b == '_' || (b >= '0' && b <= '9') || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || b >= 0x80
 }
 
-// Code completion for the partial identifier before the caret. Two contexts:
-// after `pkg.` (the operand names an imported package) it lists that package's
-// top-level declarations; otherwise it offers the identifiers in scope — locals
-// and parameters visible at the caret, this file's and this package's top-level
-// declarations, the imported package names, and the Odin keywords and builtin
-// types. All filtered by the typed prefix (case-sensitive) and de-duplicated by
-// name. After a `.` it offers the operand's struct fields instead, inferring the
-// operand's type the same way member access does — the operand being whatever
-// expression ends at the dot, not just the word before it.
+// True when the caret at `off` is inside a comment, a string, a rune or, with `numbers`, a number literal.
 @(private)
-complete :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Request, res: ^lang.Result) {
-    src := req.source
-    off := clamp(req.offset, 0, len(src))
-
-    // The partial word being completed: the run of identifier bytes before the caret.
-    start := off
-    for start > 0 && is_word_byte(src[start - 1]) {
-        start -= 1
+in_literal :: proc(ctx: ^Request_Context, off: int, numbers := true) -> bool {
+    if off == 0 || ctx.parsed.tree == nil || ctx.parsed.tree.root == nil {
+        return false
     }
-    prefix := src[start:off]
-
-    // `v.(<prefix>` — a type assertion, the one place a union's variants are
-    // named. `.(` is the only Odin syntax with a dot right before a paren, so a
-    // call (`pkg.f(`) never reads as one.
-    if start >= 2 && src[start - 1] == '(' && src[start - 2] == '.' {
-        complete_variants(e, parser, root, req, start - 2, prefix, res)
-        finish_completion(res)
-        return
+    tok, ok := odinsyntax.node_token_at(odinsyntax.node_root(ctx.parsed.tree), u32(off - 1), context.temp_allocator)
+    if !ok {
+        return false
     }
-
-    // A `.` before the typed word is a selector: either on an operand (a package
-    // or a value) or on nothing at all (an implicit enum selector).
-    if start > 0 && src[start - 1] == '.' {
-        dot := start - 1
-        before := dot > 0 ? src[dot - 1] : 0 // the char just before the dot
-        if is_word_byte(before) || before == ')' || before == ']' {
-            complete_selector(e, parser, root, req, dot, prefix, res)
-        } else if tr, tok := expected_type_at(e, parser, root, req, dot); tok {
-            // Leading `.<prefix>` with no operand: an implicit enum selector
-            // (`x: Axis = .`). If the expected type is an enum, offer its members.
-            // A container of one selects the same members from inside its literal
-            // (`bit_set[Axis] = {.}`, `[]Axis{.}`, `map[string]Axis{"a" = .}`), so
-            // the element is what the lookup asks for.
-            seen := make(map[string]bool, 0, context.temp_allocator)
-            ctx := Enum_Ctx{prefix = prefix, res = res, seen = &seen}
-            visit_type_decl(e, parser, root, req, element_type(tr), "enum_declaration", "enum", enum_visitor, &ctx)
-        }
-        finish_completion(res)
-        return
+    _, end := odinsyntax.token_range(tok)
+    text := odinsyntax.syntax_token_text(tok)
+    #partial switch tok.green.kind {
+    case .Line_Comment, .File_Tag:
+        return true
+    case .Integer, .Float, .Imag:
+        return numbers
+    case .Block_Comment:
+        return off < int(end) || len(text) < 4 || !strings.has_suffix(text, "*/")
+    case .String, .Rune:
+        return off < int(end) || len(text) < 2 || text[len(text) - 1] != text[0]
     }
-
-    seen := make(map[string]bool, 0, context.temp_allocator)
-
-    // In-scope locals and parameters, plus this file's top-level declarations
-    // (collect_defs yields both).
-    defs := collect_defs(e, root, src)
-    for d in defs {
-        if !completion_def_ok(d, off) || !completion_matches(d.name, prefix) {
-            continue
-        }
-        add_completion(res, src, d, &seen)
-    }
-
-    // This package's sibling files (an Odin package is one flat directory): their
-    // top-level declarations are visible here unqualified.
-    if req.path != "" {
-        complete_dir_toplevel(e, parser, req, filepath.dir(req.path), prefix, req.path, true, res, &seen)
-    }
-
-    // Fields a `using` opened into this scope, which are named bare here.
-    complete_using_fields(e, parser, root, req, off, prefix, res, &seen)
-
-    // Imported package names are completable identifiers too (`widgets`, `fmt`) —
-    // the operand you then qualify with `.` — though they're not declarations
-    // collect_defs yields.
-    for i in 0 ..< ts.node_named_child_count(root) {
-        child := ts.node_named_child(root, i)
-        if string(ts.node_type(child)) != "import_declaration" {
-            continue
-        }
-        if name, _, iok := import_name_and_path(child, src); iok && completion_matches(name, prefix) && name not_in seen {
-            seen[name] = true
-            append(&res.symbols, lang.Symbol {
-                name      = strings.clone(name),
-                kind      = strings.clone("namespace"),
-                signature = strings.clone(name),
-            })
-        }
-    }
-
-    // Keywords and builtin types.
-    for kw in ODIN_KEYWORDS {
-        if completion_matches(kw, prefix) && kw not_in seen {
-            seen[kw] = true
-            append(&res.symbols, lang.Symbol {
-                name      = strings.clone(kw),
-                kind      = strings.clone("keyword"),
-                signature = strings.clone(kw),
-            })
-        }
-    }
-
-    // The implicit scope — `len`, `append`, `make` — after the keywords, so a
-    // name spelled by both keeps the keyword's plain row rather than the
-    // documentation stub base:builtin gives it (`int :: int`).
-    builtin_completions(e, parser, prefix, res, &seen)
-
-    finish_completion(res)
+    return false
 }
 
-// Candidates for `operand.<prefix>`, where `dot` is the selector's `.`. A bare
-// operand naming an imported package lists that package's top-level symbols;
-// anything else is a value, and its struct fields are offered — or, over a
-// container, the members the container itself has (container.odin).
-@(private)
-complete_selector :: proc(
-    e: ^Engine,
-    parser: ts.Parser,
-    root: ts.Node,
-    req: ^lang.Request,
-    dot: int,
-    prefix: string,
-    res: ^lang.Result,
-) {
-    src := req.source
-    word := dot
-    for word > 0 && is_word_byte(src[word - 1]) {
-        word -= 1
+// Adds a candidate that starts with the prefix and has a name not added yet.
+@(private = "file")
+add :: proc(cm: ^Completer, label, kind, detail: string, tier: Tier, order := 0, type := odinsema.INVALID_TYPE, insert := "", snippet := "") {
+    if label == "" || label == "_" || !strings.has_prefix(label, cm.prefix) || label in cm.seen {
+        return
     }
-    // A word preceded by another `.` is a field, never a package name.
-    if word < dot && (word == 0 || src[word - 1] != '.') {
-        if raw, found := import_path(root, src, src[word:dot]); found {
-            if dir, dok := package_dir(e, raw, req.path, req.workspace); dok {
-                seen := make(map[string]bool, 0, context.temp_allocator)
-                // An imported package: only its public declarations are offered.
-                complete_dir_toplevel(e, parser, req, dir, prefix, "", false, res, &seen)
+    cm.seen[label] = {}
+    t := tier
+    if type != odinsema.INVALID_TYPE && type == cm.expected {
+        t = .Expected
+    }
+    append(&cm.items, Candidate{label = label, kind = kind, detail = detail, insert = insert, snippet = snippet, import_path = cm.importing, tier = t, order = order, from = -1})
+}
+
+// The type a candidate shows; "" when it is not known.
+@(private = "file")
+type_detail :: proc(cm: ^Completer, type: odinsema.Type_Id) -> string {
+    if cm.c == nil || type == odinsema.INVALID_TYPE {
+        return ""
+    }
+    return odinsema.type_string(&cm.c.table, type, context.temp_allocator)
+}
+
+// The source text of the type expression at `offset` of the buffer; "" when there is none.
+@(private = "file")
+type_text :: proc(cm: ^Completer, offset: int) -> string {
+    if cm.c == nil || offset < 0 {
+        return ""
+    }
+    n, ok := odinsema.node_at(cm.c, cm.ctx.live.id, offset)
+    if !ok {
+        return ""
+    }
+    return strings.trim_space(odinsyntax.node_text(n))
+}
+
+// The candidates after the `.` at `dot`: the members of the operand, or of the enum an implicit selector expects.
+@(private = "file")
+dot_completions :: proc(cm: ^Completer, dot: int) {
+    c := cm.c
+    if c == nil {
+        return
+    }
+    file := cm.ctx.live.id
+    n, ok := odinsema.expr_under(c, file, dot)
+    if !ok {
+        return
+    }
+    #partial switch n.green.kind {
+    case .Selector_Expr:
+        sel, _ := odinsyntax.as_selector_expr(n)
+        operand, has_operand := odinsyntax.selector_expr_operand(&sel)
+        if !has_operand {
+            return
+        }
+        op := odinsema.expr_type(c, file, operand)
+        if op.mode == .Package {
+            if !cm.arrow {
+                add_package_names(cm, op.dir, false, .Member)
             }
             return
         }
-    }
-    tr, tok := operand_type_at(e, parser, root, req, dot)
-    if !tok {
-        return
-    }
-    seen := make(map[string]bool, 0, context.temp_allocator)
-    if !type_is_bare(tr) {
-        complete_container_members(e, parser, root, req, tr, prefix, res, &seen)
-        return
-    }
-    ctx := Fields_Ctx {
-        prefix = prefix,
-        env    = Embed_Env{e = e, parser = parser, root = root, req = req},
-        res    = res,
-        seen   = &seen,
-    }
-    visit_type_decl(e, parser, root, req, tr, "struct_declaration", "type", fields_visitor, &ctx)
-}
-
-// Candidates for `operand.(<prefix>`: the variants of the union the operand is,
-// each written the way the union declares it. An operand that is not a union
-// offers nothing — no other type is asserted against.
-@(private)
-complete_variants :: proc(
-    e: ^Engine,
-    parser: ts.Parser,
-    root: ts.Node,
-    req: ^lang.Request,
-    dot: int,
-    prefix: string,
-    res: ^lang.Result,
-) {
-    tr, tok := operand_type_at(e, parser, root, req, dot)
-    if !tok || !type_is_bare(tr) {
-        return
-    }
-    seen := make(map[string]bool, 0, context.temp_allocator)
-    ctx := Variants_Ctx{prefix = prefix, res = res, seen = &seen}
-    visit_type_decl(e, parser, root, req, tr, "union_declaration", "type", variants_visitor, &ctx)
-}
-
-// Type of the expression left of the `.` at `dot`. A dot with a name after it is
-// already a well-formed selector and is read off the tree the request carries. A
-// dangling one is not: the grammar reaches past the line end for the member it is
-// missing, which glues the next statement onto the selector and leaves no node
-// spelling the operand alone. That case is repaired first, with the same filler
-// identifier an implicit selector uses.
-@(private)
-operand_type_at :: proc(
-    e: ^Engine,
-    parser: ts.Parser,
-    root: ts.Node,
-    req: ^lang.Request,
-    dot: int,
-) -> (Type_Ref, bool) {
-    src := req.source
-    // A `(` after the dot opens a type assertion, which leaves the operand whole
-    // too — the break starts at the dot.
-    if dot + 1 < len(src) && (is_word_byte(src[dot + 1]) || src[dot + 1] == '(') {
-        if tr, ok := operand_type_in_tree(e, parser, root, req, dot); ok {
-            return tr, true
+        if op.mode == .Invalid && !cm.arrow && operand.green.kind == .Ident {
+            unbound_alias_names(cm, odinsyntax.node_text(operand), int(operand.offset))
+            return
+        }
+        add_members(cm, odinsema.operand_members(c, op, context.temp_allocator))
+        if !cm.arrow && op.mode == .Value {
+            add_postfix(cm, operand, op.type)
+        }
+    case .Implicit_Selector:
+        if !cm.arrow {
+            add_enum_choices(cm, odinsema.expected_type_at(c, file, dot), 0)
         }
     }
-    at := clamp(dot + 1, 0, len(src))
-    repaired := strings.concatenate({src[:at], SELECTOR_FILLER, src[at:]}, context.temp_allocator)
-    tree := ts.parser_parse_string(parser, repaired)
-    defer ts.tree_delete(tree)
-    fixed := req^
-    fixed.source = repaired
-    // The Type_Ref slices `repaired`, which outlives the request; visit_type_decl
-    // matches it by name, so it never touches this tree again.
-    return operand_type_in_tree(e, parser, ts.tree_root_node(tree), &fixed, dot)
 }
 
-// operand_type_at over one parse. The operand is the *largest* expression ending
-// at the dot — `a.b.` selects on the member expression `a.b`, not on `b` — so the
-// walk starts at the innermost node covering the byte before the dot and climbs.
-// The first climb reaches the dot: the innermost node there can end short of it
-// (`xs[0].` lands on the `0`, two levels under the index expression that ends at
-// the dot). From there it keeps climbing only while the parent is another
-// expression ending in the same place, so it never walks out into the statement.
-@(private)
-operand_type_in_tree :: proc(
-    e: ^Engine,
-    parser: ts.Parser,
-    root: ts.Node,
-    req: ^lang.Request,
-    dot: int,
-) -> (Type_Ref, bool) {
-    if dot <= 0 || dot > len(req.source) {
-        return {}, false
-    }
-    at := u32(dot - 1)
-    n := ts.node_named_descendant_for_byte_range(root, at, at)
-    for !ts.node_is_null(n) && ts.node_end_byte(n) < u32(dot) {
-        n = ts.node_parent(n)
-    }
-    if ts.node_is_null(n) || ts.node_end_byte(n) != u32(dot) {
-        return {}, false
-    }
-    for {
-        p := ts.node_parent(n)
-        if ts.node_is_null(p) || ts.node_end_byte(p) != u32(dot) || !is_operand_expr(p) {
-            break
-        }
-        n = p
-    }
-    return infer_expr_type(e, parser, root, req, n)
+// One postfix template. `%` stands for the operand text.
+@(private = "file")
+Postfix :: struct {
+    label:    string,
+    detail:   string,
+    template: string,
+    applies:  proc(t: ^odinsema.Type_Table, id: odinsema.Type_Id) -> bool,
 }
 
-// Expression shapes infer_expr_type can type, and so the ones worth climbing to
-// when looking for a selector's operand. Everything else — a statement, a broken
-// parse's ERROR node — ends the climb, so the operand is never widened past the
-// expression it belongs to.
-@(private)
-is_operand_expr :: proc(n: ts.Node) -> bool {
-    switch string(ts.node_type(n)) {
-    case "member_expression", "index_expression", "slice_expression",
-         "call_expression", "unary_expression", "cast_expression", "struct":
+@(private = "file")
+POSTFIXES :: [?]Postfix {
+    {"if", "if x {}", "if %% {\n\t$0\n}", postfix_any},
+    {"ifnot", "if !x {}", "if !%% {\n\t$0\n}", postfix_bool},
+    {"ifnil", "if x == nil {}", "if %% == nil {\n\t$0\n}", postfix_nilable},
+    {"ifnotnil", "if x != nil {}", "if %% != nil {\n\t$0\n}", postfix_nilable},
+    {"for", "for v in x {}", "for ${1:v} in %% {\n\t$0\n}", postfix_iterable},
+    {"fori", "for i in 0..<len(x) {}", "for ${1:i} in 0..<len(%%) {\n\t$0\n}", postfix_indexable},
+    {"switch", "switch x {}", "switch %% {\ncase $0:\n}", postfix_switchable},
+    {"var", "name := x", "${1:name} := %%$0", postfix_any},
+    {"return", "return x", "return %%$0", postfix_any},
+    {"defer_delete", "defer delete(x)", "defer delete(%%)$0", postfix_deletable},
+    {"defer_free", "defer free(x)", "defer free(%%)$0", postfix_pointer},
+}
+
+@(private = "file")
+postfix_any :: proc(t: ^odinsema.Type_Table, id: odinsema.Type_Id) -> bool {
+    return id != odinsema.INVALID_TYPE
+}
+
+@(private = "file")
+postfix_bool :: proc(t: ^odinsema.Type_Table, id: odinsema.Type_Id) -> bool {
+    #partial switch v in odinsema.type_get(t, odinsema.type_base(t, id)) {
+    case odinsema.Basic_Type:
+        return v.kind >= .Bool && v.kind <= .B64
+    case odinsema.Untyped_Type:
+        return v.kind == .Bool
+    }
+    return false
+}
+
+@(private = "file")
+postfix_nilable :: proc(t: ^odinsema.Type_Table, id: odinsema.Type_Id) -> bool {
+    #partial switch v in odinsema.type_get(t, odinsema.type_base(t, id)) {
+    case odinsema.Pointer_Type, odinsema.Multi_Pointer_Type, odinsema.Union_Type, odinsema.Proc_Type,
+         odinsema.Slice_Type, odinsema.Dynamic_Array_Type, odinsema.Map_Type:
+        return true
+    case odinsema.Basic_Type:
+        return v.kind == .Rawptr || v.kind == .Cstring || v.kind == .Typeid || v.kind == .Any
+    }
+    return false
+}
+
+@(private = "file")
+postfix_pointer :: proc(t: ^odinsema.Type_Table, id: odinsema.Type_Id) -> bool {
+    #partial switch v in odinsema.type_get(t, odinsema.type_base(t, id)) {
+    case odinsema.Pointer_Type, odinsema.Multi_Pointer_Type:
+        return true
+    case odinsema.Basic_Type:
+        return v.kind == .Rawptr || v.kind == .Cstring
+    }
+    return false
+}
+
+@(private = "file")
+postfix_deletable :: proc(t: ^odinsema.Type_Table, id: odinsema.Type_Id) -> bool {
+    #partial switch v in odinsema.type_get(t, odinsema.type_base(t, id)) {
+    case odinsema.Slice_Type, odinsema.Dynamic_Array_Type, odinsema.Map_Type:
+        return true
+    case odinsema.Basic_Type:
+        return v.kind == .String || v.kind == .Cstring
+    }
+    return false
+}
+
+@(private = "file")
+postfix_indexable :: proc(t: ^odinsema.Type_Table, id: odinsema.Type_Id) -> bool {
+    #partial switch v in odinsema.type_get(t, odinsema.type_base(t, id)) {
+    case odinsema.Slice_Type, odinsema.Dynamic_Array_Type, odinsema.Array_Type, odinsema.Enumerated_Array_Type:
+        return true
+    case odinsema.Basic_Type:
+        return v.kind == .String
+    }
+    return false
+}
+
+@(private = "file")
+postfix_iterable :: proc(t: ^odinsema.Type_Table, id: odinsema.Type_Id) -> bool {
+    if postfix_indexable(t, id) {
+        return true
+    }
+    #partial switch v in odinsema.type_get(t, odinsema.type_base(t, id)) {
+    case odinsema.Map_Type, odinsema.Bit_Set_Type, odinsema.Enum_Type:
         return true
     }
     return false
 }
 
-// Whether a declaration belongs in the general completion list: an in-scope
-// local or parameter (visible at the caret), or any file-scope declaration.
-// Struct fields, the package/import namespace and labels are excluded — a field
-// is only reachable through an instance, which needs type inference.
-@(private)
-completion_def_ok :: proc(d: Def, off: int) -> bool {
-    switch d.kind {
-    case "field", "namespace", "label", "":
-        return false
+@(private = "file")
+postfix_switchable :: proc(t: ^odinsema.Type_Table, id: odinsema.Type_Id) -> bool {
+    #partial switch v in odinsema.type_get(t, odinsema.type_base(t, id)) {
+    case odinsema.Enum_Type, odinsema.Union_Type:
+        return true
+    case odinsema.Basic_Type:
+        return odinsema.type_is_integer(t, id) || v.kind == .String || v.kind == .Rune
     }
-    return def_visible_at(d, off)
+    return false
 }
 
-// Case-sensitive prefix match; an empty prefix matches everything.
-@(private)
-completion_matches :: proc(name, prefix: string) -> bool {
-    return strings.has_prefix(name, prefix)
-}
-
-// Appends a completion candidate for `d`, de-duplicated by name. The label is the
-// declaration line for a top-level symbol, or just the name for a local/param.
-// Owned strings clone into context.allocator (the Manager's).
-@(private)
-add_completion :: proc(res: ^lang.Result, source: string, d: Def, seen: ^map[string]bool) {
-    if d.name in seen^ {
+// Adds the postfix templates for `operand` of type `type`. Each replaces `operand.` and the typed word.
+@(private = "file")
+add_postfix :: proc(cm: ^Completer, operand: odinsyntax.Syntax_Node, type: odinsema.Type_Id) {
+    if cm.c == nil {
         return
     }
-    seen^[d.name] = true
-    label := d.top_level ? signature_text(source, d) : strings.clone(d.name)
-    append(&res.symbols, lang.Symbol {
-        name      = strings.clone(d.name),
-        kind      = strings.clone(d.kind),
-        signature = label,
-    })
-}
-
-// Appends one directory's top-level declarations (its .odin files, non-recursive
-// — an Odin package is a flat dir) whose names match `prefix`, skipping `skip`
-// (the requesting file, whose live buffer was scanned already).
-//
-// Served from the resident symbol index when the directory is inside the indexed
-// workspace, which is the per-keystroke case: completion fires while typing, and
-// re-reading and re-parsing every sibling file for each keystroke was the last
-// consumer still doing that. The index sync only re-parses files whose stat moved,
-// so a burst of keystrokes costs a readdir walk instead of a package of parses.
-// A directory outside the index — a `core:`/`vendor:` package, a collection —
-// still reads off disk.
-//
-// `same_package` says whether `dir` is the requesting file's own package, which
-// decides whether a `@(private)` declaration there is offered.
-@(private)
-complete_dir_toplevel :: proc(
-    e: ^Engine,
-    parser: ts.Parser,
-    req: ^lang.Request,
-    dir, prefix, skip: string,
-    same_package: bool,
-    res: ^lang.Result,
-    seen: ^map[string]bool,
-) {
-    if req.workspace != "" {
-        indexed := false
-        sync.lock(&e.index.mutex)
-        index_sync(e, parser, req)
-        if !lang.request_cancelled(req) {
-            indexed = index_dir_completions(e, dir, prefix, skip, same_package, res, seen)
-        }
-        sync.unlock(&e.index.mutex)
-        if indexed || lang.request_cancelled(req) {
-            return
-        }
-    }
-    complete_dir_scan(e, parser, req, dir, prefix, skip, same_package, res, seen)
-}
-
-// The off-disk half of complete_dir_toplevel: reads and parses each .odin file in
-// `dir`. Used for packages the index doesn't cover.
-@(private)
-complete_dir_scan :: proc(
-    e: ^Engine,
-    parser: ts.Parser,
-    req: ^lang.Request,
-    dir, prefix, skip: string,
-    same_package: bool,
-    res: ^lang.Result,
-    seen: ^map[string]bool,
-) {
-    handle, open_err := os.open(dir)
-    if open_err != nil {
+    text := strings.trim_space(odinsyntax.node_text(operand))
+    from := int(operand.offset)
+    to := clamp(cm.ctx.req.offset, from, len(cm.ctx.req.source))
+    if text == "" || to <= from {
         return
     }
-    defer os.close(handle)
+    sb := strings.builder_make(context.temp_allocator)
+    write_snippet_text(&sb, text)
+    escaped := strings.to_string(sb)
+    for pf in POSTFIXES {
+        if pf.label in cm.seen || !strings.has_prefix(pf.label, cm.prefix) || !pf.applies(&cm.c.table, type) {
+            continue
+        }
+        cm.seen[pf.label] = {}
+        snippet, _ := strings.replace_all(pf.template, "%%", escaped, context.temp_allocator)
+        append(&cm.items, Candidate{
+            label = pf.label, kind = "keyword", detail = pf.detail, snippet = snippet,
+            import_path = cm.importing, tier = .Postfix, from = from, to = to,
+        })
+    }
+}
 
-    infos, read_err := os.read_dir(handle, -1, context.temp_allocator)
-    if read_err != nil {
+// The public names of the known packages called `alias` of the best rank when nothing binds `alias`
+// at `offset`, shallowest first; a name two of them declare comes from the first. Each carries the
+// import that binds it.
+@(private = "file")
+unbound_alias_names :: proc(cm: ^Completer, alias: string, offset: int) {
+    if odinsema.lookup_name(cm.c, cm.ctx.live.id, alias, offset).kind != .None {
         return
     }
+    best := -1
+    for p in importable_packages(cm) {
+        if p.name != alias || (best >= 0 && p.rank != best) {
+            continue
+        }
+        best = p.rank
+        cm.importing = p.import_path
+        add_package_names(cm, p.dir, false, .Member)
+    }
+    cm.importing = ""
+}
 
-    for info in infos {
-        // The keystroke that asked for these candidates is already stale — the
-        // next one has its own request, and this parse would be thrown away.
-        if lang.request_cancelled(req) {
-            return
-        }
-        if info.type == .Directory || !strings.has_suffix(info.name, ".odin") {
+// The known packages the buffer does not import yet, without its own package.
+@(private = "file")
+importable_packages :: proc(cm: ^Completer) -> []Known_Package {
+    ctx := cm.ctx
+    all := known_packages(ctx.e, ctx.req.workspace)
+    imports := odinsema.db_imports(&ctx.snap, ctx.live.id)
+    own := ctx.live.path != "" ? live_dir(ctx) : ""
+    out := make([dynamic]Known_Package, 0, len(all), context.temp_allocator)
+    next: for p in all {
+        if own != "" && same_dir(p.dir, own) {
             continue
         }
-        if is_request_file(info.fullpath, skip) {
-            continue
-        }
-        source, sok := source_read(info.fullpath)
-        if !sok {
-            continue
-        }
-        tree := ts.parser_parse_string(parser, source)
-        if tree == nil {
-            continue
-        }
-        defs := collect_defs(e, ts.tree_root_node(tree), source)
-        for d in defs {
-            if d.top_level && symbol_kind_shown(d.kind) && completion_matches(d.name, prefix) &&
-               def_reaches(d.visibility, same_package) {
-                add_completion(res, source, d, seen)
+        for imp in imports {
+            if imp.path == p.import_path || (imp.dir != "" && same_dir(imp.dir, p.dir)) {
+                continue next
             }
         }
-        ts.tree_delete(tree)
+        append(&out, p)
+    }
+    return out[:]
+}
+
+// Adds the packages the buffer does not import yet whose name starts with the prefix, each with
+// the import it needs. The first package of a name wins: core before vendor.
+@(private = "file")
+add_auto_imports :: proc(cm: ^Completer) {
+    if cm.prefix == "" {
+        return
+    }
+    for p in importable_packages(cm) {
+        if !strings.has_prefix(p.name, cm.prefix) || p.name in cm.seen {
+            continue
+        }
+        cm.importing = p.import_path
+        add(cm, p.name, "namespace", fmt.tprintf("import \"%s\"", p.import_path), .Auto_Import)
+        cm.importing = ""
     }
 }
 
-// Sorts completion candidates by name for a stable list and flags the result ok
-// when any matched. Every complete path ends here, so this is also where the
-// rows the producers built as Symbols — the shape they share with goto and
-// references — move into the seam's completion shape. The owned strings move,
-// they are not cloned again. The engine offers plain identifiers only: no
-// snippet, no range of its own and no follow-up work, so those fields stay at
-// their unset values.
-@(private)
-finish_completion :: proc(res: ^lang.Result) {
-    slice.sort_by(res.symbols[:], proc(a, b: lang.Symbol) -> bool {
-        return a.name < b.name
-    })
-    if len(res.symbols) > 0 {
-        res.completions = make([dynamic]lang.Completion_Item, 0, len(res.symbols))
+// The variants of the union a type assertion `x.(` at `paren` tests.
+@(private = "file")
+assertion_completions :: proc(cm: ^Completer, paren: int) {
+    c := cm.c
+    if c == nil {
+        return
     }
-    for sym in res.symbols {
-        append(&res.completions, lang.Completion_Item {
-            label  = sym.name,
-            kind   = sym.kind,
-            detail = sym.signature,
-            start  = -1,
-            end    = -1,
-        })
-        delete(sym.path) // unset on a candidate, but a producer shared with goto may fill it
+    file := cm.ctx.live.id
+    n, ok := odinsema.expr_under(c, file, paren)
+    if !ok || n.green.kind != .Type_Assertion {
+        return
     }
-    delete(res.symbols)
-    res.symbols = nil // the strings moved into `completions`; freeing both would double-free
-    res.ok = len(res.completions) > 0
+    ta, _ := odinsyntax.as_type_assertion(n)
+    operand, has_operand := odinsyntax.type_assertion_operand(&ta)
+    if !has_operand {
+        return
+    }
+    op := odinsema.expr_type(c, file, operand)
+    if op.mode != .Value && op.mode != .Const {
+        return
+    }
+    u, is_union := odinsema.type_get(&c.table, odinsema.type_base(&c.table, op.type)).(odinsema.Union_Type)
+    if !is_union {
+        return
+    }
+    detail := type_detail(cm, op.type)
+    for variant, i in u.variants {
+        add(cm, type_detail(cm, variant), "type", detail, .Member, order = i)
+    }
 }
 
-// Byte range, within a signature line, of the `active`-th parameter — used to
-// emphasize the argument the caret is on. Splits the first parenthesized group
-// (the parameter list; a `-> (a, b)` return tuple comes after and is never
-// reached) on top-level commas, tracking bracket depth so a comma inside a nested
-// type (`b: proc(x: int)`, `c: [dynamic]int`) doesn't split a parameter. Returns
-// an empty range when `active` is past the last parameter.
+// Adds members that `x.` gives, in declaration order. After `x->` only the procedures.
+@(private = "file")
+add_members :: proc(cm: ^Completer, members: []odinsema.Member) {
+    for m, i in members {
+        kind := "field"
+        detail := type_detail(cm, m.type)
+        p, is_proc := proc_type_of(cm, m.type)
+        if cm.arrow && !is_proc {
+            continue
+        }
+        snip := ""
+        if is_proc && cm.snippets {
+            snip = proc_snippet(cm, m.name, p, skip_first = cm.arrow)
+        }
+        switch m.kind {
+        case .Field:
+        case .Enum_Member:
+            kind = "enum_member"
+        case .Proc:
+            kind = "function"
+        case .Package_Member:
+            kind = "var"
+            if m.has_symbol {
+                if item := odinsema.checker_item(cm.c, m.symbol); item != nil {
+                    kind = item_kind_name(item.kind)
+                    detail = item.signature
+                }
+            }
+        }
+        add(cm, m.name, kind, detail, .Member, order = i, snippet = snip)
+    }
+}
+
+// Adds the members of the enum `t`, of the enum of a bit_set, or of the enum variants of a union.
+@(private = "file")
+add_enum_choices :: proc(cm: ^Completer, t: odinsema.Type_Id, depth: int) {
+    c := cm.c
+    if t == odinsema.INVALID_TYPE || depth > 4 {
+        return
+    }
+    #partial switch v in odinsema.type_get(&c.table, odinsema.type_base(&c.table, t)) {
+    case odinsema.Bit_Set_Type:
+        add_enum_choices(cm, v.elem, depth + 1)
+        return
+    case odinsema.Pointer_Type:
+        add_enum_choices(cm, v.elem, depth + 1)
+        return
+    case odinsema.Union_Type:
+        for variant in v.variants {
+            add_enum_choices(cm, variant, depth + 1)
+        }
+        return
+    }
+    add_members(cm, odinsema.enum_members(c, t, context.temp_allocator))
+}
+
+// The candidates for a bare identifier that starts at `start`.
+@(private = "file")
+bare_completions :: proc(cm: ^Completer, start: int) {
+    ctx := cm.ctx
+    if cm.c != nil && cm.prefix != "" {
+        cm.expected = odinsema.expected_type_at(cm.c, ctx.live.id, start)
+    }
+    add_field_names(cm, start)
+    add_locals(cm, start)
+    if lang.request_cancelled(ctx.req) {
+        return
+    }
+    if ctx.live.path != "" {
+        add_package_names(cm, live_dir(ctx), true, .Package)
+    }
+    if !ctx.live.in_build {
+        for &item, i in ctx.live.tree.items {
+            if item.kind != .Import && item.kind != .Foreign_Import {
+                add_item(cm, &item, odinsema.Symbol{ctx.live.id, i32(i), -1}, .Package)
+            }
+        }
+    }
+    for item in ctx.live.tree.items {
+        if item.kind == .Import {
+            add(cm, item.name, "namespace", item.signature, .Import)
+        }
+    }
+    for kw in ODIN_KEYWORDS {
+        add(cm, kw, "keyword", "", .Universe)
+    }
+    universe: [2]odinsema.Universe_Package
+    n := universe_packages(ctx, universe[:], context.temp_allocator)
+    for u in universe[:n] {
+        add_package_names(cm, u.dir, false, .Universe, builtin_only = !u.all)
+    }
+    if !lang.request_cancelled(ctx.req) {
+        add_auto_imports(cm)
+    }
+}
+
+// Adds the names a package at `dir` declares that the buffer can name: from its own package
+// (`own`) all but the file-private ones of other files, else the public ones.
+@(private = "file")
+add_package_names :: proc(cm: ^Completer, dir: string, own: bool, tier: Tier, builtin_only := false) {
+    view := request_package(cm.ctx, dir)
+    if view == nil || view.scope == nil {
+        return
+    }
+    live := cm.ctx.live.id
+    for name, refs in view.scope.names {
+        if !strings.has_prefix(name, cm.prefix) || name in cm.seen {
+            continue
+        }
+        best: ^odinsema.Item
+        sym: odinsema.Symbol
+        for ref in refs {
+            item := odinsema.package_item(view.sema_files, ref)
+            id := view.files[ref.file]
+            if !odinsema.package_ref_active(view.scope, ref) {
+                continue
+            }
+            if own ? item.visibility == .File && id != live : item.visibility != .Public {
+                continue
+            }
+            if builtin_only && !has_builtin_attribute(item) {
+                continue
+            }
+            if best == nil || id == live {
+                best, sym = item, odinsema.Symbol{id, i32(ref.item), -1}
+            }
+        }
+        if best != nil {
+            add_item(cm, best, sym, tier)
+        }
+    }
+}
+
+// Adds a package-level declaration. A variable, constant or procedure is typed while the expected
+// type is known; a procedure ranks by its one result.
+@(private = "file")
+add_item :: proc(cm: ^Completer, item: ^odinsema.Item, sym: odinsema.Symbol, tier: Tier) {
+    if !strings.has_prefix(item.name, cm.prefix) || item.name in cm.seen {
+        return
+    }
+    is_proc := item.kind == .Proc || item.kind == .Proc_Group
+    type := odinsema.INVALID_TYPE
+    if cm.c != nil && cm.expected != odinsema.INVALID_TYPE && (item.kind == .Var || item.kind == .Const || is_proc) && cm.typed < EXPECTED_TYPED_MAX {
+        cm.typed += 1
+        type = odinsema.decl_type(cm.c, sym)
+    }
+    snip := ""
+    if is_proc && cm.snippets && (type == odinsema.INVALID_TYPE || type != cm.expected) {
+        snip = item.kind == .Proc ? signature_snippet(item.name, item.signature) : group_snippet(item.name)
+    }
+    if is_proc {
+        type = proc_rank_type(cm, type)
+    }
+    add(cm, item.name, item_kind_name(item.kind), item.signature, tier, type = type, snippet = snip)
+}
+
+// The procedure type `t` is, through named and distinct types.
+@(private = "file")
+proc_type_of :: proc(cm: ^Completer, t: odinsema.Type_Id) -> (odinsema.Proc_Type, bool) {
+    if cm.c == nil || t == odinsema.INVALID_TYPE {
+        return {}, false
+    }
+    p, ok := odinsema.type_get(&cm.c.table, odinsema.type_base(&cm.c.table, t)).(odinsema.Proc_Type)
+    return p, ok
+}
+
+// The type a procedure of type `t` ranks by: `t` when the caret expects it, else its one result.
+@(private = "file")
+proc_rank_type :: proc(cm: ^Completer, t: odinsema.Type_Id) -> odinsema.Type_Id {
+    if t == odinsema.INVALID_TYPE || t == cm.expected {
+        return t
+    }
+    if p, ok := proc_type_of(cm, t); ok && len(p.results) == 1 {
+        return p.results[0].type
+    }
+    return odinsema.INVALID_TYPE
+}
+
+// Writes `s` into a snippet template with `$`, `}` and `\` escaped.
+@(private = "file")
+write_snippet_text :: proc(sb: ^strings.Builder, s: string) {
+    for i in 0 ..< len(s) {
+        if s[i] == '$' || s[i] == '}' || s[i] == '\\' {
+            strings.write_byte(sb, '\\')
+        }
+        strings.write_byte(sb, s[i])
+    }
+}
+
+// The call snippet `name(${1:a}, ${2:b})$0` for the placeholders `params`. With none it is
+// `name()$0`, or `name($0)` when the procedure takes optional parameters.
+@(private = "file")
+call_snippet :: proc(name: string, params: []string, optional: bool) -> string {
+    sb := strings.builder_make(context.temp_allocator)
+    write_snippet_text(&sb, name)
+    if len(params) == 0 {
+        strings.write_string(&sb, optional ? "($0)" : "()$0")
+        return strings.to_string(sb)
+    }
+    strings.write_byte(&sb, '(')
+    for p, i in params {
+        if i > 0 {
+            strings.write_string(&sb, ", ")
+        }
+        fmt.sbprintf(&sb, "${{%d:", i + 1)
+        write_snippet_text(&sb, p)
+        strings.write_byte(&sb, '}')
+    }
+    strings.write_string(&sb, ")$0")
+    return strings.to_string(sb)
+}
+
+// The call snippet of a procedure group, whose parameters depend on the member a call picks.
+@(private = "file")
+group_snippet :: proc(name: string) -> string {
+    return call_snippet(name, nil, true)
+}
+
+// The call snippet for the procedure type `p`; `skip_first` drops the receiver of `x->`.
+// Parameters with a default value get no stop.
+@(private = "file")
+proc_snippet :: proc(cm: ^Completer, name: string, p: odinsema.Proc_Type, skip_first := false) -> string {
+    params := make([dynamic]string, 0, len(p.params), context.temp_allocator)
+    optional := false
+    for param, i in p.params {
+        if skip_first && i == 0 {
+            continue
+        }
+        if param.has_default {
+            optional = true
+            continue
+        }
+        label := strings.trim_prefix(param.name, "$")
+        if label == "" {
+            label = type_detail(cm, param.type)
+        }
+        append(&params, label)
+    }
+    return call_snippet(name, params[:], optional)
+}
+
+// The call snippet read from a declaration head like `add :: proc(a, b: int, c := 1) -> int`; ""
+// when the head is not a procedure literal.
 @(private)
-active_param_span :: proc(label: string, active: int) -> (int, int) {
-    open := strings.index_byte(label, '(')
+signature_snippet :: proc(name, signature: string) -> string {
+    sep := strings.index(signature, "::")
+    if sep < 0 {
+        return ""
+    }
+    rest := signature[sep + 2:]
+    at := strings.index(rest, "proc")
+    if at < 0 {
+        return ""
+    }
+    rest = rest[at + 4:]
+    open := strings.index_byte(rest, '(')
     if open < 0 {
-        return 0, 0
+        return ""
     }
+    // Only a calling convention may stand between `proc` and its parameters.
+    if between := strings.trim_space(rest[:open]); between != "" && (len(between) < 2 || between[0] != '"' || between[len(between) - 1] != '"') {
+        return ""
+    }
+    pieces := make([dynamic]string, context.temp_allocator)
     depth := 0
-    idx := 0
-    param_start := open + 1
-    for i := open; i < len(label); i += 1 {
-        switch label[i] {
+    piece_start := open + 1
+    close := -1
+    in_string: u8 = 0
+    scan: for i := open + 1; i < len(rest); i += 1 {
+        ch := rest[i]
+        if in_string != 0 {
+            if ch == '\\' && in_string == '"' {
+                i += 1
+            } else if ch == in_string {
+                in_string = 0
+            }
+            continue
+        }
+        switch ch {
+        case '"', '`', '\'':
+            in_string = ch
+        case '(', '[', '{':
+            depth += 1
+        case ')', ']', '}':
+            if depth == 0 {
+                close = i
+                break scan
+            }
+            depth -= 1
+        case ',':
+            if depth == 0 {
+                append(&pieces, strings.trim_space(rest[piece_start:i]))
+                piece_start = i + 1
+            }
+        }
+    }
+    if close < 0 {
+        return ""
+    }
+    if last := strings.trim_space(rest[piece_start:close]); last != "" {
+        append(&pieces, last)
+    }
+    named := false
+    for piece in pieces {
+        if top_level_byte(piece, ':') >= 0 {
+            named = true
+            break
+        }
+    }
+    params := make([dynamic]string, 0, len(pieces), context.temp_allocator)
+    optional := false
+    for piece, i in pieces {
+        if !named {
+            append(&params, piece)
+            continue
+        }
+        // A name without a type shares the type and the default of the next named field.
+        field := piece
+        colon := top_level_byte(field, ':')
+        for k := i + 1; colon < 0 && k < len(pieces); k += 1 {
+            field = pieces[k]
+            colon = top_level_byte(field, ':')
+        }
+        if colon >= 0 && top_level_byte(field[colon:], '=') >= 0 {
+            optional = true
+            continue
+        }
+        head := piece
+        if c := top_level_byte(piece, ':'); c >= 0 {
+            head = piece[:c]
+        }
+        head = strings.trim_space(head)
+        if space := strings.last_index_any(head, " \t"); space >= 0 {
+            head = head[space + 1:]
+        }
+        head = strings.trim_prefix(head, "$")
+        if head != "" {
+            append(&params, head)
+        }
+    }
+    return call_snippet(name, params[:], optional)
+}
+
+// The index of the first `b` in `s` outside brackets; -1 when there is none.
+@(private = "file")
+top_level_byte :: proc(s: string, b: u8) -> int {
+    depth := 0
+    for i in 0 ..< len(s) {
+        switch s[i] {
         case '(', '[', '{':
             depth += 1
         case ')', ']', '}':
             depth -= 1
-            if depth == 0 {
-                if idx == active {
-                    return trim_span(label, param_start, i)
-                }
-                return 0, 0
-            }
-        case ',':
-            if depth == 1 {
-                if idx == active {
-                    return trim_span(label, param_start, i)
-                }
-                idx += 1
-                param_start = i + 1
+        case:
+            if s[i] == b && depth == 0 {
+                return i
             }
         }
     }
-    return 0, 0
+    return -1
 }
 
-// Shrinks [start, end) past leading and trailing ASCII spaces/tabs.
-@(private)
-trim_span :: proc(label: string, start, end: int) -> (int, int) {
-    s, e := start, end
-    for s < e && (label[s] == ' ' || label[s] == '\t') {
-        s += 1
-    }
-    for e > s && (label[e - 1] == ' ' || label[e - 1] == '\t') {
-        e -= 1
-    }
-    return s, e
-}
-
-// LOCALS capture suffixes that belong in a document outline. Excludes
-// "parameter"/"field" (nested), "namespace" (package name and import aliases)
-// and "" (labels).
-@(private)
-symbol_kind_shown :: proc(kind: string) -> bool {
+// The kind name the editor colors a declaration by.
+@(private = "file")
+item_kind_name :: proc(kind: odinsema.Item_Kind) -> string {
     switch kind {
-    case "function", "type", "enum", "constant", "var":
+    case .Proc, .Proc_Group:
+        return "function"
+    case .Struct, .Union, .Bit_Set, .Bit_Field, .Type:
+        return "type"
+    case .Enum:
+        return "enum"
+    case .Const:
+        return "constant"
+    case .Var:
+        return "var"
+    case .Import, .Foreign_Import:
+        return "namespace"
+    case .Field:
+        return "field"
+    case .Enum_Member:
+        return "enum_member"
+    }
+    return ""
+}
+
+// The kind name of a local declaration; "" for one completion does not offer.
+@(private = "file")
+local_kind_name :: proc(kind: odinsema.Decl_Kind) -> string {
+    switch kind {
+    case .Var, .Param, .Result, .Loop_Var, .Switch_Var:
+        return "var"
+    case .Const:
+        return "constant"
+    case .Proc:
+        return "function"
+    case .Type, .Poly:
+        return "type"
+    case .Import:
+        return "namespace"
+    case .Label:
+    }
+    return ""
+}
+
+@(private = "file")
+hoisted_kind :: proc(kind: odinsema.Decl_Kind) -> bool {
+    #partial switch kind {
+    case .Const, .Type, .Proc, .Poly:
         return true
     }
     return false
+}
+
+// Adds the locals in reach at `start`, innermost first, and the fields a `using` brings into scope.
+@(private = "file")
+add_locals :: proc(cm: ^Completer, start: int) {
+    ctx := cm.ctx
+    m, merr := odinsema.scope_map_range(ctx.parsed, start, start, context.temp_allocator)
+    if merr != nil {
+        return
+    }
+    defer odinsema.scope_map_destroy(m, context.temp_allocator)
+    inner := -1
+    for s, i in m.scopes {
+        if s.start <= start && start < s.end && (inner < 0 || s.start >= m.scopes[inner].start) {
+            inner = i
+        }
+    }
+    if inner < 0 {
+        return
+    }
+    file := ctx.live.id
+    depth := m.scopes[inner].proc_depth
+    for s := inner; s >= 0; s = m.scopes[s].parent {
+        for l in m.locals {
+            if l.scope != s || l.name_offset == start {
+                continue
+            }
+            kind := local_kind_name(l.kind)
+            if kind == "" {
+                continue
+            }
+            if !hoisted_kind(l.kind) && (l.name_offset > start || m.scopes[s].proc_depth < depth) {
+                continue
+            }
+            if !l.is_using && (!strings.has_prefix(l.name, cm.prefix) || l.name in cm.seen) {
+                continue
+            }
+            type := odinsema.INVALID_TYPE
+            is_proc := l.kind == .Proc
+            if cm.c != nil && (l.is_using || is_proc || (cm.expected != odinsema.INVALID_TYPE && cm.typed < EXPECTED_TYPED_MAX)) {
+                cm.typed += 1
+                type = odinsema.decl_type(cm.c, odinsema.local_symbol(file, l.name_offset))
+            }
+            detail := type_detail(cm, type)
+            if detail == "" {
+                detail = type_text(cm, l.type_offset)
+            }
+            name := strings.clone(l.name, context.temp_allocator)
+            rank := type
+            snip := ""
+            if is_proc {
+                rank = proc_rank_type(cm, type)
+                if p, ok := proc_type_of(cm, type); ok && cm.snippets && type != cm.expected {
+                    snip = proc_snippet(cm, name, p)
+                }
+            }
+            add(cm, name, kind, detail, .Local, type = rank, snippet = snip)
+            if l.is_using && cm.c != nil {
+                add_using_fields(cm, odinsema.type_members(cm.c, type, context.temp_allocator))
+            }
+        }
+        for u in m.usings {
+            if u.scope == s && u.start < start && cm.c != nil {
+                add_using_operand(cm, u.start)
+            }
+        }
+    }
+}
+
+// Adds the fields `using` at `offset` brings into scope, or the names of a package it opens.
+@(private = "file")
+add_using_operand :: proc(cm: ^Completer, offset: int) {
+    n, ok := odinsema.node_at(cm.c, cm.ctx.live.id, offset)
+    if !ok {
+        return
+    }
+    op := odinsema.expr_type(cm.c, cm.ctx.live.id, n)
+    #partial switch op.mode {
+    case .Package:
+        add_package_names(cm, op.dir, false, .Local)
+    case .Value, .Const:
+        add_using_fields(cm, odinsema.type_members(cm.c, op.type, context.temp_allocator))
+    }
+}
+
+@(private = "file")
+add_using_fields :: proc(cm: ^Completer, members: []odinsema.Member) {
+    for m in members {
+        add(cm, m.name, "field", type_detail(cm, m.type), .Local, type = m.type)
+    }
+}
+
+// Adds the fields of the struct literal the word at `start` is an element of that it does not set yet.
+@(private = "file")
+add_field_names :: proc(cm: ^Completer, start: int) {
+    c := cm.c
+    ctx := cm.ctx
+    src := ctx.req.source
+    if c == nil || ctx.parsed.tree == nil || ctx.parsed.tree.root == nil {
+        return
+    }
+    b := start - 1
+    for b >= 0 && (src[b] == ' ' || src[b] == '\t' || src[b] == '\r' || src[b] == '\n') {
+        b -= 1
+    }
+    if b < 0 || (src[b] != '{' && src[b] != ',') {
+        return
+    }
+    tok, ok := odinsyntax.node_token_at(odinsyntax.node_root(ctx.parsed.tree), u32(b), context.temp_allocator)
+    if !ok || tok.parent == nil || tok.parent.green.kind != .Comp_Lit {
+        return
+    }
+    lit_node := tok.parent^
+    lit, _ := odinsyntax.as_comp_lit(lit_node)
+    file := ctx.live.id
+    type := odinsema.INVALID_TYPE
+    if _, typed := odinsyntax.comp_lit_type(&lit); typed {
+        type = odinsema.expr_type(c, file, lit_node).type
+    } else {
+        type = odinsema.expected_type_at(c, file, int(lit_node.offset))
+    }
+    #partial switch _ in odinsema.type_get(&c.table, odinsema.type_base(&c.table, type)) {
+    case odinsema.Struct_Type, odinsema.Bit_Field_Type:
+    case:
+        return
+    }
+    set := make(map[string]struct{}, context.temp_allocator)
+    it := odinsyntax.comp_lit_elems(&lit)
+    for elem in odinsyntax.child_iter_next(&it) {
+        fv, is_fv := odinsyntax.as_field_value(elem)
+        if !is_fv {
+            continue
+        }
+        if name, has_name := odinsyntax.field_value_name(&fv); has_name && name.green.kind == .Ident {
+            set[odinsyntax.node_text(name)] = {}
+        }
+    }
+    for m, i in odinsema.type_members(c, type, context.temp_allocator) {
+        if m.kind != .Field || m.depth > 0 || m.name in set {
+            continue
+        }
+        insert := strings.concatenate({m.name, " = "}, context.temp_allocator)
+        add(cm, m.name, "field", type_detail(cm, m.type), .Field_Name, order = i, insert = insert)
+    }
 }

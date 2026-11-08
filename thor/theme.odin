@@ -9,6 +9,7 @@ import "core:strings"
 import "../setting"
 import "../font"
 import "../theme"
+import ui "../vendor/loom/loom"
 // Built-in theme used when none is configured or the configured one fails to load.
 DEFAULT_THEME :: "mjolnir"
 
@@ -18,6 +19,8 @@ SHIPPED_THEME_DIR :: "assets/themes"
 // User themes: what the theme editor writes, beside setting.USER_DIR. Gitignored,
 // never staged, never swapped by an update.
 USER_THEME_DIR :: "user/themes"
+// File extension of a theme.
+THEME_EXT :: ".lua"
 
 // The file `name` resolves to: the user copy shadows the shipped one. Falls back
 // to the shipped path when neither exists, so a failure names the shipped file.
@@ -26,12 +29,12 @@ thor_theme_path :: proc(name: string, allocator := context.temp_allocator) -> st
     if os.exists(user) {
         return user
     }
-    return strings.concatenate({SHIPPED_THEME_DIR, "/", name, ".json"}, allocator)
+    return strings.concatenate({SHIPPED_THEME_DIR, "/", name, THEME_EXT}, allocator)
 }
 
 // Where an edit to `name` is written: always the user layer.
 thor_user_theme_path :: proc(name: string, allocator := context.temp_allocator) -> string {
-    return strings.concatenate({USER_THEME_DIR, "/", name, ".json"}, allocator)
+    return strings.concatenate({USER_THEME_DIR, "/", name, THEME_EXT}, allocator)
 }
 
 // Loads the theme named in settings (falling back to the default) into
@@ -58,9 +61,17 @@ thor_load_theme_by_name :: proc(thor: ^Thor, name: string) {
 
     theme.destroy(&thor.theme)
     thor.theme = loaded
-    // A palette read from disk, so any generated preview is gone.
-    thor.theme_preview_generated = false
+    thor.theme_file_sig = thor_theme_file_sig(name)
     log.infof("Loaded theme: %s", thor.theme.name)
+}
+
+// Size and modification time of the file `name` resolves to; 0 when it is missing.
+thor_theme_file_sig :: proc(name: string) -> i64 {
+    info, err := os.stat(thor_theme_path(name), context.temp_allocator)
+    if err != nil {
+        return 0
+    }
+    return info.modification_time._nsec * 31 + info.size
 }
 
 // Theme names available in both theme directories (base names, no extension),
@@ -70,14 +81,14 @@ thor_available_themes :: proc(allocator := context.temp_allocator) -> []string {
     names := make([dynamic]string, allocator)
     seen := make(map[string]bool, 16, context.temp_allocator)
     for dir in ([]string {USER_THEME_DIR, SHIPPED_THEME_DIR}) {
-        pattern := strings.concatenate({dir, "/*.json"}, context.temp_allocator)
+        pattern := strings.concatenate({dir, "/*", THEME_EXT}, context.temp_allocator)
         // A fresh install has no user/themes; that is not a failure of the listing.
         matches, err := filepath.glob(pattern, context.temp_allocator)
         if err != nil {
             continue
         }
         for path in matches {
-            name := strings.trim_suffix(filepath.base(path), ".json")
+            name := strings.trim_suffix(filepath.base(path), THEME_EXT)
             if name in seen {
                 continue
             }
@@ -168,10 +179,14 @@ thor_cmd_change_theme :: proc(data: rawptr) {
     if current == "" {
         current = DEFAULT_THEME
     }
+    shown := make([]string, len(labels), context.temp_allocator)
+    for label, i in labels {
+        shown[i] = thor_ext_theme_pending(thor, files[i]) ? strings.concatenate({label, " — update available"}, context.temp_allocator) : label
+    }
     thor_select_open(
         thor,
         "Change Theme",
-        labels,
+        shown,
         current,
         thor_theme_preview,
         thor_theme_commit,
@@ -220,16 +235,26 @@ thor_cmd_change_font :: proc(data: rawptr) {
     )
 }
 
+// Makes `name` the default text family. The UI and editor handles name the
+// default family, so the switch shows next frame once Loom's cached widths
+// are dropped. False for an unknown family.
+thor_set_font :: proc(name: string) -> bool {
+    if !font.set_default_family(name) {
+        return false
+    }
+    ui.clear_text_cache()
+    return true
+}
+
 // Switches the default text font live (no persistence): the dialog's preview.
-// Text is drawn through the default family everywhere, so it shows next frame.
 thor_font_preview :: proc(_: rawptr, choice: string) {
-    font.set_default_family(choice)
+    thor_set_font(choice)
 }
 
 // Applies the chosen font and persists it as the new default.
 thor_font_commit :: proc(data: rawptr, choice: string) {
     thor := cast(^Thor) data
-    if !font.set_default_family(choice) {
+    if !thor_set_font(choice) {
         thor_plugin_print(thor, strings.concatenate({"\nFont ", choice, " is not available.\n"}, context.temp_allocator))
         return
     }
@@ -270,8 +295,8 @@ thor_ligatures_commit :: proc(data: rawptr, choice: string) {
     thor := cast(^Thor) data
     enabled := choice == LIGATURE_LABELS[0]
     font.set_ligatures(enabled)
-    if !setting.persist_bool(thor_active_settings_path(thor), "ligatures", enabled) {
-        thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
+    if err := setting.persist_bool(thor_active_settings_path(thor), "ligatures", enabled); err != .None {
+        thor_settings_save_failed(thor, thor_active_settings_path(thor), err)
         return
     }
     thor_reload_settings(thor)
@@ -284,7 +309,7 @@ thor_ligatures_commit :: proc(data: rawptr, choice: string) {
 PRIMARY_ICON_PACK_GROUP :: "primary"
 FILE_ICON_PACK_GROUP :: "files"
 
-// Pack each group falls back to when settings.json names none.
+// Pack each group falls back to when settings.lua names none.
 DEFAULT_ICON_PACK :: "material"
 DEFAULT_FILE_ICON_PACK :: "mdi"
 
@@ -349,8 +374,8 @@ thor_icon_pack_apply :: proc(thor: ^Thor, group, key, choice: string) {
 // and changes nothing, so the row keeps reading what is actually on disk.
 @(private)
 thor_persist_string_setting :: proc(thor: ^Thor, key, value: string) {
-    if !setting.persist_string(thor_active_settings_path(thor), key, value) {
-        thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
+    if err := setting.persist_string(thor_active_settings_path(thor), key, value); err != .None {
+        thor_settings_save_failed(thor, thor_active_settings_path(thor), err)
         return
     }
     thor_reload_settings(thor)

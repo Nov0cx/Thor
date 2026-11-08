@@ -11,32 +11,26 @@ CELL_PAD_Y :: f32(4)
 // True when a table starts at line `at`: a row of cells with a delimiter row of
 // as many cells under it.
 @(private)
-table_at :: proc(b: ^Build, at: int) -> bool {
-    if at + 1 >= len(b.lines) || !strings.contains_rune(b.lines[at], '|') {
+table_at :: proc(lines: []string, at: int) -> bool {
+    if at + 1 >= len(lines) || !strings.contains_rune(lines[at], '|') {
         return false
     }
-    aligns, ok := table_delimiter(b.lines[at + 1])
-    return ok && len(aligns) == len(table_cells(b.lines[at]))
+    aligns, ok := table_delimiter(lines[at + 1])
+    return ok && len(aligns) == len(table_cells(lines[at]))
 }
 
-// Lays out the table that starts at line `at`. A column takes the width of its
-// widest cell; when the table is wider than the page the columns share the page
-// and their cells wrap. Returns the line after the table.
+// Lays out a table: its header row, its delimiter row, then its body rows, in
+// the column [x, x + w). A column takes the width of its widest cell; when the
+// table is wider than the column the columns share it and their cells wrap.
 @(private)
-emit_table :: proc(b: ^Build, at: int) -> int {
-    aligns, _ := table_delimiter(b.lines[at + 1])
+emit_table :: proc(b: ^Build, lines: []string, x, w: f32) {
+    aligns, _ := table_delimiter(lines[1])
     cols := len(aligns)
 
     rows := make([dynamic][]string, context.temp_allocator)
-    append(&rows, table_cells(b.lines[at])[:])
-    next := at + 2
-    for next < len(b.lines) {
-        line := b.lines[next]
-        if b.skip[next] || !strings.contains_rune(line, '|') || len(strings.trim_space(line)) == 0 {
-            break
-        }
+    append(&rows, table_cells(lines[0])[:])
+    for line in lines[2:] {
         append(&rows, table_cells(line)[:])
-        next += 1
     }
 
     // The tokens of each cell, row by row. A short row has empty cells. A
@@ -46,7 +40,7 @@ emit_table :: proc(b: ^Build, at: int) -> int {
     least := make([]f32, cols, context.temp_allocator)
     for row, r in rows {
         for c in 0 ..< min(cols, len(row)) {
-            tokens := inline(b, row[c], r == 0 ? b.pal.strong : b.pal.text)
+            tokens := r == 0 ? inline(b, row[c], b.pal.strong, {.Bold}) : inline(b, row[c], b.pal.text)
             cells[r * cols + c] = tokens[:]
             whole, unit := run_width(b, tokens[:])
             natural[c] = max(natural[c], whole)
@@ -54,51 +48,58 @@ emit_table :: proc(b: ^Build, at: int) -> int {
         }
     }
 
-    // Too wide for the page: each column keeps its least width and the room
+    // Too wide for the column: each column keeps its least width and the room
     // that is left is shared by what each one still wants.
     widths := natural
     total, floor := f32(0), f32(0)
-    for w, c in natural {
-        total += w
+    for cw, c in natural {
+        total += cw
         floor += least[c]
     }
-    room := b.avail - f32(cols) * CELL_PAD_X * 2
+    room := w - f32(cols) * CELL_PAD_X * 2
     if total > room {
         spare := max(0, room - floor)
         want := total - floor
-        for &w, c in widths {
-            w = least[c] + (want > 0 ? (w - least[c]) * spare / want : 0)
+        for &cw, c in widths {
+            cw = least[c] + (want > 0 ? (cw - least[c]) * spare / want : 0)
         }
     }
     table_w := f32(0)
-    for w in widths {
-        table_w += w + CELL_PAD_X * 2
+    for cw in widths {
+        table_w += cw + CELL_PAD_X * 2
     }
 
+    top := b.y
     y := b.y
+    zebra := b.pal.code_bg
+    zebra[3] /= 2
     for r in 0 ..< len(rows) {
         height := line_height(b.m, b.base)
         for c in 0 ..< cols {
             height = max(height, wrap_run(b, cells[r * cols + c], 0, 0, widths[c], b.base, aligns[c], false))
         }
-        if r == 0 {
+        // The header and every second body row are shaded.
+        if r == 0 || r % 2 == 0 {
             append(
                 &b.page.items,
-                Item{kind = .Rect, y = y, w = table_w, h = height + CELL_PAD_Y * 2, color = b.pal.code_bg},
+                Item{kind = .Rect, x = x, y = y, w = table_w, h = height + CELL_PAD_Y * 2, color = r == 0 ? b.pal.code_bg : zebra, src = -1},
             )
         }
-        x := f32(0)
+        cx := x
         for c in 0 ..< cols {
             if len(cells[r * cols + c]) > 0 {
-                wrap_run(b, cells[r * cols + c], x + CELL_PAD_X, y + CELL_PAD_Y, widths[c], b.base, aligns[c])
+                wrap_run(b, cells[r * cols + c], cx + CELL_PAD_X, y + CELL_PAD_Y, widths[c], b.base, aligns[c])
             }
-            x += widths[c] + CELL_PAD_X * 2
+            cx += widths[c] + CELL_PAD_X * 2
         }
         y += height + CELL_PAD_Y * 2
-        append(&b.page.items, Item{kind = .Rect, y = y, w = table_w, h = r == 0 ? 2 : 1, color = b.pal.rule})
+        append(&b.page.items, Item{kind = .Rect, x = x, y = y, w = table_w, h = r == 0 ? 2 : 1, color = b.pal.rule, src = -1})
     }
-    b.y = y + f32(b.base) * 0.6
-    return next
+    // The outer edge: a rule on top and down each side.
+    append(&b.page.items, Item{kind = .Rect, x = x, y = top, w = table_w, h = 1, color = b.pal.rule, src = -1})
+    append(&b.page.items, Item{kind = .Rect, x = x, y = top, w = 1, h = y - top, color = b.pal.rule, src = -1})
+    append(&b.page.items, Item{kind = .Rect, x = x + table_w - 1, y = top, w = 1, h = y - top, color = b.pal.rule, src = -1})
+    b.y = y
 }
 
 // The width of a token run on one row, and of the widest part of it that a
@@ -108,7 +109,7 @@ run_width :: proc(b: ^Build, tokens: []Token) -> (whole, unit: f32) {
     space_w := measure(b.m, " ", b.base)
     current := f32(0)
     for tok, i in tokens {
-        w := measure(b.m, tok.text, b.base)
+        w := measure(b.m, tok.text, b.base, tok.style)
         if i > 0 && !tok.glue {
             whole += space_w
             current = 0

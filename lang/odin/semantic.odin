@@ -1,519 +1,826 @@
-// Semantic classification: what each identifier in the buffer actually *is*,
-// as against what its parse shape suggests. The grammar spells a parameter, a
-// local, a package and an undeclared typo all as a bare `identifier` and its
-// highlights query paints a use of any of them `@variable`, because nothing in
-// the tree separates them — only resolution does, and the engine already
-// resolves. This request hands that knowledge to the highlighter.
-//
-// Deliberately sparse. A token is emitted only where the analyzer knows more
-// than the grammar does, so an identifier this file says nothing about keeps
-// whatever colour the highlights query gave it. The positions the grammar
-// already decides — a struct field, an enum member, an attribute, a label — are
-// skipped outright rather than re-derived and risk overruling a correct colour
-// with a worse one.
-//
-// Uses go-to-definition's own resolution (`resolve_local` over `collect_defs`),
-// so a name's colour and the declaration Alt+Enter jumps to can never disagree.
+// Semantic tokens: what each identifier of the buffer names, from the scopes of package odinsema
+// and, for selectors, implicit selectors, field names and named arguments, from the checker.
 package odin
 
 import "core:fmt"
+import "core:mem"
+import "core:slice"
 import "core:strings"
-import "core:sync"
 
 import lang ".."
-import ts "../../vendor/odin-tree-sitter"
+import odinsema "sema"
+import odinsyntax "syntax"
 
-// How many qualified selectors (`p.x`, `Axis.Vertical`) one semantic_tokens
-// request will run member/enum resolution for. Each attempt can cost a
-// visit_type_decl walk and, for a package-qualified type, a file read and
-// parse — a field name like `x` can appear thousands of times in one large
-// file, so past this the pass leaves the rest of them exactly as it always
-// has: unclassified, left to the highlighter, rather than paying an unbounded
-// cost per keystroke.
+// How many references are classified between two cancel checks.
+@(private = "file")
+SEMANTIC_CANCEL_STEP :: 512
+
+// The class of a name: its token kind when `emit`; `undeclared` when no scope declares it.
+@(private = "file")
+Name_Class :: struct {
+    kind:       lang.Token_Kind,
+    mods:       lang.Token_Modifiers,
+    emit:       bool,
+    undeclared: bool,
+}
+
+// A file-scope declaration of the buffer and whether a `using` brings names into it.
+@(private = "file")
+Decl_Range :: struct {
+    start:     int,
+    end:       int,
+    has_using: bool,
+}
+
+// The state of one semantic tokens request. Everything is temp-allocated.
+@(private = "file")
+Semantic_Ctx :: struct {
+    rc:          ^Request_Context,
+    c:           ^odinsema.Checker, // nil when the checker cannot start
+    m:           ^odinsema.Scope_Map,
+    lo, hi:      int,
+    items:       map[int]int, // item index by name offset of the buffer's declarations
+    free_memo:   map[string]Name_Class, // a free name names the same declaration in the whole file
+    sel_memo:    map[string]Name_Class, // by operand declaration and field name
+    using_memo:  map[string]Name_Class, // by scope, `using`s in reach and name; undeclared when no `using` gives the name
+    decls:       [dynamic]Decl_Range,
+    path:        [dynamic]odinsyntax.Syntax_Node,
+    tokens:      [dynamic]lang.Semantic_Token,
+    undeclared:  bool, // an undeclared name can be marked
+    strict:      bool, // a buffer in the build sees only the declarations active for the target
+}
+
+// Fills res.tokens with the classified identifiers of the buffer, or of [req.offset, req.end) when the request has a range.
 @(private)
-SEMANTIC_MEMBER_LIMIT :: 512
-
-// How many implicit selectors (`.Vertical`) one request resolves through the
-// expected-type walk, which can infer a call's callee or a comparison's other side.
-@(private)
-SEMANTIC_IMPLICIT_LIMIT :: 256
-
-@(private)
-semantic_tokens :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Request, res: ^lang.Result) {
-    defs := collect_defs(e, root, req.source)
-    by_name := group_defs_by_name(defs[:])
-
-    imports := make(map[string]bool, 0, context.temp_allocator)
-    for i in 0 ..< ts.node_named_child_count(root) {
-        child := ts.node_named_child(root, i)
-        if string(ts.node_type(child)) != "import_declaration" {
-            continue
-        }
-        if name, _, ok := import_name_and_path(child, req.source); ok {
-            imports[name] = true
-        }
+semantic_tokens :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
+    rc: Request_Context
+    opened := request_open(e, req, &rc)
+    defer request_close(&rc)
+    if !opened {
+        return
     }
-
-    // Every name that counts as declared. Left empty when dimming is off, which
-    // is why the classification below can consult it unconditionally.
-    declared := make(map[string]bool, 0, context.temp_allocator)
-    dim := dimming_allowed(e, parser, root, req, &declared)
-
-    ctx := Semantic_Ctx {
-        e               = e,
-        parser          = parser,
-        root            = root,
-        req             = req,
-        defs            = defs[:],
-        by_name         = by_name,
-        imports         = imports,
-        declared        = declared,
-        dim             = dim,
-        member_budget   = SEMANTIC_MEMBER_LIMIT,
-        implicit_budget = SEMANTIC_IMPLICIT_LIMIT,
-        enum_members    = make(map[string]map[string]bool, 0, context.temp_allocator),
-        res             = res,
+    lo, hi := 0, len(req.source)
+    if req.end > req.offset {
+        lo, hi = clamp(req.offset, 0, len(req.source)), clamp(req.end, 0, len(req.source))
     }
-    classify_node(&ctx, root)
+    tokens, ok := semantic_classify(&rc, lo, hi)
+    if !ok {
+        return
+    }
+    tokens = with_inactive(&rc, tokens, lo, hi)
+    res.tokens = make([dynamic]lang.Semantic_Token, 0, len(tokens))
+    append(&res.tokens, ..tokens)
     res.ok = len(res.tokens) > 0
 }
 
+// The classified identifiers of [lo, hi) of the request's buffer, sorted, with no overlap. Temp-allocated.
+// With `strict`, a name that only an inactive declaration binds is undeclared, as the compiler sees it.
 @(private)
-Semantic_Ctx :: struct {
-    e:               ^Engine,
-    parser:          ts.Parser,
-    root:            ts.Node,
-    req:             ^lang.Request,
-    defs:            []Def,
-    by_name:         map[string][dynamic]int,
-    imports:         map[string]bool,
-    declared:        map[string]bool,
-    dim:             bool,
-    member_budget:   int,
-    implicit_budget: int,
-    enum_members:    map[string]map[string]bool, // an enum's members, keyed by enum_key
-    res:             ^lang.Result,
-}
-
-// Buckets `defs`' indices by name, so classify_identifier's per-identifier
-// lookup need only scan the shadowing depth at one name rather than every
-// definition in the file. Scoped to this request: the whole-file walk here is
-// the one resolve_local call site whose cost is actually shaped like
-// idents × defs; goto/hover/actions each make one or two lookups per request,
-// where building this map would be pure overhead.
-@(private)
-group_defs_by_name :: proc(defs: []Def) -> map[string][dynamic]int {
-    by_name := make(map[string][dynamic]int, 0, context.temp_allocator)
-    for d, i in defs {
-        arr, has := by_name[d.name]
-        if !has {
-            arr = make([dynamic]int, 0, context.temp_allocator)
+semantic_classify :: proc(rc: ^Request_Context, lo, hi: int, strict := false, whole: ^odinsema.Scope_Map = nil) -> (tokens: []lang.Semantic_Token, ok: bool) {
+    req := rc.req
+    if rc.parsed.tree == nil || rc.parsed.tree.root == nil {
+        return nil, false
+    }
+    m := whole
+    if m == nil {
+        merr: mem.Allocator_Error
+        m, merr = odinsema.scope_map_range(rc.parsed, lo, hi, context.temp_allocator)
+        if merr != nil {
+            return nil, false
         }
-        append(&arr, i)
-        by_name[d.name] = arr
     }
-    return by_name
-}
+    defer if whole == nil {
+        odinsema.scope_map_destroy(m, context.temp_allocator)
+    }
 
-// resolve_local, narrowed to the bucket `by_name` already found for `name` —
-// same visibility/shadowing rules (def_visible_at, def_better), just without
-// the linear scan over every other name in the file.
-@(private = "file")
-resolve_local_grouped :: proc(by_name: map[string][dynamic]int, defs: []Def, name: string, offset: int) -> (Def, bool) {
-    bucket, has := by_name[name]
-    if !has {
-        return {}, false
+    ctx := Semantic_Ctx {
+        rc         = rc,
+        c          = request_checker(rc),
+        m          = m,
+        lo         = lo,
+        hi         = hi,
+        items      = make(map[int]int, len(rc.live.tree.items), context.temp_allocator),
+        free_memo  = make(map[string]Name_Class, 256, context.temp_allocator),
+        sel_memo   = make(map[string]Name_Class, 256, context.temp_allocator),
+        using_memo = make(map[string]Name_Class, 16, context.temp_allocator),
+        decls      = make([dynamic]Decl_Range, context.temp_allocator),
+        path       = make([dynamic]odinsyntax.Syntax_Node, context.temp_allocator),
+        tokens     = make([dynamic]lang.Semantic_Token, 0, len(m.refs), context.temp_allocator),
     }
-    best: Def
-    found := false
-    for i in bucket {
-        d := defs[i]
-        if !def_visible_at(d, offset) {
+    for item, i in rc.live.tree.items {
+        ctx.items[item.name_offset] = i
+    }
+    collect_decls(&ctx)
+    ctx.undeclared = undeclared_allowed(&ctx)
+    ctx.strict = strict && rc.live.in_build
+
+    for ref, i in m.refs {
+        if i % SEMANTIC_CANCEL_STEP == 0 && lang.request_cancelled(req) {
+            return nil, false
+        }
+        if ref.end <= lo || ref.start >= hi || ref.kind == .None {
             continue
         }
-        if !found || def_better(d, best, offset) {
-            best = d
-            found = true
+        if class := classify_ref(&ctx, i); class.emit {
+            append(&ctx.tokens, lang.Semantic_Token{ref.start, ref.end, class.kind, class.mods})
         }
     }
-    return best, found
-}
-
-// Walks every identifier in the tree. Pre-order over children in source order,
-// so identifiers are reached in ascending byte order and the token list comes
-// out sorted with no sort — which is the ordering the seam promises the editor.
-@(private)
-classify_node :: proc(ctx: ^Semantic_Ctx, node: ts.Node) {
-    if is_identifier(node) {
-        classify_identifier(ctx, node)
-        return
-    }
-    for i in 0 ..< ts.node_named_child_count(node) {
-        classify_node(ctx, ts.node_named_child(node, i))
-    }
-}
-
-@(private)
-classify_identifier :: proc(ctx: ^Semantic_Ctx, node: ts.Node) {
-    // A qualified selector's member (`Axis.Vertical`, `p.x`) is normally left
-    // to the highlighter — semantic_skip below drops it like any other
-    // grammar-obvious position. Tried first because it is additive: on a miss
-    // it falls through to that same skip, so a failed enum/field resolution
-    // reads as "unclassified", never as unresolved.
-    if kind, ok := member_token_kind(ctx, node); ok {
-        start := int(ts.node_start_byte(node))
-        end := int(ts.node_end_byte(node))
-        append(&ctx.res.tokens, lang.Semantic_Token{start, end, kind})
-        return
-    }
-    if semantic_skip(node) {
-        return
-    }
-    name := ts.node_text(node, ctx.req.source)
-    start := int(ts.node_start_byte(node))
-    end := int(ts.node_end_byte(node))
-
-    if name in ctx.imports {
-        append(&ctx.res.tokens, lang.Semantic_Token{start, end, .Package})
-        return
+    if lang.request_cancelled(req) {
+        return nil, false
     }
 
-    // The declaration this name binds to here, by the same lexical rules goto
-    // follows — including the declaring identifier itself, which def_visible_at
-    // admits explicitly, so `x` in `x := 1` resolves to its own declaration
-    // rather than reading as undeclared.
-    if d, found := resolve_local_grouped(ctx.by_name, ctx.defs, name, start); found {
-        if kind, ok := token_kind_for_def(d); ok {
-            append(&ctx.res.tokens, lang.Semantic_Token{start, end, kind})
+    // The walk declares a name after its type and value, so the order is not by offset.
+    slice.sort_by(ctx.tokens[:], proc(a, b: lang.Semantic_Token) -> bool {
+        return a.start < b.start
+    })
+    out := 0
+    cut := 0
+    for tok in ctx.tokens {
+        if tok.start < cut {
+            continue
         }
-        return
+        ctx.tokens[out] = tok
+        out += 1
+        cut = tok.end
     }
-
-    // Nothing in this file. Everything below is the unresolved check, and it only
-    // runs where the whole-file guards said the question can be answered at all.
-    if !ctx.dim || is_odin_keyword(name) || name in ctx.declared {
-        return
-    }
-    append(&ctx.res.tokens, lang.Semantic_Token{start, end, .Unresolved})
+    return ctx.tokens[:out], true
 }
 
-// `.Enum_Member` for `Axis.Vertical`, `.Field` for `p.x` — the qualified
-// selector shapes, where the operand is a real identifier this engine can
-// type, and an implicit selector (`.Vertical`), typed by the walk completion
-// uses. False on a miss, same as any other unhandled shape, so the caller falls
-// through to the ordinary skip rather than reading it as unresolved.
+// The tokens with the `when` branches that are false for the target added as `Inactive` ranges,
+// and the tokens inside them dropped. Only a buffer in the build has them.
 @(private = "file")
-member_token_kind :: proc(ctx: ^Semantic_Ctx, node: ts.Node) -> (lang.Token_Kind, bool) {
-    subject := selector_subject(node)
-    holder := ts.node_parent(subject)
-    if ts.node_is_null(holder) {
-        return {}, false
+with_inactive :: proc(rc: ^Request_Context, tokens: []lang.Semantic_Token, lo, hi: int) -> []lang.Semantic_Token {
+    tree := rc.live.tree
+    if !rc.live.in_build || tree == nil || len(tree.guards) == 0 {
+        return tokens
     }
-    switch string(ts.node_type(holder)) {
-    case "member_expression", "field_type":
-    case:
-        return {}, false
+    src := rc.req.source
+    regions := make([dynamic]lang.Semantic_Token, context.temp_allocator)
+    for g, i in tree.guards {
+        if g.start >= g.end || g.end > len(src) || g.end <= lo || g.start >= hi {
+            continue
+        }
+        if g.parent >= 0 && odinsema.guard_state(tree, g.parent, rc.target) == .False {
+            continue
+        }
+        if odinsema.guard_state(tree, i, rc.target) != .False {
+            continue
+        }
+        start := g.start
+        if brace := strings.index_byte(src[g.start:g.end], '{'); brace >= 0 {
+            start += brace + 1
+        }
+        if start < g.end {
+            append(&regions, lang.Semantic_Token{start, g.end, .Inactive, {}})
+        }
     }
-    operand := ts.node_named_child(holder, 0)
-    if same_node(operand, subject) && ts.node_start_byte(subject) != ts.node_start_byte(holder) {
-        return implicit_member_kind(ctx, holder, ts.node_text(node, ctx.req.source))
+    if len(regions) == 0 {
+        return tokens
     }
-    if ts.node_is_null(operand) || same_node(operand, subject) || !is_identifier(operand) {
-        return {}, false // the operand itself
+    slice.sort_by(regions[:], proc(a, b: lang.Semantic_Token) -> bool {
+        return a.start < b.start
+    })
+    out := make([dynamic]lang.Semantic_Token, 0, len(tokens) + len(regions), context.temp_allocator)
+    r := 0
+    for tok in tokens {
+        for r < len(regions) && regions[r].end <= tok.start {
+            append(&out, regions[r])
+            r += 1
+        }
+        if r < len(regions) && regions[r].start < tok.end {
+            continue
+        }
+        append(&out, tok)
     }
-    op_name := ts.node_text(operand, ctx.req.source)
-    if op_name in ctx.imports {
-        return {}, false // a package qualifier — left to the highlighter, not a field/member
-    }
-    if ctx.member_budget <= 0 {
-        return {}, false // the rest of the file stays unclassified, not misclassified
-    }
-    ctx.member_budget -= 1
-    member_name := ts.node_text(node, ctx.req.source)
-    op_start := int(ts.node_start_byte(operand))
+    append(&out, ..regions[r:])
+    // A branch inside a branch that is false too is skipped above; siblings do not overlap.
+    return out[:]
+}
 
-    if d, found := resolve_local_grouped(ctx.by_name, ctx.defs, op_name, op_start); found {
-        if d.kind == "type" || d.kind == "enum" {
-            tr := Type_Ref{name = op_name}
-            if enum_has_member(ctx.e, ctx.parser, ctx.root, ctx.req, tr, member_name) {
-                return .Enum_Member, true
+// The class of reference `i` of the scope map.
+@(private = "file")
+classify_ref :: proc(ctx: ^Semantic_Ctx, i: int) -> Name_Class {
+    ref := ctx.m.refs[i]
+    switch ref.kind {
+    case .None:
+    case .Local:
+        if ref.decl < 0 {
+            return {}
+        }
+        return local_class(ctx, ref.decl_kind, odinsema.local_symbol(ctx.rc.live.id, ref.decl))
+    case .Top_Level:
+        return top_level_class(ctx, ref)
+    case .Member_Decl:
+        return member_decl_class(ctx, ref.start)
+    case .Free:
+        if class, ok := using_class(ctx, ref); ok {
+            return class
+        }
+        class := free_class(ctx, ref.name)
+        if class.undeclared {
+            if ctx.undeclared && undeclared_at(ctx, ref.start, ref.name) {
+                return {kind = .Unresolved, emit = true}
             }
-            return {}, false
+            return {}
+        }
+        return class
+    case .Package_Qualified:
+        key := strings.concatenate({"F|", ref.operand, "|", ref.name}, context.temp_allocator)
+        if class, ok := ctx.sel_memo[key]; ok {
+            return class
+        }
+        class, found := package_member_class(ctx, ref.operand, ref.name)
+        if !found {
+            class = typed_class(ctx, ref.start)
+        }
+        ctx.sel_memo[key] = class
+        return class
+    case .Field_Or_Member:
+        if key, ok := selector_key(ctx, i); ok {
+            return memo_selector(ctx, key, ref.start)
+        }
+        return typed_class(ctx, ref.start)
+    case .Implicit_Selector, .Field_Name:
+        return typed_class(ctx, ref.start)
+    }
+    return {}
+}
+
+// The class of the free name `ref` when a `using` in reach brings it in.
+@(private = "file")
+using_class :: proc(ctx: ^Semantic_Ctx, ref: odinsema.Name_Ref) -> (Name_Class, bool) {
+    if ctx.c == nil || !ctx.m.has_using {
+        return {}, false
+    }
+    if d := decl_at(ctx, ref.start); d == nil || !d.has_using {
+        return {}, false
+    }
+    key := using_key(ctx, ref)
+    if class, ok := ctx.using_memo[key]; ok {
+        return class, !class.undeclared
+    }
+    class := Name_Class{undeclared = true}
+    if sym, ok := odinsema.using_symbol(ctx.c, ctx.rc.live.id, ref.start); ok {
+        class = symbol_class(ctx, sym)
+    }
+    ctx.using_memo[key] = class
+    return class, !class.undeclared
+}
+
+// The memo key of a free name: its innermost scope and how many `using`s of that scope are in
+// reach. Each outer `using` is before or after the whole scope, so the key fixes what it names.
+@(private = "file")
+using_key :: proc(ctx: ^Semantic_Ctx, ref: odinsema.Name_Ref) -> string {
+    m := ctx.m
+    inner := -1
+    for s, i in m.scopes {
+        if s.start <= ref.start && ref.start < s.end && (inner < 0 || s.start >= m.scopes[inner].start) {
+            inner = i
         }
     }
-    if _, ok := member_field_type(ctx.e, ctx.parser, ctx.root, ctx.req, operand, member_name, 0); ok {
-        return .Field, true
+    step := 0
+    for u in m.usings {
+        if u.scope == inner && u.end <= ref.start {
+            step += 1
+        }
+    }
+    for l in m.locals {
+        if l.scope == inner && l.is_using && l.name_offset < ref.start {
+            step += 1
+        }
+    }
+    return fmt.tprintf("%d|%d|%s", inner, step, ref.name)
+}
+
+// The memo key of the selector name at ref `i` when its operand is a chain of names `a.b.c` whose
+// head is a local or a free name.
+@(private = "file")
+selector_key :: proc(ctx: ^Semantic_Ctx, i: int) -> (string, bool) {
+    ref := ctx.m.refs[i]
+    src := ctx.rc.req.source
+    if ref.operand_start < 0 || ref.operand_end > len(src) || ref.operand_start >= ref.operand_end {
+        return "", false
+    }
+    text := src[ref.operand_start:ref.operand_end]
+    for ch in transmute([]byte)text {
+        if !(ch == '.' || ch == '_' || (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')) {
+            return "", false
+        }
+    }
+    head := -1
+    for k := i - 1; k >= 0 && ctx.m.refs[k].start >= ref.operand_start; k -= 1 {
+        if ctx.m.refs[k].start == ref.operand_start {
+            head = k
+            break
+        }
+    }
+    if head < 0 {
+        return "", false
+    }
+    h := ctx.m.refs[head]
+    #partial switch h.kind {
+    case .Local:
+        // A switch variable takes another type in each case clause.
+        if h.decl < 0 || h.decl_kind == .Switch_Var {
+            return "", false
+        }
+        return fmt.tprintf("L%d|%s|%s", h.decl, text, ref.name), true
+    case .Free:
+        return strings.concatenate({"F|", text, "|", ref.name}, context.temp_allocator), true
+    }
+    return "", false
+}
+
+// The class of `alias.name` when `alias` is an import of the buffer, from the item trees of the package.
+// False when `alias` is no import, or the package declares no active `name`.
+@(private = "file")
+package_member_class :: proc(ctx: ^Semantic_Ctx, alias, name: string) -> (Name_Class, bool) {
+    dir, is_import := import_alias_dir(ctx.rc, alias)
+    if !is_import || dir == "" {
+        return {}, false
+    }
+    view := request_package(ctx.rc, dir)
+    if view == nil || view.scope == nil {
+        return {}, false
+    }
+    for ref in odinsema.package_scope_lookup(view.scope, name) {
+        item := odinsema.package_item(view.sema_files, ref)
+        if item.visibility != .Public || !odinsema.package_ref_active(view.scope, ref) {
+            continue
+        }
+        if item.kind == .Const {
+            if ctx.c == nil {
+                return {}, true
+            }
+            return const_class(ctx, odinsema.Symbol{view.files[ref.file], i32(ref.item), -1}), true
+        }
+        return item_class(ctx, {}, item), true
     }
     return {}, false
 }
 
-// An implicit selector's member, when the type the selector's position expects is
-// an enum (or a container of one) that declares it.
 @(private = "file")
-implicit_member_kind :: proc(ctx: ^Semantic_Ctx, holder: ts.Node, name: string) -> (lang.Token_Kind, bool) {
-    if ctx.implicit_budget <= 0 {
-        return {}, false
+memo_selector :: proc(ctx: ^Semantic_Ctx, key: string, offset: int) -> Name_Class {
+    if class, ok := ctx.sel_memo[key]; ok {
+        return class
     }
-    ctx.implicit_budget -= 1
-    tr, ok := expected_type_in_tree(ctx.e, ctx.parser, ctx.root, ctx.req, int(ts.node_start_byte(holder)))
+    class := typed_class(ctx, offset)
+    ctx.sel_memo[key] = class
+    return class
+}
+
+// The class of the name at `offset` that the checker types through its operand or its context.
+@(private = "file")
+typed_class :: proc(ctx: ^Semantic_Ctx, offset: int) -> Name_Class {
+    if ctx.c == nil {
+        return {}
+    }
+    sym, ok := odinsema.selector_symbol(ctx.c, ctx.rc.live.id, offset)
     if !ok {
-        return {}, false
+        return {}
     }
-    elem := element_type(tr)
-    if elem.name == "" {
-        return {}, false
-    }
-    key := fmt.tprintf("%s|%s|%s", elem.origin, elem.pkg, elem.name)
-    members, seen := ctx.enum_members[key]
-    if !seen {
-        members = make(map[string]bool, 0, context.temp_allocator)
-        visit_type_decl(ctx.e, ctx.parser, ctx.root, ctx.req, elem, "enum_declaration", "enum", enum_members_visitor, &members)
-        ctx.enum_members[key] = members
-    }
-    if name in members {
-        return .Enum_Member, true
-    }
-    return {}, false
+    return symbol_class(ctx, sym)
 }
 
-// Decl_Visitor that records every member name of an enum.
+// The class of the declaration `sym`.
 @(private = "file")
-enum_members_visitor :: proc(ed: ts.Node, source, path: string, ctx_raw: rawptr) {
-    members := cast(^map[string]bool) ctx_raw
-    for i in 1 ..< ts.node_named_child_count(ed) {
-        id := ts.node_named_child(ed, i)
-        if is_identifier(id) {
-            members[strings.clone(ts.node_text(id, source), context.temp_allocator)] = true
+symbol_class :: proc(ctx: ^Semantic_Ctx, sym: odinsema.Symbol) -> Name_Class {
+    c := ctx.c
+    if sym.item == odinsema.LOCAL_ITEM {
+        offset := int(sym.child)
+        if l, ok := odinsema.local_at(c, sym.file, offset); ok {
+            return local_class(ctx, l.kind, sym)
+        }
+        // A member of a record declared in a procedure body.
+        if sym.file == ctx.rc.live.id && member_decl_is_enum(ctx, offset) {
+            return {kind = .Enum_Member, emit = true}
+        }
+        type := odinsema.decl_type(c, sym)
+        if is_proc_type(c, type) {
+            return {kind = .Procedure, emit = true}
+        }
+        if odinsema.type_kind(&c.table, odinsema.type_base(&c.table, type)) == .Enum {
+            return {}
+        }
+        return {kind = .Field, mods = {.Mutable}, emit = true}
+    }
+    item := odinsema.checker_item(c, sym)
+    if item == nil {
+        return {}
+    }
+    if sym.child >= 0 {
+        #partial switch item.kind {
+        case .Enum_Member:
+            return {kind = .Enum_Member, emit = true}
+        case .Field:
+            if is_proc_type(c, odinsema.decl_type(c, sym)) {
+                return {kind = .Procedure, emit = true}
+            }
+            return {kind = .Field, mods = {.Mutable}, emit = true}
+        }
+        return {}
+    }
+    return item_class(ctx, sym, item)
+}
+
+// The class of the field or enum member declared at `offset` of the buffer.
+@(private = "file")
+member_decl_class :: proc(ctx: ^Semantic_Ctx, offset: int) -> Name_Class {
+    if member_decl_is_enum(ctx, offset) {
+        return {kind = .Enum_Member, emit = true}
+    }
+    // Read from the syntax: typing the field types the whole record and every type it names.
+    #reverse for n in ctx.path {
+        f, is_field := odinsyntax.as_field(n)
+        if !is_field {
+            continue
+        }
+        if type, ok := odinsyntax.field_type(&f); ok && proc_type_syntax(ctx, type) {
+            return {kind = .Procedure, emit = true}
+        }
+        break
+    }
+    return {kind = .Field, mods = {.Mutable}, emit = true}
+}
+
+// True when a type expression is a procedure type, or names a type of the buffer declared as one.
+@(private = "file")
+proc_type_syntax :: proc(ctx: ^Semantic_Ctx, type: odinsyntax.Syntax_Node) -> bool {
+    text := odinsyntax.node_text(type)
+    if is_proc_text(text) {
+        return true
+    }
+    if type.green.kind != .Ident {
+        return false
+    }
+    src := ctx.rc.req.source
+    for item in ctx.rc.live.tree.items {
+        if item.name == text && item.kind == .Type && item.value_offset >= 0 && item.value_offset < len(src) {
+            return is_proc_text(src[item.value_offset:])
+        }
+    }
+    return false
+}
+
+@(private = "file")
+is_proc_text :: proc(source: string) -> bool {
+    text := strings.trim_prefix(source, "#type")
+    text = strings.trim_left_space(text)
+    if !strings.has_prefix(text, "proc") {
+        return false
+    }
+    rest := text[len("proc"):]
+    return rest == "" || rest[0] == '(' || rest[0] == ' ' || rest[0] == '"'
+}
+
+// The class of a file-scope declaration. A variable and a constant value get none.
+@(private = "file")
+item_class :: proc(ctx: ^Semantic_Ctx, sym: odinsema.Symbol, item: ^odinsema.Item) -> Name_Class {
+    mods := item_modifiers(item)
+    switch item.kind {
+    case .Proc, .Proc_Group:
+        return {kind = .Procedure, mods = mods, emit = true}
+    case .Struct, .Enum, .Union, .Bit_Set, .Bit_Field, .Type:
+        return {kind = .Type, mods = mods, emit = true}
+    case .Import, .Foreign_Import:
+        return {kind = .Package, emit = true}
+    case .Const:
+        class := const_class(ctx, sym)
+        class.mods += mods - {.Constant}
+        return class
+    case .Var, .Field, .Enum_Member:
+    }
+    return {}
+}
+
+// The modifiers a file-scope declaration carries: `deprecated`, `distinct` and `::`.
+@(private = "file")
+item_modifiers :: proc(item: ^odinsema.Item) -> lang.Token_Modifiers {
+    mods: lang.Token_Modifiers
+    for a in item.attributes {
+        if a.name == "deprecated" {
+            mods += {.Deprecated}
+            break
+        }
+    }
+    if i := strings.index(item.signature, "::"); i >= 0 {
+        if strings.has_prefix(strings.trim_left_space(item.signature[i + 2:]), "distinct ") {
+            mods += {.Distinct}
+        }
+    }
+    return mods
+}
+
+// The class of a constant: a type, a procedure, or none for a value.
+@(private = "file")
+const_class :: proc(ctx: ^Semantic_Ctx, sym: odinsema.Symbol) -> Name_Class {
+    c := ctx.c
+    if c == nil {
+        return {}
+    }
+    mods: lang.Token_Modifiers
+    if sym.item != odinsema.LOCAL_ITEM && sym.child < 0 {
+        if item := odinsema.checker_item(c, sym); item != nil {
+            mods = item_modifiers(item)
+        }
+    }
+    if odinsema.decl_is_type(c, sym) {
+        return {kind = .Type, mods = mods, emit = true}
+    }
+    if is_proc_type(c, odinsema.decl_type(c, sym)) {
+        return {kind = .Procedure, mods = mods, emit = true}
+    }
+    if odinsema.decl_type(c, sym) == odinsema.INVALID_TYPE {
+        return {}
+    }
+    return {kind = .Local, mods = mods + {.Constant}, emit = true}
+}
+
+// The class of a local declared as `kind`.
+@(private = "file")
+local_class :: proc(ctx: ^Semantic_Ctx, kind: odinsema.Decl_Kind, sym: odinsema.Symbol) -> Name_Class {
+    switch kind {
+    case .Param, .Result:
+        return {kind = .Parameter, emit = true}
+    case .Var, .Loop_Var, .Switch_Var:
+        return {kind = .Local, mods = {.Mutable}, emit = true}
+    case .Proc:
+        return {kind = .Procedure, emit = true}
+    case .Type:
+        return {kind = .Type, emit = true}
+    case .Const:
+        return const_class(ctx, sym)
+    case .Poly:
+        // `$T` and `$T: typeid` name a type; `$N: int` names a value.
+        if ctx.c != nil && !odinsema.decl_is_type(ctx.c, sym) && odinsema.decl_type(ctx.c, sym) != odinsema.INVALID_TYPE {
+            return {kind = .Parameter, emit = true}
+        }
+        return {kind = .Type, emit = true}
+    case .Import:
+        return {kind = .Package, emit = true}
+    case .Label:
+    }
+    return {}
+}
+
+// The class of the declaration name of a file-scope declaration.
+@(private = "file")
+top_level_class :: proc(ctx: ^Semantic_Ctx, ref: odinsema.Name_Ref) -> Name_Class {
+    mods: lang.Token_Modifiers
+    if index, ok := ctx.items[ref.start]; ok {
+        mods = item_modifiers(&ctx.rc.live.tree.items[index])
+    }
+    #partial switch ref.decl_kind {
+    case .Proc:
+        return {kind = .Procedure, mods = mods, emit = true}
+    case .Type:
+        return {kind = .Type, mods = mods, emit = true}
+    case .Import:
+        return {kind = .Package, emit = true}
+    case .Const:
+        index, ok := ctx.items[ref.start]
+        if !ok {
+            return {}
+        }
+        return const_class(ctx, odinsema.Symbol{ctx.rc.live.id, i32(index), -1})
+    }
+    return {}
+}
+
+// The class of a free name, memoized: a free name names the same declaration in the whole file.
+@(private = "file")
+free_class :: proc(ctx: ^Semantic_Ctx, name: string) -> Name_Class {
+    if class, ok := ctx.free_memo[name]; ok {
+        return class
+    }
+    class := free_class_uncached(ctx, name)
+    ctx.free_memo[name] = class
+    return class
+}
+
+@(private = "file")
+free_class_uncached :: proc(ctx: ^Semantic_Ctx, name: string) -> Name_Class {
+    for item in ctx.rc.live.tree.items {
+        if item.name == name && (item.kind == .Import || item.kind == .Foreign_Import) {
+            return {kind = .Package, emit = true}
+        }
+    }
+    // A `foreign import` binds its name in the whole package.
+    if view := request_package(ctx.rc, live_dir(ctx.rc)); view != nil {
+        for file in view.sema_files {
+            if file.items == nil {
+                continue
+            }
+            for item in file.items.items {
+                if item.name == name && item.kind == .Foreign_Import {
+                    return {kind = .Package, emit = true}
+                }
+            }
+        }
+    }
+    c := ctx.c
+    if c == nil {
+        for &item in ctx.rc.live.tree.items {
+            if item.name == name {
+                return item_class(ctx, {}, &item)
+            }
+        }
+        return {}
+    }
+    r := odinsema.lookup_name(c, ctx.rc.live.id, name, -1)
+    #partial switch r.kind {
+    case .None:
+        return {undeclared = true}
+    case .Import:
+        return {kind = .Package, emit = true}
+    case .Item:
+        if r.universe {
+            return {}
+        }
+        item := odinsema.checker_item(c, r.symbol)
+        if item == nil {
+            return {}
+        }
+        return item_class(ctx, r.symbol, item)
+    }
+    return {}
+}
+
+// True when the type of a value is a procedure or a procedure group.
+@(private = "file")
+is_proc_type :: proc(c: ^odinsema.Checker, type: odinsema.Type_Id) -> bool {
+    if type == odinsema.INVALID_TYPE {
+        return false
+    }
+    kind := odinsema.type_kind(&c.table, odinsema.type_base(&c.table, type))
+    return kind == .Proc || kind == .Proc_Group
+}
+
+// The file-scope declarations of the buffer, each marked when a `using` statement or a `using`
+// local is in it.
+@(private = "file")
+collect_decls :: proc(ctx: ^Semantic_Ctx) {
+    root := odinsyntax.node_root(ctx.rc.parsed.tree)
+    pos := int(root.offset)
+    for child in odinsyntax.green_children(root.green) {
+        n := int(odinsyntax.element_len(child))
+        if _, is_node := odinsyntax.element_node(child); is_node {
+            append(&ctx.decls, Decl_Range{start = pos, end = pos + n})
+        }
+        pos += n
+    }
+    for u in ctx.m.usings {
+        if d := decl_at(ctx, u.start); d != nil {
+            d.has_using = true
+        }
+    }
+    for l in ctx.m.locals {
+        if l.is_using {
+            if d := decl_at(ctx, l.name_offset); d != nil {
+                d.has_using = true
+            }
         }
     }
 }
 
-// Whether `tr` names an enum declaring a member called `name`.
 @(private = "file")
-Enum_Member_Query :: struct {
-    name:  string,
-    found: bool,
+decl_at :: proc(ctx: ^Semantic_Ctx, offset: int) -> ^Decl_Range {
+    i, _ := slice.binary_search_by(ctx.decls[:], offset, proc(d: Decl_Range, offset: int) -> slice.Ordering {
+        if d.end <= offset {
+            return .Less
+        }
+        if d.start > offset {
+            return .Greater
+        }
+        return .Equal
+    })
+    if i < len(ctx.decls) && ctx.decls[i].start <= offset && offset < ctx.decls[i].end {
+        return &ctx.decls[i]
+    }
+    return nil
 }
 
+// True when the scopes can prove a name undeclared: a buffer with a file in a workspace whose
+// package and universe scope can be read.
 @(private = "file")
-enum_member_query_visitor :: proc(ed: ts.Node, source, path: string, ctx_raw: rawptr) {
-    ctx := cast(^Enum_Member_Query) ctx_raw
-    if ctx.found {
-        return
+undeclared_allowed :: proc(ctx: ^Semantic_Ctx) -> bool {
+    rc := ctx.rc
+    if ctx.c == nil || rc.req.path == "" || rc.req.workspace == "" {
+        return false
     }
-    for i in 1 ..< ts.node_named_child_count(ed) {
-        id := ts.node_named_child(ed, i)
-        if is_identifier(id) && ts.node_text(id, source) == ctx.name {
-            ctx.found = true
+    if request_package(rc, live_dir(rc)) == nil {
+        return false
+    }
+    // An Odin root with no base:builtin leaves every builtin undeclared.
+    for name in ([]string{"len", "make"}) {
+        if odinsema.lookup_name(ctx.c, rc.live.id, name, -1).kind != .Item {
+            return false
+        }
+    }
+    return true
+}
+
+// True when the enum type `n` has a member `name`, which its member values may read.
+@(private = "file")
+enum_declares :: proc(n: odinsyntax.Syntax_Node, name: string) -> bool {
+    e, _ := odinsyntax.as_enum_type(n)
+    members := odinsyntax.enum_type_members(&e)
+    for m in odinsyntax.child_iter_next(&members) {
+        member := m
+        if fv, ok := odinsyntax.as_field_value(m); ok {
+            member, ok = odinsyntax.field_value_name(&fv)
+            if !ok {
+                continue
+            }
+        }
+        if member.green.kind == .Ident && odinsyntax.node_text(member) == name {
+            return true
+        }
+    }
+    return false
+}
+
+// True when the free name at `offset` is undeclared at that position: no `using` can bring it in,
+// no directive or `offset_of` reads it as a name, and no file of the package declares it.
+@(private = "file")
+undeclared_at :: proc(ctx: ^Semantic_Ctx, offset: int, name: string) -> bool {
+    d := decl_at(ctx, offset)
+    if d == nil || d.has_using {
+        return false
+    }
+    node_path_to(ctx, offset)
+    for n in ctx.path {
+        #partial switch n.green.kind {
+        case .Asm_Template, .Asm_Group, .Asm_Directive:
+            return false
+        case .Call_Expr:
+            call, _ := odinsyntax.as_call_expr(n)
+            callee, ok := odinsyntax.call_expr_callee(&call)
+            if !ok {
+                return false
+            }
+            switch odinsyntax.node_text(callee) {
+            case "offset_of", "offset_of_selector", "offset_of_member", "offset_of_by_string":
+                return false
+            }
+            if callee.green.kind == .Directive {
+                return false
+            }
+        case .Enum_Type:
+            if enum_declares(n, name) {
+                return false
+            }
+        }
+    }
+    rc := ctx.rc
+    cands := make([dynamic]Def_Candidate, context.temp_allocator)
+    package_candidates(rc, live_dir(rc), name, "", true, &cands)
+    for c in cands {
+        if !ctx.strict || !c.inactive {
+            return false
+        }
+    }
+    return builtin_candidates(rc, name, &cands) == ""
+}
+
+// Fills ctx.path with the nodes from the root down to the innermost node that holds byte `offset`.
+@(private = "file")
+node_path_to :: proc(ctx: ^Semantic_Ctx, offset: int) {
+    clear(&ctx.path)
+    cur := odinsyntax.node_root(ctx.rc.parsed.tree)
+    off := u32(offset)
+    for {
+        append(&ctx.path, cur)
+        pos := cur.offset
+        next: ^odinsyntax.Green_Node
+        next_pos: u32
+        for child in odinsyntax.green_children(cur.green) {
+            child_len := odinsyntax.element_len(child)
+            if off >= pos && off < pos + child_len {
+                if g, is_node := odinsyntax.element_node(child); is_node {
+                    next, next_pos = g, pos
+                }
+                break
+            }
+            pos += child_len
+        }
+        if next == nil {
             return
         }
+        cur = odinsyntax.Syntax_Node{next, next_pos, nil, cur.tree}
     }
 }
 
+// True when the member declared at `offset` of the buffer is an enum member, not a field.
 @(private = "file")
-enum_has_member :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Request, tr: Type_Ref, name: string) -> bool {
-    ctx := Enum_Member_Query{name = name}
-    if !visit_type_decl(e, parser, root, req, tr, "enum_declaration", "enum", enum_member_query_visitor, &ctx) {
-        return false
-    }
-    return ctx.found
-}
-
-// Positions where the grammar has already proved what the identifier is, so
-// there is nothing to add and a token here could only overrule a correct colour
-// with a worse one. Two groups: declarations whose own syntax names their kind
-// (a struct field, an enum member, an attribute, a label, the package clause, an
-// import alias), and the right-hand side of a selector — a field, a package
-// symbol or an implicit enum member — which takes type inference to resolve and
-// which the highlights query tags `@field` already.
-@(private)
-semantic_skip :: proc(node: ts.Node) -> bool {
-    parent := ts.node_parent(node)
-    if ts.node_is_null(parent) {
-        return true
-    }
-    switch string(ts.node_type(parent)) {
-    case "package_declaration",
-         "import_declaration",
-         "attribute",
-         "tag",
-         "label_statement",
-         "using_statement",
-         "foreign_block",
-         "field",
-         "struct_field",
-         "polymorphic_parameters":
-        return true
-    case "enum_declaration":
-        // The enum's own name reads like any other type declaration and stays
-        // ours; everything after it is a member, which the grammar names.
-        first := ts.node_named_child(parent, 0)
-        return ts.node_is_null(first) || !same_node(first, node)
-    }
-
-    // `run(whole_line = true)` — a named argument, which the grammar lays out
-    // flat inside the call: the name, an `=`, then the value. The name is the
-    // callee's parameter, not anything in scope here, and the highlights query
-    // tags it already. A positional argument has no `=` after it and stays ours.
-    if string(ts.node_type(parent)) == "call_expression" {
-        next := ts.node_next_sibling(node)
-        if !ts.node_is_null(next) && string(ts.node_type(next)) == "=" {
+member_decl_is_enum :: proc(ctx: ^Semantic_Ctx, offset: int) -> bool {
+    node_path_to(ctx, offset)
+    #reverse for n in ctx.path {
+        #partial switch n.green.kind {
+        case .Enum_Type:
             return true
-        }
-    }
-
-    // The selector rule, on the node standing in for this identifier rather than
-    // on the identifier itself: only a selector's operand is ours. `a.b.c` nests
-    // left, so each inner operand is still the first child of its own selector
-    // and stays classified.
-    subject := selector_subject(node)
-    holder := ts.node_parent(subject)
-    if ts.node_is_null(holder) {
-        return false
-    }
-    switch string(ts.node_type(holder)) {
-    case "member_expression", "field_type":
-        first := ts.node_named_child(holder, 0)
-        if ts.node_is_null(first) || !same_node(first, subject) {
-            return true
-        }
-        // An implicit enum selector (`.Vertical`) has no operand at all: its
-        // member is the first child but starts past the dot the selector starts
-        // at. The name lives in a type only inference finds, and the grammar
-        // already spells it as a member.
-        return ts.node_start_byte(subject) != ts.node_start_byte(holder)
-    }
-    return false
-}
-
-// The node the selector rule judges on `node`'s behalf. A called or indexed
-// member sits inside the wrapper rather than beside the operand — `pkg.run(x)`
-// parses as `(member_expression pkg (call_expression run …))` and `pkg.Rect{}`
-// as `(member_expression pkg (struct Rect …))` — so the wrapper is what the
-// selector holds, and asking about the bare identifier would find a parent that
-// is no selector at all.
-@(private)
-selector_subject :: proc(node: ts.Node) -> ts.Node {
-    n := node
-    for {
-        parent := ts.node_parent(n)
-        if ts.node_is_null(parent) {
-            return n
-        }
-        switch string(ts.node_type(parent)) {
-        case "call_expression", "index_expression", "struct":
-        case:
-            return n
-        }
-        // Only the thing being called, indexed or braced stands in for the
-        // wrapper; an argument, a subscript or a field value is an expression in
-        // its own right.
-        first := ts.node_named_child(parent, 0)
-        if ts.node_is_null(first) || !same_node(first, n) {
-            return n
-        }
-        n = parent
-    }
-}
-
-// The token kind a resolved declaration lends its uses, and whether it says
-// anything the grammar has not already said. A `::` constant is deliberately
-// unclassified — it can stand for a value, a type or a procedure group, and the
-// highlights query decides the cases that are decidable — and a package-level
-// variable is left alone because `@variable` is exactly what it is.
-@(private)
-token_kind_for_def :: proc(d: Def) -> (lang.Token_Kind, bool) {
-    switch d.kind {
-    case "parameter":
-        return .Parameter, true
-    case "function":
-        return .Procedure, true
-    case "type", "enum":
-        return .Type, true
-    case "field":
-        return .Field, true
-    case "namespace":
-        return .Package, true
-    case "var":
-        return .Local, !d.top_level
-    }
-    return {}, false
-}
-
-@(private)
-is_odin_keyword :: proc(name: string) -> bool {
-    for kw in ODIN_KEYWORDS {
-        if kw == name {
-            return true
-        }
-    }
-    return false
-}
-
-// Whether an undeclared name in this file may be dimmed, filling `declared` with
-// the names that count as resolved when it may.
-//
-// Every branch here fails open: the question is "can this file be judged at
-// all", and any doubt answers no, because a wrongly dimmed identifier reads as
-// an error the compiler never reported and is worse than no colour. Three ways
-// to lose the right: no workspace to check against, a `using` (the one construct
-// that injects names from a scope this engine does not follow), or an import
-// that cannot be located — an unknown collection may bring in anything.
-@(private)
-dimming_allowed :: proc(
-    e: ^Engine,
-    parser: ts.Parser,
-    root: ts.Node,
-    req: ^lang.Request,
-    declared: ^map[string]bool,
-) -> bool {
-    if req.workspace == "" {
-        return false
-    }
-    if has_using(root) {
-        return false
-    }
-    for i in 0 ..< ts.node_named_child_count(root) {
-        child := ts.node_named_child(root, i)
-        if string(ts.node_type(child)) != "import_declaration" {
-            continue
-        }
-        raw, rok := import_string(child, req.source)
-        if !rok {
+        case .Struct_Type, .Union_Type, .Bit_Field_Type:
             return false
-        }
-        if _, dok := package_dir(e, raw, req.path, req.workspace); !dok {
-            return false
-        }
-    }
-
-    // The implicit scope. Borrowed, not cloned: the cache outlives the request
-    // and its keys are stable for the process.
-    if !builtin_names(e, parser, declared) {
-        return false
-    }
-
-    sync.lock(&e.index.mutex)
-    index_sync(e, parser, req)
-    any_file := index_declared_names(e, declared, context.temp_allocator)
-    sync.unlock(&e.index.mutex)
-
-    // An index holding no file at all has not proved anything is absent — the
-    // walk was cancelled, or the workspace is not where the engine thinks.
-    return any_file
-}
-
-// True when the file contains a `using` statement anywhere. Struct embedding
-// (`using base: Base`) is a field rather than a statement and does not count:
-// the engine does follow that one, so it costs no precision.
-@(private)
-has_using :: proc(node: ts.Node) -> bool {
-    if string(ts.node_type(node)) == "using_statement" {
-        return true
-    }
-    for i in 0 ..< ts.node_named_child_count(node) {
-        if has_using(ts.node_named_child(node, i)) {
-            return true
         }
     }
     return false

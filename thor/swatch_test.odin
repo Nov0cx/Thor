@@ -29,17 +29,17 @@ swatch_metrics :: proc(font: ui.Font, size: f32, user: rawptr) -> ui.Font_Metric
 }
 
 @(private = "file")
-swatch_ctx :: proc(ctx: ^ui.Context) {
+swatch_ctx :: proc() -> ^ui.Context {
     b := ui.noop_backend()
     b.measure_run = swatch_run
     b.font_metrics = swatch_metrics
+    ctx := new(ui.Context)
     ui.init(ctx, ui.Config{backend = b})
+    return ctx
 }
 
 @(private = "file")
-swatch_frame :: proc(ctx: ^ui.Context) {
-    ui.begin_frame(ui.Input{dt = 0.016, viewport = {1200, 800}})
-}
+SWATCH_INPUT :: ui.Input{dt = 0.016, viewport = {1200, 800}}
 
 @(private = "file")
 ROW :: `"bg": "#1A1C23",`
@@ -110,9 +110,9 @@ test_a_highlight_over_the_anchor_is_split :: proc(t: ^testing.T) {
 // was taken from.
 @(test)
 test_the_gap_moves_the_text_the_caret_and_the_hit_test :: proc(t: ^testing.T) {
-    ctx: ui.Context
-    swatch_ctx(&ctx)
-    defer ui.destroy(&ctx)
+    ctx := swatch_ctx()
+    defer free(ctx)
+    defer ui.destroy(ctx)
 
     editor: editview.Editor
     editor.font_size = 16
@@ -121,16 +121,13 @@ test_the_gap_moves_the_text_the_caret_and_the_hit_test :: proc(t: ^testing.T) {
     props := ui.Props{font_size = 16, text_wrap = .None}
     it: ui.Interaction
     spans: []ui.Text_Span
-    for _ in 0 ..< 2 {
-        swatch_frame(&ctx)
+    for ui.frame(SWATCH_INPUT) {
         spans, _ = row_spans_for(&editor)
         it = ui.leaf({key = "row", text = ROW, spans = spans, props = props})
-        ui.end_frame()
     }
 
     testing.expect_value(t, it.rect.w, CELL * f32(len(ROW)) + gap)
 
-    swatch_frame(&ctx)
     // Before the anchor nothing moved; at and after it, everything is past the gap.
     testing.expect_value(t, ui.caret_x(ROW, ANCHOR - 1, props, spans), CELL * f32(ANCHOR - 1))
     testing.expect_value(t, ui.caret_x(ROW, ANCHOR, props, spans), CELL * f32(ANCHOR) + gap)
@@ -146,7 +143,6 @@ test_the_gap_moves_the_text_the_caret_and_the_hit_test :: proc(t: ^testing.T) {
             ui.offset_at(ROW, x, props, spans),
         )
     }
-    ui.end_frame()
 }
 
 // The editor's own offset maths is what editor_pos_at resolves a click with; it

@@ -25,10 +25,10 @@ thor_on_visibility_changed :: proc(data: rawptr, value: bool) {
     thor_apply_layout_state(cast(^Thor) data)
 }
 
-// Widget for a pane index (0 = primary, 1 = split).
+// Widget for a pane index.
 @(private)
 thor_pane_editor :: proc(thor: ^Thor, pane: int) -> ^editview.Editor {
-    return pane == 0 ? &thor.editor : &thor.editor2
+    return &thor.editors[pane]
 }
 
 // Widget of the pane the user is in, the target of every command that acts on
@@ -72,6 +72,8 @@ thor_bind_pane :: proc(thor: ^Thor, pane: int, keep_view := false) {
     // The rebind dropped the previous buffer's borrowed spans; push this file's
     // now, so the gutter is right for the rest of the frame.
     thor_sync_pane_diagnostics(thor, pane)
+    thor_sync_pane_inlays(thor, pane)
+    thor_sync_pane_occurrences(thor, pane)
     thor_sync_pane_diff(thor, pane)
 }
 
@@ -129,6 +131,9 @@ thor_apply_file_highlights :: proc(thor: ^Thor, file: ^Open_File) {
             editview.editor_set_folds(editor, file.folds[:])
         }
     }
+    if thor.peek.open && thor.peek.editor.state == &file.state {
+        editview.editor_set_highlights(&thor.peek.editor, file.highlights[:])
+    }
 }
 
 // Pushes a pane's diagnostics to its editor, or clears them when the buffer has
@@ -143,12 +148,8 @@ thor_sync_pane_diagnostics :: proc(thor: ^Thor, pane: int) {
         editview.editor_set_diagnostics(editor, nil)
         return
     }
-    file := thor.open_files[index]
-    if file.loaded && file.diagnostics_revision == file.state.revision && len(file.diagnostics) > 0 {
-        editview.editor_set_diagnostics(editor, file.diagnostics[:])
-    } else {
-        editview.editor_set_diagnostics(editor, nil)
-    }
+    diags := thor_file_live_diagnostics(thor.open_files[index])
+    editview.editor_set_diagnostics(editor, len(diags) > 0 ? diags : nil)
 }
 
 // Pushes a pane's git diff lines to its editor. Called every frame alongside
@@ -185,16 +186,16 @@ Pane_Content :: enum {
 Workspace_View :: struct {
     file:    ^Open_File, // borrowed, the active file; nil when none is
     welcome: bool,
-    split:   bool,
-    pane:    [2]Pane_Content,
-    // The file each pane shows, which is not the active one for the other pane
-    // of a split. nil where the pane has none.
-    files:   [2]^Open_File, // borrowed
+    count:   int, // panes shown
+    pane:    [MAX_PANES]Pane_Content,
+    // The file each pane shows, which is not the active one for the other
+    // panes. nil where the pane has none.
+    files:   [MAX_PANES]^Open_File, // borrowed
 }
 
 // Decides what each pane shows: the image view for an image, the model view for
-// a 3D model, and the markdown preview in whichever pane is not focused when the
-// active file is markdown and preview is on. The focused pane keeps the source,
+// a 3D model, and the markdown preview in the pane beside the focused one when
+// the active file is markdown and preview is on. The focused pane keeps the source,
 // like opening the preview to the side. Called once a frame, so it tracks tab
 // switches, splits, toggles and closes without each having to poke it.
 thor_workspace_view :: proc(thor: ^Thor) -> Workspace_View {
@@ -202,7 +203,7 @@ thor_workspace_view :: proc(thor: ^Thor) -> Workspace_View {
     out := Workspace_View{file = file}
     out.welcome = thor.workspace_dir == ""
 
-    for pane in 0 ..< 2 {
+    for pane in 0 ..< thor_pane_count(thor) {
         index := thor.pane_file[pane]
         if index < 0 || index >= len(thor.open_files) {
             continue
@@ -216,14 +217,18 @@ thor_workspace_view :: proc(thor: ^Thor) -> Workspace_View {
 
     // The preview needs a second pane to sit beside the source; open the split
     // first if it is not already on, without moving focus off the source.
-    if show_md && !thor.split_visible {
-        thor.split_visible = true
-        thor_apply_split(thor)
+    if show_md && thor_pane_count(thor) == 1 && thor_ensure_pane(thor, 1) {
+        for pane in 1 ..< thor_pane_count(thor) {
+            if index := thor.pane_file[pane]; index >= 0 && index < len(thor.open_files) {
+                out.files[pane] = thor.open_files[index]
+                out.pane[pane] = thor_pane_content(out.files[pane])
+            }
+        }
     }
-    out.split = thor.split_visible
+    out.count = thor_pane_count(thor)
 
-    if show_md {
-        other := 1 - thor.active_pane
+    if show_md && out.count > 1 {
+        other := (thor.active_pane + 1) % out.count
         out.pane[other] = .Markdown
         out.files[other] = file
     }
@@ -264,12 +269,11 @@ thor_sync_active_pane :: proc(thor: ^Thor) {
     // name the menu.
     named := thor.focus_request != "" ? thor.focus_request : thor.focus_owner
     pane := thor.active_pane
-    if !thor.split_visible {
+    if p := thor_pane_of_key(named); p >= 0 {
+        pane = p
+    }
+    if pane >= thor_pane_count(thor) {
         pane = 0
-    } else if named == "pane0" {
-        pane = 0
-    } else if named == "pane1" {
-        pane = 1
     }
     if pane != thor.active_pane {
         thor.active_pane = pane
@@ -310,7 +314,7 @@ thor_status_info :: proc(data: rawptr) -> Status_Info {
     info.file_open = true
     info.file_name = file.name
     info.file_path = file.path
-    info.language = thor_language_name(thor, file.name)
+    info.language = thor_language_name(thor, file)
     thor_refresh_indent(file)
     // detect_indent reports no width for tabs, and a width of 0 hides the
     // segment, so a tab-indented file shows the column width one renders as.
@@ -319,7 +323,7 @@ thor_status_info :: proc(data: rawptr) -> Status_Info {
     if file.indent.style == .Spaces && file.indent.width > 0 {
         info.indent_width = file.indent.width
     }
-    info.zoom = int(thor.editor.font_size) * 100 / max(setting.font_size(&thor.config), 1)
+    info.zoom = int(thor_active_editor(thor).font_size) * 100 / max(setting.font_size(&thor.config), 1)
     info.saving = file.saving
     info.modified = file.loaded && file.state.revision != file.saved_revision
     if file.loaded {
@@ -335,20 +339,20 @@ thor_status_info :: proc(data: rawptr) -> Status_Info {
         info.column = textedit.column(text, caret, textedit.tab_width(&file.state)) + 1
 
         // With no transient notice up, show the diagnostic on the caret's line
-        // (an error outranks a warning) so its message is readable without a hover.
-        if info.message == "" && file.diagnostics_revision == file.state.revision {
+        // (the worst severity wins) so its message is readable without a hover.
+        if diags := thor_file_live_diagnostics(file); info.message == "" && len(diags) > 0 {
             best := -1
-            for d, i in file.diagnostics {
+            for d, i in diags {
                 if d.line != caret_line || d.message == "" {
                     continue
                 }
-                if best < 0 || (d.severity == .Error && file.diagnostics[best].severity != .Error) {
+                if best < 0 || d.severity < diags[best].severity {
                     best = i
                 }
             }
             if best >= 0 {
-                info.message = file.diagnostics[best].message
-                info.is_error = file.diagnostics[best].severity == .Error
+                info.message = diags[best].message
+                info.is_error = diags[best].severity == .Error
             }
         }
     }
@@ -433,8 +437,9 @@ thor_apply_lexical :: proc(thor: ^Thor, file: ^Open_File) {
 // name (Dockerfile, Makefile) resolves too; then the built-in table for formats
 // no plugin claims; then the bare extension.
 @(private = "file")
-thor_language_name :: proc(thor: ^Thor, name: string) -> string {
-    if id := plugin.language_name(&thor.plugins, thor_highlight_key(&thor.plugins, name)); id != "" {
+thor_language_name :: proc(thor: ^Thor, file: ^Open_File) -> string {
+    name := file.name
+    if id := plugin.language_name(&thor.plugins, thor_file_highlight_key(thor, file)); id != "" {
         return id
     }
     if label, ok := thor_builtin_language_name(name); ok {

@@ -1,27 +1,273 @@
-// Completion candidates: file scope, keywords, package members and siblings
-// offered out of the symbol index.
 package odin
 
+import "core:fmt"
 import "core:os"
-import "core:path/filepath"
 import "core:strings"
 import "core:testing"
 
 import lang ".."
 
+// Runs a Completion request with the caret after the first `needle` in `source`, or at its `|`.
+@(private = "file")
+complete_at :: proc(e: ^Engine, source, needle: string, workspace := "", path := "buffer.odin") -> lang.Result {
+    bar := strings.index_byte(needle, '|')
+    search := needle
+    if bar >= 0 {
+        search = strings.concatenate({needle[:bar], needle[bar + 1:]}, context.temp_allocator)
+    } else {
+        bar = len(needle)
+    }
+    at := strings.index(source, search)
+    assert(at >= 0, needle)
+    req := lang.Request {
+        kind      = .Completion,
+        path      = path,
+        ext       = ".odin",
+        source    = source,
+        offset    = at + bar,
+        workspace = workspace,
+    }
+    res := lang.Result{kind = .Completion}
+    resolve(e, &req, &res)
+    return res
+}
+
+@(private = "file")
+completions_free :: proc(res: ^lang.Result) {
+    for item in res.completions {
+        delete(item.label)
+        delete(item.kind)
+        delete(item.detail)
+        delete(item.insert)
+        delete(item.filter)
+        delete(item.sort)
+        for edit in item.extra_edits {
+            delete(edit.path)
+            delete(edit.old_text)
+            delete(edit.new_text)
+        }
+        delete(item.extra_edits)
+    }
+    delete(res.completions)
+}
+
+// The source with the one extra edit of `item` applied; "" when it has not exactly one.
+@(private = "file")
+apply_extra_edit :: proc(source: string, item: ^lang.Completion_Item) -> string {
+    if item == nil || len(item.extra_edits) != 1 {
+        return ""
+    }
+    edit := item.extra_edits[0]
+    return strings.concatenate({source[:edit.start], edit.new_text, source[edit.end:]}, context.temp_allocator)
+}
+
+// The candidate labelled `label`; nil when there is none.
+@(private = "file")
+find_item :: proc(res: ^lang.Result, label: string) -> ^lang.Completion_Item {
+    for &item in res.completions {
+        if item.label == label {
+            return &item
+        }
+    }
+    return nil
+}
+
+@(private = "file")
+has_label :: proc(res: ^lang.Result, label: string) -> bool {
+    return find_item(res, label) != nil
+}
+
+// The position of `label` in the list; -1 when it is not there.
+@(private = "file")
+label_index :: proc(res: ^lang.Result, label: string) -> int {
+    for item, i in res.completions {
+        if item.label == label {
+            return i
+        }
+    }
+    return -1
+}
+
+// Expects the candidates `want` and none of `unwanted`.
+@(private = "file")
+expect_labels :: proc(t: ^testing.T, res: ^lang.Result, want: []string, unwanted: []string = nil, loc := #caller_location) {
+    for w in want {
+        testing.expectf(t, has_label(res, w), "missing %q", w, loc = loc)
+    }
+    for u in unwanted {
+        testing.expectf(t, !has_label(res, u), "unexpected %q", u, loc = loc)
+    }
+}
+
+@(private = "file")
+expect_item :: proc(t: ^testing.T, res: ^lang.Result, label, kind, detail: string, loc := #caller_location) {
+    item := find_item(res, label)
+    if !testing.expectf(t, item != nil, "missing %q", label, loc = loc) {
+        return
+    }
+    testing.expectf(t, item.kind == kind, "%q kind: got %q, want %q", label, item.kind, kind, loc = loc)
+    testing.expectf(t, item.detail == detail, "%q detail: got %q, want %q", label, item.detail, detail, loc = loc)
+    testing.expectf(t, item.start == -1 && item.end == -1, "%q: want no range", label, loc = loc)
+}
+
+@(private = "file")
+MEMBER_SRC :: `package demo
+
+Base :: struct {
+	id: int,
+}
+
+Point :: struct {
+	using base: Base,
+	x, y: f32,
+	label: string,
+}
+
+Color :: enum {
+	Red,
+	Green,
+	Blue,
+}
+
+Colors :: bit_set[Color]
+
+Shape :: union {
+	Point,
+	Color,
+}
+
+make_point :: proc() -> ^Point {
+	return nil
+}
+
+main :: proc() {
+	p: Point
+	pp := &p
+	_ = p.x
+	_ = pp.la
+	_ = make_point().y
+	_ = Color.Gr
+	c: Color
+	cs: Colors = {.Red, .}
+	s: Shape = .Bl
+	if c == .R {}
+	d: Color = .
+}
+`
+
+// `x.` lists the fields of the operand, through `using` and a pointer.
 @(test)
-test_completion_same_file :: proc(t: ^testing.T) {
+test_completion_members :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    // A temp dir kept empty on disk (main.odin is never written), so the sibling
-    // scan finds nothing and candidates come only from the buffer and keywords.
-    dir := "thor_lang_complete_ws"
-    _ = os.make_directory(dir)
-    defer os.remove(dir)
-    main_path := strings.concatenate({dir, "/main.odin"}, context.temp_allocator)
+    res := complete_at(e, MEMBER_SRC, "_ = p.")
+    expect_labels(t, &res, {"base", "x", "y", "label", "id"}, {"main", "Point", "int"})
+    expect_item(t, &res, "x", "field", "f32")
+    expect_item(t, &res, "id", "field", "int")
+    testing.expect(t, label_index(&res, "x") < label_index(&res, "label"), "fields keep declaration order")
+    testing.expect(t, label_index(&res, "label") < label_index(&res, "id"), "promoted fields follow the direct ones")
+    completions_free(&res)
+
+    res = complete_at(e, MEMBER_SRC, "_ = pp.la")
+    expect_labels(t, &res, {"label"}, {"x", "base"})
+    completions_free(&res)
+
+    res = complete_at(e, MEMBER_SRC, "make_point().")
+    expect_labels(t, &res, {"x", "y", "label"})
+    completions_free(&res)
+
+    // `p.` with nothing after it, at the end of a body.
+    tail := "package demo\n\nP :: struct {\n\tx: int,\n}\n\nmain :: proc() {\n\tp: P\n\tp.\n}\n"
+    res = complete_at(e, tail, "\tp.")
+    expect_labels(t, &res, {"x"})
+    completions_free(&res)
+
+    // `p.` with a statement on the next line.
+    next := "package demo\n\nP :: struct {\n\tx: int,\n}\n\nmain :: proc() {\n\tp: P\n\tp.\n\ty := 1\n\t_ = y\n}\n"
+    res = complete_at(e, next, "\tp.")
+    expect_labels(t, &res, {"x"}, {"y"})
+    completions_free(&res)
+}
+
+// An enum type before the dot, and an implicit selector, list the enum members.
+@(test)
+test_completion_enum :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    res := complete_at(e, MEMBER_SRC, "Color.Gr")
+    expect_labels(t, &res, {"Green"}, {"Red", "Blue"})
+    expect_item(t, &res, "Green", "enum_member", "Color")
+    completions_free(&res)
+
+    res = complete_at(e, MEMBER_SRC, "d: Color = .")
+    expect_labels(t, &res, {"Red", "Green", "Blue"}, {"x", "main"})
+    testing.expect(t, label_index(&res, "Red") < label_index(&res, "Green"), "members keep declaration order")
+    completions_free(&res)
+
+    res = complete_at(e, MEMBER_SRC, "{.Red, .")
+    expect_labels(t, &res, {"Red", "Green", "Blue"})
+    completions_free(&res)
+
+    res = complete_at(e, MEMBER_SRC, "s: Shape = .Bl")
+    expect_labels(t, &res, {"Blue"}, {"Red"})
+    completions_free(&res)
+
+    res = complete_at(e, MEMBER_SRC, "c == .R")
+    expect_labels(t, &res, {"Red"}, {"Green"})
+    completions_free(&res)
+}
+
+// More places an implicit selector takes its enum from: an argument, a field value, a return and a case.
+@(test)
+test_completion_implicit_places :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
 
     src := `package demo
+
+Axis :: enum { Horizontal, Vertical }
+Speed :: enum { Fast, Slow }
+
+Layout :: struct {
+	axis: Axis,
+}
+
+f :: proc(s: Speed, a: Axis) {}
+
+pick :: proc() -> (int, Axis) {
+	return 0, .
+}
+
+main :: proc(a: Axis) {
+	f(.Fast, .)
+	l := Layout{axis = .}
+	switch a {
+	case .:
+	}
+	b: Axis = .
+	_ = l
+}
+`
+    for needle in ([]string{"f(.Fast, .", "axis = .", "return 0, .", "case .", "b: Axis = ."}) {
+        res := complete_at(e, src, needle)
+        testing.expectf(t, has_label(&res, "Horizontal") && has_label(&res, "Vertical"), "%q: missing the Axis members", needle)
+        testing.expectf(t, !has_label(&res, "Fast"), "%q: Fast belongs to another enum", needle)
+        completions_free(&res)
+    }
+}
+
+// A bare prefix lists locals in reach, package names, imports, keywords and builtins.
+@(test)
+test_completion_bare :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+import "core:fmt"
+import str "core:strings"
 
 counter :: 100
 
@@ -29,215 +275,524 @@ count_items :: proc() -> int {
 	return 0
 }
 
-main :: proc() {
-	total := 0
+other :: proc() {
+	count_other := 1
+	_ = count_other
+}
+
+main :: proc(count_param: int) {
+	count_local: int = 2
 	_ = coun
+	count_later := 3
+	_ = st
+	_ = cont
+	_ = le
+	_ = coun + count_later + count_local
 }
 `
-    at := strings.index(src, "coun\n") + len("coun")
-    req := lang.Request{kind = .Completion, path = main_path, ext = ".odin", source = src, offset = at, workspace = dir}
-    res := lang.Result{kind = .Completion}
-    resolve(e, &req, &res)
-    defer free_symbols(&res)
+    res := complete_at(e, src, "_ = coun|\n")
+    expect_labels(t, &res, {"counter", "count_items", "count_local", "count_param"}, {"count_other", "count_later", "coun", "main"})
+    expect_item(t, &res, "count_items", "function", "count_items :: proc() -> int")
+    expect_item(t, &res, "counter", "constant", "counter :: 100")
+    expect_item(t, &res, "count_local", "var", "int")
+    testing.expect(t, label_index(&res, "count_local") < label_index(&res, "counter"), "locals come before package names")
+    completions_free(&res)
 
-    testing.expect(t, res.ok, "expected completion candidates")
-    testing.expect(t, has_completion(&res, "counter"), "missing top-level counter")
-    testing.expect(t, has_completion(&res, "count_items"), "missing top-level count_items")
-    // Names that don't share the typed prefix are filtered out.
-    testing.expect(t, !has_completion(&res, "total"), "total does not share the prefix")
-    testing.expect(t, !has_completion(&res, "main"), "main does not share the prefix")
+    res = complete_at(e, src, "_ = st|\n")
+    expect_labels(t, &res, {"str", "string"}, {"fmt"})
+    expect_item(t, &res, "str", "namespace", "import str \"core:strings\"")
+    expect_item(t, &res, "string", "keyword", "")
+    completions_free(&res)
 
-    // A top-level candidate carries its declaration line and kind; the caret's own
-    // partial word is never offered back as a candidate.
-    for item in res.completions {
-        if item.label == "count_items" {
-            testing.expectf(t, item.detail == "count_items :: proc() -> int", "count_items label: got %q", item.detail)
-            testing.expectf(t, item.kind == "function", "count_items kind: got %q", item.kind)
-        }
-    }
-    testing.expect(t, !has_completion(&res, "coun"), "the typed prefix is not a candidate")
-}
+    res = complete_at(e, src, "_ = cont")
+    expect_labels(t, &res, {"context", "continue"})
+    completions_free(&res)
 
-@(test)
-test_completion_keyword :: proc(t: ^testing.T) {
-    e := engine_create()
-    defer engine_destroy(e)
-
-    // `str` matches no declaration but does prefix the builtin `string`, tagged
-    // "keyword" so the editor colors it like one.
-    src := "package demo\n\nmain :: proc() {\n\tx: str\n\t_ = x\n}\n"
-    at := strings.index(src, "str\n") + len("str")
-    req := lang.Request{kind = .Completion, path = "buffer.odin", ext = ".odin", source = src, offset = at}
-    res := lang.Result{kind = .Completion}
-    resolve(e, &req, &res)
-    defer free_symbols(&res)
-
-    testing.expect(t, res.ok, "expected a keyword completion")
-    testing.expect(t, has_completion(&res, "string"), "missing builtin string")
-    for item in res.completions {
-        if item.label == "string" {
-            testing.expectf(t, item.kind == "keyword", "string kind: got %q", item.kind)
-        }
+    if odin_root(&e.root) != "" {
+        res = complete_at(e, src, "_ = le|\n")
+        expect_labels(t, &res, {"len"})
+        testing.expect(t, find_item(&res, "len") != nil && find_item(&res, "len").kind == "function", "len is a procedure")
+        completions_free(&res)
     }
 }
 
+// A name whose type is the expected one comes first and is preselected.
 @(test)
-test_completion_skips_later_local :: proc(t: ^testing.T) {
+test_completion_expected_rank :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    // At the caret only `count_all` is in reach: `counted` is declared below it
-    // (naming it there would not compile) and `counter` belongs to another
-    // procedure's block.
     src := `package demo
 
-count_all :: proc() -> int {
+value_count: int
+value_name: string
+
+main :: proc() {
+	value_flag := true
+	value_text := "a"
+	s: string = value
+	_ = value_flag
+	_ = value_text
+	_ = s
+}
+`
+    res := complete_at(e, src, "s: string = value")
+    defer completions_free(&res)
+    expect_labels(t, &res, {"value_count", "value_name", "value_flag", "value_text"})
+    if len(res.completions) < 4 {
+        return
+    }
+    first, second := res.completions[0].label, res.completions[1].label
+    testing.expectf(t, first == "value_name" && second == "value_text", "the string names rank first: got %q, %q", first, second)
+    testing.expect(t, res.completions[0].preselect, "the first expected match is preselected")
+    testing.expect(t, label_index(&res, "value_name") < label_index(&res, "value_count"), "a typed package value ranks above another type")
+    testing.expect(t, !find_item(&res, "value_flag").preselect, "only one row is preselected")
+}
+
+// A `using` local brings its fields into scope.
+@(test)
+test_completion_using :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+Entity :: struct {
+	health: int,
+	height: f32,
+}
+
+update :: proc(using ent: ^Entity) {
+	_ = he
+}
+
+tick :: proc(ent: Entity) {
+	using ent
+	_ = hei
+}
+`
+    res := complete_at(e, src, "_ = he")
+    expect_labels(t, &res, {"health", "height"})
+    expect_item(t, &res, "height", "field", "f32")
+    completions_free(&res)
+
+    res = complete_at(e, src, "_ = hei")
+    expect_labels(t, &res, {"height"}, {"health"})
+    completions_free(&res)
+}
+
+// A struct literal offers the fields it does not set yet.
+@(test)
+test_completion_comp_lit_fields :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+Rect :: struct {
+	width, height: int,
+	wrap: bool,
+}
+
+main :: proc() {
+	a := Rect{width = 1, w}
+	b: Rect = {h}
+	_ = a
+	_ = b
+}
+`
+    res := complete_at(e, src, "width = 1, w")
+    expect_labels(t, &res, {"wrap"}, {"width"})
+    if item := find_item(&res, "wrap"); item != nil {
+        testing.expect_value(t, item.insert, "wrap = ")
+        testing.expect_value(t, item.kind, "field")
+    }
+    completions_free(&res)
+
+    res = complete_at(e, src, "{h")
+    expect_labels(t, &res, {"height"})
+    completions_free(&res)
+}
+
+// Nothing in a comment, a string or a number.
+@(test)
+test_completion_inside_literals :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := "package demo\n\nvalue :: 1\n\nmain :: proc() {\n\t// val\n\t/* val */\n\ts := \"val\n\tn := 1.\n\tm := 12\n}\n"
+    for needle in ([]string{"// val", "/* val", "\"val", "1.", "12"}) {
+        res := complete_at(e, src, needle)
+        testing.expectf(t, !res.ok && len(res.completions) == 0, "%q: want no candidates, got %d", needle, len(res.completions))
+        completions_free(&res)
+    }
+}
+
+// `pkg.` lists the public declarations of the imported package; a bare prefix lists sibling files.
+@(test)
+test_completion_packages :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    lib_src := "package lib\n\nscale :: proc(v: int, by: int) -> int {\n\treturn v * by\n}\n\nshift :: 3\n\n@(private)\nscale_hidden :: 1\n"
+    sib_src := "package app\n\nsib_value :: 7\n\n@(private = \"file\")\nsib_hidden :: 8\n"
+    far_src := "package other\n\nsib_far :: 1\n"
+    root := fixture(t, "completion_packages", {{"lib/lib.odin", lib_src}, {"app/sibling.odin", sib_src}, {"other/far.odin", far_src}})
+    defer os.remove_all(root)
+    main_src := "package app\n\nimport \"../lib\"\n\nmain :: proc() {\n\t_ = lib.sc\n\t_ = lib.\n\t_ = sib\n}\n"
+    main_path := fixture_path(root, "app/main.odin")
+
+    res := complete_at(e, main_src, "lib.sc", workspace = root, path = main_path)
+    expect_labels(t, &res, {"scale"}, {"shift", "scale_hidden"})
+    expect_item(t, &res, "scale", "function", "scale :: proc(v: int, by: int) -> int")
+    completions_free(&res)
+
+    res = complete_at(e, main_src, "_ = lib.", workspace = root, path = main_path)
+    expect_labels(t, &res, {"scale", "shift"}, {"scale_hidden", "main"})
+    completions_free(&res)
+
+    res = complete_at(e, main_src, "_ = sib", workspace = root, path = main_path)
+    expect_labels(t, &res, {"sib_value"}, {"sib_hidden", "sib_far"})
+    completions_free(&res)
+}
+
+// The workspace config turns completion off.
+@(test)
+test_completion_disabled :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := "package app\n\nvalue :: 3\n\nmain :: proc() {\n\t_ = val\n}\n"
+    root := fixture(t, "completion_disabled", {{".thor/odin-analyzer.lua", `return { enable_completion = false }`}})
+    defer os.remove_all(root)
+    res := complete_at(e, src, "_ = val", workspace = root, path = fixture_path(root, "main.odin"))
+    defer completions_free(&res)
+    testing.expect(t, !res.ok && len(res.completions) == 0, "a disabled completion must answer nothing")
+}
+
+// `x.(` lists the variants of the union the operand is.
+@(test)
+test_completion_union_variants :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := "package demo\n\nPoint :: struct {\n\tx: int,\n}\n\nShape :: union {\n\tPoint,\n\tint,\n\t^Point,\n}\n\nmain :: proc() {\n\ts: Shape\n\t_ = s.(\n}\n"
+    res := complete_at(e, src, "s.(")
+    expect_labels(t, &res, {"Point", "int", "^Point"}, {"x", "main"})
+    expect_item(t, &res, "Point", "type", "Shape")
+    testing.expect(t, label_index(&res, "Point") < label_index(&res, "int"), "variants keep declaration order")
+    completions_free(&res)
+
+    typed := "package demo\n\nPoint :: struct {\n\tx: int,\n}\n\nShape :: union {\n\tPoint,\n\tint,\n}\n\nmain :: proc() {\n\ts: Shape\n\tp := s.(Po\n\ty := 1\n}\n"
+    res = complete_at(e, typed, "s.(Po")
+    expect_labels(t, &res, {"Point"}, {"int"})
+    completions_free(&res)
+}
+
+// `x->` lists only the procedure members, and the call snippet leaves out the receiver.
+@(test)
+test_completion_arrow :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := "package demo\n\nObj :: struct {\n\tadd:   proc(self: ^Obj, n: int) -> int,\n\tclear: proc(self: ^Obj),\n\tcount: int,\n}\n\nmain :: proc() {\n\to: ^Obj\n\to->\n}\n"
+    res := complete_at(e, src, "o->")
+    defer completions_free(&res)
+    expect_labels(t, &res, {"add", "clear"}, {"count", "main"})
+    if item := find_item(&res, "add"); item != nil {
+        testing.expect(t, item.snippet, "a procedure member is a snippet")
+        testing.expect_value(t, item.insert, "add(${1:n})$0")
+    }
+    if item := find_item(&res, "clear"); item != nil {
+        testing.expect_value(t, item.insert, "clear()$0")
+    }
+}
+
+// A procedure whose one result is the expected type ranks with the expected values.
+@(test)
+test_completion_proc_result_rank :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+make_count :: proc() -> int {
 	return 0
 }
 
-other :: proc() {
-	counter := 1
-	_ = counter
+make_name :: proc() -> string {
+	return ""
 }
 
 main :: proc() {
-	_ = coun
-	counted := 2
-	_ = counted
+	make_pair :: proc() -> (string, int) {
+		return "", 0
+	}
+	make_local :: proc() -> string {
+		return ""
+	}
+	s: string = make
+	_ = s
 }
 `
-    at := strings.index(src, "coun\n") + len("coun")
-    req := lang.Request{kind = .Completion, path = "buffer.odin", ext = ".odin", source = src, offset = at}
-    res := lang.Result{kind = .Completion}
-    resolve(e, &req, &res)
-    defer free_symbols(&res)
-
-    testing.expect(t, res.ok, "expected completion candidates")
-    testing.expect(t, has_completion(&res, "count_all"), "missing top-level count_all")
-    testing.expect(t, !has_completion(&res, "counted"), "counted is not declared yet at the caret")
-    testing.expect(t, !has_completion(&res, "counter"), "counter belongs to another block")
+    res := complete_at(e, src, "s: string = make")
+    defer completions_free(&res)
+    expect_labels(t, &res, {"make_count", "make_name", "make_pair", "make_local"})
+    name, local, count, pair := label_index(&res, "make_name"), label_index(&res, "make_local"), label_index(&res, "make_count"), label_index(&res, "make_pair")
+    testing.expectf(t, name >= 0 && name < count && name < pair, "make_name ranks first: %d, %d, %d", name, count, pair)
+    testing.expectf(t, local >= 0 && local < count && local < pair, "make_local ranks first: %d, %d, %d", local, count, pair)
+    testing.expect(t, len(res.completions) > 0 && res.completions[0].preselect, "the first expected match is preselected")
 }
 
+// A procedure candidate inserts a call snippet with its required parameters as stops.
 @(test)
-test_completion_package_name :: proc(t: ^testing.T) {
+test_completion_proc_snippets :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    // Typing the start of an imported package's name offers the package itself
-    // (the operand you then qualify with `.`), tagged "namespace".
-    src := "package app\n\nimport \"../widgets\"\nimport \"core:fmt\"\n\nmain :: proc() {\n\t_ = wi\n}\n"
-    at := strings.index(src, "wi\n") + len("wi")
-    req := lang.Request{kind = .Completion, path = "buffer.odin", ext = ".odin", source = src, offset = at}
-    res := lang.Result{kind = .Completion}
-    resolve(e, &req, &res)
-    defer free_symbols(&res)
+    src := `package demo
 
-    testing.expect(t, res.ok, "expected the imported package as a candidate")
-    testing.expect(t, has_completion(&res, "widgets"), "missing imported package widgets")
-    testing.expect(t, !has_completion(&res, "fmt"), "fmt does not share the prefix")
-    for item in res.completions {
-        if item.label == "widgets" {
-            testing.expectf(t, item.kind == "namespace", "widgets kind: got %q", item.kind)
+scale :: proc(v: int, by: int) -> int {
+	return v * by
+}
+
+scale_opt :: proc(a, b: int, c := 1) {}
+
+scale_none :: proc() {}
+
+main :: proc() {
+	scale_local :: proc(x: $T) {}
+	_ = sca
+	scale(1, 2)
+}
+`
+    res := complete_at(e, src, "_ = sca")
+    want := [?][2]string {
+        {"scale", "scale(${1:v}, ${2:by})$0"},
+        {"scale_opt", "scale_opt(${1:a}, ${2:b})$0"},
+        {"scale_none", "scale_none()$0"},
+        {"scale_local", "scale_local(${1:x})$0"},
+    }
+    for w in want {
+        item := find_item(&res, w[0])
+        if !testing.expectf(t, item != nil, "missing %q", w[0]) {
+            continue
         }
+        testing.expectf(t, item.snippet, "%q is a snippet", w[0])
+        testing.expect_value(t, item.insert, w[1])
+    }
+    completions_free(&res)
+
+    res = complete_at(e, src, "\tsca|le(1, 2)")
+    if item := find_item(&res, "scale"); testing.expect(t, item != nil, "missing scale before a paren") {
+        testing.expect(t, !item.snippet && item.insert == "", "no snippet before an existing paren")
+    }
+    completions_free(&res)
+
+    root := fixture(t, "completion_snippets_off", {{".thor/odin-analyzer.lua", `return { enable_snippets = false }`}})
+    defer os.remove_all(root)
+    res = complete_at(e, src, "_ = sca", workspace = root, path = fixture_path(root, "main.odin"))
+    if item := find_item(&res, "scale"); testing.expect(t, item != nil, "missing scale with snippets off") {
+        testing.expect(t, !item.snippet && item.insert == "", "the config turns snippets off")
+    }
+    completions_free(&res)
+}
+
+// A declaration head gives the call snippet; snippet syntax in it is escaped.
+@(test)
+test_completion_signature_snippet :: proc(t: ^testing.T) {
+    cases := [?][3]string {
+        {"f", "f :: proc(a, b: int) -> int", "f(${1:a}, ${2:b})$0"},
+        {"f", "f :: proc(int, string)", "f(${1:int}, ${2:string})$0"},
+        {"f", "f :: proc \"c\" (x: i32)", "f(${1:x})$0"},
+        {"f", "f :: proc(m: map[string]int, cb: proc(a, b: int), opt := 2)", "f(${1:m}, ${2:cb})$0"},
+        {"f", "f :: proc(using p: ^P, $T: typeid, #any_int n: int)", "f(${1:p}, ${2:T}, ${3:n})$0"},
+        {"f", "f :: proc(s: struct{})", "f(${1:s})$0"},
+        {"f", "f :: proc(struct{x: int})", "f(${1:struct{x: int\\}})$0"},
+        {"f", "f :: proc(a := 1)", "f($0)"},
+        {"f", "f :: proc_alias", ""},
+    }
+    for c in cases {
+        testing.expect_value(t, signature_snippet(c[0], c[1]), c[2])
     }
 }
 
+// A package the buffer does not import is offered with the import it needs, and `alias.` of an
+// unbound alias lists the public names of the one package of that name.
 @(test)
-test_completion_package_member :: proc(t: ^testing.T) {
+test_completion_auto_import :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    // `lib.sc<caret>`: completion follows the import into the package's dir and
-    // lists that package's top-level declarations matching the prefix.
-    root := "thor_lang_complete_pkg_ws"
-    lib := strings.concatenate({root, "/lib"}, context.temp_allocator)
-    _ = os.make_directory(root)
-    _ = os.make_directory(lib)
+    config := `return { collections = { { name = "shared", path = "shared" } } }`
+    mathx := "package mathx\n\nclamp_to :: proc(v, hi: int) -> int {\n\treturn min(v, hi)\n}\n\n@(private)\nclamp_hidden :: 1\n"
+    root := fixture(t, "completion_auto_import", {
+        {".thor/odin-analyzer.lua", config},
+        {"shared/mathx/mathx.odin", mathx},
+        {"shared/mathx/tests/tests.odin", "package tests\n"},
+        {"app/other.odin", "package app\n"},
+    })
+    defer os.remove_all(root)
+    main_path := fixture_path(root, "app/main.odin")
 
-    lib_path := strings.concatenate({lib, "/api.odin"}, context.temp_allocator)
-    lib_src := "package lib\n\nscale :: proc(v: int, by: int) -> int {\n\treturn v * by\n}\n\nshift :: 3\n\nother :: 9\n"
-    _ = os.write_entire_file(lib_path, transmute([]byte)lib_src)
+    bare := "package app\n\nmain :: proc() {\n\t_ = math\n\t_ = tes\n\t_ = ap\n}\n"
+    res := complete_at(e, bare, "_ = math", workspace = root, path = main_path)
+    item := find_item(&res, "mathx")
+    if testing.expect(t, item != nil, "missing mathx") {
+        testing.expect_value(t, item.kind, "namespace")
+        testing.expect_value(t, apply_extra_edit(bare, item), "package app\n\nimport \"shared:mathx\"\n\nmain :: proc() {\n\t_ = math\n\t_ = tes\n\t_ = ap\n}\n")
+    }
+    completions_free(&res)
 
-    defer os.remove(root)
-    defer os.remove(lib)
-    defer os.remove(lib_path)
+    res = complete_at(e, bare, "_ = tes", workspace = root, path = main_path)
+    expect_labels(t, &res, nil, {"tests"})
+    completions_free(&res)
 
-    main_path := strings.concatenate({root, "/main.odin"}, context.temp_allocator)
-    main_src := "package app\n\nimport \"lib\"\n\nmain :: proc() {\n\t_ = lib.sc\n}\n"
+    res = complete_at(e, bare, "_ = ap", workspace = root, path = main_path)
+    expect_labels(t, &res, nil, {"app"})
+    completions_free(&res)
 
-    at := strings.index(main_src, "lib.sc") + len("lib.sc")
-    req := lang.Request{kind = .Completion, path = main_path, ext = ".odin", source = main_src, offset = at, workspace = root}
-    res := lang.Result{kind = .Completion}
-    resolve(e, &req, &res)
-    defer free_symbols(&res)
+    imported := "package app\n\nimport \"core:fmt\"\n\nmain :: proc() {\n\t_ = mathx.cl\n\tfmt.println()\n}\n"
+    res = complete_at(e, imported, "mathx.cl", workspace = root, path = main_path)
+    expect_labels(t, &res, {"clamp_to"}, {"clamp_hidden"})
+    want := "package app\n\nimport \"core:fmt\"\nimport \"shared:mathx\"\n\nmain :: proc() {\n\t_ = mathx.cl\n\tfmt.println()\n}\n"
+    testing.expect_value(t, apply_extra_edit(imported, find_item(&res, "clamp_to")), want)
+    completions_free(&res)
 
-    testing.expect(t, res.ok, "expected package-member completions")
-    testing.expect(t, has_completion(&res, "scale"), "missing lib.scale")
-    // Only the `sc` prefix matches: shift and other are excluded.
-    testing.expect(t, !has_completion(&res, "shift"), "shift does not share the prefix")
-    testing.expect(t, !has_completion(&res, "other"), "other does not share the prefix")
+    done := "package app\n\nimport \"shared:mathx\"\n\nmain :: proc() {\n\t_ = math\n}\n"
+    res = complete_at(e, done, "_ = math", workspace = root, path = main_path)
+    if item = find_item(&res, "mathx"); testing.expect(t, item != nil, "missing the imported mathx") {
+        testing.expect(t, len(item.extra_edits) == 0, "an imported package needs no import")
+    }
+    completions_free(&res)
+
+    if odin_root(&e.root) != "" {
+        res = complete_at(e, bare, "_ = math", workspace = root, path = main_path)
+        if item = find_item(&res, "math"); testing.expect(t, item != nil, "missing core:math") {
+            testing.expect_value(t, item.detail, "import \"core:math\"")
+        }
+        completions_free(&res)
+    }
 }
 
+// `alias.` of an unbound alias that two packages of one rank are named lists the names of both, each
+// with its own import; a name both declare comes from the shallower one.
 @(test)
-test_completion_siblings_from_index :: proc(t: ^testing.T) {
+test_completion_auto_import_same_name :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    // Sibling-file completion is served from the symbol index, which holds the
-    // *whole* workspace while an Odin package is one flat directory — so the
-    // per-directory filter is what keeps another package's declarations out. The
-    // workspace is made absolute because the index keys the paths os.read_dir
-    // produced; a relative spelling would miss and quietly fall back to the disk
-    // scan, testing the old path instead of the new one.
-    rel := "thor_lang_complete_idx_ws"
-    _ = os.make_directory(rel)
-    root, abs_err := filepath.abs(rel, context.temp_allocator)
-    testing.expect(t, abs_err == nil, "could not absolutize the test workspace")
+    config := `return { collections = { { name = "shared", path = "shared" } } }`
+    root := fixture(t, "completion_auto_import_same_name", {
+        {".thor/odin-analyzer.lua", config},
+        {"shared/a/util/util.odin", "package util\n\nalpha :: 1\nboth :: 1\n"},
+        {"shared/b/util/util.odin", "package util\n\nbeta :: 2\nboth :: 2\n"},
+        {"app/other.odin", "package app\n"},
+    })
+    defer os.remove_all(root)
+    main_path := fixture_path(root, "app/main.odin")
 
-    app := strings.concatenate({root, "/app"}, context.temp_allocator)
-    other := strings.concatenate({root, "/other"}, context.temp_allocator)
-    _ = os.make_directory(app)
-    _ = os.make_directory(other)
-
-    sibling := strings.concatenate({app, "/sibling.odin"}, context.temp_allocator)
-    sibling_src := "package app\n\nsib_value :: 7\n"
-    _ = os.write_entire_file(sibling, transmute([]byte)sibling_src)
-
-    // Same workspace, different package: indexed, but must never be offered here.
-    far := strings.concatenate({other, "/far.odin"}, context.temp_allocator)
-    far_src := "package other\n\nsib_far :: 1\n"
-    _ = os.write_entire_file(far, transmute([]byte)far_src)
-
-    defer os.remove(rel)
-    defer os.remove(app)
-    defer os.remove(other)
-    defer os.remove(sibling)
-    defer os.remove(far)
-
-    main_path := strings.concatenate({app, "/main.odin"}, context.temp_allocator)
-    main_src := "package app\n\nmain :: proc() {\n\t_ = sib\n}\n"
-    at := strings.index(main_src, "sib\n") + len("sib")
-
-    complete_sib :: proc(e: ^Engine, path, src, root: string, at: int) -> lang.Result {
-        req := lang.Request{kind = .Completion, path = path, ext = ".odin", source = src, offset = at, workspace = root}
-        res := lang.Result{kind = .Completion}
-        resolve(e, &req, &res)
-        return res
+    src := "package app\n\nmain :: proc() {\n\t_ = util.\n}\n"
+    res := complete_at(e, src, "util.", workspace = root, path = main_path)
+    defer completions_free(&res)
+    expect_labels(t, &res, {"alpha", "beta", "both"})
+    with_import :: proc(path: string) -> string {
+        return fmt.tprintf("package app\n\nimport \"%s\"\n\nmain :: proc() {{\n\t_ = util.\n}}\n", path)
     }
+    testing.expect_value(t, apply_extra_edit(src, find_item(&res, "alpha")), with_import("shared:a/util"))
+    testing.expect_value(t, apply_extra_edit(src, find_item(&res, "beta")), with_import("shared:b/util"))
+    testing.expect_value(t, apply_extra_edit(src, find_item(&res, "both")), with_import("shared:a/util"))
+}
 
-    res1 := complete_sib(e, main_path, main_src, root, at)
-    defer free_symbols(&res1)
-    testing.expect(t, res1.ok, "expected sibling completions")
-    testing.expect(t, has_completion(&res1, "sib_value"), "missing the sibling package file's sib_value")
-    testing.expect(t, !has_completion(&res1, "sib_far"), "another package's sib_far must not be offered")
+// A package made after the first request is offered once the index is older than its ttl.
+@(test)
+test_completion_auto_import_new_package :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
 
-    // The index is resident across requests, so an edited sibling must be
-    // re-parsed (its size moved) rather than answered from the first parse.
-    edited_src := "package app\n\nsib_value :: 7\n\nsib_extra :: 9\n"
-    _ = os.write_entire_file(sibling, transmute([]byte)edited_src)
+    config := `return { collections = { { name = "shared", path = "shared" } } }`
+    root := fixture(t, "completion_auto_import_new_package", {
+        {".thor/odin-analyzer.lua", config},
+        {"shared/old/old.odin", "package old\n"},
+        {"app/other.odin", "package app\n"},
+    })
+    defer os.remove_all(root)
+    main_path := fixture_path(root, "app/main.odin")
+    src := "package app\n\nmain :: proc() {\n\t_ = fres\n}\n"
 
-    res2 := complete_sib(e, main_path, main_src, root, at)
-    defer free_symbols(&res2)
-    testing.expect(t, has_completion(&res2, "sib_extra"), "an edited sibling's new decl should be offered")
-    testing.expect(t, has_completion(&res2, "sib_value"), "sib_value should survive the reindex")
+    res := complete_at(e, src, "_ = fres", workspace = root, path = main_path)
+    expect_labels(t, &res, nil, {"freshpkg"})
+    completions_free(&res)
+
+    fresh := fixture_path(root, "shared/freshpkg")
+    testing.expect_value(t, os.make_directory_all(fresh), nil)
+    testing.expect_value(t, os.write_entire_file(fixture_path(root, "shared/freshpkg/fresh.odin"), "package freshpkg\n"), nil)
+    res = complete_at(e, src, "_ = fres", workspace = root, path = main_path)
+    expect_labels(t, &res, nil, {"freshpkg"})
+    completions_free(&res)
+
+    e.packages.ttl = 0
+    res = complete_at(e, src, "_ = fres", workspace = root, path = main_path)
+    expect_labels(t, &res, {"freshpkg"})
+    completions_free(&res)
+}
+
+// The source with the item's range replaced by its insert; snippet stops and escapes are left as written.
+@(private = "file")
+apply_item :: proc(source: string, item: ^lang.Completion_Item) -> string {
+    return strings.concatenate({source[:item.start], item.insert, source[item.end:]}, context.temp_allocator)
+}
+
+// `x.if`, `x.for` and `x.defer_delete` replace the operand and the dot with a snippet.
+@(test)
+test_completion_postfix :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := "package demo\n\nmain :: proc() {\n\titems := make([dynamic]int)\n\titems.\n}\n"
+    res := complete_at(e, src, "\titems.")
+    expect_labels(t, &res, {"if", "for", "fori", "var", "return", "defer_delete", "ifnil"}, {"ifnot", "switch", "defer_free"})
+    item := find_item(&res, "defer_delete")
+    if testing.expect(t, item != nil) {
+        testing.expect(t, item.snippet, "postfix inserts a snippet")
+        testing.expect_value(t, apply_item(src, item), "package demo\n\nmain :: proc() {\n\titems := make([dynamic]int)\n\tdefer delete(items)$0\n}\n")
+    }
+    item = find_item(&res, "for")
+    if testing.expect(t, item != nil) {
+        testing.expect_value(t, item.insert, "for ${1:v} in items {\n\t$0\n}")
+        testing.expect_value(t, src[item.start:item.end], "items.")
+    }
+    completions_free(&res)
+
+    // The typed word filters, and the range covers it.
+    src = "package demo\n\nmain :: proc() {\n\tok := true\n\tok.if\n}\n"
+    res = complete_at(e, src, "ok.if")
+    expect_labels(t, &res, {"if", "ifnot"}, {"for", "var"})
+    item = find_item(&res, "if")
+    if testing.expect(t, item != nil) {
+        testing.expect_value(t, src[item.start:item.end], "ok.if")
+    }
+    completions_free(&res)
+
+    // A package qualifier and a type get none.
+    src = "package demo\n\nimport \"core:fmt\"\n\nmain :: proc() {\n\tfmt.\n}\n"
+    res = complete_at(e, src, "\tfmt.")
+    expect_labels(t, &res, {}, {"if", "for", "var"})
+    completions_free(&res)
+}
+
+// A pointer gets the nil and free templates; an enum gets switch and for.
+@(test)
+test_completion_postfix_types :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := "package demo\n\nC :: enum {\n\tA,\n\tB,\n}\n\nmain :: proc(p: ^int, c: C) {\n\tp.\n\tc.\n}\n"
+    res := complete_at(e, src, "\tp.")
+    expect_labels(t, &res, {"ifnil", "ifnotnil", "defer_free"}, {"switch", "for", "defer_delete"})
+    completions_free(&res)
+
+    res = complete_at(e, src, "\tc.")
+    expect_labels(t, &res, {"switch", "if"}, {"defer_free", "ifnil"})
+    completions_free(&res)
 }

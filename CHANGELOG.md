@@ -1,3 +1,183 @@
+# 2026.11.0
+
+- Odin: the formatter aligns trailing comments, `:=` and typed declarations, struct field tags and `case` comments (`align_comments`, `align_variable_declarations`, `align_case_comments`, `align_field_defaults`). `align_constant_definitions` and `align_struct_declarations` are on by default.
+- Odin: a quick fix inserts the comma the compiler asks for ("Expected a comma, got a newline").
+- Odin: `const/overflow` also covers `/`, `<<` and unary minus on typed constants, in 128 bits.
+- Odin: a call that returns nothing is marked as an argument or a returned value.
+- Odin: `mem/dangling-slice` follows a compound literal with the address of a local and a store through a local pointer.
+- Odin: long float constants and hex float literals in an expression are reported with the compiler's value and text. Comments in the expression are dropped, as the compiler does.
+- Odin: a float constant by name (`F :: 1.5`) that an integer type would truncate is marked.
+- Odin: `const/overflow` also checks `u64`, `u128` and `i128` constants above `i64`.
+- Odin: the Odin root is cached on disk, so the first start needs no `odin root` process.
+- Odin: the formatter keeps the space in `c. /* f */ d` and indents the rest after a line comment inside brackets.
+- Odin: the first request after a file opens is faster: about 110 ms, down from about 250 ms, and about 21 ms once the startup prewarm is done.
+- Odin: `mem/dangling-slice` follows the address of a local through assignments, fields, conversions and calls.
+- Odin: `nil/deref` follows fixed-array elements at constant indexes.
+- Odin: the formatter keeps comments inside index, slice and selector expressions.
+- Odin: a quick fix removes an unneeded semicolon the compiler reports.
+- Odin: `vet = { "-vet-style", ... }` in `.thor/odin-analyzer.lua` switches on the opt-in vet checks.
+- Odin: float constants such as `3.0 / 2`, parenthesised ones and hex float literals with an exact fraction are reported with the compiler's value.
+- Odin: live diagnostics are about four times faster (about 30 ms for a typical file).
+- Odin: the `odin check` after a save gets `-target` and `-define` from `target` and `defines` in `.thor/odin-analyzer.lua`.
+- Problems panel: ctrl + shift + m or "View: Problems" lists the diagnostics of open files and of the other files of the checked packages, by file. Click one to jump to it.
+- Odin: reference counts show in a row above the declaration and cost less to compute.
+- Odin: `do` as a procedure body and a `#+` tag after the `package` line are marked while typing.
+- Odin: an ambiguous procedure group call, a float literal an integer type truncates, and a float literal a float type cannot hold are marked while typing.
+- Odin: `const/overflow` also covers `+`, `-` and `*` on typed constants, and a call that returns nothing used as a value is marked.
+- Odin: `nil/deref` follows `if p == nil` branches, field procedures and `[^]T` locals. `mem/temp-escape` follows later assignments, calls that return an argument and field stores. `api/fmt-verbs` sees user formatters registered in other files.
+- Odin: quick fixes for the compiler's "procedure parameter" and "redeclaration" errors.
+- Odin: three opt-in hints follow `make`, `new` and `strings.clone` results: an allocation a path neither frees nor hands on (`mem/leak`), a double free (`mem/double-free`) and a use after free (`mem/use-after-free`). Set the id in `diagnostics` to turn one on.
+- The line number gutter is narrow again: it has room for 3 digits and widens only for a longer line count. The fold arrows sit in its left margin.
+- Plugins and themes are checked for updates. A `manifest.lua` or theme file with `version` and `source = "owner/repo"` updates from the latest GitHub release. A plugin folder or `user/themes/` that is a git clone updates from its upstream.
+- A puzzle button in the title bar shows how many plugin and theme updates are waiting. The theme picker marks a theme that has an update.
+- Settings > "Plugin & Theme Updates" lists each plugin and theme with its state, and offers Update Now, Hold Updates and Open Source Page. "Help: Check for Plugin and Theme Updates" checks at once. `check_for_plugin_updates = false` turns off the daily check.
+- A held bundled plugin or shipped theme keeps its local copy when Thor updates. Bundled plugins that are not held still update with Thor.
+- Clipboard history: ctrl + shift + v or "Edit: Clipboard History..." lists the last 30 texts copied, cut or pasted in the editor. Pick one to paste it again. The history is kept between sessions in `sessions/clipboard.txt`, encrypted with a per-user key (DPAPI on Windows), except text that looks like a secret (a key, a token, a password-like word, a copy from `.env` or `id_rsa`). `clipboard_history_save = false` turns saving off. "Edit: Clear Clipboard History" empties it and overwrites the file with zeros.
+- Syntax highlighting for assembly: GAS (x86, ARM, AArch64, RISC-V, MIPS), NASM, YASM, MASM and 8-bit assemblers in `.asm`, `.s`, `.S` and related files.
+- FASM and fasm2 have their own highlighting: macro names, and macro parameters inside the macro body, have their own colours. It applies to `.fasm`, `.fasmg`, `.fasm2`, `.ash` and to a `.asm` file that starts like FASM.
+- Click the language in the status bar, or run "View: Change Language of File...", to colour the active file as another language. The choice is kept per file in `file_languages` of `.thor/settings.lua`, which also takes globs such as `["*.inc"] = "FASM"`.
+- The selection background covers the full line height, centred on the text.
+- A double click selects the word under the pointer. Dragging after it extends the selection by whole words.
+- Odin: syntax errors are marked while typing. After a save, the `odin check` diagnostics replace them. The `syntax_diagnostics` feature (Settings > "Live Syntax Errors") turns them off.
+- Odin: in a file with no syntax errors, name errors are also marked while typing: a redeclared name, an undeclared name, a `pkg.name` that is private or missing, and an import path that names no directory.
+- Odin: duplicate labels, struct fields, enum members and bit_field fields are marked while typing. A redeclaration inside a `when` branch counts when the branch holds for the target, also for a `when` on a constant of the package.
+- Odin: the hover over a live mark shows its id, such as `[name/undeclared]`. `// thor:ignore <id>` hides that id on the next line, `// thor:ignore-file <id>` in the whole file.
+- Odin: when the names of a file resolve, call errors are marked while typing: a missing parameter, too many arguments, an unknown or duplicate named argument (`call/arity`, `call/named`).
+- Odin: a field or enum member that does not exist (`p.y`, `Color.Blue`) is marked while typing (`type/no-member`).
+- Odin: a `switch` without `#partial` that leaves out enum members or union variants is marked while typing (`switch/non-exhaustive`).
+- Odin: a `#assert` whose condition is false is marked while typing (`assert/static`).
+- Odin: a value of the wrong type in an argument, an `=` assignment, a typed variable declaration or a `return` is marked while typing (`type/mismatch`).
+- Odin: a call of a procedure group that no member takes is marked while typing (`call/overload`).
+- Odin: an integer constant that its type cannot hold, such as `x: u8 = 300` or `u8(300)`, is marked while typing (`const/overflow`).
+- Odin: a procedure with results that can end with no `return` is marked while typing (`flow/missing-return`).
+- Odin: an `or_return` that does not fit its procedure is marked while typing (`or_return/mismatch`).
+- Odin: a call whose arguments make a `where` clause false is marked while typing (`poly/where`).
+- Odin: an assignment or declaration with more or fewer values than names is marked while typing (`assign/count`).
+- Odin: an import whose package imports the file's package back is marked while typing (`import/cycle`).
+- Odin: a `return`, `break`, `continue` or call of a `-> !` procedure followed by more statements is marked while typing (`flow/unreachable`). So is a `defer` before a diverging call that ends its scope (`flow/unreachable-defer`).
+- Odin: other code that can never run, such as code after `for {}` or after an `if`/`else` whose branches both return, gets a warning (`flow/unreachable`). The compiler does not report it, so the warning stays after a save, next to the `odin check` diagnostics.
+- Odin: a variable that nothing uses gets a warning while typing, as `odin check -vet-unused-variables` reports it (`vet/unused-variable`).
+- Odin: the other `-vet` checks are warnings while typing too: an unused import (`vet/unused-import`), a variable that shadows an earlier one of the same type (`vet/shadowing`) and a declaration in a file-scope `when` that shadows a builtin (`vet/when-shadowing`). `#+vet` file tags turn them on or off.
+- Odin: a field that a `using` brings in and that shadows a variable of the same type gets a `vet/shadowing` warning while typing.
+- Odin: an import used only in a polymorphic procedure or record that nothing in the package instantiates gets a `vet/unused-import` warning, as `odin check` reports it.
+- Odin: a save runs `odin check` with the `-vet-*` flags of the vet ids that are not `"off"`. Its vet lines are warnings with the same ids, and `thor:ignore` hides them.
+- Odin: `ctrl + shift + u` offers quick fixes with no language server: add the missing `switch` cases or `#partial`, remove unused imports, make an unused variable `_`, import the package a qualifier names, and add a `thor:ignore` comment for a diagnostic.
+- Odin: more quick fixes: add the fields a struct literal leaves out, add `or_return` to a call, and declare a name no scope binds (a procedure, a struct, `:=` or a variable).
+- Odin: refactorings in `ctrl + shift + u`: inline variable, `if` chain to `switch` and back, extract variable and extract procedure.
+- Odin: "Change signature" takes a new parameter list for a procedure and rewrites every call to match.
+- Odin: "Move declaration" moves a declaration to another file of its package or to another package, and rewrites its imports and qualified uses.
+- An action that needs a name or a path asks for it in the palette before it applies.
+- Odin: a value stored in a variable and never read gets a warning while typing, such as `x = 1` followed by `x = 2` (`flow/dead-store`).
+- Odin: `"diagnostics"` in `.thor/odin-analyzer.lua` sets each live diagnostic id to `"off"`, `"warning"` or `"error"`.
+- Odin: a `@(private="file")` declaration no longer counts as a redeclaration of a package declaration of the same name.
+- A right click on empty space in the explorer, or in an empty folder, opens the workspace root's context menu (New File, New Folder, Refresh).
+- Thor no longer holds `.git/index.lock` while idle. Its git status ran in a loop and made `git commit` fail.
+- A task from the titlebar runs in its own terminal tab, named after the task, not in the shell in use. Running it again restarts that tab.
+- Odin: go to symbol (`ctrl+shift+o`) and workspace symbol search (`ctrl+q`) work again. They list procedures, types, constants, variables, struct fields and enum members.
+- Odin: workspace symbol search skips files that are not built for the current OS.
+- Odin: go to definition works again for locals, parameters, loop variables, labels, names of the same package, `pkg.name` through imports, enum members (`Color.Red`) and procedure groups.
+- Odin: find references and rename work again. They follow the package and its importers, and a rename also edits the other platform files of the package (`_windows.odin`, `_posix.odin`).
+- Odin: rename refuses a builtin, an implicit import name and a declaration outside the workspace, such as one in `core:`.
+- Odin: `.thor/odin-analyzer.lua` takes `target` (`os`, `arch`) and `defines`. They select the files and `when` branches the analyzer reads.
+- Odin formatter: a block comment between `->` and a single result type stays there.
+- The editor context menu has Go to Definition, Find References, Rename Symbol, Code Actions, Signature Help, Format Document, Format Selection, Go to Symbol in File and Package Documentation. An item is greyed out when the language of the file does not serve it.
+- A right click outside the selection moves the caret to the click. A right click inside the selection keeps it.
+- Odin: go to definition and find references work on builtins: `len`, `append`, `int` and the `@(builtin)` procedures of `base:runtime`.
+- Odin: Package Documentation (`f3`) works again. Each declaration shows its doc comment under it.
+- Odin: go to symbol lists the procedures and types declared inside a procedure.
+- Odin: in workspace symbol search, a symbol in a `when` branch that is false for the target comes last and reads "(inactive)".
+- `ctrl+shift+delete` (`delete_to_line_end`) deletes from the caret to the end of the line. At the line end it joins the next line. Also in the palette as "Edit: Delete to Line End".
+- Odin: hover shows the signature, type and constant value of a declaration, the value of an enum member and its doc comment.
+- Odin: completion offers the members after `x.`, the package members after `pkg.`, enum members (also an implicit `.Member`), names in scope ranked by the expected type, and the unset fields of a struct literal. `enable_completion` in `.thor/odin-analyzer.lua` turns it off.
+- Odin: signature help marks the active parameter, also for named arguments, variadics, procedure groups and builtins.
+- Odin: semantic highlighting colours parameters, locals, fields, procedures, types, enum members, packages and undeclared names.
+- Odin: go to definition, find references and rename work for struct fields (also through `using` and pointers), enum members (also an implicit `.Member`), field names in a struct literal and named call arguments.
+- Odin: rename of a parameter also renames its named arguments.
+- Odin: hover shows the size and alignment of a type and the offset of each struct field.
+- Odin: hover shows `/* */` doc comments (as in `base:builtin`), `using` on a field, and `Owner.field: T` for a field of a record declared inside a procedure.
+- Odin: names that `using` brings into scope resolve in hover, go to definition, find references, rename and semantic highlighting.
+- Odin: completion offers union variants after `x.(` and procedure members after `x->`.
+- Odin: completion ranks procedures by their result type against the expected type.
+- Odin: completion of a procedure inserts the call with its parameters as snippet stops. `enable_snippets` in `.thor/odin-analyzer.lua` turns it off.
+- Odin: completion offers packages not yet imported and adds the `import` line.
+- Odin: signature help works for polymorphic record calls (`List(`), conversions (`int(`) and procedure groups declared inside a procedure.
+- Odin: go to definition on a procedure group call jumps to the member its arguments pick, with the compiler's overload scoring and `where` clauses.
+- Odin: go to symbol shows an alias such as `Foo :: pkg.Bar` as a type or a procedure.
+- Odin: requests that read the standard library are faster. Its declarations are cached in `user/cache/odin/`, and its files are checked for changes at most every 5 s.
+- Odin: hover, completion and highlighting reuse the types of unchanged files between requests, so they answer about twice as fast in a large workspace.
+- Odin: requests are faster again. Workspace files are checked for changes at most once a second, and a file saved in Thor at once.
+- Odin: completion after `util.` with no `util` import lists the names of every package called `util` of the same collection rank, each with its own import line.
+- Odin: completion offers to import a package made after the first completion of the session.
+- Odin: overload resolution reads more `where` clauses: `type_is_comparable`, `type_is_ordered`, `type_is_subtype_of`, `type_has_field`, `type_elem_type` and others.
+- Odin: hover shows the size of `#soa` over a small array (`#soa[4][3]f32`), and completion lists its `x`, `y`, `z`, `w` fields.
+- Configuration is Lua instead of JSON: `settings.lua`, `keybinds.lua`, `comments.lua`, `tips.lua`, `lsp.lua`, `.thor/tasks.lua`, `.thor/odin-analyzer.lua`, `.thor/odin-formatter.lua`, the themes and each plugin's `manifest.lua`. A file returns a table and can hold comments, locals and conditions such as `if thor.os == "windows"`.
+- A config file runs in a sandbox: no `io`, `os`, `load` or `require`, and a time and memory limit. `thor.os`, `thor.arch` and `thor.env(name)` are available.
+- A change from the Settings window edits the value in place in the Lua file. Comments and the rest of the file stay.
+- At start, Thor converts the old `.json` config in `user/` and `.thor/` to Lua and keeps the old file as `.json.bak`. A card says so once.
+- Themes are keyed by role id (`keywords = "#FF7B7B"`). The old names such as `"Keywords Color"` still load.
+- The theme window has a draft: an edit shows at once and writes nothing until Save. Revert puts the saved colors back. Close asks to save or discard unsaved changes.
+- The theme window has Save As, Duplicate, Delete (own themes), Reset to Shipped (changed shipped themes) and Open Theme File. The theme name in its header switches to another theme.
+- The theme window shows a live preview of code, tabs, the file tree, status colors and buttons. A click on a part selects its color.
+- The theme window has a filter by name, role or hex, a contrast badge on text and syntax colors, a reset button on changed colors and a tooltip that says what each color paints.
+- Theme window keys: Up/Down select a color, Enter edits it, `ctrl+c`/`ctrl+v` copy and paste its hex, Delete resets it, `ctrl+s` saves, `ctrl+f` goes to the filter.
+- The Generate tab builds a palette from a background and an accent seed with a live preview. "Use as Draft" makes it the draft, and Save asks for a name.
+- A hand edit of the active theme file applies at once.
+- Every theme action is a palette command under "Theme:" (`theme_save`, `theme_revert`, `theme_editor`, …). None has a key; bind them in the `theme` group of `keybinds.lua`.
+- Commands of plugins are in the command palette as "Plugin: <name> (<plugin>)" and take a key as `plugin.<name>` in `keybinds.lua` or in Settings > Keybindings.
+- "Edit: Delete to Line Start" (`delete_to_line_start`) deletes from the start of the line to the caret. It has no key.
+- The name prompt of a generated theme shows above the theme window. It was hidden under it.
+- The editor shows up to six panes. Layouts: single, 2 or 3 columns, 2 rows, main + stack, 2x2 and 3x2 grids. The dividers resize, a double click evens them.
+- View > "Pane Layout..." picks a layout, `ctrl+f1` steps through them, `f1` toggles one pane and the last layout.
+- `ctrl+1` … `ctrl+6` focus a pane, `f6` / `shift+f6` the next or previous one. `ctrl+shift+1` … `ctrl+shift+6` show the active file in that pane.
+- Quick open: `ctrl+enter` opens the file to the side, `shift+enter` asks for the pane (press its number or click it).
+- Explorer: `alt+click` and `ctrl+enter` open to the side, `shift+enter` and the "Open in Pane..." menu entry ask for the pane.
+- A tab or explorer rows dragged onto a pane open there. Each tab shows the numbers of the panes it is in.
+- `pane_layout` setting (Settings > Windows): the layout a folder opens with, or `"remember"` for its saved one.
+- A file reloaded after a change on disk keeps each pane on the same text again.
+- `tab` indents in the focused pane and `ctrl+tab` opens quick open without moving the focus to the next pane.
+- The git view, the popup menu, the plugin permission prompt, a palette confirmation and the color picker take the focus when they open. Keys no longer reach the editor under them.
+- A git config row opened for editing focuses its field.
+- The "Git LFS" top-bar dropdown and the bundled `git` plugin are removed. "Git: Pull LFS Files" and "Git: Track LFS Pattern" in the palette (`git_lfs_pull`, `git_lfs_track`) open the git Settings view and run the action there.
+- Inlay hints: the type of a `:=` or `::` declaration with no written type shows between its colons (`count : int = 3`), the type of a `for` variable after its name, and the parameter name before each argument of a call. Language servers that send inlay hints show them too.
+- `inlay_types = false` and `inlay_parameters = false` in `.thor/odin-analyzer.lua` turn off each kind of Odin hint. The `inlay_hints` feature of `language_intelligence` turns all hints off.
+- When the caret stops on a name, its uses in the file are marked; a declaration or an assignment is underlined. Language servers that send document highlights mark them too. The `document_highlight` feature (Settings > "Highlight Uses") turns it off.
+- While the uses are marked, ctrl + d selects the next use, not the next match of the text. Without marks it searches the text as before.
+- Go to type definition: `alt + shift + enter`, "Go to Type Definition" in the palette or the right-click menu jumps to the declaration of the type of the name or expression under the caret, through pointers, slices and arrays. A map gives its key and value types to pick from. Language servers that answer `textDocument/typeDefinition` serve it too. The `type_definition` feature (Settings > "Go to Type Definition") turns it off.
+- Peek definition: `alt + f12`, "Peek Definition" in the palette or the right-click menu opens the definition in an editor under the caret's line. An edit or `ctrl + s` there goes to that file. `escape` closes it; Open or `alt + enter` jumps there. `peek_height` sets its rows.
+- The markdown preview renders like GitHub: real bold and italic text, nested lists and quotes, task lists, `> [!NOTE]` alerts, `<details>`, `<kbd>`, footnotes and bare `https://` links.
+- Code blocks in the markdown preview are highlighted by the language of the fence and have a copy button.
+- The markdown preview selects text with the mouse, and `ctrl + c` copies it. A `#heading` link scrolls to the heading.
+- A font change applies to the UI, the terminal and the markdown preview at once.
+- Help > Tutorial is a guided tour of eleven chapters. A card beside the part of the window shows each step, and the step is done when the action runs by key, palette, menu or button. "Take the tour" on the welcome page starts it.
+- The tutorial keeps its progress in `sessions/tutorial.json`, and "Chapters" resumes a chapter where it stopped.
+- The tutorial lab opens a broken Odin file, `user/tutorial/playground.odin`, with eight repairs. "Show me" selects each defect, and the card shows the analyzer's message on it.
+- A click, a focus change or a newly opened view shows in the same frame. Before, the UI showed it one frame late.
+- Diagnostics have a hint severity: a faint underline with no gutter mark. `"hint"` is a value of `diagnostics` in `.thor/odin-analyzer.lua`, and a language server's Information and Hint diagnostics show as hints.
+- Odin: a `fmt.printf`-style format string that `core:fmt` would print as `%!(...)` is marked as a hint while typing: a verb the argument type does not take, a missing or extra argument, a bad index, and a bare `{` that must be `{{` (`api/fmt-verbs`).
+- Odin: a call statement that drops an error result, such as `os.remove(path)`, is marked as a hint (`api/ignored-error`). `_ = os.remove(path)` drops it explicitly.
+- Odin: returning or storing the address or slice of a local (`return &x`, `return arr[:]`, `global = &x`, `out^ = &x`) is marked as a hint, since the local is gone when the procedure returns (`mem/dangling-slice`).
+- Odin: storing a value made with `context.temp_allocator` or `tprintf` in a global or through a pointer parameter, such as `global = strings.clone(s, context.temp_allocator)`, is marked as a hint, since the next `free_all` frees it (`mem/temp-escape`). Returning one is not marked.
+- Odin: a `defer` in a loop that frees a variable declared before the loop, such as `defer delete(buf)`, is marked as a hint, since it runs on every iteration (`defer/in-loop`).
+- Odin: a use of a declaration marked `@(deprecated)` is marked as a hint with the message of the attribute (`api/deprecated`).
+- Odin: `for x in items` that copies an element of 512 bytes or more on every iteration, and only reads it, is marked as a hint; `for &x` avoids the copy (`perf/range-copy`).
+- Odin: `x = x`, an `if` with the literal condition `true` or `false`, and an `if` whose two branches have the same text are marked as hints (`logic/self-assign`, `logic/const-condition`, `logic/identical-branches`).
+- Odin: a name that breaks the Odin naming style is marked as a hint: `Ada_Case` types, `snake_case` procedures, variables, parameters and fields, and `Ada_Case` or `snake_case` enum members. Rules are set with `naming` in `.thor/odin-analyzer.lua` (`style/naming`).
+- The Settings chord (`ctrl + comma`) works while a terminal has the keyboard. On macOS `cmd + comma` opens Settings too.
+- Windows: "Settings: Toggle File Manager Menu Entry" adds or removes "Open with Thor" in the Explorer right-click menu of files, folders and a folder background. It is the same as Settings > Windows > Explorer Menu Entry.
+- The update button in the title bar names the step: "Downloading 42%" with a small progress bar, then "Verifying..." and "Installing...". Its tooltip says Thor restarts when the install is done.
+- The first start after an update shows a summary of the new version. "All changes" shows its full changelog. Help > "What's New" (`whats_new`) opens it again.
+- Fixed: the tutorial lab explanations showed `%!(MISSING CLOSE BRACE)` instead of the key chords.
+- Fixed: the PowerShell fallback of the update check sent a broken command.
+- Odin: call hierarchy ("Show Incoming Calls", "Show Outgoing Calls"), type hierarchy ("Show Supertypes", "Show Subtypes") and "Go to Implementations" list their results in a picker. Bind them in `keybinds.lua` (`incoming_calls`, `outgoing_calls`, `supertypes`, `subtypes`, `goto_implementations`).
+- Expand and shrink the selection by syntax node: ctrl + alt + shift + right / left.
+- "View: Toggle Reference Counts" shows how many uses each declaration of an Odin file has.
+- Odin: after `x.` the completion offers postfix templates such as `if`, `ifnil`, `for`, `fori`, `switch`, `var`, `return` and `defer_delete`, each for the types it fits.
+- Odin: deprecated declarations are coloured as deprecated, and a `when` branch the build target makes false is greyed out (`inactive` and `deprecated` captures in `plugins/odin/plugin.lua`).
+- Odin: a cast to the type the value already has is a warning while typing (`vet/cast`). A pointer that is always nil where it is dereferenced gets a hint (`nil/deref`). A call that drops its `ok` result gets the `api/ignored-error` hint.
+- Odin: `vet/unused-procedure`, `vet/style`, `vet/semicolon` and `vet/tabs` are opt-in. Set the id in `diagnostics`, or use a `#+vet` tag.
+- Odin: `package_diagnostics = true` in `.thor/odin-analyzer.lua` also checks the other files of the package while typing. `diagnostics_telemetry = true` logs where `odin check` and the live check disagree. Both default to false.
+- `odin run build.odin -file -- bench [-strict]` times parse, diagnostics and completion.
+
 # 2026.10.7
 
 - Rename refuses a builtin, an import name, a named argument or a label. It renamed every identifier of that name in the workspace.

@@ -20,6 +20,8 @@ odin run build.odin -file -- check -vet    # the same with -vet, which CI gates 
 odin run build.odin -file -- test          # every package with tests, into bin/test
 odin run build.odin -file -- test -release # the same with the flags a release is built with
 odin run build.odin -file -- clean
+odin run build.odin -file -- gen_syntax    # kind.odin + views.odin of lang/odin/syntax from syntax.schema
+odin run build.odin -file -- bench         # time parse, diagnostics, completion (release flags); -strict fails over budget
 odin run build.odin -file -- -h -verbose   # flags; -verbose echoes each command
 ```
 
@@ -86,7 +88,7 @@ Six skills in `.claude/skills/`:
 
 - `verify` — the verification sweep to run after an Odin change: per-package type-check, the Linux
   and macOS cross-checks with their expected noise named, then `build.odin -- test`. It also covers
-  the two lists a change can silently miss: the `packages` list in `run_tests` and `lang/ROADMAP.md`.
+  the two lists a change can silently miss: the `packages` list in `run_tests` and `lang/LANGUAGE_INTELLIGENCE.md`.
 - `ts-probe` — the throwaway `zprobe_test.odin` that dumps a real parse tree. Use it before matching
   a tree-sitter node type, field or child order.
 - `grammar-add` — adds a tree-sitter grammar, keeping `build.odin` and `syntax/syntax.odin` in step,
@@ -112,6 +114,17 @@ be tested headlessly.
 - `atomicfile` — `atomicfile.write` replaces a file through a temp file beside it and a rename, so a
   crash mid-write leaves the old file whole. Every write that overwrites user or session data goes
   through it. A leaf: imports only `core:`.
+- `lockfree` — the lock-free hand-offs between threads: `Stack` (intrusive multi-producer stack, the
+  consumer takes every node at once, oldest first; `T` holds `queue_next: ^T`), `Byte_Ring`
+  (single-producer byte ring, a full producer waits on `ring_wait_space`) and `Mpmc` (bounded
+  Vyukov ring). A leaf: imports only `core:` and `base:`.
+- `luaconf` — config files are Lua. `eval_file` runs one in a fresh sandboxed Lua state (string,
+  table, math, utf8, a trimmed base library, a read-only `thor` table with `os`/`arch`/`env`; a
+  time and a memory budget) and returns the table as a `core:encoding/json` Value tree, so a loader
+  walks it as it walked JSON. `patch`/`append_entry` edit one `key = value` in the source and keep
+  comments; a key set by code is `.Computed`, and the caller asks the user to edit by hand.
+  `convert_json` writes a `.json` as `.lua` and keeps the old file as `.json.bak`. A leaf: imports
+  only `core:`, `base:runtime`, `vendor:lua/5.4` and `atomicfile`.
 - `piecetable` — the buffer representation. Pure data structure. Keeps the contents materialized as
   one snapshot, rebuilt by `piecetable_view` on the first read after an edit.
 - `textedit` — UI-independent editing core: cursors, selection, movement, edits, undo/redo with
@@ -130,7 +143,8 @@ be tested headlessly.
   atlas lacks is rasterized on demand from the family's own file, then a system face
   (`font/fallback.odin`), onto per-size pages that grow.
 - `theme` — the named roles, `role_color` (public plugin API, do not rename), the contrast helpers
-  and the generator. Colours are `ui.Color`.
+  and the generator. Colours are `ui.Color`. A theme file is Lua keyed by role id (`COLORS[i].role`);
+  `load_json` reads the old shape for the converter only.
 - `snippet`, `search`, `markdown` — leaves: the LSP snippet grammar, the find engine (case folding,
   whole word, regex), and the markdown parse and layout. The host answers three callbacks: text width, line height and image size.
 - `editview` — the editor's state and behaviour with no drawing: folding, soft-wrap visual rows,
@@ -139,7 +153,11 @@ be tested headlessly.
   (`editor_press`, `editor_drag`, `editor_release`, `editor_hover`, `editor_leave`, `editor_wheel`,
   `editor_text`, `editor_key`), and each syncs the live snippet session first. It talks to the app
   through `#type proc` callbacks (`Goto_Definition_Proc`, `Hover_Proc`, `Completion_Proc`, …),
-  never by importing `thor`.
+  never by importing `thor`. Inlay hints (`editor_set_inlays`, borrowed) open a gap before their
+  byte that the caret x, the hit-test and the scroll count. A zone (`editor_set_zone`) adds spacer
+  `Visual_Row`s below a line for the host's nodes; no offset maps to a spacer, and the host
+  painters skip them. `editor_set_on_action` reports each keymap action that ran, by its
+  keybinds name.
 - `render` — the Loom backend: answers Loom's measure callbacks from `font`, replays the draw list
   through rlgl, and `poll_input` turns raylib input into Loom's event stream (AltGr suppression,
   layout remap, repeat and release synthesis).
@@ -148,8 +166,41 @@ be tested headlessly.
 - `plugin` — the Lua 5.4 VM, the language registry plugins fill at load, and the mapping from
   tree-sitter captures to theme *roles*.
 - `lang` + `lang/odin` + `lang/lsp` — language intelligence (see below). `lang/lsp` may import only
-  `core:*`, `base:runtime`, `lang`, `shell` and `treecache` (for `source_edit`, the byte diff an
+  `core:*`, `base:runtime`, `lang`, `lockfree`, `luaconf`, `shell` and `treecache` (for `source_edit`, the byte diff an
   incremental `didChange` needs) — never `setting`, which imports `lang`.
+  `lang/odin/syntax` (package `odinsyntax`, not `syntax`, which is taken) is the next engine's
+  front end (`lang/LANGUAGE_INTELLIGENCE.md`): the lexer, the error-resilient parser (`parse`) and the
+  lossless green tree. It imports only `core:`. A token is inline in an 8-byte child slot and holds
+  no text — read it through the red layer (`syntax_token_text`, `node_text`) — and a node is known
+  by its position, not its green pointer. `reparse` consumes the old `Parse`: the new tree owns it
+  as its `base` and shares its nodes, so free only the newest. `debug_dump` prints its tree, trivia optional;
+  `testdata/*.dump` are its snapshots (`-define:SYNTAX_BLESS=true` rewrites them). Node kinds and
+  the typed views (`as_value_decl`, `value_decl_names(&v)`, …) are generated from `syntax.schema`
+  by `build.odin -- gen_syntax` (`lang/odin/syntax/gen`, package `syntaxgen`); edit the schema, never
+  `kind.odin`/`views.odin`, and regenerate — a test fails when they are stale, and the corpus test
+  checks each view against the parser.
+  `lang/odin/sema` (package `odinsema`) is the next engine's analysis layer: `item_tree` (the
+  top-level declarations of one file; owns its strings), `file_in_build` (suffix rules and
+  `#+build` for a `Target`), `when` evaluation (`guard_state`; conditions are compiled into the
+  item tree, so it stays target-independent), `package_scope`, `file_imports` (alias → package
+  directory), `scope_map`/`resolve_at` (what each identifier in a body names lexically) and the
+  query DB (`db*.odin`). A request reads through a `Snapshot` (`snapshot_begin`/`snapshot_end`):
+  `db_file`, `db_parse`, `db_package`, `db_workspace` give refcounted values pinned until
+  `snapshot_end` (`db_parse_release` drops one parse early). Lock order: workspace slot, package
+  slot, file slot, then `Db.lock`, `Db.lru_mutex` or `Db.type_mutex`. It imports only
+  `odinsyntax` and `core:`.
+  The type layer: `types.odin` (the `Type_Table`; structural types are interned, a named type is
+  unique by its `Symbol`), `check.odin` (`Checker`, `decl_type`, `type_expr`, `lookup_name`),
+  `const.odin`, `expr.odin` + `call.odin` + `builtins_check.odin` (`expr_type`, calls, groups,
+  generics) and `query.odin` (`expected_type_at`, `type_members`, `selector_symbol`,
+  `symbol_range`, `expr_under`). A `Checker` owns its arena, borrows a `Snapshot` and must be
+  destroyed before `snapshot_end`. `checker_destroy` freezes what it typed into a Db-held
+  `Type_State` (`type_cache.odin`) and `checker_init` copies the state of its key (configuration,
+  home package, buffer) when the files and packages it read are unchanged; an entry that reads the
+  request's buffer, directly or through another entry, is never frozen. A frozen state is
+  immutable after publish.
+  The formatter (`lang/odin/format`, package `odinfmt`) prints from the `odinsyntax` tree too;
+  `core:odin/parser` is a test oracle only.
 - `setting`, `watch`, `shell` — JSON settings/keybinds, the async recursive file-system watcher,
   process execution and the pseudo-terminal a shell runs on.
 - `vt` — the terminal emulator: the escape parser, the cell grid, the scrollback and the key, paste
@@ -164,27 +215,44 @@ be tested headlessly.
 
 `Thor.run` is a plain per-frame loop: poll (dropped files, watcher, settings, IO) → reap async
 results → plugin ticks (`plugin.manager_dispatch_tick`, throttled to `TICK_INTERVAL`) →
-`ui.begin_frame(render.poll_input(...))` → `thor_frame` → `ui.end_frame` → `thor_render_models` →
+`render.poll_input` → `for ui.frame(input) { thor_frame }` → `ui.draw_list` → `thor_render_models` →
 `render.draw` → `free_all(context.temp_allocator)`. Anything allocated for one frame goes in the
 temp allocator.
+
+`ui.frame` runs the build up to three times a frame while a pass changes what the last one laid out
+(an input edge, a `changed` widget, a new node, `set_focus`, a new hovered node). Input edges and
+`dt` reach only the first pass, so code that reacts to input runs once; work that advances with time
+on its own (`rl.GetFrameTime`) must check `thor.frame_pass == 0`. Input is polled once, before the
+loop, since `poll_input` drains raylib's queues.
 
 ## UI (Loom)
 
 Each view is state on `Thor` plus a `thor_*_view` procedure that declares its nodes every frame.
 
-- `Thor` holds no node or widget pointers. `editor` and `editor2` are `editview.Editor` values.
+- `Thor` holds no node or widget pointers. `editors: [MAX_PANES]editview.Editor` are values; the
+  `layout` preset (`thor/panes.odin`) shows the first `thor_pane_count` of them, numbered down each
+  column, then across. A layout change goes through `thor_set_layout`, a file into a given pane
+  through `thor_show_file_in_pane` / `thor_open_file_in_pane`, which grow the layout first.
 - Focus is a node id, so a command cannot assign it. `thor.focus_request` names the pane the next
-  frame focuses; `thor.focus_owner` is the pane the view saw last frame. Pane keys are `"pane0"`,
-  `"pane1"`, `"explorer"`, `"console"`.
+  frame focuses; `thor.focus_owner` is the pane the view saw last frame. Pane keys are `"pane0"` …
+  `"pane5"` (`thor_pane_key`), `"explorer"`, `"console"`.
 - Modal state is a bool on `Thor` (`settings_open`, `git_open`, `find_open`, `palette_open`, …).
+- The tutorial (`thor/tutorial*.odin`) is native: chapters of steps in `tutorial_chapters.odin`,
+  each done by a `Check_Action`, `Check_Proc`, `Check_Next` or `Check_Lab`. Every route that runs
+  an action calls `thor_note_action` — the palette, the menus, `thor_dispatch_app_bind`, the
+  global chords through `thor_app_key_hit` and the editor through `editor_set_on_action` — so a
+  new route to an action needs that call too. The spotlight reads `thor.region_rects`, filled
+  where each region's scope is declared and reset each frame. Progress is
+  `sessions/tutorial.json`, written only after it was read.
 - The theme is pushed once: `thor_push_theme` maps Thor's roles onto Loom's slots and calls
   `ui.set_theme`. Do not add per-node colour setters.
 - A tooltip is declared at its node (`ui.tooltip`); `thor/tooltips.odin` holds the helpers
   (`thor_tip`, `thor_menu_tip`).
 - Loom has no key routing: call order is priority, so the global keymap runs before the tree is
   built.
-- Loom is one frame behind on interaction geometry. A new node has a zero rect and no hover until
-  frame two, so a test pumps 2–3 frames before it asserts.
+- `ui.begin_frame`/`ui.end_frame` run one pass and stay one frame behind on interaction geometry: a
+  new node has a zero rect and no hover until frame two, so a test that drives them pumps 2–3
+  frames before it asserts.
 - A duplicate node id in one frame panics under `ODIN_DEBUG`. A loop body needs `ui.push_id_int(i)`
   or an explicit `key`.
 - `render.draw` must call `rlgl.DrawRenderBatchActive()` before it restores GL state it set. rlgl
@@ -308,10 +376,11 @@ the JSON-RPC parser permanently, and a server has no use for a terminal.
 ## Async work
 
 There is one pattern for all off-thread work and it is worth matching exactly: a worker thread does
-its job, then appends the job struct to a `[dynamic]^Job` on `Thor` under `io_mutex`; the main thread
-drains that queue once per frame and applies the result. File loads/saves (`thor/files.odin`),
-terminal output, git status and the whole `lang` seam all use it. Workers never touch UI state and
-never allocate from the main allocator without care.
+its job, then pushes the job struct onto a `lockfree.Stack(X_Job)` on `Thor` (`finished_*`; the job
+holds `queue_next`); the main thread takes each stack once per frame and applies the result. No lock
+is on that path. File loads/saves (`thor/files.odin`), git status, the watcher and the whole `lang`
+seam use it; terminal output goes through a `lockfree.Byte_Ring` per terminal. Workers never touch
+UI state and never allocate from the main allocator without care.
 
 `Backend.poll` is the one exception: an LSP server can volunteer a result (pushed diagnostics)
 between requests, so a backend owns its own push queue and `manager_dispatch` pulls from it once a
@@ -339,25 +408,32 @@ subprocess LSP client as an optional second backend behind the same seam.
   every dispatch goes through `manager_request_latest` (immediate, cancels the older same-kind
   request) or `manager_request_debounced` (for triggers that fire while typing). A cancelled result
   is freed without reaching the handler, so `ok == false` always means "found nothing".
-- `lang/odin` is the in-client Odin analyzer, split by concern: `engine.odin` (lifetime + seam),
-  `resolve.odin` (entry point every request funnels through, lexical scope), `index.odin` (resident
-  stat-invalidated symbol index), `infer.odin`/`typeref.odin`/`decl.odin` (type inference),
-  `container.odin` (array swizzles + `#soa` per-field arrays), `using.odin` (the `using` statement
-  and parameter), `completion.odin`, `signature.odin`, `symbols.odin` (outline/references/rename), `semantic.odin`,
-  `check.odin` (compiler diagnostics), `actions.odin`, `packagedoc.odin`, `builtins.odin` (the
-  implicit scope, read off the toolchain), `config.odin`.
+- `lang/odin` is the in-client Odin analyzer. This branch is rebuilding it
+  (`lang/LANGUAGE_INTELLIGENCE.md`): the tree-sitter engine is removed, and only `engine.odin` (lifetime +
+  seam), `check.odin` (`odin check` diagnostics), `formatter.odin` + `format/` (the printer),
+  `syntax_check.odin` (live syntax errors), `symbols.odin` (document and workspace symbols),
+  `target.odin` + `definition.odin` + `references.odin` (the caret target, definition, references,
+  rename and document highlight), `type_definition.odin`, `hover.odin`, `completion.odin`, `signature.odin`, `semantic.odin`, `actions.odin` (quick fixes),
+  `builtins.odin` (the universe scope), `package_doc.odin`, `config.odin` and `path_*.odin`
+  remain, with `package_live.odin` (live diagnostics of the whole package), `telemetry.odin`
+  (where `odin check` and the live check disagree), `selection.odin`, `hierarchy.odin` and `lens.odin`
+  (selection range, call/type hierarchy, code lens). `sema/nil_deref.odin`, `sema/vet_cast.odin` and
+  `sema/vet_syntax.odin` hold the nil, cast and syntax-level vet checks. Every file and package read goes through the sema query DB;
+  `parse_cache.odin` and `package_cache.odin` are gone. A request that needs types takes the
+  lazy checker of its `Request_Context` (`request_checker`), which `request_close` ends before the
+  snapshot. `supports` declines every kind outside `IMPLEMENTED` (`engine.odin`).
 - The `language_intelligence` setting gates the whole seam: `manager_set_enabled` /
   `manager_set_features` make `manager_request` refuse a kind (and cancel its in-flight work), so no
   dispatch path can forget the check. `manager_allows(ext, kind)` is the per-kind question a caller
   with a fallback asks; `thor_apply_language_settings` pushes the setting onto the manager.
 - `lang/lsp` is the subprocess LSP backend, one `Server` per entry of the merged server table
-  (`settings/lsp.json` overlaid by `user/lsp.json` overlaid by `<workspace>/.thor/lsp.json`). An
+  (`settings/lsp.lua` overlaid by `user/lsp.lua` overlaid by `<workspace>/.thor/lsp.lua`). An
   entry's `enabled`/`features` **seed** that server's `admin_enabled`/`admin_features` at
   `server_create` and state nothing after — `language_backends` owns the keys it names, so a server
-  turned off in `lsp.json` still lists in Settings and can be turned back on, and it stops claiming
+  turned off in `lsp.lua` still lists in Settings and can be turned back on, and it stops claiming
   its extensions so a later entry can take the language over. An entry claims routing keys through
   `extensions` (each force-given its leading dot) and `filenames` (whole names, kept verbatim and
-  matched first). `lang/LSP_PLAN.md` is its design.
+  matched first). `lang/LANGUAGE_INTELLIGENCE.md` (section 7) is its design.
   The workspace layer is repo-supplied and names programs, so `client_create` takes
   `trust_workspace` and skips it when false. `thor/lsp_trust.odin` decides: the grant in
   `sessions/lsp-grants.json` keys on (workspace path, SHA-256 of the file), so any edit — a
@@ -377,7 +453,7 @@ subprocess LSP client as an optional second backend behind the same seam.
   `${workspace}`/`${userHome}`/`${env:NAME}`; `client_server_status` is the snapshot the settings
   panel reads, behind `status_mutex` — a leaf lock over `root`/`restarts`/`last_error`, since a
   status read must never take `conn_lock`, which is held shared for a whole round trip. All three
-  `lsp.json` layers are watched (`thor/settings_watch.odin`) and rebuild the client through
+  `lsp.lua` layers are watched (`thor/settings_watch.odin`) and rebuild the client through
   `thor.lang_reload_pending` at the head of the run loop, never inside an event. One server alone is
   restarted with `server_restart` (`client_restart_server` by id) — the one place the `stopping`
   latch is released; it keeps the documents (`server_launch` re-opens them) and `caps` (read with no
@@ -390,12 +466,17 @@ subprocess LSP client as an optional second backend behind the same seam.
   goes through; a `WorkspaceEdit`'s resource ops (create/rename/delete) join its cross-file Ctrl+Z
   record as `Edit_Undo_File` kinds, and a target no string can restore (a directory) drops the record
   rather than leaving it half reversible.
-- **`lang/ROADMAP.md` is the living source of truth** for what works and what is missing. Read it
+  Peek definition (`thor/peek.odin`) is the one second consumer of `.Definition`: it dispatches with
+  `manager_request` (not `_latest`, which would cancel a go-to) and `thor_on_lang_result` hands it
+  the result whose id is `thor.peek.request_id` before the go-to path sees it.
+- **`lang/LANGUAGE_INTELLIGENCE.md` is the living source of truth** for how the seam, the Odin
+  analyzer and the LSP client work, what is missing and what is broken, and how to add a language
+  (analyzer and formatter). Read it
   before adding a feature here, and update it after.
 
-Grammar shapes are the usual source of bugs — tree-sitter-odin's node names often do not match
-intuition (`x := v` is `assignment_statement`, `p: Point` is `var_declaration`, a container literal
-drops its `[]` from the named children). The repo's technique for settling such a question: drop a
+Tree-sitter grammar shapes (used by highlighting) are a usual source of bugs: node names often do
+not match intuition (in tree-sitter-odin, `x := v` is `assignment_statement`, `p: Point` is
+`var_declaration`). The repo's technique for settling such a question: drop a
 throwaway `z*_test.odin` that recursively prints `ts.node_type` / `node_is_named` / `node_text` for
 **all** children (not `ts.node_string`, which hides the anonymous tokens that matter), run it with
 `-define:ODIN_TEST_NAMES=`, then delete it. The `ts-probe` skill carries that probe ready to run.
@@ -422,7 +503,7 @@ compile is reported with its offset instead of silently uncoloring the language.
 
 Each plugin runs sandboxed (`plugin/sandbox.odin`): its own `_ENV`, a trimmed standard library (no
 io/package/debug/`load`), path-confined file access, a two-second wall-clock budget per call, and a
-`thor` table holding only what `plugins/<id>/plugin.json` grants
+`thor` table holding only what `plugins/<id>/manifest.lua` grants
 (`exec`/`read`/`write`/`ui`/`keys`/`tick`).
 A plugin that wants a permission stays unloaded until the user allows it: `thor_load_plugins`
 (`thor/plugin_trust.odin`) scans first, runs the permission-free plugins at once, and holds the rest
@@ -461,17 +542,20 @@ Thor moves its working directory to the executable at startup, so `assets/`, `pl
 build, and the updater swaps all four. The folder Thor opens still comes from the directory it was
 launched in.
 
-Configuration is layered in three: the shipped `settings/*.json` (settings, keybinds, comment
-prefixes, and `lsp.json`, the language-server table), overlaid by `user/*.json`, overlaid by a
+Configuration is layered in three: the shipped `settings/*.lua` (settings, keybinds, comment
+prefixes, tips, and `lsp.lua`, the language-server table), overlaid by `user/*.lua`, overlaid by a
 workspace's `.thor/` directory. `settings/` is **read-only to the running editor** — a build and an
 update replace it wholesale, so anything Thor writes goes to `user/` (`setting.USER_DIR`,
 `thor_active_settings_path`) or to `.thor/`, never there; `user/` is gitignored, never staged and
 never swapped. `update_swap.odin` carries a pre-split install's `settings/*.json` into `user/` once,
-on its first update. `.thor/` also
-holds `tasks.json` (named shell commands surfaced in the titlebar), `odin-analyzer.json`
+on its first update, and `thor/migrate_lua.odin` converts the JSON it finds in `user/` and `.thor/`
+to Lua before the config loads (the card about it shows only in `LUA_CONFIG_NOTICE_VERSION`).
+`assets/fonts/fonts.json`, `user/fonts.json`, `assets/icons/icons.json` and `sessions/*.json`
+stay JSON. `.thor/` also
+holds `tasks.lua` (named shell commands surfaced in the titlebar), `odin-analyzer.lua`
 (per-workspace analyzer collections and feature toggles — deliberately Thor's own file, not
-`ols.json`), `lsp.json` (server entries merged onto the shipped ones by `id`; `"enabled": false`
-switches one off) and `plugins/` (the workspace's own Lua plugins). This repo has its own `.thor/`, so
+`ols.json`), `odin-formatter.lua`, `lsp.lua` (server entries merged onto the shipped ones by `id`;
+`enabled = false` switches one off) and `plugins/` (the workspace's own Lua plugins). This repo has its own `.thor/`, so
 those files serve as working examples.
 
 ## User documentation

@@ -1,0 +1,575 @@
+Root@0..1223
+  Package_Decl@0..13
+    Package@0..7 "package"
+    Ident@8..13
+      Ident@8..13 "stmts"
+  Value_Decl@15..1222
+    Name_List@15..18
+      Ident@15..18
+        Ident@15..18 "run"
+    Colon@19..20 ":"
+    Colon@20..21 ":"
+    Expr_List@22..1222
+      Proc_Lit@22..1222
+        Proc_Type@22..82
+          Proc@22..26 "proc"
+          Param_List@26..66
+            Open_Paren@26..27 "("
+            Field@27..36
+              Name_List@27..29
+                Ident@27..29
+                  Ident@27..29 "xs"
+              Colon@29..30 ":"
+              Array_Type@31..36
+                Open_Bracket@31..32 "["
+                Close_Bracket@32..33 "]"
+                Ident@33..36
+                  Ident@33..36 "int"
+            Comma@36..37 ","
+            Field@38..46
+              Name_List@38..39
+                Ident@38..39
+                  Ident@38..39 "u"
+              Colon@39..40 ":"
+              Ident@41..46
+                Ident@41..46 "Value"
+            Comma@46..47 ","
+            Field@48..65
+              Name_List@48..49
+                Ident@48..49
+                  Ident@48..49 "m"
+              Colon@49..50 ":"
+              Map_Type@51..65
+                Map@51..54 "map"
+                Open_Bracket@54..55 "["
+                Ident@55..61
+                  Ident@55..61 "string"
+                Close_Bracket@61..62 "]"
+                Ident@62..65
+                  Ident@62..65 "int"
+            Close_Paren@65..66 ")"
+          Result_List@67..82
+            Arrow_Right@67..69 "->"
+            Open_Paren@70..71 "("
+            Field@71..81
+              Name_List@71..74
+                Ident@71..74
+                  Ident@71..74 "err"
+              Colon@74..75 ":"
+              Ident@76..81
+                Ident@76..81 "Error"
+            Close_Paren@81..82 ")"
+        Block@83..1222
+          Open_Brace@83..84 "{"
+          If_Stmt@89..171
+            If@89..91 "if"
+            Value_Decl@92..104
+              Name_List@92..93
+                Ident@92..93
+                  Ident@92..93 "x"
+              Colon@94..95 ":"
+              Eq@95..96 "="
+              Expr_List@97..104
+                Call_Expr@97..104
+                  Ident@97..100
+                    Ident@97..100 "len"
+                  Arg_List@100..104
+                    Open_Paren@100..101 "("
+                    Ident@101..103
+                      Ident@101..103 "xs"
+                    Close_Paren@103..104 ")"
+            Semicolon@104..105 ";"
+            Binary_Expr@106..111
+              Ident@106..107
+                Ident@106..107 "x"
+              Gt@108..109 ">"
+              Literal@110..111
+                Integer@110..111 "0"
+            Block@112..134
+              Open_Brace@112..113 "{"
+              Return_Stmt@122..128
+                Return@122..128 "return"
+              Close_Brace@133..134 "}"
+            Else@135..139 "else"
+            If_Stmt@140..171
+              If@140..142 "if"
+              Binary_Expr@143..148
+                Ident@143..144
+                  Ident@143..144 "x"
+                Lt@145..146 "<"
+                Literal@147..148
+                  Integer@147..148 "0"
+              Block@149..156
+                Open_Brace@149..150 "{"
+                Close_Brace@155..156 "}"
+              Else@157..161 "else"
+              Do_Body@162..171
+                Do@162..164 "do"
+                Return_Stmt@165..171
+                  Return@165..171 "return"
+          When_Stmt@177..200
+            When@177..181 "when"
+            Ident@182..192
+              Ident@182..192 "ODIN_DEBUG"
+            Block@193..200
+              Open_Brace@193..194 "{"
+              Close_Brace@199..200 "}"
+          For_Stmt@206..235
+            For@206..209 "for"
+            Value_Decl@210..216
+              Name_List@210..211
+                Ident@210..211
+                  Ident@210..211 "i"
+              Colon@212..213 ":"
+              Eq@213..214 "="
+              Expr_List@215..216
+                Literal@215..216
+                  Integer@215..216 "0"
+            Semicolon@216..217 ";"
+            Binary_Expr@218..224
+              Ident@218..219
+                Ident@218..219 "i"
+              Lt@220..221 "<"
+              Literal@222..224
+                Integer@222..224 "10"
+            Semicolon@224..225 ";"
+            Assign_Stmt@226..232
+              Expr_List@226..227
+                Ident@226..227
+                  Ident@226..227 "i"
+              Add_Eq@228..230 "+="
+              Expr_List@231..232
+                Literal@231..232
+                  Integer@231..232 "1"
+            Block@233..235
+              Open_Brace@233..234 "{"
+              Close_Brace@234..235 "}"
+          Range_Stmt@240..254
+            For@240..243 "for"
+            Expr_List@244..245
+              Ident@244..245
+                Ident@244..245 "x"
+            In@246..248 "in"
+            Ident@249..251
+              Ident@249..251 "xs"
+            Block@252..254
+              Open_Brace@252..253 "{"
+              Close_Brace@253..254 "}"
+          Range_Stmt@259..276
+            For@259..262 "for"
+            Expr_List@263..267
+              Ident@263..264
+                Ident@263..264 "x"
+              Comma@264..265 ","
+              Ident@266..267
+                Ident@266..267 "i"
+            In@268..270 "in"
+            Ident@271..273
+              Ident@271..273 "xs"
+            Block@274..276
+              Open_Brace@274..275 "{"
+              Close_Brace@275..276 "}"
+          Range_Stmt@281..301
+            For@281..284 "for"
+            Expr_List@285..286
+              Ident@285..286
+                Ident@285..286 "i"
+            In@287..289 "in"
+            Binary_Expr@290..298
+              Literal@290..291
+                Integer@290..291 "0"
+              Range_Half@292..295 "..<"
+              Literal@296..298
+                Integer@296..298 "10"
+            Block@299..301
+              Open_Brace@299..300 "{"
+              Close_Brace@300..301 "}"
+          Range_Stmt@306..326
+            For@306..309 "for"
+            Expr_List@310..311
+              Ident@310..311
+                Ident@310..311 "i"
+            In@312..314 "in"
+            Binary_Expr@315..323
+              Literal@315..316
+                Integer@315..316 "0"
+              Range_Full@317..320 "..="
+              Literal@321..323
+                Integer@321..323 "10"
+            Block@324..326
+              Open_Brace@324..325 "{"
+              Close_Brace@325..326 "}"
+          For_Stmt@331..356
+            For@331..334 "for"
+            Block@335..356
+              Open_Brace@335..336 "{"
+              Branch_Stmt@345..350
+                Break@345..350 "break"
+              Close_Brace@355..356 "}"
+          Range_Stmt@361..384
+            Directive@361..369
+              Hash@361..362 "#"
+              Ident@362..369 "reverse"
+            For@370..373 "for"
+            Expr_List@374..375
+              Ident@374..375
+                Ident@374..375 "x"
+            In@376..378 "in"
+            Ident@379..381
+              Ident@379..381 "xs"
+            Block@382..384
+              Open_Brace@382..383 "{"
+              Close_Brace@383..384 "}"
+          Range_Stmt@389..416
+            Directive@389..396
+              Hash@389..390 "#"
+              Ident@390..396 "unroll"
+            For@397..400 "for"
+            Expr_List@401..402
+              Ident@401..402
+                Ident@401..402 "i"
+            In@403..405 "in"
+            Binary_Expr@406..413
+              Literal@406..407
+                Integer@406..407 "0"
+              Range_Half@408..411 "..<"
+              Literal@412..413
+                Integer@412..413 "4"
+            Block@414..416
+              Open_Brace@414..415 "{"
+              Close_Brace@415..416 "}"
+          Switch_Stmt@422..509
+            Switch@422..428 "switch"
+            Value_Decl@429..435
+              Name_List@429..430
+                Ident@429..430
+                  Ident@429..430 "x"
+              Colon@431..432 ":"
+              Eq@432..433 "="
+              Expr_List@434..435
+                Literal@434..435
+                  Integer@434..435 "1"
+            Semicolon@435..436 ";"
+            Ident@437..438
+              Ident@437..438 "x"
+            Block@439..509
+              Open_Brace@439..440 "{"
+              Case_Clause@445..476
+                Case@445..449 "case"
+                Expr_List@450..454
+                  Literal@450..451
+                    Integer@450..451 "1"
+                  Comma@451..452 ","
+                  Literal@453..454
+                    Integer@453..454 "2"
+                Colon@454..455 ":"
+                Branch_Stmt@464..475
+                  Fallthrough@464..475 "fallthrough"
+              Case_Clause@480..493
+                Case@480..484 "case"
+                Expr_List@485..492
+                  Binary_Expr@485..492
+                    Literal@485..486
+                      Integer@485..486 "3"
+                    Range_Half@487..490 "..<"
+                    Literal@491..492
+                      Integer@491..492 "5"
+                Colon@492..493 ":"
+              Case_Clause@498..503
+                Case@498..502 "case"
+                Colon@502..503 ":"
+              Close_Brace@508..509 "}"
+          Type_Switch_Stmt@514..571
+            Switch@514..520 "switch"
+            Expr_List@521..522
+              Ident@521..522
+                Ident@521..522 "v"
+            In@523..525 "in"
+            Ident@526..527
+              Ident@526..527 "u"
+            Block@528..571
+              Open_Brace@528..529 "{"
+              Case_Clause@534..543
+                Case@534..538 "case"
+                Expr_List@539..542
+                  Ident@539..542
+                    Ident@539..542 "int"
+                Colon@542..543 ":"
+              Case_Clause@548..565
+                Case@548..552 "case"
+                Expr_List@553..564
+                  Ident@553..556
+                    Ident@553..556 "f64"
+                  Comma@556..557 ","
+                  Ident@558..564
+                    Ident@558..564 "string"
+                Colon@564..565 ":"
+              Close_Brace@570..571 "}"
+          Switch_Stmt@576..624
+            Directive@576..584
+              Hash@576..577 "#"
+              Ident@577..584 "partial"
+            Switch@585..591 "switch"
+            Selector_Expr@592..601
+              Ident@592..597
+                Ident@592..597 "Color"
+              Period@597..598 "."
+              Ident@598..601
+                Ident@598..601 "Red"
+            Block@602..624
+              Open_Brace@602..603 "{"
+              Case_Clause@608..618
+                Case@608..612 "case"
+                Expr_List@613..617
+                  Implicit_Selector@613..617
+                    Period@613..614 "."
+                    Ident@614..617
+                      Ident@614..617 "Red"
+                Colon@617..618 ":"
+              Close_Brace@623..624 "}"
+          Range_Stmt@630..759
+            Label@630..636
+              Ident@630..635
+                Ident@630..635 "outer"
+              Colon@635..636 ":"
+            For@637..640 "for"
+            Expr_List@641..642
+              Ident@641..642
+                Ident@641..642 "x"
+            In@643..645 "in"
+            Ident@646..648
+              Ident@646..648 "xs"
+            Block@649..759
+              Open_Brace@649..650 "{"
+              Range_Stmt@659..753
+                Label@659..665
+                  Ident@659..664
+                    Ident@659..664 "inner"
+                  Colon@664..665 ":"
+                For@666..669 "for"
+                Expr_List@670..671
+                  Ident@670..671
+                    Ident@670..671 "y"
+                In@672..674 "in"
+                Ident@675..677
+                  Ident@675..677 "xs"
+                Block@678..753
+                  Open_Brace@678..679 "{"
+                  If_Stmt@692..719
+                    If@692..694 "if"
+                    Binary_Expr@695..701
+                      Ident@695..696
+                        Ident@695..696 "y"
+                      Cmp_Eq@697..699 "=="
+                      Literal@700..701
+                        Integer@700..701 "0"
+                    Do_Body@702..719
+                      Do@702..704 "do"
+                      Branch_Stmt@705..719
+                        Continue@705..713 "continue"
+                        Ident@714..719
+                          Ident@714..719 "outer"
+                  Branch_Stmt@732..743
+                    Break@732..737 "break"
+                    Ident@738..743
+                      Ident@738..743 "inner"
+                  Close_Brace@752..753 "}"
+              Close_Brace@758..759 "}"
+          Defer_Stmt@765..780
+            Defer@765..770 "defer"
+            Expr_Stmt@771..780
+              Call_Expr@771..780
+                Ident@771..778
+                  Ident@771..778 "cleanup"
+                Arg_List@778..780
+                  Open_Paren@778..779 "("
+                  Close_Paren@779..780 ")"
+          Defer_Stmt@785..816
+            Defer@785..790 "defer"
+            Block@791..816
+              Open_Brace@791..792 "{"
+              Expr_Stmt@801..810
+                Call_Expr@801..810
+                  Ident@801..808
+                    Ident@801..808 "cleanup"
+                  Arg_List@808..810
+                    Open_Paren@808..809 "("
+                    Close_Paren@809..810 ")"
+              Close_Brace@815..816 "}"
+          Value_Decl@821..839
+            Using@821..826 "using"
+            Name_List@827..832
+              Ident@827..832
+                Ident@827..832 "point"
+            Colon@832..833 ":"
+            Ident@834..839
+              Ident@834..839 "Point"
+          Using_Stmt@844..855
+            Using@844..849 "using"
+            Expr_List@850..855
+              Ident@850..855
+                Ident@850..855 "point"
+          Value_Decl@861..890
+            Name_List@861..866
+              Ident@861..866
+                Ident@861..866 "value"
+            Colon@867..868 ":"
+            Eq@868..869 "="
+            Expr_List@870..890
+              Or_Return_Expr@870..890
+                Call_Expr@870..880
+                  Ident@870..878
+                    Ident@870..878 "may_fail"
+                  Arg_List@878..880
+                    Open_Paren@878..879 "("
+                    Close_Paren@879..880 ")"
+                Or_Return@881..890 "or_return"
+          For_Stmt@895..957
+            For@895..898 "for"
+            Block@899..957
+              Open_Brace@899..900 "{"
+              Expr_Stmt@909..924
+                Or_Branch_Expr@909..924
+                  Call_Expr@909..915
+                    Ident@909..913
+                      Ident@909..913 "next"
+                    Arg_List@913..915
+                      Open_Paren@913..914 "("
+                      Close_Paren@914..915 ")"
+                  Or_Break@916..924 "or_break"
+              Expr_Stmt@933..951
+                Or_Branch_Expr@933..951
+                  Call_Expr@933..939
+                    Ident@933..937
+                      Ident@933..937 "next"
+                    Arg_List@937..939
+                      Open_Paren@937..938 "("
+                      Close_Paren@938..939 ")"
+                  Or_Continue@940..951 "or_continue"
+              Close_Brace@956..957 "}"
+          Value_Decl@962..992
+            Name_List@962..970
+              Ident@962..970
+                Ident@962..970 "fallback"
+            Colon@971..972 ":"
+            Eq@972..973 "="
+            Expr_List@974..992
+              Or_Else_Expr@974..992
+                Call_Expr@974..982
+                  Ident@974..980
+                    Ident@974..980 "lookup"
+                  Arg_List@980..982
+                    Open_Paren@980..981 "("
+                    Close_Paren@981..982 ")"
+                Or_Else@983..990 "or_else"
+                Literal@991..992
+                  Integer@991..992 "0"
+          Block@998..1040
+            Directive@998..1014
+              Hash@998..999 "#"
+              Ident@999..1014 "no_bounds_check"
+            Open_Brace@1015..1016 "{"
+            Assign_Stmt@1025..1034
+              Expr_List@1025..1026
+                Ident@1025..1026
+                  Ident@1025..1026 "_"
+              Eq@1027..1028 "="
+              Expr_List@1029..1034
+                Index_Expr@1029..1034
+                  Ident@1029..1031
+                    Ident@1029..1031 "xs"
+                  Open_Bracket@1031..1032 "["
+                  Literal@1032..1033
+                    Integer@1032..1033 "0"
+                  Close_Bracket@1033..1034 "]"
+            Close_Brace@1039..1040 "}"
+          Assign_Stmt@1045..1080
+            Expr_List@1045..1052
+              Context_Expr@1045..1052
+                Context@1045..1052 "context"
+            Eq@1053..1054 "="
+            Expr_List@1055..1080
+              Call_Expr@1055..1080
+                Selector_Expr@1055..1078
+                  Ident@1055..1062
+                    Ident@1055..1062 "runtime"
+                  Period@1062..1063 "."
+                  Ident@1063..1078
+                    Ident@1063..1078 "default_context"
+                Arg_List@1078..1080
+                  Open_Paren@1078..1079 "("
+                  Close_Paren@1079..1080 ")"
+          Assign_Stmt@1085..1127
+            Expr_List@1085..1102
+              Selector_Expr@1085..1102
+                Context_Expr@1085..1092
+                  Context@1085..1092 "context"
+                Period@1092..1093 "."
+                Ident@1093..1102
+                  Ident@1093..1102 "allocator"
+            Eq@1103..1104 "="
+            Expr_List@1105..1127
+              Selector_Expr@1105..1127
+                Context_Expr@1105..1112
+                  Context@1105..1112 "context"
+                Period@1112..1113 "."
+                Ident@1113..1127
+                  Ident@1113..1127 "temp_allocator"
+          Value_Decl@1132..1144
+            Name_List@1132..1136
+              Ident@1132..1133
+                Ident@1132..1133 "x"
+              Comma@1133..1134 ","
+              Ident@1135..1136
+                Ident@1135..1136 "y"
+            Colon@1137..1138 ":"
+            Eq@1138..1139 "="
+            Expr_List@1140..1144
+              Literal@1140..1141
+                Integer@1140..1141 "1"
+              Comma@1141..1142 ","
+              Literal@1143..1144
+                Integer@1143..1144 "2"
+          Assign_Stmt@1149..1160
+            Expr_List@1149..1153
+              Ident@1149..1150
+                Ident@1149..1150 "x"
+              Comma@1150..1151 ","
+              Ident@1152..1153
+                Ident@1152..1153 "y"
+            Eq@1154..1155 "="
+            Expr_List@1156..1160
+              Ident@1156..1157
+                Ident@1156..1157 "y"
+              Comma@1157..1158 ","
+              Ident@1159..1160
+                Ident@1159..1160 "x"
+          Assign_Stmt@1165..1171
+            Expr_List@1165..1166
+              Ident@1165..1166
+                Ident@1165..1166 "x"
+            Add_Eq@1167..1169 "+="
+            Expr_List@1170..1171
+              Literal@1170..1171
+                Integer@1170..1171 "1"
+          Block@1176..1203
+            Open_Brace@1176..1177 "{"
+            Value_Decl@1186..1197
+              Name_List@1186..1192
+                Ident@1186..1192
+                  Ident@1186..1192 "nested"
+              Colon@1193..1194 ":"
+              Eq@1194..1195 "="
+              Expr_List@1196..1197
+                Literal@1196..1197
+                  Integer@1196..1197 "1"
+            Close_Brace@1202..1203 "}"
+          Return_Stmt@1208..1220
+            Return@1208..1214 "return"
+            Expr_List@1215..1220
+              Implicit_Selector@1215..1220
+                Period@1215..1216 "."
+                Ident@1216..1220
+                  Ident@1216..1220 "None"
+          Close_Brace@1221..1222 "}"
+  EOF@1223..1223 ""

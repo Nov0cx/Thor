@@ -1,402 +1,737 @@
-// Signature help: resolve the call the caret sits in and report the callee's
-// signature line with the active parameter's span within it. A call of a
-// procedure group (`sizes :: proc{sized_a, sized_b}`) reports one signature per
-// member, since the group itself declares no parameters to show.
+// Signature help: the signature of the innermost call that holds the caret, with the parameter
+// the caret is on, and one signature per member of a procedure group.
 package odin
 
-import "core:os"
 import "core:strings"
-import "core:sync"
 
 import lang ".."
-import ts "../../vendor/odin-tree-sitter"
+import odinsema "sema"
+import odinsyntax "syntax"
 
-// Resolves the call the caret sits inside to its procedure declaration and fills
-// `res.signature` with that proc's signature line plus the byte range, within
-// the line, of the parameter the caret is currently on. The call's function is
-// resolved the same three ways goto is — same-file, package-qualified
-// (`pkg.fn(...)`) and cross-file workspace scan — so signature help follows the
-// same reach. Only procedures produce a result; a call of a non-proc is ignored.
+// Most members of a procedure group listed.
+@(private = "file")
+SIGNATURE_MEMBERS_MAX :: 32
+
+// A parameter of a signature label.
+@(private = "file")
+Sig_Param :: struct {
+    name:        string, // "" when unnamed; without the `$` of a polymorphic name
+    start:       int,    // [start, end) in the label
+    end:         int,
+    variadic:    bool,
+    has_default: bool,
+}
+
+// One signature. Strings are temp-allocated.
+@(private = "file")
+Sig_Entry :: struct {
+    label:  string,
+    params: [dynamic]Sig_Param,
+    type:   odinsema.Type_Id,
+}
+
+// The call that holds the caret.
+@(private = "file")
+Call_Site :: struct {
+    call:   odinsyntax.Syntax_Node,
+    callee: odinsyntax.Syntax_Node,
+    slot:   int,    // the argument the caret is in, counted from 0
+    slots:  int,    // the argument slots written; a trailing comma opens one
+    named:  string, // the name of the named argument the caret is in; "" when positional
+    method: bool,   // `x->f(`: the receiver is the first parameter
+}
+
+// A non-trivia token of a label source and where it lands in the label.
 @(private)
-signature_help :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Request, res: ^lang.Result) {
-    call, ok := enclosing_call(root, req.source, req.offset)
-    if !ok {
+Label_Token :: struct {
+    src_start, src_end: int,
+    out_start, out_end: int,
+}
+
+// Fills res.signature with the signatures of the call that holds req.offset.
+@(private)
+signature_help :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
+    ctx: Request_Context
+    opened := request_open(e, req, &ctx)
+    defer request_close(&ctx)
+    if !opened || ctx.parsed.tree == nil || ctx.parsed.tree.root == nil {
         return
     }
-    fn := ts.node_child_by_field_name(call, "function")
-    if ts.node_is_null(fn) {
+    off := clamp(req.offset, 0, len(req.source))
+    if in_literal(&ctx, off, numbers = false) {
         return
     }
-
-    src, path, d, found := resolve_call_target(e, parser, root, req, call, fn)
-    if !found || d.kind != "function" {
+    site, found := call_at(&ctx, off)
+    if !found {
         return
     }
-
-    active := call_active_param(call, req.offset)
-    entries := make([dynamic]lang.Signature_Entry, context.allocator)
-    typed: []bool // per entry, whether the written arguments fit it
-
-    // A procedure group stands in for its members: its own declaration names no
-    // parameters, so signing the group would show a call's arguments against an
-    // empty list. The members are what the call actually reaches.
-    if d.overload {
-        typed = overload_entries(e, parser, root, req, call, src, path, d, active, &entries)
+    c := request_checker(&ctx)
+    if c == nil {
+        return
     }
-    // An ordinary procedure — or a group none of whose members could be found
-    // (every one written qualified, or declared outside its package). The group's
-    // own declaration is then still the most informative thing there is.
-    if len(entries) == 0 {
-        append(&entries, signature_entry(signature_text(src, d), active))
-        typed = nil
+    entries := make([dynamic]Sig_Entry, context.temp_allocator)
+    collect_entries(&ctx, c, site, &entries)
+    if len(entries) == 0 || lang.request_cancelled(req) {
+        return
     }
+    active := active_entry(c, ctx.live.id, site, entries[:])
+    emit_signature(entries[:], active, site, res)
+}
 
-    res.signature = lang.Signature_Info {
-        entries = entries,
-        active  = pick_overload(entries[:], typed, call_arg_count(call, req.source), active),
+// Clones the entries into res.signature.
+@(private = "file")
+emit_signature :: proc(entries: []Sig_Entry, active: int, site: Call_Site, res: ^lang.Result) {
+    out, merr := make([dynamic]lang.Signature_Entry, 0, len(entries))
+    if merr != nil {
+        return
     }
+    for entry in entries {
+        label, err := strings.clone(entry.label)
+        if err != nil {
+            break
+        }
+        start, end := active_range(entry, site)
+        if _, aerr := append(&out, lang.Signature_Entry{label = label, active_start = start, active_end = end}); aerr != nil {
+            delete(label)
+            break
+        }
+    }
+    if len(out) == 0 {
+        delete(out)
+        return
+    }
+    res.signature = lang.Signature_Info{entries = out, active = clamp(active, 0, len(out) - 1)}
     res.ok = true
 }
 
-// Pairs an already-owned label with the span of its `active`-th parameter. The
-// label is moved, not cloned: signature_text already allocated it in the
-// Manager's allocator, where job_free expects to find it.
-@(private)
-signature_entry :: proc(label: string, active: int) -> lang.Signature_Entry {
-    start, end := active_param_span(label, active)
-    return lang.Signature_Entry{label = label, active_start = start, active_end = end}
-}
-
-// Nearest call_expression enclosing `offset`, so a caret anywhere inside a call's
-// argument list (including the whitespace between arguments) resolves to that
-// call. The innermost call wins, so `outer(inner(|))` picks `inner`.
-@(private)
-enclosing_call :: proc(root: ts.Node, source: string, offset: int) -> (ts.Node, bool) {
-    off := u32(clamp(offset, 0, len(source)))
-    n := ts.node_named_descendant_for_byte_range(root, off, off)
-    for !ts.node_is_null(n) {
-        if string(ts.node_type(n)) == "call_expression" {
-            return n, true
+// The innermost call whose parentheses hold `off`. An unclosed call holds the text to its end.
+@(private = "file")
+call_at :: proc(ctx: ^Request_Context, off: int) -> (Call_Site, bool) {
+    root := odinsyntax.node_root(ctx.parsed.tree)
+    for probe in ([2]int{off, off - 1}) {
+        if probe < 0 {
+            continue
         }
-        n = ts.node_parent(n)
+        tok, ok := odinsyntax.node_token_at(root, u32(probe), context.temp_allocator)
+        if !ok {
+            continue
+        }
+        for p := tok.parent; p != nil; p = p.parent {
+            if p.green.kind != .Arg_List || p.parent == nil || p.parent.green.kind != .Call_Expr {
+                continue
+            }
+            if site, inside := site_of(p^, p.parent^, off); inside {
+                return site, true
+            }
+        }
     }
     return {}, false
 }
 
-// Index of the argument the caret is on: the count of top-level commas in the
-// call's parentheses before `offset`. Commas are direct `,` children of the
-// call_expression, so a nested call's commas (buried in an argument subtree)
-// never leak in. A caret before the first `(` (e.g. on the function name) is 0.
-@(private)
-call_active_param :: proc(call: ts.Node, offset: int) -> int {
-    active := 0
-    seen_open := false
-    for i in 0 ..< ts.node_child_count(call) {
-        c := ts.node_child(call, i)
-        switch string(ts.node_type(c)) {
-        case "(":
-            seen_open = true
-        case ")":
-            return active
-        case ",":
-            if seen_open && int(ts.node_start_byte(c)) < offset {
-                active += 1
-            } else if seen_open {
-                return active
+// The call site of `list`, the argument list of `call`; false when `off` is not inside its parentheses.
+@(private = "file")
+site_of :: proc(list, call: odinsyntax.Syntax_Node, off: int) -> (Call_Site, bool) {
+    open_end, close_start := -1, -1
+    _, list_end := odinsyntax.node_range(list)
+    pos := int(list.offset)
+    for child in odinsyntax.green_children(list.green) {
+        child_len := int(odinsyntax.element_len(child))
+        if tok, is_token := odinsyntax.element_token(child); is_token {
+            #partial switch tok.kind {
+            case .Open_Paren:
+                if open_end < 0 {
+                    open_end = pos + child_len
+                }
+            case .Close_Paren:
+                close_start = pos
             }
         }
+        pos += child_len
     }
-    return active
-}
-
-// How many arguments the call is written with: the top-level commas in its
-// parentheses plus one, or 0 for an empty `()`. Like call_active_param it reads
-// only the `,` children of the call_expression, so a nested call's own arguments
-// never leak in. This counts what is *written*, a trailing empty argument
-// included (`f(1,|)` is two) — mid-call that is exactly the arity the user is
-// heading for, which is what picks the overload.
-@(private)
-call_arg_count :: proc(call: ts.Node, source: string) -> int {
-    open, close := -1, -1
+    if open_end < 0 || off < open_end {
+        return {}, false
+    }
+    if close_start >= 0 ? off > close_start : off > int(list_end) {
+        return {}, false
+    }
+    ce, _ := odinsyntax.as_call_expr(call)
+    callee, has_callee := odinsyntax.call_expr_callee(&ce)
+    if !has_callee {
+        return {}, false
+    }
+    site := Call_Site{call = call, callee = callee}
+    if sel, is_sel := odinsyntax.as_selector_expr(callee); is_sel {
+        _, site.method = odinsyntax.selector_expr_arrow(&sel)
+    }
     commas := 0
-    for i in 0 ..< ts.node_child_count(call) {
-        c := ts.node_child(call, i)
-        switch string(ts.node_type(c)) {
-        case "(":
-            if open < 0 {
-                open = int(ts.node_end_byte(c))
-            }
-        case ")":
-            if close < 0 {
-                close = int(ts.node_start_byte(c))
-            }
-        case ",":
-            if open >= 0 && close < 0 {
+    has_arg := false
+    pos = int(list.offset)
+    for child in odinsyntax.green_children(list.green) {
+        child_len := int(odinsyntax.element_len(child))
+        defer pos += child_len
+        if tok, is_token := odinsyntax.element_token(child); is_token {
+            if tok.kind == .Comma {
                 commas += 1
+                if pos + child_len <= off {
+                    site.slot += 1
+                }
             }
-        }
-    }
-    if open < 0 || close < open || close > len(source) {
-        return 0
-    }
-    if strings.trim_space(source[open:close]) == "" {
-        return 0
-    }
-    return commas + 1
-}
-
-// The parameters a signature label declares: how many there are, how many must
-// be written (a defaulted one may be left out), and whether the last is variadic
-// (`args: ..int`) and so absorbs any number of arguments past the ones before
-// it. Reads the first parenthesized group — the parameter list; a `-> (a, b)`
-// result tuple comes after it and is never reached — and splits it on its
-// top-level commas, so a comma inside a nested type (`b: proc(x: int)`,
-// `c: [dynamic]int`) doesn't split a parameter.
-@(private)
-param_arity :: proc(label: string) -> (count, required: int, variadic: bool) {
-    inner, ok := after_paren_group(label, want_inner = true)
-    if !ok || strings.trim_space(inner) == "" {
-        return 0, 0, false // an empty list is 0 parameters, not 1
-    }
-    parts := split_top_level(inner)
-    count = len(parts)
-    variadic = strings.contains(parts[count - 1], "..")
-    for part, i in parts {
-        // A default (`loc := #caller_location`) and the variadic tail are both
-        // optional, so neither is an argument the call has to write.
-        if strings.contains(part, "=") || (variadic && i == count - 1) {
             continue
         }
-        required += 1
+        n, _ := odinsyntax.element_node(child)
+        if n.kind == .Error {
+            continue
+        }
+        has_arg = true
+        if commas == site.slot && n.kind == .Field_Value {
+            fv, _ := odinsyntax.as_field_value(odinsyntax.Syntax_Node{n, u32(pos), nil, list.tree})
+            if name, ok := odinsyntax.field_value_name(&fv); ok && name.green.kind == .Ident {
+                site.named = odinsyntax.node_text(name)
+            }
+        }
     }
-    return
+    if has_arg || commas > 0 {
+        site.slots = commas + 1
+    }
+    return site, true
 }
 
-// Whether a call of `argc` arguments fits a signature label's parameter list:
-// every required parameter written, and no more than the list takes unless its
-// tail is variadic.
-@(private)
-arity_takes :: proc(label: string, argc: int) -> bool {
-    count, required, variadic := param_arity(label)
-    return argc >= required && (variadic || argc <= count)
+// The signatures the callee of `site` stands for.
+@(private = "file")
+collect_entries :: proc(ctx: ^Request_Context, c: ^odinsema.Checker, site: Call_Site, out: ^[dynamic]Sig_Entry) {
+    file := ctx.live.id
+    fn := odinsema.expr_type(c, file, site.callee)
+    name := callee_name(site.callee)
+    #partial switch fn.mode {
+    case .Builtin:
+        if fn.has_symbol && fn.symbol.item >= 0 {
+            add_entry(c, fn, name, out)
+        }
+    case .Value, .Const:
+        base := odinsema.type_base(&c.table, fn.type)
+        #partial switch g in odinsema.type_get(&c.table, base) {
+        case odinsema.Proc_Type:
+            add_entry(c, fn, name, out)
+        case odinsema.Proc_Group_Type:
+            group_entries(c, fn, g, out)
+        }
+    case .Type:
+        type_entry(c, fn, strings.trim_space(odinsyntax.node_text(site.callee)), out)
+    }
 }
 
-// The entry a call best matches. Arity is the strong signal, and the one that
-// separates most of a group's members (`proc(int)` from `proc(int, int)`);
-// `typed` — empty when there is nothing to read — separates the rest by what the
-// written arguments are, so members of one arity still land on the right entry.
-// When nothing fits — a call still being typed, or members no argument tells
-// apart — the first entry with a parameter in the slot the caret sits on wins,
-// and failing that the first entry: a call in progress must still show something.
+// Adds the entry of a call of the type `fn`: `List($T: typeid, $N: int)` for a polymorphic record,
+// else the conversion `T(value)`.
+@(private = "file")
+type_entry :: proc(c: ^odinsema.Checker, fn: odinsema.Operand, name: string, out: ^[dynamic]Sig_Entry) {
+    if fn.type == odinsema.INVALID_TYPE || name == "" {
+        return
+    }
+    entry := Sig_Entry{params = make([dynamic]Sig_Param, context.temp_allocator), type = fn.type}
+    sb := strings.builder_make(context.temp_allocator)
+    strings.write_string(&sb, name)
+    params: []odinsema.Proc_Param
+    file: odinsema.File_Id
+    offset := -1
+    #partial switch r in odinsema.type_get(&c.table, odinsema.type_base(&c.table, fn.type)) {
+    case odinsema.Struct_Type:
+        params, file, offset = r.params, r.file, r.offset
+    case odinsema.Union_Type:
+        params, file, offset = r.params, r.file, r.offset
+    }
+    if len(params) == 0 {
+        strings.write_string(&sb, "(")
+        start := strings.builder_len(sb)
+        strings.write_string(&sb, "value")
+        append(&entry.params, Sig_Param{name = "value", start = start, end = strings.builder_len(sb)})
+        strings.write_string(&sb, ")")
+        entry.label = strings.to_string(sb)
+        append(out, entry)
+        return
+    }
+    if list, found := record_params_at(c, file, offset); found {
+        toks := make([dynamic]Label_Token, context.temp_allocator)
+        write_label_tokens(&sb, odinsyntax.Syntax_Node(list), &toks)
+        list_params(list, toks[:], &entry)
+        if len(entry.params) == len(params) {
+            entry.label = strings.to_string(sb)
+            append(out, entry)
+            return
+        }
+        clear(&entry.params)
+        strings.builder_reset(&sb)
+        strings.write_string(&sb, name)
+    }
+    strings.write_byte(&sb, '(')
+    for param, i in params {
+        if i > 0 {
+            strings.write_string(&sb, ", ")
+        }
+        start := strings.builder_len(sb)
+        write_param(&sb, c, param, false)
+        append(&entry.params, Sig_Param{
+            name        = strings.trim_prefix(param.name, "$"),
+            start       = start,
+            end         = strings.builder_len(sb),
+            has_default = param.has_default,
+        })
+    }
+    strings.write_byte(&sb, ')')
+    entry.label = strings.to_string(sb)
+    append(out, entry)
+}
+
+// The polymorphic parameter list of the struct or union type node at `offset` of `file`.
+@(private = "file")
+record_params_at :: proc(c: ^odinsema.Checker, file: odinsema.File_Id, offset: int) -> (odinsyntax.Param_List, bool) {
+    if offset < 0 {
+        return {}, false
+    }
+    n, ok := odinsema.node_at(c, file, offset)
+    if !ok {
+        return {}, false
+    }
+    if st, is_struct := odinsyntax.as_struct_type(n); is_struct {
+        return odinsyntax.struct_type_params(&st)
+    }
+    if ut, is_union := odinsyntax.as_union_type(n); is_union {
+        return odinsyntax.union_type_params(&ut)
+    }
+    return {}, false
+}
+
+// The name a callee is written with: the identifier, or the field of a selector. "" for another expression.
+@(private = "file")
+callee_name :: proc(callee: odinsyntax.Syntax_Node) -> string {
+    #partial switch callee.green.kind {
+    case .Ident:
+        return odinsyntax.node_text(callee)
+    case .Selector_Expr:
+        sel, _ := odinsyntax.as_selector_expr(callee)
+        if field, ok := odinsyntax.selector_expr_field(&sel); ok {
+            return odinsyntax.node_text(odinsyntax.Syntax_Node(field))
+        }
+    }
+    return ""
+}
+
+// One entry per member of the group `fn`. A member the checker cannot read is left out.
+@(private = "file")
+group_entries :: proc(c: ^odinsema.Checker, fn: odinsema.Operand, g: odinsema.Proc_Group_Type, out: ^[dynamic]Sig_Entry) {
+    item: ^odinsema.Item
+    if fn.has_symbol {
+        item = odinsema.checker_item(c, fn.symbol)
+    }
+    if item != nil && item.kind == .Proc_Group {
+        for m in item.members {
+            if len(out) == SIGNATURE_MEMBERS_MAX {
+                break
+            }
+            n, ok := odinsema.expr_under(c, fn.symbol.file, m.offset)
+            if !ok {
+                continue
+            }
+            op := odinsema.expr_type(c, fn.symbol.file, n)
+            if _, is_proc := odinsema.type_get(&c.table, odinsema.type_base(&c.table, op.type)).(odinsema.Proc_Type); is_proc {
+                add_entry(c, op, m.name, out)
+            }
+        }
+        if len(out) > 0 {
+            return
+        }
+    }
+    if fn.has_symbol && fn.symbol.item == odinsema.LOCAL_ITEM {
+        local_group_entries(c, fn.symbol, out)
+        if len(out) > 0 {
+            return
+        }
+    }
+    for m in g.members {
+        if len(out) == SIGNATURE_MEMBERS_MAX {
+            break
+        }
+        add_entry(c, odinsema.Operand{mode = .Value, type = m}, "", out)
+    }
+}
+
+// One entry per member of the procedure group the local `sym` declares.
+@(private = "file")
+local_group_entries :: proc(c: ^odinsema.Checker, sym: odinsema.Symbol, out: ^[dynamic]Sig_Entry) {
+    l, ok := odinsema.local_at(c, sym.file, int(sym.child))
+    if !ok || l.value_offset < 0 {
+        return
+    }
+    n, found := odinsema.node_at(c, sym.file, l.value_offset)
+    if !found {
+        return
+    }
+    group, is_group := odinsyntax.as_proc_group(n)
+    if !is_group {
+        return
+    }
+    it := odinsyntax.proc_group_members(&group)
+    for m in odinsyntax.child_iter_next(&it) {
+        if len(out) == SIGNATURE_MEMBERS_MAX {
+            break
+        }
+        op := odinsema.expr_type(c, sym.file, m)
+        if _, is_proc := odinsema.type_get(&c.table, odinsema.type_base(&c.table, op.type)).(odinsema.Proc_Type); is_proc {
+            add_entry(c, op, callee_name(m), out)
+        }
+    }
+}
+
+// Adds the signature of the procedure `op`: from the source of its declaration, else from its type.
+@(private = "file")
+add_entry :: proc(c: ^odinsema.Checker, op: odinsema.Operand, name: string, out: ^[dynamic]Sig_Entry) {
+    entry := Sig_Entry{params = make([dynamic]Sig_Param, context.temp_allocator), type = op.type}
+    if op.has_symbol && source_label(c, op.symbol, name, &entry) {
+        append(out, entry)
+        return
+    }
+    p, is_proc := odinsema.type_get(&c.table, odinsema.type_base(&c.table, op.type)).(odinsema.Proc_Type)
+    if !is_proc {
+        return
+    }
+    type_label(c, p, name, &entry)
+    append(out, entry)
+}
+
+// Fills `entry` from the procedure type written at the declaration `sym`; false when there is none.
+@(private = "file")
+source_label :: proc(c: ^odinsema.Checker, sym: odinsema.Symbol, fallback: string, entry: ^Sig_Entry) -> bool {
+    name := fallback
+    sep := ": "
+    type_offset, value_offset := -1, -1
+    if sym.item == odinsema.LOCAL_ITEM {
+        l, ok := odinsema.local_at(c, sym.file, int(sym.child))
+        if !ok {
+            return false
+        }
+        name = l.name
+        if l.kind == .Proc || l.kind == .Const {
+            sep = " :: "
+        }
+        type_offset, value_offset = l.type_offset, l.value_offset
+    } else {
+        item := odinsema.checker_item(c, sym)
+        if item == nil {
+            return false
+        }
+        name = item.name
+        if item.kind == .Proc || item.kind == .Const {
+            sep = " :: "
+        }
+        type_offset, value_offset = item.type_offset, item.value_offset
+    }
+    pt, found := proc_type_at(c, sym.file, type_offset)
+    if !found {
+        pt, found = proc_type_at(c, sym.file, value_offset)
+    }
+    if !found {
+        return false
+    }
+    sb := strings.builder_make(context.temp_allocator)
+    if name != "" {
+        strings.write_string(&sb, name)
+        strings.write_string(&sb, sep)
+    }
+    toks := make([dynamic]Label_Token, context.temp_allocator)
+    write_label_tokens(&sb, pt, &toks)
+    entry.label = strings.to_string(sb)
+    source_params(pt, toks[:], entry)
+    return true
+}
+
+// The procedure type of the expression at `offset` of `file`, through a literal and a directive.
+@(private = "file")
+proc_type_at :: proc(c: ^odinsema.Checker, file: odinsema.File_Id, offset: int) -> (odinsyntax.Syntax_Node, bool) {
+    if offset < 0 {
+        return {}, false
+    }
+    n, ok := odinsema.node_at(c, file, offset)
+    for ok {
+        #partial switch n.green.kind {
+        case .Proc_Type:
+            return n, true
+        case .Proc_Lit:
+            pl, _ := odinsyntax.as_proc_lit(n)
+            pt, has_type := odinsyntax.proc_lit_type(&pl)
+            n, ok = odinsyntax.Syntax_Node(pt), has_type
+        case .Tag_Expr:
+            te, _ := odinsyntax.as_tag_expr(n)
+            n, ok = odinsyntax.tag_expr_expr(&te)
+        case:
+            return {}, false
+        }
+    }
+    return {}, false
+}
+
+// A non-trivia token of a label source.
 @(private)
-pick_overload :: proc(entries: []lang.Signature_Entry, typed: []bool, argc, active: int) -> int {
-    if len(entries) <= 1 {
+Raw_Token :: struct {
+    kind:  odinsyntax.Token_Kind,
+    start: int,
+    end:   int,
+    space: bool, // trivia comes before it
+}
+
+// Appends the non-trivia tokens of `g`, which starts at `offset`.
+@(private)
+collect_tokens :: proc(g: ^odinsyntax.Green_Node, offset: int, raw: ^[dynamic]Raw_Token, space: ^bool) {
+    pos := offset
+    for child in odinsyntax.green_children(g) {
+        child_len := int(odinsyntax.element_len(child))
+        defer pos += child_len
+        if inner, is_node := odinsyntax.element_node(child); is_node {
+            collect_tokens(inner, pos, raw, space)
+            continue
+        }
+        tok, _ := odinsyntax.element_token(child)
+        if odinsyntax.token_is_trivia(tok.kind) {
+            space^ = true
+            continue
+        }
+        if child_len == 0 {
+            continue
+        }
+        append(raw, Raw_Token{kind = tok.kind, start = pos, end = pos + child_len, space = space^})
+        space^ = false
+    }
+}
+
+// Writes the tokens of `n` on one line: comments dropped, each run of trivia one space, no space
+// inside parentheses and no comma before a closing one.
+@(private)
+write_label_tokens :: proc(sb: ^strings.Builder, n: odinsyntax.Syntax_Node, out: ^[dynamic]Label_Token) {
+    raw := make([dynamic]Raw_Token, context.temp_allocator)
+    space := false
+    collect_tokens(n.green, int(n.offset), &raw, &space)
+    text := n.tree.text
+    prev := odinsyntax.Token_Kind.Error
+    for r, i in raw {
+        if r.kind == .Comma && i + 1 < len(raw) && raw[i + 1].kind == .Close_Paren {
+            continue
+        }
+        if r.space && i > 0 && prev != .Open_Paren && r.kind != .Close_Paren {
+            strings.write_byte(sb, ' ')
+        }
+        start := strings.builder_len(sb^)
+        strings.write_string(sb, text[r.start:r.end])
+        append(out, Label_Token{src_start = r.start, src_end = r.end, out_start = start, out_end = strings.builder_len(sb^)})
+        prev = r.kind
+    }
+}
+
+// The label range of the source range [start, end); false when no label token lies in it.
+@(private = "file")
+label_range :: proc(toks: []Label_Token, start, end: int) -> (lo, hi: int, ok: bool) {
+    lo, hi = -1, -1
+    for t in toks {
+        if t.src_start >= start && t.src_end <= end {
+            if lo < 0 {
+                lo = t.out_start
+            }
+            hi = t.out_end
+        }
+    }
+    return lo, hi, lo >= 0
+}
+
+// Reads the parameters of the procedure type node `pt` into `entry`.
+@(private = "file")
+source_params :: proc(pt: odinsyntax.Syntax_Node, toks: []Label_Token, entry: ^Sig_Entry) {
+    ptv, _ := odinsyntax.as_proc_type(pt)
+    list, ok := odinsyntax.proc_type_params(&ptv)
+    if ok {
+        list_params(list, toks, entry)
+    }
+}
+
+// Reads the fields of the parameter list `list` into `entry`. A field with several names gives one
+// parameter per name; the last name also covers the type.
+@(private = "file")
+list_params :: proc(list: odinsyntax.Param_List, toks: []Label_Token, entry: ^Sig_Entry) {
+    list := list
+    it := odinsyntax.param_list_fields(&list)
+    for fnode in odinsyntax.child_iter_next(&it) {
+        field, _ := odinsyntax.as_field(fnode)
+        fstart, fend := odinsyntax.node_range(fnode)
+        variadic := false
+        if t, has_type := odinsyntax.field_type(&field); has_type {
+            variadic = t.green.kind == .Ellipsis_Type
+        }
+        _, has_default := odinsyntax.field_default(&field)
+        _, has_colon := odinsyntax.find_child_token((^odinsyntax.Syntax_Node)(&field), {tokens = {.Colon}})
+        names, has_names := odinsyntax.field_names(&field)
+        if !has_colon || !has_names {
+            lo, hi, found := label_range(toks, int(fstart), int(fend))
+            if found {
+                append(&entry.params, Sig_Param{start = lo, end = hi, variadic = variadic, has_default = has_default})
+            }
+            continue
+        }
+        name_nodes := make([dynamic]odinsyntax.Syntax_Node, context.temp_allocator)
+        nit := odinsyntax.name_list_names(&names)
+        for nn in odinsyntax.child_iter_next(&nit) {
+            append(&name_nodes, nn)
+        }
+        for nn, k in name_nodes {
+            nstart, nend := odinsyntax.node_range(nn)
+            last := k == len(name_nodes) - 1
+            lo, hi, found := label_range(toks, int(nstart), last ? int(fend) : int(nend))
+            if !found {
+                continue
+            }
+            append(&entry.params, Sig_Param{
+                name        = strings.trim_prefix(strings.trim_space(odinsyntax.node_text(nn)), "$"),
+                start       = lo,
+                end         = hi,
+                variadic    = variadic,
+                has_default = has_default,
+            })
+        }
+    }
+}
+
+// Fills `entry` from the procedure type `p`: `name: proc(a: int, b: string) -> bool`.
+@(private = "file")
+type_label :: proc(c: ^odinsema.Checker, p: odinsema.Proc_Type, name: string, entry: ^Sig_Entry) {
+    sb := strings.builder_make(context.temp_allocator)
+    if name != "" {
+        strings.write_string(&sb, name)
+        strings.write_string(&sb, ": ")
+    }
+    strings.write_string(&sb, "proc")
+    if p.convention != "" && p.convention != "odin" {
+        strings.write_string(&sb, " \"")
+        strings.write_string(&sb, p.convention)
+        strings.write_string(&sb, "\" ")
+    }
+    strings.write_byte(&sb, '(')
+    for param, i in p.params {
+        if i > 0 {
+            strings.write_string(&sb, ", ")
+        }
+        start := strings.builder_len(sb)
+        variadic := .Variadic in param.flags || .C_Vararg in param.flags
+        write_param(&sb, c, param, variadic)
+        append(&entry.params, Sig_Param{
+            name        = strings.trim_prefix(param.name, "$"),
+            start       = start,
+            end         = strings.builder_len(sb),
+            variadic    = variadic,
+            has_default = param.has_default,
+        })
+    }
+    strings.write_byte(&sb, ')')
+    switch {
+    case p.diverging:
+        strings.write_string(&sb, " -> !")
+    case len(p.results) == 1 && p.results[0].name == "":
+        strings.write_string(&sb, " -> ")
+        write_param(&sb, c, p.results[0], false)
+    case len(p.results) > 0:
+        strings.write_string(&sb, " -> (")
+        for r, i in p.results {
+            if i > 0 {
+                strings.write_string(&sb, ", ")
+            }
+            write_param(&sb, c, r, false)
+        }
+        strings.write_byte(&sb, ')')
+    }
+    entry.label = strings.to_string(sb)
+}
+
+// `name: T = default`, `name := default`, `..T` or `T`.
+@(private = "file")
+write_param :: proc(sb: ^strings.Builder, c: ^odinsema.Checker, param: odinsema.Proc_Param, variadic: bool) {
+    if param.name != "" {
+        strings.write_string(sb, param.name)
+        if param.inferred {
+            strings.write_string(sb, " := ")
+            strings.write_string(sb, param.default)
+            return
+        }
+        strings.write_string(sb, ": ")
+    }
+    if variadic {
+        strings.write_string(sb, "..")
+    }
+    strings.write_string(sb, odinsema.type_string(&c.table, param.type, context.temp_allocator))
+    if param.has_default {
+        strings.write_string(sb, " = ")
+        strings.write_string(sb, param.default)
+    }
+}
+
+// The entry the call picks: the group member the checker chooses for the arguments, else the first
+// that takes as many arguments as are written, else the first that takes them when more are added.
+@(private = "file")
+active_entry :: proc(c: ^odinsema.Checker, file: odinsema.File_Id, site: Call_Site, entries: []Sig_Entry) -> int {
+    if len(entries) < 2 {
         return 0
     }
+    n := site.slots + (site.method ? 1 : 0)
+    if chosen := odinsema.call_group_member(c, file, site.call); chosen != odinsema.INVALID_TYPE {
+        for entry, i in entries {
+            if entry.type == chosen && takes_more(entry, n) {
+                return i
+            }
+        }
+    }
     for entry, i in entries {
-        if arity_takes(entry.label, argc) && i < len(typed) && typed[i] {
+        if takes_more(entry, n) && required_params(entry) <= n {
             return i
         }
     }
     for entry, i in entries {
-        if arity_takes(entry.label, argc) {
-            return i
-        }
-    }
-    for entry, i in entries {
-        if count, _, variadic := param_arity(entry.label); variadic || active < count {
+        if takes_more(entry, n) {
             return i
         }
     }
     return 0
 }
 
-// Resolves a call's function operand to its procedure declaration, returning the
-// source it lives in and the Def within it. Handles `pkg.fn(...)` (the call node
-// nests under a member_expression carrying the package operand) by following the
-// import into that package's directory; otherwise the bare function name is
-// resolved same-file first, then across the workspace. The returned source is the
-// worker's temp-allocated file text (job-lifetime), so the Def's slices stay
-// valid after the parse tree is freed.
-@(private)
-resolve_call_target :: proc(
-    e: ^Engine,
-    parser: ts.Parser,
-    root: ts.Node,
-    req: ^lang.Request,
-    call, fn: ts.Node,
-) -> (source: string, path: string, d: Def, ok: bool) {
-    // `pkg.fn(args)`: the call is the second child of a member_expression whose
-    // first child is the package operand. Resolve `fn` in that package's dir.
-    if parent := ts.node_parent(call); !ts.node_is_null(parent) &&
-        string(ts.node_type(parent)) == "member_expression" {
-        pkg_node := ts.node_named_child(parent, 0)
-        if same_node(ts.node_named_child(parent, 1), call) && is_identifier(pkg_node) && is_identifier(fn) {
-            pkg := ts.node_text(pkg_node, req.source)
-            name := ts.node_text(fn, req.source)
-            if raw, rok := import_path(root, req.source, pkg); rok {
-                if dir, dok := package_dir(e, raw, req.path, req.workspace); dok {
-                    return find_proc_in_dir(e, parser, dir, name, req.path)
-                }
+// True when `entry` takes `n` arguments.
+@(private = "file")
+takes_more :: proc(entry: Sig_Entry, n: int) -> bool {
+    return n <= len(entry.params) || (len(entry.params) > 0 && entry.params[len(entry.params) - 1].variadic)
+}
+
+// The parameters a call must write.
+@(private = "file")
+required_params :: proc(entry: Sig_Entry) -> int {
+    count := 0
+    for p in entry.params {
+        if !p.has_default && !p.variadic {
+            count += 1
+        }
+    }
+    return count
+}
+
+// The label range of the parameter the caret is on; empty when there is none.
+@(private = "file")
+active_range :: proc(entry: Sig_Entry, site: Call_Site) -> (start, end: int) {
+    k := -1
+    if site.named != "" {
+        for p, i in entry.params {
+            if p.name == site.named {
+                k = i
+                break
             }
-            return "", "", {}, false
+        }
+    } else {
+        k = site.slot + (site.method ? 1 : 0)
+        if k >= len(entry.params) {
+            k = len(entry.params) > 0 && entry.params[len(entry.params) - 1].variadic ? len(entry.params) - 1 : -1
         }
     }
-
-    if !is_identifier(fn) {
-        return "", "", {}, false
+    if k < 0 {
+        return 0, 0
     }
-    name := ts.node_text(fn, req.source)
-
-    // Same file: a top-level procedure of this name (locals of the same name are
-    // not callables we can sign, so require the "function" kind).
-    defs := collect_defs(e, root, req.source)
-    if local, lok := resolve_local(defs[:], name, int(ts.node_start_byte(fn))); lok && local.kind == "function" {
-        return req.source, req.path, local, true
-    }
-
-    // Package, then workspace (see index_package_dir): the index points at the
-    // file declaring the procedure; re-parse just that one for its Def (the
-    // caller needs the live source and decl range).
-    if req.workspace != "" {
-        decl_path, located := "", false
-        sync.lock(&e.index.mutex)
-        index_sync(e, parser, req)
-        same_package := true
-        p, found := index_first_path(e, name, req.path, "function", index_package_dir(e, req.path), true)
-        if !found {
-            p, found = index_first_path(e, name, req.path, "function", "", false)
-            same_package = false
-        }
-        if found {
-            decl_path = strings.clone(p, context.temp_allocator)
-            located = true
-        }
-        sync.unlock(&e.index.mutex)
-        if located {
-            return first_proc_in_file(e, parser, decl_path, name, same_package)
-        }
-    }
-
-    // The implicit scope: `append(...)`, `make(...)`, `len(...)` are declared by
-    // the toolchain rather than by anything here, and the cache names the one
-    // file to read. Everything downstream then treats them as any other callee —
-    // a group signs its members, an argument's expected type reads its parameter.
-    if sym, bok := builtin_symbol(e, parser, name); bok {
-        return first_proc_in_file(e, parser, sym.path, name, false)
-    }
-    return "", "", {}, false
-}
-
-// First top-level procedure named `name` in `path`, with the file's source and
-// path (so the Def stays valid past the parse, and a type its signature names
-// keeps a file whose imports qualify it). Reused by the package and workspace
-// scans.
-@(private)
-first_proc_in_file :: proc(
-    e: ^Engine,
-    parser: ts.Parser,
-    path, name: string,
-    same_package: bool,
-) -> (source: string, file: string, d: Def, ok: bool) {
-    src, sok := source_read(path)
-    if !sok {
-        return "", "", {}, false
-    }
-
-    tree := ts.parser_parse_string(parser, src)
-    if tree == nil {
-        return "", "", {}, false
-    }
-    defer ts.tree_delete(tree)
-
-    defs := collect_defs(e, ts.tree_root_node(tree), src)
-    for def in defs {
-        if def.top_level && def.kind == "function" && def.name == name &&
-           def_reaches(def.visibility, same_package) {
-            return src, path, def, true
-        }
-    }
-    return "", "", {}, false
-}
-
-// First top-level procedure named `name` in one package directory (all its .odin
-// files, non-recursively — an Odin package is a flat directory). `skip` is the
-// requesting file's path, left out so the live buffer's stale on-disk copy loses.
-// Reached through a qualifier (`pkg.f(`), so `dir` is another package and only
-// its public procedures are in reach.
-@(private)
-find_proc_in_dir :: proc(
-    e: ^Engine,
-    parser: ts.Parser,
-    dir, name, skip: string,
-) -> (source: string, path: string, d: Def, ok: bool) {
-    handle, open_err := os.open(dir)
-    if open_err != nil {
-        return "", "", {}, false
-    }
-    defer os.close(handle)
-
-    infos, read_err := os.read_dir(handle, -1, context.temp_allocator)
-    if read_err != nil {
-        return "", "", {}, false
-    }
-
-    for info in infos {
-        if info.type == .Directory || !strings.has_suffix(info.name, ".odin") {
-            continue
-        }
-        if is_request_file(info.fullpath, skip) {
-            continue
-        }
-        if src, file, def, found := first_proc_in_file(e, parser, info.fullpath, name, false); found {
-            return src, file, def, found
-        }
-    }
-    return "", "", {}, false
-}
-
-// Expands a procedure group into one entry per member. The members are located
-// package-locally (see overload_sites); one that resolves to nothing is left out,
-// so a group written entirely qualified produces no entries at all and the caller
-// falls back to the group's own declaration.
-//
-// Reports, per entry, whether the call's written arguments fit that member — what
-// picks the active entry among members of one arity. Temp-allocated, and indexed
-// by *entry*, not by site, since an unresolved member has no entry.
-@(private)
-overload_entries :: proc(
-    e: ^Engine,
-    parser: ts.Parser,
-    root: ts.Node,
-    req: ^lang.Request,
-    call: ts.Node,
-    group_src, group_path: string,
-    d: Def,
-    active: int,
-    out: ^[dynamic]lang.Signature_Entry,
-) -> []bool {
-    sites := overload_sites(e, parser, root, req, group_src, group_path, d)
-    keep := make([]bool, len(sites), context.temp_allocator)
-    for site, i in sites {
-        keep[i] = site.label != ""
-    }
-    fits := types_fit(
-        e,
-        parser,
-        req,
-        Call_Site{node = call, root = root},
-        sites,
-        call_arg_count(call, req.source),
-        keep,
-    )
-
-    typed := make([dynamic]bool, context.temp_allocator)
-    for site, i in sites {
-        if site.label != "" {
-            append(out, signature_entry(site.label, active))
-            append(&typed, fits[i])
-        }
-    }
-    return typed[:]
+    return entry.params[k].start, entry.params[k].end
 }

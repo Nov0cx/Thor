@@ -8,7 +8,7 @@ import "core:testing"
 // ranges.
 @(private)
 diff_apply_spans :: proc(old: string, spans: []Diff_Span) -> string {
-    out: [dynamic]u8
+    out := make([dynamic]u8, context.temp_allocator)
     pos := 0
     for s in spans {
         for i := pos; i < s.start; i += 1 {
@@ -27,7 +27,7 @@ diff_apply_spans :: proc(old: string, spans: []Diff_Span) -> string {
 
 @(private)
 diff_assert_reassembles :: proc(t: ^testing.T, old, new: string) {
-    spans := diff_spans(old, new)
+    spans := diff_spans(old, new, context.temp_allocator)
     for i := 1; i < len(spans); i += 1 {
         testing.expect(t, spans[i - 1].end <= spans[i].start, "spans must be ascending and non-overlapping")
     }
@@ -45,7 +45,7 @@ test_diff_identical :: proc(t: ^testing.T) {
 test_diff_single_line_change_is_minimal :: proc(t: ^testing.T) {
     old := "a\nb\nc\nd\ne\n"
     new := "a\nb\nX\nd\ne\n"
-    spans := diff_spans(old, new)
+    spans := diff_spans(old, new, context.temp_allocator)
     testing.expect_value(t, len(spans), 1)
     testing.expect_value(t, spans[0].text, "X\n")
     diff_assert_reassembles(t, old, new)

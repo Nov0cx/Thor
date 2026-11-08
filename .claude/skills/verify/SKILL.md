@@ -97,7 +97,7 @@ Confirm the package appears there whenever the change adds a test file.
 
 ## 5. Update the roadmap
 
-`lang/ROADMAP.md` is the living source of truth for what the language
+`lang/LANGUAGE_INTELLIGENCE.md` is the living source of truth for what the language
 intelligence does and does not do. If the change added, finished or removed a
 feature there, update it.
 

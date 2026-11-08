@@ -13,8 +13,13 @@ import "core:sync"
 import "core:thread"
 import "core:time"
 
+import "../lockfree"
+
 Request_Kind :: enum {
     Definition,
+    // The declaration of the type of the name or expression at `offset`. Answers `location` or
+    // `symbols` like Definition.
+    Type_Definition,
     Hover,
     Document_Symbols,
     Workspace_Symbols,
@@ -24,8 +29,16 @@ Request_Kind :: enum {
     Package_Doc,
     Rename,
     Diagnostics,
+    // Syntax errors of the live buffer, debounced while typing. Answers `report`
+    // with `scope` set to the file.
+    Syntax_Diagnostics,
     Code_Actions,
     Semantic_Tokens,
+    // Virtual text over [offset, end): inferred types and parameter names.
+    // Answers `inlays`.
+    Inlay_Hints,
+    // The uses of the symbol at `offset` in the request's buffer. Answers `highlights`.
+    Document_Highlight,
     Format,
     // Whole-line range formatting over [offset, end) — a selection, aligned to
     // whole lines by the host before dispatch.
@@ -44,6 +57,26 @@ Request_Kind :: enum {
     // candidate back verbatim in Request.item. Only a backend that defers
     // answers it; an in-client analyzer computes everything up front.
     Resolve_Completion,
+    // Computes the edits of a Code_Action that asked the user for a value
+    // (Code_Action.prompt). Request.command names the action, Request.new_name
+    // carries the answer, and offset/end are the caret or selection the offer was
+    // made at. The result answers `edits` and `resource_ops` like Rename, and
+    // `message.text` the reason when `ok` is false.
+    Resolve_Action,
+    // The callers (Request.query "up", the default) or the callees ("down") of the procedure at
+    // `offset`, or of the one that holds it. Answers `symbols`, one per procedure, with the
+    // line and offset of its name.
+    Call_Hierarchy,
+    // The types the type at `offset` embeds with `using` (Request.query "up") or the types that
+    // embed it ("down"). Answers `symbols`.
+    Type_Hierarchy,
+    // The members of the procedure group at `offset`, the groups that hold the procedure, the
+    // variants of a union, or the types that embed the type. Answers `symbols`.
+    Implementations,
+    // The syntax ranges around `offset`, innermost first. Answers `ranges`.
+    Selection_Range,
+    // The reference count of each top-level declaration of the buffer. Answers `lenses`.
+    Code_Lens,
     // Push-only: never dispatched through manager_request*, only produced by
     // Backend.poll (a server's unsolicited $/progress notification).
     Progress,
@@ -62,6 +95,19 @@ Location :: struct {
     path:  string, // owned
     start: int,
     end:   int,
+}
+
+// A byte range of the request's buffer.
+Text_Range :: struct {
+    start: int,
+    end:   int,
+}
+
+// A reference count above the declaration whose name is [start, end).
+Code_Lens_Item :: struct {
+    start: int,
+    end:   int,
+    count: int,
 }
 
 // Hover payload: display text plus the symbol range it describes, so the editor
@@ -195,6 +241,11 @@ Code_Action :: struct {
     // edits first, then runs it.
     command:       string, // owned; "" when the action carries its own edits
     arguments:     string, // owned; the command's arguments as raw JSON array text
+    // An action that needs a value from the user first: the host asks for it with
+    // `prompt` as the label and `prompt_default` filled in, then dispatches
+    // Resolve_Action with `command` and the answer. Its edits are empty.
+    prompt:         string, // owned; "" when the action needs no input
+    prompt_default: string, // owned
 }
 
 // What a classified identifier turned out to be — what the analyzer proved, not
@@ -211,16 +262,57 @@ Token_Kind :: enum {
     Enum_Member,
     Package,
     Unresolved,
+    Inactive, // a range under a `when` the target makes false; no identifier inside is classified
 }
+
+// What else the analyzer proved about a classified identifier.
+Token_Modifier :: enum u8 {
+    Deprecated, // the declaration has a `deprecated` attribute
+    Distinct,   // a `distinct` type
+    Constant,   // a value declared with `::`
+    Mutable,    // declared with `:=`, or a field
+}
+
+Token_Modifiers :: bit_set[Token_Modifier;u8]
 
 // One classified identifier: a byte range and what the analyzer proved it to be.
 // Carries no owned strings, unlike every other payload here — a file is
 // thousands of rows, so a `string` kind would be a clone and a free per
 // identifier per keystroke. The editor maps the enum to a color itself.
 Semantic_Token :: struct {
+    start:     int,
+    end:       int,
+    kind:      Token_Kind,
+    modifiers: Token_Modifiers,
+}
+
+// What an inlay hint shows.
+Inlay_Kind :: enum {
+    Type,
+    Parameter,
+}
+
+// How a document highlight uses its symbol.
+Highlight_Kind :: enum {
+    Text,
+    Read,
+    Write,
+}
+
+// One use of the symbol at the caret, over [start, end) of the request's buffer.
+Document_Highlight :: struct {
     start: int,
     end:   int,
-    kind:  Token_Kind,
+    kind:  Highlight_Kind,
+}
+
+// Virtual text the editor draws before the byte at `offset`.
+Inlay_Hint :: struct {
+    offset:    int,
+    label:     string, // owned
+    kind:      Inlay_Kind,
+    pad_left:  bool,
+    pad_right: bool,
 }
 
 // One step of a server's unsolicited work-progress report ($/progress). `done`
@@ -237,12 +329,12 @@ Progress_Info :: struct {
     done:    bool,
 }
 
-// Severity of a compiler diagnostic. Deliberately coarser than LSP's four
-// levels: everything a checker emits is either something that stops the build or
-// something that does not, and the editor colors exactly those two.
+// Severity of a diagnostic, worst first. Hint is a lint the editor shows faint;
+// LSP's Information and Hint both map to it.
 Diagnostic_Severity :: enum {
     Error,
     Warning,
+    Hint,
 }
 
 // One diagnostic, in the file it belongs to. Line and column rather than the
@@ -256,6 +348,8 @@ Diagnostic :: struct {
     col:      int,    // 1-based
     severity: Diagnostic_Severity,
     message:  string, // owned
+    code:     string, // static; the diagnostic id, as `name/undeclared`; "" when none
+    lint:     bool,   // a check the compiler does not make; shown beside the compiler's report
 }
 
 // A check's full answer for one scope. `items` is exhaustive for `scope`, so a
@@ -265,6 +359,8 @@ Diagnostic :: struct {
 Diagnostic_Report :: struct {
     scope: string, // owned, absolute directory or file path
     items: [dynamic]Diagnostic,
+    // A file scope: the items also cover the other files of its directory, each by `path`.
+    package_wide: bool,
 }
 
 // A diagnostic already in byte-offset form, handed to a Code_Actions request by
@@ -326,7 +422,7 @@ Request :: struct {
     // "" when the request was not driven by one. A backend uses it to tell an
     // explicitly opened list from one a character asked for.
     trigger:  string,
-    // Execute_Command only; owned. The command identifier, and its arguments as
+    // Execute_Command and Resolve_Action; owned. The command identifier, and its arguments as
     // the raw JSON array text the offer carried — kept verbatim rather than
     // decoded, since the seam never reads them and the server round-trips its
     // own shapes.
@@ -390,7 +486,15 @@ Result :: struct {
     // one pass. Sparse by design: an identifier the backend could not classify
     // is simply absent, and keeps whatever color the grammar gave it.
     tokens:    [dynamic]Semantic_Token,
-    // Format only. Set from the workspace's odin-formatter.json newline_style
+    // Inlay_Hints; owned, freed in job_free. Ascending by `offset`.
+    inlays:    [dynamic]Inlay_Hint,
+    // Document_Highlight; owned, freed in job_free. Ascending by `start`.
+    highlights: [dynamic]Document_Highlight,
+    // Selection_Range; owned, freed in job_free. Innermost first, each range holds the one before.
+    ranges: [dynamic]Text_Range,
+    // Code_Lens; owned, freed in job_free. Ascending by `start`.
+    lenses: [dynamic]Code_Lens_Item,
+    // Format only. Set from the workspace's odin-formatter.lua newline_style
     // key, and only when that key is actually present — an absent key must
     // never flip a repo's line endings on the first format. Unspecified means
     // the applier leaves the file's line ending untouched.
@@ -479,7 +583,12 @@ Job :: struct {
     request:   Request,
     result:    Result,
     cancelled: bool, // written by the main thread, read atomically by the worker
+    queue_next: ^Job, // link in Manager.finished
 }
+
+// Most jobs that wait for a worker. A request past it is answered as found nothing.
+@(private)
+QUEUE_SLOTS :: 1024
 
 // A request waiting out its debounce delay. One slot per kind, overwritten by a
 // newer request of that kind, so a burst of keystrokes costs one dispatch. The
@@ -511,16 +620,16 @@ Manager :: struct {
     backends:  [dynamic]Backend,
     next_id:   u64,
     allocator: runtime.Allocator,
-    mutex:     sync.Mutex, // guards `finished`, `active`, `inflight`, `queue` and `shutdown`
-    finished:  [dynamic]^Job,
-    active:    map[u64]^Job, // every dispatched job not yet freed, so it can be cancelled by id
-    inflight:  int,
+    finished:  lockfree.Stack(Job), // pushed by the workers, taken by manager_dispatch
+    // Every dispatched job not yet freed, so it can be cancelled by id. Main-thread only.
+    active:    map[u64]^Job,
+    inflight:  int, // main-thread only
     // The worker pool: dispatched jobs wait in `queue` (FIFO) until one of the
     // `workers` picks them up, woken by one `work` post per enqueued job.
-    queue:     [dynamic]^Job,
+    queue:     lockfree.Mpmc(^Job, QUEUE_SLOTS),
     workers:   []^thread.Thread,
     work:      sync.Sema,
-    shutdown:  bool, // set by pool_destroy; a worker that wakes to an empty queue then exits
+    shutdown:  bool, // atomic; set by pool_destroy; a worker that wakes to an empty queue then exits
     // Debounce slots, one per kind. Main-thread only (filled by
     // manager_request_debounced, emptied by manager_flush_debounced and the
     // cancels), so unlike `active` they need no lock.
@@ -540,9 +649,8 @@ manager_init :: proc(m: ^Manager, allocator := context.allocator) {
     m.enabled = true
     m.features = FEATURES_ALL
     m.backends = make([dynamic]Backend, allocator)
-    m.finished = make([dynamic]^Job, allocator)
     m.active = make(map[u64]^Job, 0, allocator)
-    m.queue = make([dynamic]^Job, allocator)
+    lockfree.mpmc_init(&m.queue)
     m.failed = make([dynamic]Result, allocator)
     m.next_id = 1
 
@@ -717,7 +825,8 @@ manager_on_type_trigger :: proc(m: ^Manager, ext, char: string) -> bool {
 // the extension; the result arrives via manager_dispatch on a later frame. The
 // per-kind arguments — `new_name` (Rename), `query` (Workspace_Symbols), `end`,
 // `diagnostics` (Code_Actions, a negative `end` collapsing to `offset`),
-// `command`/`command_args` (Execute_Command) and `item` (Resolve_Completion) —
+// `command`/`command_args` (Execute_Command), `command`/`new_name`
+// (Resolve_Action) and `item` (Resolve_Completion) —
 // are ignored by every other kind.
 manager_request :: proc(
     m: ^Manager,
@@ -855,11 +964,16 @@ dispatch_owned :: proc(
     job.result.kind = kind
     job.result.revision = revision
 
-    sync.lock(&m.mutex)
     m.inflight += 1
     m.active[id] = job
-    append(&m.queue, job)
-    sync.unlock(&m.mutex)
+    if !lockfree.mpmc_push(&m.queue, job) {
+        // Every slot waits for a worker. The caller keys a result slot on the
+        // id, so it is answered as found nothing.
+        failed := Result{id = id, kind = kind, revision = revision, undispatched = true}
+        job_free(m, job)
+        append(&m.failed, failed)
+        return id
+    }
 
     sync.sema_post(&m.work) // exactly one post per queued job; see pool_worker
     return id
@@ -879,8 +993,6 @@ manager_cancel :: proc(m: ^Manager, id: u64) -> bool {
         }
     }
 
-    sync.lock(&m.mutex)
-    defer sync.unlock(&m.mutex)
     job, ok := m.active[id]
     if !ok {
         return false
@@ -900,10 +1012,8 @@ manager_cancel_kind :: proc(m: ^Manager, kind: Request_Kind) -> int {
     if pending_clear(m, kind) {
         n += 1
     }
-    sync.lock(&m.mutex)
-    defer sync.unlock(&m.mutex)
     for _, job in m.active {
-        if job.request.kind == kind && !job.cancelled {
+        if job.request.kind == kind && !sync.atomic_load(&job.cancelled) {
             sync.atomic_store(&job.cancelled, true)
             n += 1
         }
@@ -922,10 +1032,8 @@ manager_cancel_all :: proc(m: ^Manager) -> int {
             n += 1
         }
     }
-    sync.lock(&m.mutex)
-    defer sync.unlock(&m.mutex)
     for _, job in m.active {
-        if !job.cancelled {
+        if !sync.atomic_load(&job.cancelled) {
             sync.atomic_store(&job.cancelled, true)
             n += 1
         }
@@ -947,13 +1055,11 @@ manager_has_request :: proc(m: ^Manager, id: u64) -> bool {
             return true
         }
     }
-    for res in m.failed {
+    for &res in m.failed {
         if res.id == id {
             return true
         }
     }
-    sync.lock(&m.mutex)
-    defer sync.unlock(&m.mutex)
     _, live := m.active[id]
     return live
 }
@@ -1115,8 +1221,6 @@ manager_flush_debounced :: proc(m: ^Manager, force := false) -> int {
 // already inside an uninterruptible step holds its resources until it returns.
 @(private)
 kind_inflight :: proc(m: ^Manager, kind: Request_Kind) -> bool {
-    sync.lock(&m.mutex)
-    defer sync.unlock(&m.mutex)
     for _, job in m.active {
         if job.request.kind == kind {
             return true
@@ -1160,17 +1264,9 @@ pool_worker :: proc(m: ^Manager) {
     for {
         sync.sema_wait(&m.work)
 
-        sync.lock(&m.mutex)
-        job: ^Job
-        if len(m.queue) > 0 {
-            job = m.queue[0]
-            ordered_remove(&m.queue, 0) // FIFO; the queue is a handful of entries
-        }
-        stop := m.shutdown
-        sync.unlock(&m.mutex)
-
-        if job == nil {
-            if stop {
+        job, ok := lockfree.mpmc_pop(&m.queue)
+        if !ok {
+            if sync.atomic_load(&m.shutdown) {
                 return
             }
             continue
@@ -1197,9 +1293,7 @@ job_run :: proc(job: ^Job) {
     // and the main thread must not hand that to the editor.
     job.result.cancelled = request_cancelled(&job.request)
 
-    sync.lock(&m.mutex)
-    append(&m.finished, job)
-    sync.unlock(&m.mutex)
+    lockfree.stack_push(&m.finished, job)
 }
 
 // Drains finished jobs on the main thread: invokes `handler(user, ^Result)`,
@@ -1210,19 +1304,14 @@ job_run :: proc(job: ^Job) {
 manager_dispatch :: proc(m: ^Manager, user: rawptr, handler: proc(user: rawptr, res: ^Result)) {
     manager_flush_debounced(m)
 
-    reaped := make([dynamic]^Job, context.temp_allocator)
-    sync.lock(&m.mutex)
-    for job in m.finished {
-        append(&reaped, job)
-    }
-    clear(&m.finished)
-    sync.unlock(&m.mutex)
-
-    for job in reaped {
+    job := lockfree.stack_take(&m.finished)
+    for job != nil {
+        next := job.queue_next
         if handler != nil && !job.result.cancelled {
             handler(user, &job.result)
         }
         job_free(m, job)
+        job = next
     }
 
     // Reserved ids no job was ever built for. Answered like any other empty
@@ -1281,10 +1370,8 @@ job_free :: proc(m: ^Manager, job: ^Job) {
     id := job.request.id
     free(job)
 
-    sync.lock(&m.mutex)
     delete_key(&m.active, id) // no longer cancellable; the pointer is dead
     m.inflight -= 1
-    sync.unlock(&m.mutex)
 }
 
 // Frees every owned field of a Result. The Manager's allocator owns them, so
@@ -1342,6 +1429,8 @@ result_free :: proc(m: ^Manager, res: ^Result) {
         delete(action.kind)
         delete(action.command)
         delete(action.arguments)
+        delete(action.prompt)
+        delete(action.prompt_default)
         for edit in action.edits {
             delete(edit.path)
             delete(edit.old_text)
@@ -1356,6 +1445,13 @@ result_free :: proc(m: ^Manager, res: ^Result) {
     }
     delete(res.actions)
     delete(res.tokens) // no owned strings on a token; the array is the whole allocation
+    for hint in res.inlays {
+        delete(hint.label)
+    }
+    delete(res.inlays)
+    delete(res.highlights)
+    delete(res.ranges)
+    delete(res.lenses)
     delete(res.report.scope)
     for d in res.report.items {
         delete(d.path)
@@ -1369,8 +1465,6 @@ result_free :: proc(m: ^Manager, res: ^Result) {
 // True while any request is still being worked. Used by manager_destroy and
 // available to the editor for a "busy" indicator.
 manager_busy :: proc(m: ^Manager) -> bool {
-    sync.lock(&m.mutex)
-    defer sync.unlock(&m.mutex)
     return m.inflight > 0
 }
 
@@ -1379,8 +1473,6 @@ manager_busy :: proc(m: ^Manager) -> bool {
 // way to being dropped, and nothing waits for it. Debounced requests are not
 // counted either — they have not been dispatched yet.
 manager_busy_kinds :: proc(m: ^Manager) -> (kinds: bit_set[Request_Kind]) {
-    sync.lock(&m.mutex)
-    defer sync.unlock(&m.mutex)
     for _, job in m.active {
         if request_cancelled(&job.request) {
             continue
@@ -1411,24 +1503,16 @@ manager_destroy :: proc(m: ^Manager) {
         }
     }
     delete(m.backends)
-    delete(m.finished)
     delete(m.active)
-    delete(m.queue)
     delete(m.failed)
 }
 
 // Retires the pool: one wake per worker so each sees `shutdown` and returns,
-// then joins them. Called after the drain, so the queue is empty — the extra
-// posts for whatever it still holds are belt-and-braces, keeping the "one wake
-// per worker" guarantee even if a job somehow outlived the drain.
+// then joins them. Called after the drain, so the queue is empty.
 @(private)
 pool_destroy :: proc(m: ^Manager) {
-    sync.lock(&m.mutex)
-    m.shutdown = true
-    wakes := len(m.workers) + len(m.queue)
-    sync.unlock(&m.mutex)
-
-    sync.sema_post(&m.work, wakes)
+    sync.atomic_store(&m.shutdown, true)
+    sync.sema_post(&m.work, len(m.workers))
     for w in m.workers {
         thread.join(w)
         thread.destroy(w)

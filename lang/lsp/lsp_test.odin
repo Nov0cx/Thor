@@ -87,7 +87,7 @@ test_client_handles_a_file_name :: proc(t: ^testing.T) {
     testing.expect(t, !handles(&c, ".mk"), "an extension the entry never named must claim nothing")
 }
 
-// The server's own lsp.json features seed the per-kind admin gate and state
+// The server's own lsp.lua features seed the per-kind admin gate and state
 // nothing after that, so the settings can decline a kind the file allowed and
 // allow one the file declined.
 @(test)
@@ -102,7 +102,7 @@ test_client_set_server_features_seeded_by_config :: proc(t: ^testing.T) {
         id         = "fake",
         extensions = extensions[:],
         command    = command[:],
-        features   = lang.FEATURES_ALL - {.Rename}, // lsp.json already declines Rename
+        features   = lang.FEATURES_ALL - {.Rename}, // lsp.lua already declines Rename
         enabled    = true,
     }
     c.servers = make([dynamic]^Server, 0)
@@ -114,7 +114,7 @@ test_client_set_server_features_seeded_by_config :: proc(t: ^testing.T) {
     }
 
     testing.expect(t, supports(&c, ".fake", .Hover))
-    testing.expect(t, !supports(&c, ".fake", .Rename), "the lsp.json config seeded Rename off")
+    testing.expect(t, !supports(&c, ".fake", .Rename), "the lsp.lua config seeded Rename off")
 
     defaults_enabled, defaults_features, defaults_ok := client_server_defaults(&c, "fake")
     testing.expect(t, defaults_ok)

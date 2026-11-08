@@ -6,17 +6,18 @@ import "core:os"
 import "core:path/filepath"
 import "core:strconv"
 import "core:strings"
-import "core:sync"
 import "core:thread"
 import "core:time"
 
 import "../shell"
 import "../textedit"
 import "../editview"
+import "../lockfree"
 // Async `git status --porcelain`: a worker captures the output, the main thread
 // parses it into an absolute-path -> status map. Every ancestor directory of a
 // change is marked too, so folders containing changes get tinted.
 Git_Status_Job :: struct {
+    queue_next: ^Git_Status_Job, // link in Thor.finished_git
     owner:       ^Thor,
     allocator:   runtime.Allocator,
     worker:      ^thread.Thread,
@@ -33,7 +34,7 @@ Git_Status_Job :: struct {
 // --unified=0 drops context lines, leaving just the changed ranges the gutter
 // needs. Fails harmlessly (empty diff) on a repo with no commits yet.
 @(private = "file")
-GIT_DIFF_BASE :: "git diff HEAD --unified=0 --no-color"
+GIT_DIFF_BASE :: "git --no-optional-locks diff HEAD --unified=0 --no-color"
 
 // A command line longer than this is refused by Windows, so the pathspec is
 // dropped rather than the diff.
@@ -109,7 +110,7 @@ git_status_worker :: proc(job: ^Git_Status_Job) {
     // -z complicates rename parsing; the plain porcelain format is enough for
     // highlighting, and git_unquote_path undoes the quoting -z would have avoided.
     ran: bool
-    job.output, job.status_code, ran = shell.run_status("git status --porcelain", job.dir)
+    job.output, job.status_code, ran = shell.run_status("git --no-optional-locks status --porcelain", job.dir)
     job.status_ok = ran && job.status_code == 0
     diff_code: int
     job.diff_output, diff_code, ran = shell.run_status(job.diff_cmd, job.dir)
@@ -119,9 +120,7 @@ git_status_worker :: proc(job: ^Git_Status_Job) {
         job.branch = thor_read_git_branch(git_dir)
     }
 
-    sync.lock(&job.owner.io_mutex)
-    append(&job.owner.finished_git, job)
-    sync.unlock(&job.owner.io_mutex)
+    lockfree.stack_push(&job.owner.finished_git, job)
 }
 
 // Drains a finished status job (called from thor_process_io): parses the output

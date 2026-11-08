@@ -1,0 +1,603 @@
+Root@0..937
+  Package_Decl@0..13
+    Package@0..7 "package"
+    Ident@8..13
+      Ident@8..13 "types"
+  Value_Decl@15..26
+    Name_List@15..18
+      Ident@15..18
+        Ident@15..18 "Ptr"
+    Colon@19..20 ":"
+    Colon@20..21 ":"
+    Expr_List@22..26
+      Pointer_Type@22..26
+        Pointer@22..23 "^"
+        Ident@23..26
+          Ident@23..26 "int"
+  Value_Decl@27..41
+    Name_List@27..32
+      Ident@27..32
+        Ident@27..32 "Multi"
+    Colon@33..34 ":"
+    Colon@34..35 ":"
+    Expr_List@36..41
+      Multi_Pointer_Type@36..41
+        Open_Bracket@36..37 "["
+        Pointer@37..38 "^"
+        Close_Bracket@38..39 "]"
+        Ident@39..41
+          Ident@39..41 "u8"
+  Value_Decl@42..56
+    Name_List@42..47
+      Ident@42..47
+        Ident@42..47 "Slice"
+    Colon@48..49 ":"
+    Colon@49..50 ":"
+    Expr_List@51..56
+      Array_Type@51..56
+        Open_Bracket@51..52 "["
+        Close_Bracket@52..53 "]"
+        Ident@53..56
+          Ident@53..56 "int"
+  Value_Decl@57..72
+    Name_List@57..62
+      Ident@57..62
+        Ident@57..62 "Fixed"
+    Colon@63..64 ":"
+    Colon@64..65 ":"
+    Expr_List@66..72
+      Array_Type@66..72
+        Open_Bracket@66..67 "["
+        Literal@67..68
+          Integer@67..68 "4"
+        Close_Bracket@68..69 "]"
+        Ident@69..72
+          Ident@69..72 "int"
+  Value_Decl@73..97
+    Name_List@73..81
+      Ident@73..81
+        Ident@73..81 "Inferred"
+    Colon@82..83 ":"
+    Eq@83..84 "="
+    Expr_List@85..97
+      Comp_Lit@85..97
+        Array_Type@85..91
+          Open_Bracket@85..86 "["
+          Question@86..87 "?"
+          Close_Bracket@87..88 "]"
+          Ident@88..91
+            Ident@88..91 "int"
+        Open_Brace@91..92 "{"
+        Literal@92..93
+          Integer@92..93 "1"
+        Comma@93..94 ","
+        Literal@95..96
+          Integer@95..96 "2"
+        Close_Brace@96..97 "}"
+  Value_Decl@98..117
+    Name_List@98..101
+      Ident@98..101
+        Ident@98..101 "Dyn"
+    Colon@102..103 ":"
+    Colon@103..104 ":"
+    Expr_List@105..117
+      Dynamic_Array_Type@105..117
+        Open_Bracket@105..106 "["
+        Dynamic@106..113 "dynamic"
+        Close_Bracket@113..114 "]"
+        Ident@114..117
+          Ident@114..117 "int"
+  Value_Decl@118..143
+    Name_List@118..124
+      Ident@118..124
+        Ident@118..124 "Capped"
+    Colon@125..126 ":"
+    Colon@126..127 ":"
+    Expr_List@128..143
+      Dynamic_Array_Type@128..143
+        Open_Bracket@128..129 "["
+        Dynamic@129..136 "dynamic"
+        Semicolon@136..137 ";"
+        Literal@138..139
+          Integer@138..139 "8"
+        Close_Bracket@139..140 "]"
+        Ident@140..143
+          Ident@140..143 "int"
+  Value_Decl@144..167
+    Name_List@144..149
+      Ident@144..149
+        Ident@144..149 "Table"
+    Colon@150..151 ":"
+    Colon@151..152 ":"
+    Expr_List@153..167
+      Map_Type@153..167
+        Map@153..156 "map"
+        Open_Bracket@156..157 "["
+        Ident@157..163
+          Ident@157..163 "string"
+        Close_Bracket@163..164 "]"
+        Ident@164..167
+          Ident@164..167 "int"
+  Value_Decl@168..195
+    Name_List@168..173
+      Ident@168..173
+        Ident@168..173 "Flags"
+    Colon@174..175 ":"
+    Colon@175..176 ":"
+    Expr_List@177..195
+      Bit_Set_Type@177..195
+        Bit_Set@177..184 "bit_set"
+        Open_Bracket@184..185 "["
+        Ident@185..190
+          Ident@185..190 "Color"
+        Semicolon@190..191 ";"
+        Ident@192..194
+          Ident@192..194 "u8"
+        Close_Bracket@194..195 "]"
+  Value_Decl@196..225
+    Name_List@196..205
+      Ident@196..205
+        Ident@196..205 "Range_Set"
+    Colon@206..207 ":"
+    Colon@207..208 ":"
+    Expr_List@209..225
+      Bit_Set_Type@209..225
+        Bit_Set@209..216 "bit_set"
+        Open_Bracket@216..217 "["
+        Binary_Expr@217..224
+          Literal@217..218
+            Integer@217..218 "0"
+          Range_Half@219..222 "..<"
+          Literal@223..224
+            Integer@223..224 "8"
+        Close_Bracket@224..225 "]"
+  Value_Decl@226..248
+    Name_List@226..229
+      Ident@226..229
+        Ident@226..229 "Mat"
+    Colon@230..231 ":"
+    Colon@231..232 ":"
+    Expr_List@233..248
+      Matrix_Type@233..248
+        Matrix@233..239 "matrix"
+        Open_Bracket@239..240 "["
+        Literal@240..241
+          Integer@240..241 "2"
+        Comma@241..242 ","
+        Literal@243..244
+          Integer@243..244 "3"
+        Close_Bracket@244..245 "]"
+        Ident@245..248
+          Ident@245..248 "f32"
+  Value_Decl@249..267
+    Name_List@249..252
+      Ident@249..252
+        Ident@249..252 "Vec"
+    Colon@253..254 ":"
+    Colon@254..255 ":"
+    Expr_List@256..267
+      Tag_Expr@256..267
+        Directive@256..261
+          Hash@256..257 "#"
+          Ident@257..261 "simd"
+        Array_Type@261..267
+          Open_Bracket@261..262 "["
+          Literal@262..263
+            Integer@262..263 "4"
+          Close_Bracket@263..264 "]"
+          Ident@264..267
+            Ident@264..267 "f32"
+  Value_Decl@268..292
+    Name_List@268..277
+      Ident@268..277
+        Ident@268..277 "Soa_Slice"
+    Colon@278..279 ":"
+    Colon@279..280 ":"
+    Expr_List@281..292
+      Tag_Expr@281..292
+        Directive@281..285
+          Hash@281..282 "#"
+          Ident@282..285 "soa"
+        Array_Type@285..292
+          Open_Bracket@285..286 "["
+          Close_Bracket@286..287 "]"
+          Ident@287..292
+            Ident@287..292 "Point"
+  Value_Decl@293..318
+    Name_List@293..302
+      Ident@293..302
+        Ident@293..302 "Soa_Fixed"
+    Colon@303..304 ":"
+    Colon@304..305 ":"
+    Expr_List@306..318
+      Tag_Expr@306..318
+        Directive@306..310
+          Hash@306..307 "#"
+          Ident@307..310 "soa"
+        Array_Type@310..318
+          Open_Bracket@310..311 "["
+          Literal@311..312
+            Integer@311..312 "4"
+          Close_Bracket@312..313 "]"
+          Ident@313..318
+            Ident@313..318 "Point"
+  Value_Decl@319..360
+    Name_List@319..324
+      Ident@319..324
+        Ident@319..324 "Color"
+    Colon@325..326 ":"
+    Colon@326..327 ":"
+    Expr_List@328..360
+      Enum_Type@328..360
+        Enum@328..332 "enum"
+        Ident@333..335
+          Ident@333..335 "u8"
+        Open_Brace@336..337 "{"
+        Ident@338..341
+          Ident@338..341 "Red"
+        Comma@341..342 ","
+        Field_Value@343..352
+          Ident@343..348
+            Ident@343..348 "Green"
+          Eq@349..350 "="
+          Literal@351..352
+            Integer@351..352 "2"
+        Comma@352..353 ","
+        Ident@354..358
+          Ident@354..358 "Blue"
+        Close_Brace@359..360 "}"
+  Value_Decl@361..383
+    Name_List@361..369
+      Ident@361..369
+        Ident@361..369 "By_Color"
+    Colon@370..371 ":"
+    Colon@371..372 ":"
+    Expr_List@373..383
+      Array_Type@373..383
+        Open_Bracket@373..374 "["
+        Ident@374..379
+          Ident@374..379 "Color"
+        Close_Bracket@379..380 "]"
+        Ident@380..383
+          Ident@380..383 "int"
+  Value_Decl@384..411
+    Name_List@384..390
+      Ident@384..390
+        Ident@384..390 "Sparse"
+    Colon@391..392 ":"
+    Colon@392..393 ":"
+    Expr_List@394..411
+      Tag_Expr@394..411
+        Directive@394..401
+          Hash@394..395 "#"
+          Ident@395..401 "sparse"
+        Array_Type@401..411
+          Open_Bracket@401..402 "["
+          Ident@402..407
+            Ident@402..407 "Color"
+          Close_Bracket@407..408 "]"
+          Ident@408..411
+            Ident@408..411 "int"
+  Value_Decl@412..454
+    Name_List@412..418
+      Ident@412..418
+        Ident@412..418 "Packed"
+    Colon@419..420 ":"
+    Colon@420..421 ":"
+    Expr_List@422..454
+      Struct_Type@422..454
+        Struct@422..428 "struct"
+        Directive@429..436
+          Hash@429..430 "#"
+          Ident@430..436 "packed"
+        Field_List@437..454
+          Open_Brace@437..438 "{"
+          Field@439..444
+            Name_List@439..440
+              Ident@439..440
+                Ident@439..440 "a"
+            Colon@440..441 ":"
+            Ident@442..444
+              Ident@442..444 "u8"
+          Comma@444..445 ","
+          Field@446..452
+            Name_List@446..447
+              Ident@446..447
+                Ident@446..447 "b"
+            Colon@447..448 ":"
+            Ident@449..452
+              Ident@449..452 "u32"
+          Close_Brace@453..454 "}"
+  Value_Decl@455..498
+    Name_List@455..458
+      Ident@455..458
+        Ident@455..458 "Raw"
+    Colon@459..460 ":"
+    Colon@460..461 ":"
+    Expr_List@462..498
+      Struct_Type@462..498
+        Struct@462..468 "struct"
+        Directive@469..479
+          Hash@469..470 "#"
+          Ident@470..479 "raw_union"
+        Field_List@480..498
+          Open_Brace@480..481 "{"
+          Field@482..488
+            Name_List@482..483
+              Ident@482..483
+                Ident@482..483 "i"
+            Colon@483..484 ":"
+            Ident@485..488
+              Ident@485..488 "i32"
+          Comma@488..489 ","
+          Field@490..496
+            Name_List@490..491
+              Ident@490..491
+                Ident@490..491 "f"
+            Colon@491..492 ":"
+            Ident@493..496
+              Ident@493..496 "f32"
+          Close_Brace@497..498 "}"
+  Value_Decl@499..544
+    Name_List@499..506
+      Ident@499..506
+        Ident@499..506 "Aligned"
+    Colon@507..508 ":"
+    Colon@508..509 ":"
+    Expr_List@510..544
+      Struct_Type@510..544
+        Struct@510..516 "struct"
+        Directive@517..523
+          Hash@517..518 "#"
+          Ident@518..523 "align"
+        Paren_Expr@523..527
+          Open_Paren@523..524 "("
+          Literal@524..526
+            Integer@524..526 "16"
+          Close_Paren@526..527 ")"
+        Field_List@528..544
+          Open_Brace@528..529 "{"
+          Field@530..542
+            Name_List@530..531
+              Ident@530..531
+                Ident@530..531 "x"
+            Colon@531..532 ":"
+            Ident@533..536
+              Ident@533..536 "int"
+            String@537..542 "\"tag\""
+          Close_Brace@543..544 "}"
+  Value_Decl@545..611
+    Name_List@545..552
+      Ident@545..552
+        Ident@545..552 "Generic"
+    Colon@553..554 ":"
+    Colon@554..555 ":"
+    Expr_List@556..611
+      Struct_Type@556..611
+        Struct@556..562 "struct"
+        Param_List@562..583
+          Open_Paren@562..563 "("
+          Field@563..573
+            Name_List@563..565
+              Poly_Type@563..565
+                Dollar@563..564 "$"
+                Ident@564..565
+                  Ident@564..565 "T"
+            Colon@565..566 ":"
+            Typeid_Type@567..573
+              Typeid@567..573 "typeid"
+          Comma@573..574 ","
+          Field@575..582
+            Name_List@575..577
+              Poly_Type@575..577
+                Dollar@575..576 "$"
+                Ident@576..577
+                  Ident@576..577 "N"
+            Colon@577..578 ":"
+            Ident@579..582
+              Ident@579..582 "int"
+          Close_Paren@582..583 ")"
+        Where_Clause@584..595
+          Where@584..589 "where"
+          Binary_Expr@590..595
+            Ident@590..591
+              Ident@590..591 "N"
+            Gt@592..593 ">"
+            Literal@594..595
+              Integer@594..595 "0"
+        Field_List@596..611
+          Open_Brace@596..597 "{"
+          Field@598..609
+            Name_List@598..603
+              Ident@598..603
+                Ident@598..603 "items"
+            Colon@603..604 ":"
+            Array_Type@605..609
+              Open_Bracket@605..606 "["
+              Ident@606..607
+                Ident@606..607 "N"
+              Close_Bracket@607..608 "]"
+              Ident@608..609
+                Ident@608..609 "T"
+          Close_Brace@610..611 "}"
+  Value_Decl@612..668
+    Name_List@612..617
+      Ident@612..617
+        Ident@612..617 "Point"
+    Colon@618..619 ":"
+    Colon@619..620 ":"
+    Expr_List@621..668
+      Struct_Type@621..668
+        Struct@621..627 "struct"
+        Field_List@628..668
+          Open_Brace@628..629 "{"
+          Field@634..650
+            Using@634..639 "using"
+            Name_List@640..644
+              Ident@640..644
+                Ident@640..644 "base"
+            Colon@644..645 ":"
+            Ident@646..650
+              Ident@646..650 "Base"
+          Comma@650..651 ","
+          Field@656..665
+            Name_List@656..660
+              Ident@656..657
+                Ident@656..657 "x"
+              Comma@657..658 ","
+              Ident@659..660
+                Ident@659..660 "y"
+            Colon@660..661 ":"
+            Ident@662..665
+              Ident@662..665 "f32"
+          Comma@665..666 ","
+          Close_Brace@667..668 "}"
+  Value_Decl@669..686
+    Name_List@669..673
+      Ident@669..673
+        Ident@669..673 "Base"
+    Colon@674..675 ":"
+    Colon@675..676 ":"
+    Expr_List@677..686
+      Struct_Type@677..686
+        Struct@677..683 "struct"
+        Field_List@684..686
+          Open_Brace@684..685 "{"
+          Close_Brace@685..686 "}"
+  Value_Decl@687..722
+    Name_List@687..692
+      Ident@687..692
+        Ident@687..692 "Value"
+    Colon@693..694 ":"
+    Colon@694..695 ":"
+    Expr_List@696..722
+      Union_Type@696..722
+        Union@696..701 "union"
+        Directive@702..709
+          Hash@702..703 "#"
+          Ident@703..709 "no_nil"
+        Open_Brace@710..711 "{"
+        Ident@712..715
+          Ident@712..715 "int"
+        Comma@715..716 ","
+        Ident@717..720
+          Ident@717..720 "f64"
+        Close_Brace@721..722 "}"
+  Value_Decl@723..777
+    Name_List@723..729
+      Ident@723..729
+        Ident@723..729 "Shared"
+    Colon@730..731 ":"
+    Colon@731..732 ":"
+    Expr_List@733..777
+      Union_Type@733..777
+        Union@733..738 "union"
+        Directive@739..750
+          Hash@739..740 "#"
+          Ident@740..750 "shared_nil"
+        Directive@751..757
+          Hash@751..752 "#"
+          Ident@752..757 "align"
+        Paren_Expr@757..760
+          Open_Paren@757..758 "("
+          Literal@758..759
+            Integer@758..759 "8"
+          Close_Paren@759..760 ")"
+        Open_Brace@761..762 "{"
+        Pointer_Type@763..767
+          Pointer@763..764 "^"
+          Ident@764..767
+            Ident@764..767 "int"
+        Comma@767..768 ","
+        Ident@769..775
+          Ident@769..775 "rawptr"
+        Close_Brace@776..777 "}"
+  Value_Decl@778..814
+    Name_List@778..787
+      Ident@778..787
+        Ident@778..787 "Maybe_Gen"
+    Colon@788..789 ":"
+    Colon@789..790 ":"
+    Expr_List@791..814
+      Union_Type@791..814
+        Union@791..796 "union"
+        Param_List@796..808
+          Open_Paren@796..797 "("
+          Field@797..807
+            Name_List@797..799
+              Poly_Type@797..799
+                Dollar@797..798 "$"
+                Ident@798..799
+                  Ident@798..799 "T"
+            Colon@799..800 ":"
+            Typeid_Type@801..807
+              Typeid@801..807 "typeid"
+          Close_Paren@807..808 ")"
+        Open_Brace@809..810 "{"
+        Ident@811..812
+          Ident@811..812 "T"
+        Close_Brace@813..814 "}"
+  Value_Decl@815..833
+    Name_List@815..817
+      Ident@815..817
+        Ident@815..817 "Id"
+    Colon@818..819 ":"
+    Colon@819..820 ":"
+    Expr_List@821..833
+      Distinct_Type@821..833
+        Distinct@821..829 "distinct"
+        Ident@830..833
+          Ident@830..833 "int"
+  Value_Decl@834..901
+    Name_List@834..838
+      Ident@834..838
+        Ident@834..838 "Bits"
+    Colon@839..840 ":"
+    Colon@840..841 ":"
+    Expr_List@842..901
+      Bit_Field_Type@842..901
+        Bit_Field@842..851 "bit_field"
+        Ident@852..855
+          Ident@852..855 "u16"
+        Open_Brace@856..857 "{"
+        Bit_Field_Field@862..874
+          Ident@862..865
+            Ident@862..865 "low"
+          Colon@865..866 ":"
+          Ident@868..870
+            Ident@868..870 "u8"
+          Or@871..872 "|"
+          Literal@873..874
+            Integer@873..874 "4"
+        Comma@874..875 ","
+        Bit_Field_Field@880..898
+          Ident@880..884
+            Ident@880..884 "high"
+          Colon@884..885 ":"
+          Ident@886..888
+            Ident@886..888 "u8"
+          Or@889..890 "|"
+          Literal@891..892
+            Integer@891..892 "4"
+          String@893..898 "\"tag\""
+        Comma@898..899 ","
+        Close_Brace@900..901 "}"
+  Value_Decl@902..918
+    Name_List@902..911
+      Ident@902..911
+        Ident@902..911 "Any_Value"
+    Colon@912..913 ":"
+    Colon@913..914 ":"
+    Expr_List@915..918
+      Ident@915..918
+        Ident@915..918 "any"
+  Value_Decl@919..936
+    Name_List@919..926
+      Ident@919..926
+        Ident@919..926 "Type_Id"
+    Colon@927..928 ":"
+    Colon@928..929 ":"
+    Expr_List@930..936
+      Typeid_Type@930..936
+        Typeid@930..936 "typeid"
+  EOF@937..937 ""

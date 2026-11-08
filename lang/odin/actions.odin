@@ -1,795 +1,352 @@
-// Code actions: the fixes offered at the caret, each carrying the edits that
-// apply it. Every producer here answers from what the engine already knows — the
-// file's import table, its lexical scope, the enum locator behind implicit
-// selectors — and none of them writes a file: an action returns Text_Edits and
-// the host applies them, so a fix is one undo entry the user can take back.
+// Code actions: the quick fixes that fix or suppress a live diagnostic at the caret, and the refactorings.
 package odin
 
 import "core:fmt"
-import "core:os"
-import "core:path/filepath"
 import "core:slice"
 import "core:strings"
-import "core:sync"
 
 import lang ".."
-import ts "../../vendor/odin-tree-sitter"
+import odinsema "sema"
+import odinsyntax "syntax"
 
-// How deep a collection is searched for a package directory. Two levels covers
-// the standard library's nesting (`core:path/filepath`, `core:odin/parser`)
-// without walking the whole tree for a name that isn't there.
+// Most `import` fixes offered for one unresolved package name.
 @(private = "file")
-COLLECTION_DEPTH :: 2
+MAX_IMPORT_FIXES :: 4
 
-// Import paths offered for one unresolved package name. A name that matches in
-// several collections is genuinely ambiguous and the user picks, but the list
-// stops here rather than growing without bound.
-@(private = "file")
-IMPORT_CANDIDATE_LIMIT :: 8
-
-// Every fix available at the caret, in the order they are offered: the
-// caret-specific ones first, whole-file cleanup last. `res.ok` reports whether
-// anything was found, so the host can tell "nothing applies here" from a request
-// that never ran.
+// Answers the quick fixes for the caret: fixes first, suppressions last.
 @(private)
-code_actions :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Request, res: ^lang.Result) {
-    action_add_import(e, parser, root, req, res)
-    action_fix_diagnostic(e, parser, root, req, res)
-    action_fill_switch_cases(e, parser, root, req, res)
-    action_declare_variable(e, parser, root, req, res)
-    action_remove_unused_imports(root, req, res)
+code_actions :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
+    if req.path == "" {
+        return
+    }
+    rc: Request_Context
+    opened := request_open(e, req, &rc)
+    defer request_close(&rc)
+    if !opened || lang.request_cancelled(req) {
+        return
+    }
+    res.actions = make([dynamic]lang.Code_Action)
+    caret := request_caret(&rc)
+    if len(rc.parsed.errors) == 0 && rc.live.in_build {
+        if m, err := odinsema.scope_map(rc.parsed, context.temp_allocator); err == nil {
+            defer odinsema.scope_map_destroy(m, context.temp_allocator)
+            whens := make([dynamic]Branch, context.temp_allocator)
+            collect_whens(odinsyntax.node_root(rc.parsed.tree), &rc, &whens)
+            switch_fixes(&rc, caret, res)
+            struct_field_fixes(&rc, caret, res)
+            or_return_fixes(&rc, caret, res)
+            create_decl_fixes(&rc, caret, res)
+            refactor_actions(&rc, m, caret, res)
+            unused_variable_fixes(&rc, m, caret, res)
+            unused_import_fixes(&rc, m, whens[:], caret, res)
+            compiler_fixes(&rc, res)
+        }
+    }
+    if !lang.request_cancelled(req) {
+        import_fixes(&rc, caret, res)
+    }
+    if !lang.request_cancelled(req) {
+        ignore_fixes(&rc, caret, res)
+    }
     res.ok = len(res.actions) > 0
 }
 
-// One replacement a producer wants, before it becomes a Text_Edit: `old_text` is
-// not carried because it is always the source under the range, which push_action
-// slices for itself. `path`/`source` default to the request file — set both
-// together to aim an edit at a sibling file instead (add-missing-import's
-// multi-file sweep is the one producer that does).
+// The missing cases of the innermost switch around the caret that leaves some out, and `#partial`.
 @(private = "file")
-Edit_Spec :: struct {
-    path:       string, // "" means req.path
-    source:     string, // ignored when path == ""
-    start, end: int,
-    new_text:   string,
-}
-
-// Appends an action whose edits may span several files (a spec with `path` set
-// aims at that file instead of the request's). Owned strings clone into
-// context.allocator (the Manager's), and each edit records the bytes it matched
-// so the host can verify the range before touching a buffer that has moved on.
-@(private = "file")
-push_action :: proc(res: ^lang.Result, req: ^lang.Request, title, kind: string, specs: ..Edit_Spec) {
-    if len(specs) == 0 {
+switch_fixes :: proc(rc: ^Request_Context, caret: Caret, res: ^lang.Result) {
+    c := request_checker(rc)
+    if c == nil {
         return
     }
-    action := lang.Code_Action {
-        title = strings.clone(title),
-        kind  = strings.clone(kind),
-    }
-    for spec in specs {
-        path := spec.path != "" ? spec.path : req.path
-        src := spec.path != "" ? spec.source : req.source
-        start := clamp(spec.start, 0, len(src))
-        end := clamp(spec.end, start, len(src))
-        append(&action.edits, lang.Text_Edit {
-            path     = strings.clone(path),
-            start    = start,
-            end      = end,
-            old_text = strings.clone(src[start:end]),
-            new_text = strings.clone(spec.new_text),
-        })
-    }
-    // The seam wants (path, start) ascending; a producer sweeping sibling files
-    // gets them in map order, which is arbitrary between runs.
-    slice.sort_by(action.edits[:], proc(a, b: lang.Text_Edit) -> bool {
-        if a.path != b.path {
-            return a.path < b.path
-        }
-        return a.start < b.start
-    })
-    append(&res.actions, action)
-}
-
-// `fmt.println` with no `import "core:fmt"` above it: offer the import lines that
-// would resolve the qualifier. Only a *qualified* use asks for this — a bare
-// identifier names no package, so there is nothing to look up — and a qualifier
-// that already resolves (an import, or a local shadowing it, as in a struct
-// value's `v.field`) is left alone.
-@(private = "file")
-action_add_import :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Request, res: ^lang.Result) {
-    add_import_at(e, parser, root, req, res, req.offset)
-}
-
-// The shared body of action_add_import, taking the position to look for an
-// unresolved package qualifier at instead of always reading req.offset — lets
-// action_fix_diagnostic delegate here with a diagnostic's own position.
-@(private = "file")
-add_import_at :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Request, res: ^lang.Result, at: int) {
-    ident, ok := identifier_at(root, req.source, at)
+    tok, ok := odinsyntax.node_token_at(odinsyntax.node_root(rc.parsed.tree), u32(caret.offset), context.temp_allocator)
     if !ok {
         return
     }
-    op, _, is_sel := selector_parts(ident)
-    if !is_sel || !is_identifier(op) {
-        return
-    }
-    pkg := ts.node_text(op, req.source)
-    if _, imported := import_path(root, req.source, pkg); imported {
-        return
-    }
-    // A value of that name in scope means the selector is member access, not a
-    // package qualifier.
-    defs := collect_defs(e, root, req.source)
-    if _, shadowed := resolve_local(defs[:], pkg, int(ts.node_start_byte(op))); shadowed {
-        return
-    }
-
-    anchor, prefix, aok := import_anchor(root, req.source)
-    if !aok {
-        return
-    }
-    for path in import_candidates(e, parser, req, pkg) {
-        line := fmt.tprintf("%simport \"%s\"\n", prefix, path)
-        specs := make([dynamic]Edit_Spec, context.temp_allocator)
-        append(&specs, Edit_Spec{start = anchor, end = anchor, new_text = line})
-        siblings := sibling_import_edits(e, parser, req, pkg, path)
-        append(&specs, ..siblings)
-
-        title := len(siblings) == 0 \
-            ? fmt.tprintf("Import \"%s\"", path) \
-            : fmt.tprintf("Import \"%s\" in %d files", path, len(siblings) + 1)
-        push_action(res, req, title, "quickfix", ..specs[:])
-    }
-}
-
-// The same missing import as above, one Edit_Spec per sibling file the
-// workspace index shows also using `pkg` as a bare identifier without
-// importing it — a false positive there (the name meant something else) only
-// costs an unresolvable candidate, since import_path/import_anchor below still
-// reject or skip it correctly; a false negative only costs precision, not
-// correctness. Returns nil outside a known workspace, since index_ref_files has
-// nothing to search.
-@(private = "file")
-sibling_import_edits :: proc(e: ^Engine, parser: ts.Parser, req: ^lang.Request, pkg, import_path_text: string) -> []Edit_Spec {
-    if req.workspace == "" {
-        return nil
-    }
-    candidates := make([dynamic]string, context.temp_allocator)
-    sync.lock(&e.index.mutex)
-    index_sync(e, parser, req)
-    index_ref_files(e, pkg, req.path, &candidates)
-    sync.unlock(&e.index.mutex)
-
-    specs := make([dynamic]Edit_Spec, context.temp_allocator)
-    for path in candidates {
-        source, sok := source_read(path)
-        if !sok {
+    for n := tok.parent; n != nil; n = n.parent {
+        if n.green.kind != .Switch_Stmt && n.green.kind != .Type_Switch_Stmt {
             continue
         }
-        tree := ts.parser_parse_string(parser, source)
-        if tree == nil {
-            continue
-        }
-        sib_root := ts.tree_root_node(tree)
-        _, already_imported := import_path(sib_root, source, pkg)
-        anchor, prefix, aok := import_anchor(sib_root, source)
-        ts.tree_delete(tree)
-        if already_imported || !aok {
-            continue
-        }
-        line := fmt.tprintf("%simport \"%s\"\n", prefix, import_path_text)
-        append(&specs, Edit_Spec{path = path, source = source, start = anchor, end = anchor, new_text = line})
-    }
-    return specs[:]
-}
-
-// `'fmt' undeclared` from `odin check`, overlapping the caret: the same missing
-// import as action_add_import, offered from anywhere in the diagnostic's
-// squiggle rather than only when the caret sits exactly on the qualifier.
-// action_add_import already covers that narrower case, so this only widens it —
-// skip when the caret's own identifier is already a package-qualifier selector,
-// which is what that check would already have offered.
-@(private = "file")
-action_fix_diagnostic :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Request, res: ^lang.Result) {
-    if len(req.diagnostics) == 0 {
-        return
-    }
-    if ident, ok := identifier_at(root, req.source, req.offset); ok {
-        if op, _, is_sel := selector_parts(ident); is_sel && is_identifier(op) {
+        missing := odinsema.switch_missing(c, rc.live.id, n^, context.temp_allocator)
+        if len(missing) > 0 {
+            fill_switch(rc, n^, missing, res)
             return
         }
     }
-    for d in req.diagnostics {
-        if req.offset < d.start || req.offset > d.end {
-            continue
-        }
-        name, nok := undeclared_name(d.message)
-        if !nok {
-            continue
-        }
-        ident, iok := identifier_at(root, req.source, d.start)
-        if !iok || ts.node_text(ident, req.source) != name {
-            continue
-        }
-        add_import_at(e, parser, root, req, res, d.start)
-    }
 }
 
-// The unresolved name out of an `odin check` "'name' undeclared" message,
-// false for any other diagnostic (a syntax error, an unrelated check).
 @(private = "file")
-undeclared_name :: proc(message: string) -> (string, bool) {
-    suffix := "' undeclared"
-    if !strings.has_prefix(message, "'") || !strings.has_suffix(message, suffix) {
-        return "", false
-    }
-    return message[1:len(message) - len(suffix)], true
-}
-
-// Import paths that would make `pkg` resolve: the three built-in collections
-// first (searched under ODIN_ROOT), then any collection the workspace config
-// declares, then a directory in the workspace holding Odin files — which imports
-// by a path relative to the requesting file. Temp-allocated.
-@(private = "file")
-import_candidates :: proc(e: ^Engine, parser: ts.Parser, req: ^lang.Request, pkg: string) -> []string {
-    out := make([dynamic]string, context.temp_allocator)
-
-    if root := odin_root(); root != "" {
-        for coll in ([?]string{"core", "vendor", "base"}) {
-            dir, jerr := filepath.join({root, coll}, context.temp_allocator)
-            if jerr != nil {
-                continue
-            }
-            if sub, found := find_package_dir(dir, pkg, COLLECTION_DEPTH); found {
-                append(&out, fmt.tprintf("%s:%s", coll, sub))
-            }
-        }
-    }
-
-    for coll in config_collection_names(e, req.workspace) {
-        dir, ok := config_collection_dir(e, coll, req.workspace)
-        if !ok {
-            continue
-        }
-        if sub, found := find_package_dir(dir, pkg, COLLECTION_DEPTH); found {
-            append(&out, fmt.tprintf("%s:%s", coll, sub))
-        }
-    }
-
-    if rel, found := workspace_package_path(req, pkg); found {
-        append(&out, rel)
-    }
-
-    if len(out) > IMPORT_CANDIDATE_LIMIT {
-        return out[:IMPORT_CANDIDATE_LIMIT]
-    }
-    return out[:]
-}
-
-// The sub-path (slash-separated, as an import spells it) of a directory named
-// `pkg` under `dir`, searched breadth-first so a shallower match wins: `core` has
-// both `sync` and `sys/...`, and the top-level package is the one meant.
-@(private = "file")
-find_package_dir :: proc(dir, pkg: string, depth: int) -> (string, bool) {
-    if depth <= 0 {
-        return "", false
-    }
-    handle, open_err := os.open(dir)
-    if open_err != nil {
-        return "", false
-    }
-    defer os.close(handle)
-
-    infos, read_err := os.read_dir(handle, -1, context.temp_allocator)
-    if read_err != nil {
-        return "", false
-    }
-
-    for info in infos {
-        if info.type == .Directory && info.name == pkg {
-            return info.name, true
-        }
-    }
-    for info in infos {
-        if info.type != .Directory || strings.has_prefix(info.name, ".") {
-            continue
-        }
-        if sub, found := find_package_dir(info.fullpath, pkg, depth - 1); found {
-            return fmt.tprintf("%s/%s", info.name, sub), true
-        }
-    }
-    return "", false
-}
-
-// Import path for a workspace directory named `pkg`, relative to the requesting
-// file's own directory — the spelling a relative import needs. The index already
-// knows every Odin file in the workspace, so the directory is found without a
-// walk of its own; separators are normalized to `/`, which is what an import
-// path uses on every platform.
-@(private = "file")
-workspace_package_path :: proc(req: ^lang.Request, pkg: string) -> (string, bool) {
-    if req.workspace == "" || req.path == "" {
-        return "", false
-    }
-    dir, found := find_package_dir(req.workspace, pkg, SCAN_DEPTH_LIMIT)
-    if !found {
-        return "", false
-    }
-    target, jerr := filepath.join({req.workspace, dir}, context.temp_allocator)
-    if jerr != nil {
-        return "", false
-    }
-    if !dir_has_odin_files(target) {
-        return "", false // a directory, but not a package
-    }
-    rel, rerr := filepath.rel(filepath.dir(req.path), target, context.temp_allocator)
-    if rerr != nil {
-        return "", false
-    }
-    slashed, _ := strings.replace_all(rel, "\\", "/", context.temp_allocator)
-    if !strings.has_prefix(slashed, ".") {
-        slashed = fmt.tprintf("./%s", slashed)
-    }
-    return slashed, true
-}
-
-// True when `dir` holds at least one `.odin` file — what separates a package
-// directory from a directory that merely has the right name.
-@(private = "file")
-dir_has_odin_files :: proc(dir: string) -> bool {
-    handle, open_err := os.open(dir)
-    if open_err != nil {
-        return false
-    }
-    defer os.close(handle)
-
-    infos, read_err := os.read_dir(handle, -1, context.temp_allocator)
-    if read_err != nil {
-        return false
-    }
-    for info in infos {
-        if info.type != .Directory && strings.has_suffix(info.name, ".odin") {
-            return true
-        }
-    }
-    return false
-}
-
-// Where a new import line goes: the line after the last existing import, or —
-// when the file has none — the line after the package clause, with `prefix`
-// carrying the blank line that separates the two. False when the file has no
-// package clause to anchor against, which is not a file this engine can fix.
-@(private = "file")
-import_anchor :: proc(root: ts.Node, source: string) -> (offset: int, prefix: string, ok: bool) {
-    last := -1
-    for i in 0 ..< ts.node_named_child_count(root) {
-        child := ts.node_named_child(root, i)
-        if string(ts.node_type(child)) == "import_declaration" {
-            last = int(ts.node_end_byte(child))
-        }
-    }
-
-    anchor := 0
-    pre := ""
-    if last >= 0 {
-        _, line_end := line_bounds(source, last)
-        anchor = min(line_end + 1, len(source))
+fill_switch :: proc(rc: ^Request_Context, sw: odinsyntax.Syntax_Node, missing: []string, res: ^lang.Result) {
+    src := rc.req.source
+    sw := sw
+    is_enum := sw.green.kind == .Switch_Stmt
+    body: odinsyntax.Block
+    has_body: bool
+    if is_enum {
+        s, _ := odinsyntax.as_switch_stmt(sw)
+        body, has_body = odinsyntax.switch_stmt_body(&s)
     } else {
-        _, poff, pok := package_clause(source)
-        if !pok {
-            return 0, "", false
-        }
-        _, line_end := line_bounds(source, poff)
-        anchor = min(line_end + 1, len(source))
-        pre = "\n" // keep the imports a blank line clear of the package clause
+        s, _ := odinsyntax.as_type_switch_stmt(sw)
+        body, has_body = odinsyntax.type_switch_stmt_body(&s)
     }
-    // Landing at EOF on a file with no final newline would splice the import onto
-    // the last line; open one first.
-    if anchor == len(source) && len(source) > 0 && source[len(source) - 1] != '\n' {
-        pre = strings.concatenate({"\n", pre}, context.temp_allocator)
-    }
-    return anchor, pre, true
-}
-
-// Imports the file never names. Offers the one under the caret on its own, and
-// the whole set together — skipping the bulk action when it would duplicate the
-// single one, so a file with exactly one dead import that the caret sits on
-// gets one row rather than two.
-@(private = "file")
-action_remove_unused_imports :: proc(root: ts.Node, req: ^lang.Request, res: ^lang.Result) {
-    unused := unused_imports(root, req.source)
-    if len(unused) == 0 {
+    if !has_body {
         return
     }
-
-    caret_hit := -1
-    for imp, i in unused {
-        if req.offset >= int(ts.node_start_byte(imp)) && req.offset <= int(ts.node_end_byte(imp)) {
-            caret_hit = i
-            break
-        }
-    }
-    if caret_hit >= 0 {
-        raw, _ := import_string(unused[caret_hit], req.source)
-        title := fmt.tprintf("Remove unused import \"%s\"", raw)
-        push_action(res, req, title, "quickfix", line_deletion(req.source, unused[caret_hit]))
-    }
-    if caret_hit >= 0 && len(unused) == 1 {
+    block := odinsyntax.Syntax_Node(body)
+    close, has_close := odinsyntax.find_child_token(&block, {tokens = {.Close_Brace}, last = true})
+    if !has_close {
         return
     }
-
-    // Tree order, so the edits come out ascending by offset — the ordering the
-    // seam promises an applier.
-    specs := make([dynamic]Edit_Spec, context.temp_allocator)
-    for imp in unused {
-        append(&specs, line_deletion(req.source, imp))
+    indent := line_indent(src, int(sw.offset))
+    if first, has_case := odinsyntax.find_child_node(&block, {kinds = {.Case_Clause}}); has_case {
+        indent = line_indent(src, int(first.offset))
     }
-    title := len(unused) == 1 ? "Remove 1 unused import" : fmt.tprintf("Remove %d unused imports", len(unused))
-    push_action(res, req, title, "quickfix", ..specs[:])
-}
-
-// The import declarations whose package name never appears as an identifier
-// outside the import block. A `_` alias is deliberate — the package is imported
-// for its side effects, not to be named — so it is never reported.
-@(private = "file")
-unused_imports :: proc(root: ts.Node, source: string) -> []ts.Node {
-    used := make(map[string]bool, 0, context.temp_allocator)
-    collect_used_names(root, source, &used)
-
-    out := make([dynamic]ts.Node, context.temp_allocator)
-    for i in 0 ..< ts.node_named_child_count(root) {
-        child := ts.node_named_child(root, i)
-        if string(ts.node_type(child)) != "import_declaration" {
-            continue
-        }
-        name, _, ok := import_name_and_path(child, source)
-        if !ok || name == "_" || name in used {
-            continue
-        }
-        append(&out, child)
-    }
-    return out[:]
-}
-
-// Every identifier named anywhere but inside an import declaration — the import's
-// own alias must not count as a use of itself.
-@(private = "file")
-collect_used_names :: proc(node: ts.Node, source: string, used: ^map[string]bool) {
-    if string(ts.node_type(node)) == "import_declaration" {
-        return
-    }
-    if is_identifier(node) {
-        used^[ts.node_text(node, source)] = true
-    }
-    for i in 0 ..< ts.node_child_count(node) {
-        collect_used_names(ts.node_child(node, i), source, used)
-    }
-}
-
-// The edit that deletes the whole line `node` sits on, its newline included, so
-// removing an import leaves no blank line behind.
-@(private = "file")
-line_deletion :: proc(source: string, node: ts.Node) -> Edit_Spec {
-    line_start, line_end := line_bounds(source, int(ts.node_start_byte(node)))
-    return Edit_Spec{start = line_start, end = min(line_end + 1, len(source)), new_text = ""}
-}
-
-// A `switch` over an enum that does not name every member: offer the missing
-// `case` arms. A type switch is left alone — its cases name union variants, not
-// enum members — as is a switch whose operand type cannot be inferred.
-@(private = "file")
-action_fill_switch_cases :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Request, res: ^lang.Result) {
-    sw, ok := enclosing_switch(root, req.source, req.offset)
-    if !ok {
-        return
-    }
-    if _, _, is_type_switch := type_switch_parts(sw); is_type_switch {
-        return
-    }
-    cond := ts.node_child_by_field_name(sw, "condition")
-    if ts.node_is_null(cond) {
-        return // `switch { case a > b: }` switches over no value
-    }
-    tr, tok := infer_expr_type(e, parser, root, req, cond)
-    if !tok || !type_is_bare(tr) {
-        return
-    }
-
-    members := make([dynamic]string, context.temp_allocator)
-    if !visit_type_decl(e, parser, root, req, tr, "enum_declaration", "enum", members_visitor, &members) {
-        return
-    }
-    if len(members) == 0 {
-        return
-    }
-
-    covered := make(map[string]bool, 0, context.temp_allocator)
-    collect_covered_cases(sw, req.source, &covered)
-    missing := make([dynamic]string, context.temp_allocator)
-    for name in members {
-        if name not_in covered {
-            append(&missing, name)
-        }
-    }
-    if len(missing) == 0 {
-        return
-    }
-
-    brace := switch_close_brace(sw)
-    if ts.node_is_null(brace) {
-        return
-    }
-    line_start, _ := line_bounds(req.source, int(ts.node_start_byte(brace)))
-    indent := case_indent(sw, req.source)
-
-    b := strings.builder_make(context.temp_allocator)
+    sb := strings.builder_make(context.temp_allocator)
     for name in missing {
-        fmt.sbprintf(&b, "%scase .%s:\n", indent, name)
+        fmt.sbprintf(&sb, "%scase %s%s:\n", indent, "." if is_enum else "", name)
     }
-    title := len(missing) == 1 \
-        ? fmt.tprintf("Add missing case .%s", missing[0]) \
-        : fmt.tprintf("Add %d missing cases", len(missing))
-    push_action(
-        res,
-        req,
-        title,
-        "quickfix",
-        Edit_Spec{start = line_start, end = line_start, new_text = strings.to_string(b)},
-    )
-}
-
-// Decl_Visitor collecting an enum's member names, which are its identifier
-// children after the first (the enum's own name). The names slice the visited
-// file's source, which outlives the visit.
-@(private = "file")
-members_visitor :: proc(ed: ts.Node, source, path: string, ctx_raw: rawptr) {
-    out := cast(^[dynamic]string) ctx_raw
-    for i in 1 ..< ts.node_named_child_count(ed) {
-        id := ts.node_named_child(ed, i)
-        if is_identifier(id) {
-            append(out, strings.clone(ts.node_text(id, source), context.temp_allocator))
-        }
+    at := int(close.offset)
+    text := strings.to_string(sb)
+    if ls := line_start(src, at); strings.trim_space(src[ls:at]) == "" {
+        at = ls
+    } else {
+        text = fmt.tprintf("\n%s%s", text, line_indent(src, int(sw.offset)))
+    }
+    title := fmt.tprintf("Add missing case: %s", missing[0]) if len(missing) == 1 else fmt.tprintf("Add %d missing cases", len(missing))
+    push_action(res, rc.req, title, Edit_Spec{at, at, text})
+    if kw, ok := odinsyntax.find_child_token(&sw, {tokens = {.Switch}}); ok {
+        push_action(res, rc.req, "Add #partial", Edit_Spec{int(kw.offset), int(kw.offset), "#partial "})
     }
 }
 
-// Nearest switch_statement enclosing `offset`, so the caret can sit anywhere in
-// the switch — its head, a case body, the closing brace — and still fill it.
+// The fix of each variable on the caret's lines that `-vet-unused-variables` reports.
 @(private = "file")
-enclosing_switch :: proc(root: ts.Node, source: string, offset: int) -> (ts.Node, bool) {
-    off := u32(clamp(offset, 0, len(source)))
-    n := ts.node_named_descendant_for_byte_range(root, off, off)
-    for !ts.node_is_null(n) {
-        if string(ts.node_type(n)) == "switch_statement" {
-            return n, true
-        }
-        n = ts.node_parent(n)
+unused_variable_fixes :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, caret: Caret, res: ^lang.Result) {
+    if .Unused_Variables not_in live_vet_flags(rc) {
+        return
     }
-    return {}, false
-}
-
-// The enum members a switch already names. Read off the case text rather than the
-// tree because the two spellings — the implicit `.Vertical` and the qualified
-// `Axis.Vertical` — parse differently but agree on everything after the last dot.
-@(private = "file")
-collect_covered_cases :: proc(sw: ts.Node, source: string, covered: ^map[string]bool) {
-    for i in 0 ..< ts.node_named_child_count(sw) {
-        c := ts.node_named_child(sw, i)
-        if string(ts.node_type(c)) != "switch_case" {
-            continue
-        }
-        for j in 0 ..< ts.node_named_child_count(c) {
-            if string(ts.node_field_name_for_named_child(c, u32(j))) != "condition" {
-                continue
-            }
-            text := strings.trim_space(ts.node_text(ts.node_named_child(c, j), source))
-            if dot := strings.last_index_byte(text, '.'); dot >= 0 {
-                text = text[dot + 1:]
-            }
-            if text != "" {
-                covered^[text] = true
-            }
-        }
+    c := request_checker(rc)
+    if c == nil {
+        return
     }
-}
-
-// The switch's closing brace — its last `}` child, which is where new cases go in
-// front of.
-@(private = "file")
-switch_close_brace :: proc(sw: ts.Node) -> ts.Node {
-    count := ts.node_child_count(sw)
-    for i := count; i > 0; i -= 1 {
-        c := ts.node_child(sw, i - 1)
-        if string(ts.node_type(c)) == "}" {
-            return c
-        }
-    }
-    return {}
-}
-
-// Indentation for a case arm: whatever the existing cases use, so a filled switch
-// matches the file rather than this engine's opinion. With no case to copy, one
-// tab past the switch's own line — Odin's convention, and what the rest of this
-// codebase is written in.
-@(private = "file")
-case_indent :: proc(sw: ts.Node, source: string) -> string {
-    for i in 0 ..< ts.node_named_child_count(sw) {
-        c := ts.node_named_child(sw, i)
-        if string(ts.node_type(c)) == "switch_case" {
-            line_start, _ := line_bounds(source, int(ts.node_start_byte(c)))
-            return line_indent(source, line_start)
-        }
-    }
-    line_start, _ := line_bounds(source, int(ts.node_start_byte(sw)))
-    return strings.concatenate({line_indent(source, line_start), "\t"}, context.temp_allocator)
-}
-
-// `count = 1` where nothing declares `count`: offer turning the assignment into
-// the `:=` short declaration it was meant to be. Deliberately the only shape
-// offered — inserting a declaration above would have to name a type, and until
-// the inference layer can compute one there is no correct text to insert.
-@(private = "file")
-action_declare_variable :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Request, res: ^lang.Result) {
-    ident, ok := identifier_at(root, req.source, req.offset)
+    root := odinsyntax.node_root(rc.parsed.tree)
+    tok, ok := odinsyntax.node_token_at(root, u32(caret.offset), context.temp_allocator)
     if !ok {
         return
     }
-    assign, has := ancestor_type(ident, "assignment_statement")
-    if !has {
-        return
-    }
-    targets, op, values, aok := plain_assignment_parts(assign, req.source)
-    if !aok {
-        return
-    }
-
-    // The caret must be on one of the assigned names, not somewhere in the value.
-    on_target := false
-    for t in targets {
-        if same_node(t, ident) {
-            on_target = true
-            break
-        }
-    }
-    if !on_target {
-        return
-    }
-
-    defs := collect_defs(e, root, req.source)
-    undeclared := make([dynamic]string, context.temp_allocator)
-    for t in targets {
-        name := ts.node_text(t, req.source)
-        if name == "_" {
+    seen := make([dynamic]int, context.temp_allocator)
+    for n := tok.parent; n != nil; n = n.parent {
+        if n.green.kind != .Proc_Lit {
             continue
         }
-        if _, found := resolve_local(defs[:], name, int(ts.node_start_byte(t))); found {
-            continue
-        }
-        if declared_in_package(e, parser, req, name) {
-            continue
-        }
-        append(&undeclared, name)
-    }
-    if len(undeclared) == 0 {
-        return
-    }
-
-    // Single target, single value: try to name the type instead of a bare `:=`.
-    if len(undeclared) == 1 && len(targets) == 1 && len(values) == 1 {
-        if tr, tok := infer_expr_type(e, parser, root, req, values[0]); tok {
-            type_text := type_ref_text(tr)
-            push_action(
-                res,
-                req,
-                fmt.tprintf("Declare %q as %s", undeclared[0], type_text),
-                "quickfix",
-                Edit_Spec{
-                    start = int(ts.node_end_byte(targets[0])),
-                    end = int(ts.node_end_byte(op)),
-                    new_text = fmt.tprintf(": %s :=", type_text),
-                },
-            )
+        r, err := odinsema.liveness(c, rc.live.id, m, n^, context.temp_allocator)
+        if err != nil {
             return
         }
+        for u in r.unused {
+            if caret_hits(caret, u.offset, u.offset + len(u.name)) && !slice.contains(seen[:], u.offset) {
+                append(&seen, u.offset)
+                unused_variable_fix(rc, root, u, res)
+            }
+        }
     }
-
-    title := len(undeclared) == 1 \
-        ? fmt.tprintf("Declare %q with :=", undeclared[0]) \
-        : fmt.tprintf("Declare %d names with :=", len(undeclared))
-    push_action(
-        res,
-        req,
-        title,
-        "quickfix",
-        Edit_Spec{start = int(ts.node_start_byte(op)), end = int(ts.node_end_byte(op)), new_text = ":="},
-    )
 }
 
-// The assigned names, the `=` token and the RHS value(s) of a plain assignment,
-// false for anything `:=` cannot replace: an existing short declaration, a
-// compound assignment (`x += 1`), or a target that is not a bare name
-// (`m[k] = v`, `p.x = 1`) — Odin declares names, not places.
+// Renames the variable to `_` while its declaration keeps another name, else makes the
+// declaration an assignment to `_`, or removes it when it has no value.
 @(private = "file")
-plain_assignment_parts :: proc(
-    assign: ts.Node, source: string,
-) -> (targets: []ts.Node, op: ts.Node, values: []ts.Node, ok: bool) {
-    names := make([dynamic]ts.Node, context.temp_allocator)
-    vals := make([dynamic]ts.Node, context.temp_allocator)
-    seen_op := false
-    for i in 0 ..< ts.node_child_count(assign) {
-        c := ts.node_child(assign, i)
-        if !seen_op {
-            switch string(ts.node_type(c)) {
-            case "identifier":
-                append(&names, c)
-                continue
-            case ",":
-                continue
-            case "=":
-                if len(names) == 0 {
-                    return nil, {}, nil, false
-                }
-                op = c
-                seen_op = true
-                continue
-            }
-            return nil, {}, nil, false // `:=`, `+=`, or a target that is not a bare name
+unused_variable_fix :: proc(rc: ^Request_Context, root: odinsyntax.Syntax_Node, u: odinsema.Live_Name, res: ^lang.Result) {
+    rename := Edit_Spec{u.offset, u.offset + len(u.name), "_"}
+    rename_title := fmt.tprintf("Rename '%s' to '_'", u.name)
+    tok, ok := odinsyntax.node_token_at(root, u32(u.offset), context.temp_allocator)
+    if !ok || tok.parent == nil || tok.parent.parent == nil {
+        return
+    }
+    list := tok.parent.parent
+    decl := list.parent
+    if list.green.kind != .Name_List || decl == nil || decl.green.kind != .Value_Decl {
+        push_action(res, rc.req, rename_title, rename)
+        return
+    }
+    names := 0
+    others := 0
+    nl := odinsyntax.Name_List(list^)
+    it := odinsyntax.name_list_names(&nl)
+    for name in odinsyntax.child_iter_next(&it) {
+        names += 1
+        if int(name.offset) != u.offset && odinsyntax.node_text(name) != "_" {
+            others += 1
         }
-        if string(ts.node_type(c)) == "," {
+    }
+    if others > 0 {
+        push_action(res, rc.req, rename_title, rename)
+        return
+    }
+    v, _ := odinsyntax.as_value_decl(decl^)
+    if values, has_values := odinsyntax.value_decl_values(&v); has_values {
+        blanks := make([]string, names, context.temp_allocator)
+        slice.fill(blanks, "_")
+        head := strings.concatenate({strings.join(blanks, ", ", context.temp_allocator), " = "}, context.temp_allocator)
+        push_action(res, rc.req, fmt.tprintf("Assign the value of '%s' to '_'", u.name), Edit_Spec{int(decl.offset), int(values.offset), head})
+        return
+    }
+    start, end := odinsyntax.node_range(decl^)
+    push_action(res, rc.req, fmt.tprintf("Remove '%s'", u.name), line_deletion(rc.req.source, int(start), int(end)))
+}
+
+// Removes the unused import on the caret's lines, and every unused import of the buffer.
+@(private = "file")
+unused_import_fixes :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, whens: []Branch, caret: Caret, res: ^lang.Result) {
+    if .Unused_Imports not_in live_vet_flags(rc) {
+        return
+    }
+    imports := odinsema.db_imports(&rc.snap, rc.live.id)
+    unused, err := odinsema.vet_unused_imports(rc.live.tree, imports, m, branch_spans(whens, false), context.temp_allocator)
+    if err != nil || len(unused) == 0 {
+        return
+    }
+    src := rc.req.source
+    specs := make([dynamic]Edit_Spec, 0, len(unused), context.temp_allocator)
+    hit := false
+    for i in unused {
+        imp := imports[i]
+        if imp.item < 0 || imp.item >= len(rc.live.tree.items) {
             continue
         }
-        if ts.node_is_named(c) {
-            append(&vals, c)
+        item := rc.live.tree.items[imp.item]
+        spec := line_deletion(src, item.start, item.end)
+        append(&specs, spec)
+        if !hit && caret_hits(caret, item.start, item.end) {
+            hit = true
+            push_action(res, rc.req, fmt.tprintf("Remove unused import '%s'", imp.alias), spec)
         }
     }
-    if !seen_op {
-        return nil, {}, nil, false
+    if len(specs) > 1 || (len(specs) == 1 && !hit) {
+        title := "Remove 1 unused import" if len(specs) == 1 else fmt.tprintf("Remove %d unused imports", len(specs))
+        push_action(res, rc.req, title, ..specs[:])
     }
-    return names[:], op, vals[:], true
 }
 
-// True when `name` is declared at package scope in a sibling file. The caret's
-// own file is already covered by collect_defs, so this is only about the rest of
-// the package — a package-level variable assigned from another file is a legal
-// assignment and must not be offered a declaration.
+// Offers the imports that bind the unresolved package qualifier under the caret.
 @(private = "file")
-declared_in_package :: proc(e: ^Engine, parser: ts.Parser, req: ^lang.Request, name: string) -> bool {
-    if req.workspace == "" {
-        return false
-    }
-    sync.lock(&e.index.mutex)
-    defer sync.unlock(&e.index.mutex)
-    index_sync(e, parser, req)
-    // Scoped in the query rather than checked after it: the workspace-wide first
-    // hit is the lexicographically smallest path, so a name declared both here
-    // and in some earlier-sorting package used to read as "not in this package"
-    // and offer a declaration for an assignment that was already legal.
-    _, found := index_first_path(e, name, req.path, "", index_package_dir(e, req.path), true)
-    return found
-}
-
-// The line containing `offset`, as `[start, end)` with `end` at the newline (or
-// at the end of the source, for a final line without one).
-@(private = "file")
-line_bounds :: proc(source: string, offset: int) -> (start: int, end: int) {
-    off := clamp(offset, 0, len(source))
-    start = off
-    for start > 0 && source[start - 1] != '\n' {
+import_fixes :: proc(rc: ^Request_Context, caret: Caret, res: ^lang.Result) {
+    src := rc.req.source
+    start, end := caret.offset, caret.offset
+    for start > 0 && is_word_byte(src[start - 1]) {
         start -= 1
     }
-    end = off
-    for end < len(source) && source[end] != '\n' {
+    for end < len(src) && is_word_byte(src[end]) {
         end += 1
     }
-    return
+    if start == end || end >= len(src) || src[end] != '.' || !odinsema.is_identifier(src[start:end]) {
+        return
+    }
+    tokens, ok := semantic_classify(rc, start, end, strict = true)
+    if !ok {
+        return
+    }
+    unresolved := false
+    for t in tokens {
+        if t.start == start && t.kind == .Unresolved {
+            unresolved = true
+        }
+    }
+    if !unresolved {
+        return
+    }
+    name := src[start:end]
+    imports := odinsema.db_imports(&rc.snap, rc.live.id)
+    count := 0
+    next: for p in known_packages(rc.e, rc.req.workspace) {
+        if p.name != name {
+            continue
+        }
+        for imp in imports {
+            if imp.dir != "" && same_dir(imp.dir, p.dir) {
+                continue next
+            }
+        }
+        at, text := import_insert(rc, p.import_path)
+        push_action(res, rc.req, fmt.tprintf("Import \"%s\"", p.import_path), Edit_Spec{at, at, text})
+        count += 1
+        if count >= MAX_IMPORT_FIXES {
+            return
+        }
+    }
 }
 
-// The whitespace a line opens with, sliced from the source.
+// Offers a `thor:ignore` comment for each diagnostic id on the caret's lines, for the line and for
+// the file.
 @(private = "file")
-line_indent :: proc(source: string, line_start: int) -> string {
-    i := clamp(line_start, 0, len(source))
-    for i < len(source) && (source[i] == ' ' || source[i] == '\t') {
-        i += 1
+ignore_fixes :: proc(rc: ^Request_Context, caret: Caret, res: ^lang.Result) {
+    report: lang.Diagnostic_Report
+    done := live_report(rc, &report)
+    defer {
+        for d in report.items {
+            delete(d.path)
+            delete(d.message)
+        }
+        delete(report.items)
     }
-    return source[clamp(line_start, 0, len(source)):i]
+    if !done {
+        return
+    }
+    codes := make([dynamic]string, context.temp_allocator)
+    lines := make([dynamic]int, context.temp_allocator)
+    for d in report.items {
+        if d.code == "" || d.line < caret.first || d.line > caret.last || slice.contains(codes[:], d.code) {
+            continue
+        }
+        append(&codes, d.code)
+        append(&lines, d.line)
+    }
+    for code, i in codes {
+        push_action(res, rc.req, fmt.tprintf("Ignore %s on this line", code), ignore_line_edit(rc, lines[i], code))
+        push_action(res, rc.req, fmt.tprintf("Ignore %s in this file", code), ignore_file_edit(rc, code))
+    }
+}
+
+// Adds `code` to a `thor:ignore` comment on the line above `line`, or puts one there.
+@(private = "file")
+ignore_line_edit :: proc(rc: ^Request_Context, line: int, code: string) -> Edit_Spec {
+    src := rc.req.source
+    ls := rc.live.lines[clamp(line - 1, 0, len(rc.live.lines) - 1)]
+    if ls > 0 {
+        prev := src[line_start(src, ls - 1):ls - 1]
+        if ignore_comment(prev, "thor:ignore") {
+            at := ls - 1 - (len(prev) - len(strings.trim_right_space(prev)))
+            return {at, at, fmt.tprintf(" %s", code)}
+        }
+    }
+    return {ls, ls, fmt.tprintf("%s// thor:ignore %s\n", line_indent(src, ls), code)}
+}
+
+// Adds `code` to a `thor:ignore-file` comment on the line after the package clause, or puts one there.
+@(private = "file")
+ignore_file_edit :: proc(rc: ^Request_Context, code: string) -> Edit_Spec {
+    src := rc.req.source
+    p := rc.live.tree.package_offset
+    if p < 0 {
+        return {0, 0, fmt.tprintf("// thor:ignore-file %s\n", code)}
+    }
+    pe := line_end(src, min(p, len(src)))
+    if pe == len(src) {
+        return {pe, pe, fmt.tprintf("\n// thor:ignore-file %s", code)}
+    }
+    next := src[pe + 1:line_end(src, pe + 1)]
+    if ignore_comment(next, "thor:ignore-file") {
+        at := pe + 1 + len(strings.trim_right_space(next))
+        return {at, at, fmt.tprintf(" %s", code)}
+    }
+    return {pe + 1, pe + 1, fmt.tprintf("// thor:ignore-file %s\n", code)}
+}
+
+// True when `line` holds only a `//` comment whose text starts with the word `word`.
+@(private = "file")
+ignore_comment :: proc(line, word: string) -> bool {
+    text := strings.trim_space(line)
+    if !strings.has_prefix(text, "//") {
+        return false
+    }
+    body := strings.trim_left_space(text[2:])
+    return strings.has_prefix(body, word) && (len(body) == len(word) || body[len(word)] == ' ' || body[len(word)] == '\t')
 }

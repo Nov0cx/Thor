@@ -89,7 +89,7 @@ thor_cmd_open_language_servers :: proc(data: rawptr) {
 }
 
 // Picks one configured server and restarts it, for the palette. Ids, not
-// display names: an id is the key lsp.json names it by, and the picker is where
+// display names: an id is the key lsp.lua names it by, and the picker is where
 // a user who edits that file looks.
 thor_cmd_restart_one_language_server :: proc(data: rawptr) {
     thor := cast(^Thor) data
@@ -147,7 +147,7 @@ thor_lsp_populate_problems :: proc(thor: ^Thor) {
         tone = .Bad,
     )
     for problem, index in problems {
-        label := problem.id != "" ? problem.id : "lsp.json"
+        label := problem.id != "" ? problem.id : "lsp.lua"
         if problem.file != "" {
             label = fmt.tprintf("%s · %s", problem.file, label)
         }

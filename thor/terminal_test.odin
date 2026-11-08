@@ -2,11 +2,11 @@ package thor
 
 import "core:fmt"
 import "core:strings"
-import "core:sync"
 import "core:testing"
 import "core:thread"
 import "core:time"
 
+import "../lockfree"
 import "../shell"
 
 // The shell detection lands long after startup, so thor_apply_shell_profiles has
@@ -48,10 +48,7 @@ shell_profiles_stub :: proc(count: int) -> []shell.Profile {
 @(private = "file")
 shell_detect_job_wait :: proc(thor: ^Thor) -> ^Shell_Detect_Job {
     for {
-        sync.lock(&thor.io_mutex)
-        job, ok := pop_safe(&thor.finished_shells)
-        sync.unlock(&thor.io_mutex)
-        if ok {
+        if job := lockfree.stack_take(&thor.finished_shells); job != nil {
             return job
         }
         time.sleep(time.Millisecond)
@@ -64,8 +61,6 @@ shell_detect_job_wait :: proc(thor: ^Thor) -> ^Shell_Detect_Job {
 @(test)
 test_shell_profiles_apply_after_init :: proc(t: ^testing.T) {
     thor: Thor
-    thor.finished_shells = make([dynamic]^Shell_Detect_Job)
-    defer delete(thor.finished_shells)
 
     thor_terminals_init(&thor)
     testing.expect(t, thor.terminals_live, "init must mark the terminal list live")
@@ -90,6 +85,28 @@ test_shell_profiles_apply_after_init :: proc(t: ^testing.T) {
     thor_apply_shell_profiles(&thor, detected)
     testing.expect_value(t, len(thor.shell_profiles), 0)
     testing.expect_value(t, thor.inflight_jobs, 0)
+}
+
+// A task tab is labelled with its task and is not counted in the numbering of
+// the user tabs on the same shell.
+@(test)
+test_terminal_tab_info_task_label :: proc(t: ^testing.T) {
+    profile := shell.Profile{id = "pwsh", name = "PowerShell"}
+    user_a := Terminal{profile = profile}
+    task := Terminal{profile = profile, task = "build"}
+    user_b := Terminal{profile = profile}
+
+    thor: Thor
+    thor.terminals = make([dynamic]^Terminal)
+    defer delete(thor.terminals)
+    append(&thor.terminals, &user_a, &task, &user_b)
+
+    testing.expect_value(t, thor_terminal_tab_info(&thor, 0).name, "PowerShell 1")
+    testing.expect_value(t, thor_terminal_tab_info(&thor, 1).name, "build")
+    testing.expect_value(t, thor_terminal_tab_info(&thor, 2).name, "PowerShell 2")
+
+    ordered_remove(&thor.terminals, 2)
+    testing.expect_value(t, thor_terminal_tab_info(&thor, 0).name, "PowerShell")
 }
 
 // A detection that lands after shutdown has no console to fill: it frees the

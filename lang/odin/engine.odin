@@ -1,76 +1,115 @@
-// In-client Odin analyzer: the first lang.Backend, running natively on the
-// Manager's worker thread with no subprocess and no serialization. It parses
-// with the vendored tree-sitter grammar, then resolves an identifier to its
-// declaration using the grammar's LOCALS query for lexical scope, falling back
-// to a workspace-wide scan of top-level declarations for cross-file symbols.
-//
-// The engine's lifetime and the Backend seam live here; the analysis is split
-// by concern across the rest of the package (see resolve.odin for the entry
-// point every request funnels through).
+// In-client Odin analyzer: a lang.Backend that runs on the Manager's worker threads.
+// It formats with the native printer, reports `odin check` diagnostics and the
+// live syntax errors of the new parser, lists document and workspace symbols
+// from the item trees of package odinsema, renders package documentation, and goes to
+// definitions, finds references and renames through its scopes, and hovers, completes, gives
+// signature help and classifies identifiers through the checker. The other kinds return with the
+// new engine (`lang/LANGUAGE_INTELLIGENCE.md`); until then the engine declines them.
 package odin
 
-import "core:log"
-import "core:sync"
+
+import "core:strings"
+import "core:thread"
 
 import lang ".."
-import "../../treecache"
-import ts "../../vendor/odin-tree-sitter"
-import ts_odin "../../vendor/odin-tree-sitter/parsers/odin"
-
-// Files scanned in one cross-file lookup, and directory depth, so a huge tree
-// can't stall a goto. Mirrors thor_collect_files' guards.
-@(private)
-SCAN_FILE_LIMIT :: 4000
-@(private)
-SCAN_DEPTH_LIMIT :: 12
+import odinsema "sema"
 
 Engine :: struct {
-    language: ts.Language,
-    locals:   ts.Query, // compiled once, immutable, shared read-only across workers
-    index:    Symbol_Index,
-    config:   Config_Cache,
+    config:        Config_Cache,
     format_config: Format_Config_Cache,
-    // Resident per-buffer trees, so a request re-parses only what the last edit
-    // touched. Scope: the request buffer only. The workspace files the
-    // cross-file scans visit (`index_reparse`, `ref_scan_file`, `scan_file`, …)
-    // are stat-gated by the symbol index and still parse whole — caching them
-    // would thrash the slots for no win.
-    trees:    treecache.Cache,
-    // One compiler run at a time (see check_package): a second Diagnostics
-    // request gives up here rather than starting a rival `odin check`.
-    check_mutex: sync.Mutex,
-    // The implicit scope — what `base:builtin` and `base:runtime` export — which
-    // the semantic classifier needs before it can call any name undeclared. Built
-    // once from the toolchain on disk and kept for the process: it is a property
-    // of the installed compiler, not of the workspace, so nothing invalidates it.
-    builtins:       Builtin_Cache,
-    builtin_mutex:  sync.Mutex,
-    // Settings-driven admin gate; main-thread only, like the Manager's own
-    // enabled/features (handles/supports are never called off the main thread).
+    db:            odinsema.Db, // owned
+    root:          Odin_Root,
+    tree_cache:    Tree_Cache_File,
+    packages:      Package_Index, // the packages completion offers to import
+    counts:        Count_Cache,   // identifier counts of disk files; see count_cache.odin
+    warm:          ^thread.Thread, // the prewarm thread; joined by engine_destroy
+    warm_joined:   bool,
+    warm_workspace: string,        // owned; read by the prewarm thread
+    // One compiler run at a time (see check_package). Atomic.
+    checking:      bool,
+    // Settings-driven admin gate; main thread only.
     admin_enabled:  bool,
     admin_features: bit_set[lang.Request_Kind],
+}
+
+// The kinds the engine answers.
+IMPLEMENTED :: bit_set[lang.Request_Kind]{
+    .Diagnostics,
+    .Syntax_Diagnostics,
+    .Format,
+    .Format_Range,
+    .Format_On_Type,
+    .Document_Symbols,
+    .Workspace_Symbols,
+    .Definition,
+    .Type_Definition,
+    .References,
+    .Rename,
+    .Package_Doc,
+    .Hover,
+    .Completion,
+    .Signature_Help,
+    .Semantic_Tokens,
+    .Inlay_Hints,
+    .Document_Highlight,
+    .Code_Actions,
+    .Resolve_Action,
+    .Call_Hierarchy,
+    .Type_Hierarchy,
+    .Implementations,
+    .Selection_Range,
+    .Code_Lens,
 }
 
 engine_create :: proc() -> ^Engine {
     e := new(Engine)
     e.admin_enabled = true
     e.admin_features = lang.FEATURES_ALL
-    e.language = ts_odin.tree_sitter_odin()
-    // Without it resolve answers nothing for every kind past formatting, which
-    // reads as "found nothing" rather than as a broken engine — so say so.
-    query, offset, err := ts.query_new(e.language, ts_odin.LOCALS)
-    if err == .None {
-        e.locals = query
-    } else {
-        log.errorf("odin: the LOCALS query failed at byte %d: %v", offset, err)
-    }
-    e.index.alloc = context.allocator
-    e.index.files = make(map[string]File_Entry, 0, e.index.alloc)
     e.config.alloc = context.allocator
     e.format_config.alloc = context.allocator
-    e.builtins.alloc = context.allocator
-    treecache.init(&e.trees)
+    odinsema.db_init(&e.db, lang.source_read)
+    e.db.workspace_interval = i64(odinsema.WORKSPACE_INTERVAL)
+    e.root.alloc = context.allocator
+    e.tree_cache.alloc = context.allocator
+    e.packages.alloc = context.allocator
+    e.packages.ttl = PACKAGE_INDEX_TTL
     return e
+}
+
+// Starts finding the Odin root and listing the importable packages on a thread, so the first
+// request after a file opens finds them ready. Call once, after engine_create.
+engine_prewarm :: proc(e: ^Engine, workspace: string) {
+    if e.warm != nil {
+        return
+    }
+    cloned, err := strings.clone(workspace)
+    if err != nil {
+        return
+    }
+    t := thread.create(prewarm_worker)
+    if t == nil {
+        delete(cloned)
+        return
+    }
+    e.warm_workspace = cloned
+    t.data = e
+    e.warm = t
+    thread.start(t)
+}
+
+// Waits until the prewarm is done.
+engine_prewarm_wait :: proc(e: ^Engine) {
+    if e.warm != nil && !e.warm_joined {
+        thread.join(e.warm)
+        e.warm_joined = true
+    }
+}
+
+@(private = "file")
+prewarm_worker :: proc(t: ^thread.Thread) {
+    e := cast(^Engine)t.data
+    known_packages(e, e.warm_workspace)
+    free_all(context.temp_allocator)
 }
 
 // Wraps the engine as a lang.Backend for lang.manager_register.
@@ -87,14 +126,20 @@ engine_backend :: proc(e: ^Engine) -> lang.Backend {
     }
 }
 
+// A saved buffer is read again at the next request, not after the workspace interval.
+@(private)
+notify :: proc(data: rawptr, event: lang.Doc_Event, path, ext, source: string, revision: u64) {
+    if event == .Saved && path != "" {
+        odinsema.db_touch(&(cast(^Engine)data).db, path)
+    }
+}
+
 @(private)
 handles :: proc(data: rawptr, ext: string) -> bool {
     return ext == ".odin" && (cast(^Engine)data).admin_enabled
 }
 
-// The characters that fire format-on-type. Only `}`: it closes a block, which
-// is the one keystroke whose reindent the typist expects, and mid-line typing
-// leaves the buffer unparseable, which the printer refuses anyway.
+// Format-on-type fires on `}` only: it closes a block.
 @(private)
 ON_TYPE_TRIGGERS :: "}"
 
@@ -103,22 +148,9 @@ on_type_trigger :: proc(data: rawptr, ext, char: string) -> bool {
     return ext == ".odin" && char == ON_TYPE_TRIGGERS
 }
 
-// Both are server-side seams: an in-client analyzer answers with edits computed
-// up front, so it has no command to run and nothing about a candidate left to
-// resolve. Declined outright rather than left to answer ok=false.
-@(private)
-UNSUPPORTED :: bit_set[lang.Request_Kind]{.Execute_Command, .Resolve_Completion}
-
-// The settings-driven per-kind gate: every capability the engine has
-// (definition, goto, completion, formatting, …) is unconditional, so only a
-// kind the config turned off for this engine specifically, or one the engine
-// never implements, answers false here.
 @(private)
 supports :: proc(data: rawptr, ext: string, kind: lang.Request_Kind) -> bool {
-    if kind in UNSUPPORTED {
-        return false
-    }
-    return kind in (cast(^Engine)data).admin_features
+    return kind in IMPLEMENTED && kind in (cast(^Engine)data).admin_features
 }
 
 engine_set_enabled :: proc(e: ^Engine, enabled: bool) {
@@ -129,27 +161,101 @@ engine_set_features :: proc(e: ^Engine, features: bit_set[lang.Request_Kind]) {
     e.admin_features = features
 }
 
-// The engine keeps no document mirror — it reads the buffer out of each request
-// — so only a save is of interest: it drops the file's index entry, and the next
-// cross-file lookup re-parses it.
+// Answers one request on a worker thread.
 @(private)
-notify :: proc(data: rawptr, event: lang.Doc_Event, path, ext, source: string, revision: u64) {
-    if event != .Saved {
+resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
+    e := cast(^Engine)data
+    if lang.request_cancelled(req) {
         return
     }
-    index_forget(cast(^Engine)data, path)
+    #partial switch req.kind {
+    case .Diagnostics:
+        check_package(e, req, res)
+    case .Syntax_Diagnostics:
+        syntax_diagnostics(e, req, res)
+    case .Code_Actions:
+        code_actions(e, req, res)
+    case .Resolve_Action:
+        resolve_action(e, req, res)
+    case .Format:
+        format_document(e, req, res, 0, len(req.source))
+    case .Format_Range:
+        format_document(e, req, res, req.offset, req.end)
+    case .Format_On_Type:
+        lo, hi := line_bounds(req.source, req.offset)
+        format_document(e, req, res, lo, hi)
+    case .Document_Symbols:
+        if config_allows(e, req.workspace, req.kind) {
+            document_symbols(e, req, res)
+        }
+    case .Workspace_Symbols:
+        if config_allows(e, req.workspace, req.kind) {
+            workspace_symbols(e, req, res)
+        }
+    case .Definition:
+        if config_allows(e, req.workspace, req.kind) {
+            definition(e, req, res)
+        }
+    case .References:
+        if config_allows(e, req.workspace, req.kind) {
+            references(e, req, res)
+        }
+    case .Rename:
+        if config_allows(e, req.workspace, req.kind) {
+            rename(e, req, res)
+        }
+    case .Package_Doc:
+        if config_allows(e, req.workspace, req.kind) {
+            package_doc(e, req, res)
+        }
+    case .Hover:
+        if config_allows(e, req.workspace, req.kind) {
+            hover(e, req, res)
+        }
+    case .Completion:
+        if config_allows(e, req.workspace, req.kind) {
+            completion(e, req, res)
+        }
+    case .Signature_Help:
+        signature_help(e, req, res)
+    case .Semantic_Tokens:
+        semantic_tokens(e, req, res)
+    case .Inlay_Hints:
+        inlay_hints(e, req, res)
+    case .Document_Highlight:
+        if config_allows(e, req.workspace, req.kind) {
+            document_highlight(e, req, res)
+        }
+    case .Type_Definition:
+        type_definition(e, req, res)
+    case .Selection_Range:
+        selection_range(e, req, res)
+    case .Call_Hierarchy:
+        call_hierarchy(e, req, res)
+    case .Type_Hierarchy:
+        type_hierarchy(e, req, res)
+    case .Implementations:
+        implementations(e, req, res)
+    case .Code_Lens:
+        code_lens(e, req, res)
+    }
 }
 
 @(private)
 engine_destroy :: proc(data: rawptr) {
-    e := cast(^Engine) data
-    if e.locals != nil {
-        ts.query_delete(e.locals)
+    e := cast(^Engine)data
+    if e.warm != nil {
+        engine_prewarm_wait(e)
+        thread.destroy(e.warm)
+        delete(e.warm_workspace)
     }
-    index_clear(e)
     config_clear(e)
     format_config_clear(e)
-    builtins_clear(e)
-    treecache.destroy(&e.trees)
+    tree_cache_write(e, true)
+    tree_cache_clear(&e.tree_cache)
+    odinsema.db_destroy(&e.db)
+    odin_root_clear(&e.root)
+    package_index_destroy(&e.packages)
+    count_cache_destroy(&e.counts)
     free(e)
 }

@@ -3,7 +3,7 @@
 // grammar or a pure-Lua lexer. Highlighting resolves to color roles.
 //
 // Each plugin runs sandboxed (see sandbox.odin): its own `_ENV`, a trimmed
-// standard library, and a `thor` table holding only what its plugin.json grants.
+// standard library, and a `thor` table holding only what its manifest.lua grants.
 package plugin
 
 import "base:runtime"
@@ -461,7 +461,7 @@ manager_load_plugin :: proc(m: ^Manager, id, dir: string, perms: Permissions) ->
     return load_chunk(m, index, path, nil)
 }
 
-// Loads every plugin matching `pattern` with the permissions its plugin.json
+// Loads every plugin matching `pattern` with the permissions its manifest.lua
 // asks for. For a host that grants without asking, and for tests.
 manager_load :: proc(m: ^Manager, pattern := "plugins/*/plugin.lua") {
     for p in manager_scan(m, pattern) {
@@ -1175,7 +1175,7 @@ api_keybind :: proc "c" (L: ^lua.State) -> c.int {
 }
 
 // thor.on_command(name, fn): registers a named command the host invokes by name
-// (see manager_run_command), e.g. Help -> Tutorial.
+// (see manager_run_command).
 @(private)
 api_on_command :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()
@@ -1207,6 +1207,29 @@ api_on_command :: proc "c" (L: ^lua.State) -> c.int {
     }
     m.commands[strings.clone(name)] = cb
     return 0
+}
+
+// A named command and the id of the plugin that registered it. Both borrowed
+// from the manager until the next registration or manager_destroy.
+Command_Info :: struct {
+    name:      string,
+    plugin_id: string,
+}
+
+// The registered commands, sorted by name.
+manager_commands :: proc(m: ^Manager, allocator := context.temp_allocator) -> []Command_Info {
+    out := make([dynamic]Command_Info, 0, len(m.commands), allocator)
+    for name, cb in m.commands {
+        id := cb.owner >= 0 && cb.owner < len(m.plugins) ? m.plugins[cb.owner].id : ""
+        append(&out, Command_Info {name, id})
+    }
+    slice.sort_by(out[:], proc(a, b: Command_Info) -> bool {return a.name < b.name})
+    return out[:]
+}
+
+// How many commands are registered.
+manager_command_count :: proc(m: ^Manager) -> int {
+    return len(m.commands)
 }
 
 // Runs the plugin command registered under `name`. Returns whether it existed

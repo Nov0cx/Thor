@@ -5,7 +5,6 @@ import "core:os"
 import "core:path/filepath"
 import "core:slice"
 import "core:strings"
-import "core:sync"
 import "core:time"
 import rl "vendor:raylib"
 
@@ -20,6 +19,7 @@ import "../watch"
 import "../font"
 import "../theme"
 import "../editview"
+import "../lockfree"
 import "../render"
 import ui "../vendor/loom/loom"
 // A window creation slower than this is a machine fault, not normal work, and
@@ -29,10 +29,9 @@ SLOW_WINDOW_WARN_SECS :: 2.0
 Thor :: struct {
     ui_context: ui.Context,
     backend: render.Backend,
-    // The two editor panes. Owned here: undo history and cursors outlive any
-    // one frame's tree.
-    editor: editview.Editor,
-    editor2: editview.Editor,
+    // The editor panes, all MAX_PANES of them; the layout shows the first few.
+    // Owned here: undo history and cursors outlive any one frame's tree.
+    editors: [MAX_PANES]editview.Editor,
     // Font handles the views style with.
     font_ui: ui.Font,
     font_mono: ui.Font,
@@ -43,6 +42,9 @@ Thor :: struct {
     // The settings modal's own rows, categories and capture; see settings_view.odin.
     settings: Settings_State,
     git_open: bool,
+    problems_open: bool,
+    problems: Problems_View, // see problems.odin
+    package_problems: [dynamic]Package_Problem, // owned; diagnostics of files that are not open
     // The git modal's own lists, diff and commit box; see git_view.odin.
     git: Git_View,
     theme_editor_open: bool,
@@ -57,6 +59,8 @@ Thor :: struct {
     select_open: bool,
     // The select dialog's own state (title, options, live preview).
     select: Select_Dialog,
+    // Copied, cut and pasted texts, newest first.
+    clipboard_history: [dynamic]Clipboard_Entry, // owned
     find_open: bool,
     find_replace_mode: bool,
     // The find bar's query, matches and modifiers; see find.odin.
@@ -73,6 +77,9 @@ Thor :: struct {
     // saw last frame, which is what a command asking "where am I" reads.
     focus_request: string,
     focus_owner: string,
+    // The build pass of the frame, 0 first. Loom runs the build up to `max_passes`
+    // times; work that advances with time runs only in pass 0.
+    frame_pass: int,
     config: setting.Settings,
     plugins: plugin.Manager,
     // Where a plugin's own data directory lives: user/plugins beside the binary,
@@ -84,27 +91,29 @@ Thor :: struct {
     theme_labels: []string, // owned
     theme_files: []string, // owned
     theme_stamp: i64, // newest modification time the cache was built from
-    // The color role the picker is editing and the value it had when it opened,
-    // so a cancel puts it back. Owned; "" when no picker is up.
-    theme_edit_key: string, // owned
-    theme_edit_original: ui.Color,
-    // Generator seeds, kept between the rows that set them and the Generate row.
+    theme_file_sig: i64, // size and modification time of the loaded theme file
+    // Lua files this start converted from JSON, and the card that says so.
+    lua_converted: [dynamic]string, // owned
+    lua_notice_open: bool,
+    // The release notes card.
+    whats_new: Whats_New,
+    // Generator seeds of the theme window's Generate tab.
     theme_seed_background: ui.Color,
     theme_seed_accent: ui.Color,
     theme_seed_dark: bool,
-    // True while thor.theme holds a generated preview rather than the configured
-    // palette, so an edit cannot write the preview over a saved theme.
-    theme_preview_generated: bool,
     // Zoom and pan of the image view, and the orbit camera and render target of
     // the model view. One per editor pane: a split can show two of either, and
     // each keeps its own camera.
-    image_view: [2]Image_View,
-    model_view: [2]Model_View,
+    image_view: [MAX_PANES]Image_View,
+    model_view: [MAX_PANES]Model_View,
     // Rendered markdown preview, shown in place of whichever pane is not
     // focused while preview is on and the active file is markdown. Toggled by
     // "View: Toggle Markdown Preview".
     markdown_preview: bool,
     markdown_view: Markdown_View,
+    tutorial: Tutorial,
+    // Last frame's rect of each region a tutorial step can point at.
+    region_rects: [Tutorial_Region]ui.Rect,
     // Tip of the day, floating over the editor. Opened on the first start of a
     // day with a workspace open, where the welcome page is not shown; the
     // welcome page shows the same tip inline.
@@ -146,6 +155,11 @@ Thor :: struct {
     toggle_explorer_key: setting.Keybind,
     // Toggles the editor split: the "toggle_split" chord, f1 by default.
     split_key: setting.Keybind,
+    focus_pane_keys: [MAX_PANES]setting.Keybind,
+    file_to_pane_keys: [MAX_PANES]setting.Keybind,
+    focus_next_pane_key: setting.Keybind,
+    focus_previous_pane_key: setting.Keybind,
+    next_layout_key: setting.Keybind,
     active_file: Signal(int),
     // Most-recently-active file before the current one, for the ctrl+e flip.
     // Cleared when that file is closed so the pointer never dangles.
@@ -201,6 +215,9 @@ Thor :: struct {
     update_prompt_shown: bool,
     update_started: bool,
     update_inflight: bool,
+    // Bytes of the update archive on disk, read about four times a second while it downloads.
+    update_bytes: i64,
+    update_bytes_time: f64,
     // The running install job, borrowed, so a quit can ask it to stop.
     update_job: ^Update_Job,
     // A staged update waiting to be swapped in. Owned; the swap runs from
@@ -209,10 +226,18 @@ Thor :: struct {
     // the flag and not the root is what says a swap is due.
     update_swap_root: string,
     update_swap_pending: bool,
+    // Plugins and themes the update rows list (ext_update.odin). Owned.
+    ext_updates: [dynamic]Ext_Update,
+    ext_started: bool,
+    ext_inflight: bool,
+    // The running plugin or theme job, borrowed, so a quit can ask it to stop.
+    ext_job: ^Ext_Job,
+    // Hold key of the item whose row opened the picker.
+    ext_setting_target: string, // owned
     // Plugin whose permission row opened the picker (see settings_ui.odin).
     plugin_setting_target: string,  // owned
     plugin_setting_source: Plugin_Source,
-    // Backend id ("odin", or an lsp.json server id) whose on/off picker is open;
+    // Backend id ("odin", or an lsp.lua server id) whose on/off picker is open;
     // see thor_cmd_change_language_backend. Shared with
     // thor_cmd_change_language_backend_feature, which additionally sets
     // language_backend_feature_kind — the two never have a picker open at once.
@@ -225,20 +250,31 @@ Thor :: struct {
     window_maximized: bool,
     explorer_width: f32,
     console_height: f32,
-    split_visible: bool,
-    split_ratio: f32,
-    split_grab: f32, // split_ratio at the press that started a handle drag
+    layout: Pane_Layout,
+    last_multi_layout: Pane_Layout, // what toggle_split returns to
+    // Share of each column, and of each row inside a column.
+    col_weight: [LAYOUT_MAX_COLUMNS]f32,
+    row_weight: [LAYOUT_MAX_COLUMNS][LAYOUT_MAX_ROWS]f32,
+    pane_grab: [2]f32, // the two weights at the press that started a handle drag
+    // Last frame's rect of each pane and of the area they share.
+    pane_rect: [MAX_PANES]ui.Rect,
+    panes_area: ui.Rect,
+    pane_pick: Pane_Pick,
+    tab_drag: int, // tab being dragged, -1 when none
     // Each pane's open-files index (-1 = none); the two panes can show different
     // files. active_pane is the focused one, whose file the tabbar, status bar
     // and file commands act on (mirrored into the active_file signal).
-    pane_file: [2]int,
+    pane_file: [MAX_PANES]int,
     // The scroll each pane pushed to Loom last frame.
-    pane_scroll: [2]ui.Vec2,
+    pane_scroll: [MAX_PANES]ui.Vec2,
     active_pane: int,
     // App/file/view commands that ship without a keybinding. Each carries its
     // config action name and resolved chord; unbound ones (KEY_NULL) never fire.
     // Dispatched globally, so only commands with no editor-local key belong here.
     app_binds: [dynamic]App_Bind,
+    // Palette entries of the plugins' thor.on_command names; see plugin_commands.odin.
+    plugin_commands: [dynamic]^Plugin_Command, // owned
+    plugin_commands_synced: int, // command count at the last sync, -1 to force one
     workspace_dir: string,
     workspace_prefix: string,  // workspace_dir + separator, for palette display
     // True when workspace_dir has a .thor/ directory: its config overlays the
@@ -286,21 +322,20 @@ Thor :: struct {
     pending_task_name: string,
     open_files: [dynamic]^Open_File,
     zombie_files: [dynamic]^Open_File,
-    // Worker threads append finished jobs here under io_mutex; drained on the
-    // main thread every frame.
-    io_mutex: sync.Mutex,
-    finished_loads: [dynamic]^Load_Job,
-    finished_saves: [dynamic]^Save_Job,
-    finished_git: [dynamic]^Git_Status_Job,
-    finished_git_ops: [dynamic]^Git_Op_Job,
-    finished_file_ops: [dynamic]^File_Op_Job,
-    finished_shells: [dynamic]^Shell_Detect_Job,
-    finished_file_index: [dynamic]^File_Index_Job,
-    finished_file_searches: [dynamic]^File_Search_Job,
-    finished_updates: [dynamic]^Update_Job,
-    finished_outside_stats: [dynamic]^Outside_Stat_Job,
-    finished_md_images: [dynamic]^Md_Image_Job,
-    finished_plugin_execs: [dynamic]^Plugin_Exec_Job,
+    // Worker threads push finished jobs here; drained on the main thread every frame.
+    finished_loads: lockfree.Stack(Load_Job),
+    finished_saves: lockfree.Stack(Save_Job),
+    finished_git: lockfree.Stack(Git_Status_Job),
+    finished_git_ops: lockfree.Stack(Git_Op_Job),
+    finished_file_ops: lockfree.Stack(File_Op_Job),
+    finished_shells: lockfree.Stack(Shell_Detect_Job),
+    finished_file_index: lockfree.Stack(File_Index_Job),
+    finished_file_searches: lockfree.Stack(File_Search_Job),
+    finished_updates: lockfree.Stack(Update_Job),
+    finished_ext_updates: lockfree.Stack(Ext_Job),
+    finished_outside_stats: lockfree.Stack(Outside_Stat_Job),
+    finished_md_images: lockfree.Stack(Md_Image_Job),
+    finished_plugin_execs: lockfree.Stack(Plugin_Exec_Job),
     // Reaped thor.exec results waiting for the run loop to call their plugin. Owned.
     plugin_exec_results: [dynamic]^Plugin_Exec_Job,
     // The id the last thor.exec with a callback got; unique for the process.
@@ -393,19 +428,19 @@ Thor :: struct {
     // prompt the palette borrows while it is open; owned.
     lsp_install_command: string,
     lsp_install_prompt: string,
-    // Set when an lsp.json layer changed or the user asked for a restart. Acted
+    // Set when an lsp.lua layer changed or the user asked for a restart. Acted
     // on at the head of the run loop, never inside an event: thor_reload_lang
     // destroys the backend a dispatch may be standing on.
     lang_reload_pending: bool,
     // The one server a row or the palette asked to restart, acted on at the same
     // point and for the same reason. Owned; "" when none is owed.
     lang_restart_id: string,
-    // The workspace's lsp.json waits on an answer (see lsp_trust.odin). The key
+    // The workspace's lsp.lua waits on an answer (see lsp_trust.odin). The key
     // is the workspace and file digest the question is about; owned.
     lsp_trust_pending: bool,
     lsp_trust_declined: bool,
     lsp_trust_key: string,
-    // Signature of the three lsp.json layers, and the per-server states the
+    // Signature of the three lsp.lua layers, and the per-server states the
     // health poll last saw. Both owned; see thor/settings_watch.odin.
     lsp_sig: i64,
     lsp_health: [dynamic]Lsp_Health,
@@ -419,6 +454,8 @@ Thor :: struct {
     explorer_refresh_at: time.Tick, // when the watcher last rebuilt the tree
     watch_git_dirty: bool,
     goto_def_key: setting.Keybind,
+    goto_type_def_key: setting.Keybind,
+    peek_def_key: setting.Keybind,
     goto_symbol_key: setting.Keybind,
     goto_workspace_symbol_key: setting.Keybind,
     find_references_key: setting.Keybind,
@@ -469,6 +506,8 @@ Thor :: struct {
     // picker, the results picker opens immediately (loading) and is filled when
     // the matching scan lands; a superseded result is dropped.
     references_request_id: u64,
+    // Hierarchies, implementations, expand selection and reference counts.
+    nav: Nav_State,
     // In-flight signature-help request: the pane it came from and its request id,
     // so a superseded result (the caret moved on to another call, or a plain tab
     // switch with no new request) is dropped rather than routed to a stale pane.
@@ -500,12 +539,32 @@ Thor :: struct {
     // looked up by path, not held by pointer). One at a time, which throttles a
     // whole-file classification to its own round trip.
     semantic_request_id: u64,
+    // In-flight live syntax check; one at a time for every file.
+    syntax_request_id: u64,
     semantic_path: string,
     // The buffer snapshot that request carries (owned). It becomes the file's
     // semantic_source when the result lands, so the tokens can be rebased onto
     // later text; a request that never lands frees it instead, since tokens the
     // file already holds were classified over something else.
     semantic_source: string,
+    // In-flight inlay hints: one at a time for every file, over the window [inlay_start, inlay_end)
+    // of `inlay_path` (owned), computed over `inlay_source` (owned).
+    // Peek definition: the request for one, then the open peek and its editor.
+    peek:             Peek,
+    inlay_request_id: u64,
+    inlay_path:       string,
+    inlay_source:     string,
+    inlay_start:      int,
+    inlay_end:        int,
+    // In-flight document highlight: its id, and the file (owned), revision and caret it asked about.
+    occurrence_request_id:   u64,
+    occurrence_ask_path:     string,
+    occurrence_ask_revision: u64,
+    occurrence_ask_caret:    int,
+    // The uses of the symbol at the caret in `occurrence_path` (owned) at `occurrence_revision`.
+    occurrences:             [dynamic]editview.Occurrence,
+    occurrence_path:         string,
+    occurrence_revision:     u64,
     // In-flight rename: its request id and the path of the buffer it was computed
     // against (owned), so its edits can be told apart from the ones landing in
     // other files — that buffer is validated against the snapshotted revision,
@@ -520,7 +579,14 @@ Thor :: struct {
     code_action_request_id: u64,
     code_action_path: string,
     code_action_revision: u64,
+    code_action_lo: int, // the caret or selection the offer was made at
+    code_action_hi: int,
     code_actions: [dynamic]Pending_Action,
+    // The action whose prompt is open, by index into code_actions; -1 when none.
+    // Its Resolve_Action in flight, and the title to report when it answers.
+    code_action_prompted: int,
+    resolve_action_request_id: u64,
+    resolve_action_title: string, // owned
     // In-flight Execute_Command, and the title to report when it answers: a
     // command-only fix runs on the server, so the pick only reports whether it
     // was accepted — the changes arrive later as a pushed Apply_Edit.
@@ -632,6 +698,8 @@ init :: proc() -> ^Thor {
     // icon packs the startup atlases must cover.
     thor := new(Thor)
     thor.launch_dropped_held = held == .Drop
+    thor_whats_new_check(thor)
+    thor_migrate_startup(thor, workspace_dir)
     thor_load_config(thor, workspace_dir)
     lap(&phase, "load config")
 
@@ -707,8 +775,10 @@ init :: proc() -> ^Thor {
     signal_set_listener(&thor.console_visible, thor_on_visibility_changed, thor)
     thor.explorer_width = 250
     thor.console_height = 190
-    thor.split_ratio = 0.5
-    thor.pane_file = {-1, -1}
+    thor.last_multi_layout = .Columns2
+    thor_pane_reset_weights(thor)
+    thor.pane_file = -1
+    thor.tab_drag = -1
     thor.workspace_dir = workspace_dir
     if workspace_dir != "" {
         thor.workspace_prefix = strings.concatenate({workspace_dir, filepath.SEPARATOR_STRING})
@@ -720,18 +790,6 @@ init :: proc() -> ^Thor {
     thor.zombie_files = make([dynamic]^Open_File)
     thor.lsp_probes = make(map[string]Lsp_Probe)
     thor.lsp_health = make([dynamic]Lsp_Health)
-    thor.finished_loads = make([dynamic]^Load_Job)
-    thor.finished_saves = make([dynamic]^Save_Job)
-    thor.finished_git = make([dynamic]^Git_Status_Job)
-    thor.finished_git_ops = make([dynamic]^Git_Op_Job)
-    thor.finished_plugin_execs = make([dynamic]^Plugin_Exec_Job)
-    thor.finished_file_ops = make([dynamic]^File_Op_Job)
-    thor.finished_shells = make([dynamic]^Shell_Detect_Job)
-    thor.finished_file_index = make([dynamic]^File_Index_Job)
-    thor.finished_file_searches = make([dynamic]^File_Search_Job)
-    thor.finished_updates = make([dynamic]^Update_Job)
-    thor.finished_outside_stats = make([dynamic]^Outside_Stat_Job)
-    thor.finished_md_images = make([dynamic]^Md_Image_Job)
     thor.file_index = make([dynamic]string)
     strings.builder_init(&thor.console_backlog)
 
@@ -742,6 +800,8 @@ init :: proc() -> ^Thor {
     // branches on it. No server process starts until a file it claims opens.
     lang.manager_init(&thor.lang_manager)
     thor.odin_engine = odin.engine_create()
+    odin.engine_set_cache_dir(thor.odin_engine, thor_odin_cache_dir())
+    odin.engine_prewarm(thor.odin_engine, thor.workspace_dir)
     thor.lsp_client = lsp.client_create(thor.workspace_dir, thor_lsp_workspace_trusted(thor))
     if lsp.client_overrides(thor.lsp_client, ".odin") {
         lang.manager_register(&thor.lang_manager, lsp.client_backend(thor.lsp_client))
@@ -756,6 +816,7 @@ init :: proc() -> ^Thor {
 
     thor_palette_init(thor)
     thor_select_init(thor)
+    thor_clipboard_history_load(thor)
     thor_menu_init(thor)
     thor_settings_init(thor)
     thor_theme_editor_init(thor)
@@ -776,7 +837,7 @@ init :: proc() -> ^Thor {
     lap(&phase, "terminals + settings")
 
     // Now that the console and keybinds exist, expose the host services and load
-    // plugins (their load body may print or query keybinds, e.g. the tutorial).
+    // plugins (their load body may print or query keybinds).
     thor_set_plugin_host(thor)
     thor_load_plugins(thor)
     lap(&phase, "load plugins")
@@ -790,10 +851,7 @@ init :: proc() -> ^Thor {
         delete(path)
     }
     thor_apply_layout_state(thor)
-    thor_apply_split(thor)
-    if thor.split_visible {
-        thor_bind_pane(thor, 1)
-    }
+    thor_bind_extra_panes(thor)
     lap(&phase, "restore session")
     thor_refresh_git_status(thor)
     thor_refresh_file_index(thor)
@@ -818,10 +876,10 @@ init :: proc() -> ^Thor {
     // of them must win explicitly rather than by map iteration order.
     thor_activate_icon_pack(PRIMARY_ICON_PACK_GROUP, setting.icon_pack_name(&thor.config), DEFAULT_ICON_PACK)
     thor_activate_icon_pack(FILE_ICON_PACK_GROUP, setting.file_icon_pack_name(&thor.config), DEFAULT_FILE_ICON_PACK)
-    // Font handles name a family the backend has registered; the families only
-    // exist once the load above finishes.
-    thor.font_ui = render.register_family(&thor.backend, font.default_family())
-    thor.font_mono = render.register_family(&thor.backend, font.default_family())
+    // Both handles name the default family (""), so a font switch reaches
+    // every node that draws with them.
+    thor.font_ui = render.register_family(&thor.backend, "")
+    thor.font_mono = render.register_family(&thor.backend, "")
     thor.font_icons = render.register_family(&thor.backend, font.ICON_FAMILY)
     lap(&phase, "text_finish_async_load")
 
@@ -949,13 +1007,19 @@ run :: proc(thor: ^Thor) {
         font.pump_async()
         thor_dispatch_plugin_execs(thor)
         plugin.manager_dispatch_tick(&thor.plugins)
+        thor_sync_plugin_commands(thor)
         thor_sync_active_pane(thor)
 
         // Loom builds the tree from the state above and hands back a draw list;
         // the backend is the only thing below that knows about raylib.
-        ui.begin_frame(render.poll_input(&thor.backend))
-        thor_frame(thor)
-        list := ui.end_frame()
+        // Loom runs the build again while a pass changes what the last one laid out.
+        input := render.poll_input(&thor.backend)
+        thor.frame_pass = 0
+        for ui.frame(input) {
+            thor_frame(thor)
+            thor.frame_pass += 1
+        }
+        list := ui.draw_list()
 
         rl.BeginDrawing()
         rl.ClearBackground(render.raylib_color(thor.theme.contrast))
@@ -995,18 +1059,7 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.open_files)
     thor_welcome_recent_free(thor)
     delete(thor.zombie_files)
-    delete(thor.finished_loads)
-    delete(thor.finished_saves)
-    delete(thor.finished_git)
-    delete(thor.finished_git_ops)
-    delete(thor.finished_file_ops)
-    delete(thor.finished_shells)
-    delete(thor.finished_file_index)
-    delete(thor.finished_file_searches)
     thor_file_search_destroy(thor)
-    delete(thor.finished_updates)
-    delete(thor.finished_outside_stats)
-    delete(thor.finished_md_images)
     thor_clear_update(thor)
     thor_clear_file_index(thor)
     thor_free_theme_choices(thor)
@@ -1014,9 +1067,14 @@ shutdown :: proc(thor: ^Thor) {
         thor_model_view_destroy(thor, &view)
     }
     thor_markdown_view_destroy(thor, &thor.markdown_view)
+    thor_tutorial_destroy(thor)
+    thor_whats_new_destroy(thor)
     strings.builder_destroy(&thor.console_backlog)
+    thor_clear_plugin_commands(thor)
+    delete(thor.plugin_commands)
     delete(thor.app_binds)
     thor_clear_git_status(thor)
+    thor_package_problems_destroy(thor)
     delete(thor.workspace_dir)
     delete(thor.workspace_prefix)
     delete(thor.dock_layout)
@@ -1050,9 +1108,15 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.rename_path)
     delete(thor.code_action_path)
     delete(thor.execute_command_title)
+    delete(thor.resolve_action_title)
     thor_completion_clear(thor)
     delete(thor.semantic_path)
     delete(thor.semantic_source)
+    delete(thor.inlay_path)
+    delete(thor.inlay_source)
+    thor_nav_destroy(thor)
+    thor_clear_occurrences(thor)
+    delete(thor.occurrences)
     delete(thor.format_path)
     delete(thor.format_range_path)
     delete(thor.on_type_path)
@@ -1075,7 +1139,6 @@ shutdown :: proc(thor: ^Thor) {
     thor_clear_plugin_requests(thor)
     delete(thor.plugin_requests)
     delete(thor.plugin_setting_target)
-    delete(thor.theme_edit_key)
     delete(thor.language_backend_target)
     setting.destroy(&thor.config)
     plugin.manager_destroy(&thor.plugins)
@@ -1083,16 +1146,22 @@ shutdown :: proc(thor: ^Thor) {
     theme.destroy(&thor.theme)
     thor_palette_destroy(thor)
     thor_select_destroy(thor)
+    thor_clipboard_history_save(thor)
+    thor_clipboard_history_destroy(thor)
     thor_menu_destroy(thor)
     thor_settings_destroy(thor)
     thor_theme_editor_destroy(thor)
+    thor_free_lua_converted(thor)
     thor_color_picker_destroy(thor)
     thor_permission_destroy(thor)
     thor_find_destroy(thor)
     thor_git_view_destroy(thor)
     thor_explorer_destroy(thor)
-    editview.editor_destroy(&thor.editor)
-    editview.editor_destroy(&thor.editor2)
+    for &editor in thor.editors {
+        editview.editor_destroy(&editor)
+    }
+    thor_peek_destroy(thor)
+    thor_pane_pick_cancel(thor)
     ui.destroy(&thor.ui_context)
     render.destroy(&thor.backend)
     font.shutdown()

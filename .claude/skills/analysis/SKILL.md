@@ -32,8 +32,7 @@ Cheap facts that set the document's frame and that agents would each redo:
   here and to an agent below.
 - Repo-wide grep for `TODO|FIXME|XXX|HACK` in non-vendor `.odin` files.
 - `.todo.txt`, if present (gitignored; `done` / open / `~` maybe-later).
-- `lang/ROADMAP.md`'s stated gaps: an open `- [ ]` box, a `Missing` sentence inside a ticked
-  entry, and the "Known limitations / cleanups" section at the end.
+- `lang/LANGUAGE_INTELLIGENCE.md`'s stated gaps: the "Missing" and "Known issues" sections.
 - The `packages` list in `run_tests` (`build.odin`) against the packages that actually hold a
   `_test.odin` — a mismatch means CI silently skips a suite. `snippet` and `main` hold none and
   are rightly absent.

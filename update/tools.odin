@@ -92,9 +92,9 @@ api_command :: proc(
     case .Powershell:
         return fmt.aprintf(
             `powershell -NoProfile -Command "$ProgressPreference='SilentlyContinue'; ` +
-            `try { $r = Invoke-WebRequest -Uri '%s' -UserAgent '%s' -Headers @{Accept='application/vnd.github+json'} ` +
+            `try {{ $r = Invoke-WebRequest -Uri '%s' -UserAgent '%s' -Headers @{{Accept='application/vnd.github+json'} ` +
             `-OutFile '%s' -PassThru -TimeoutSec %d; Write-Output $r.StatusCode } ` +
-            `catch { Write-Output $_.Exception.Response.StatusCode.value__ }"`,
+            `catch {{ Write-Output $_.Exception.Response.StatusCode.value__ }"`,
             url,
             agent,
             dest,

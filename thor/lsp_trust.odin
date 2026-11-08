@@ -1,6 +1,6 @@
 package thor
 
-// Trust for `<workspace>/.thor/lsp.json`. That file comes with the folder and
+// Trust for `<workspace>/.thor/lsp.lua`. That file comes with the folder and
 // names programs to start, so it joins the server table only once the user
 // allows it. The answer keys on the workspace and on the digest of the file, so
 // a changed file is asked about again — whoever changed it.
@@ -30,7 +30,7 @@ Lsp_Grants :: struct {
     workspaces: []Lsp_Grant,
 }
 
-// Whether the workspace's lsp.json may join the server table. A file that is
+// Whether the workspace's lsp.lua may join the server table. A file that is
 // absent or names no entry has nothing to gate. Else raises the prompt, unless
 // this file was already declined.
 thor_lsp_workspace_trusted :: proc(thor: ^Thor) -> bool {
@@ -75,7 +75,7 @@ thor_prompt_lsp_trust :: proc(thor: ^Thor) {
     thor_permission_open(
         thor,
         "Run this folder's language servers?",
-        "From .thor/lsp.json. Asked again when that file changes.",
+        "From .thor/lsp.lua. Asked again when that file changes.",
         ids[:],
         texts[:],
         thor_grant_lsp_trust,
@@ -111,7 +111,7 @@ thor_decline_lsp_trust :: proc(data: rawptr) {
     thor.lsp_trust_declined = true
 }
 
-// Digest of the workspace's lsp.json, temp-allocated. False when the file is
+// Digest of the workspace's lsp.lua, temp-allocated. False when the file is
 // absent, unreadable or names no entry.
 @(private = "file")
 thor_lsp_workspace_digest :: proc(workspace: string) -> (digest: string, has_entries: bool) {

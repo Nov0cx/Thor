@@ -27,7 +27,7 @@ test_recent_workspaces :: proc(t: ^testing.T) {
         if had_backup {
             _ = os.write_entire_file(RECENT_WORKSPACES_FILE, backup)
         } else {
-            os.remove(RECENT_WORKSPACES_FILE)
+            _ = os.remove(RECENT_WORKSPACES_FILE)
         }
     }
 
@@ -60,7 +60,7 @@ test_recent_workspaces :: proc(t: ^testing.T) {
     testing.expect_value(t, dup_count, 1)
 
     // A folder that no longer exists is dropped from the list.
-    os.remove(dir_b)
+    _ = os.remove(dir_b)
     pruned := thor_recent_workspaces(context.temp_allocator)
     for p in pruned {
         testing.expect(t, !strings.equal_fold(p, dir_b), "a deleted folder must not be listed")
@@ -129,21 +129,16 @@ test_restore_drops_a_directory :: proc(t: ^testing.T) {
 
     thor := new(Thor)
     defer free(thor)
-    defer editview.editor_destroy(&thor.editor)
-    defer editview.editor_destroy(&thor.editor2)
+    defer for &editor in thor.editors {editview.editor_destroy(&editor)}
     thor.active_file = make_signal(-1)
     thor.open_files = make([dynamic]^Open_File)
     thor.zombie_files = make([dynamic]^Open_File)
-    thor.finished_loads = make([dynamic]^Load_Job)
-    thor.finished_saves = make([dynamic]^Save_Job)
-    thor.pane_file = {-1, -1}
+    thor.pane_file = -1
     thor.workspace_dir = WORKSPACE
     defer {
         delete(thor.status_message)
         delete(thor.open_files)
         delete(thor.zombie_files)
-        delete(thor.finished_loads)
-        delete(thor.finished_saves)
     }
 
     thor_restore_session(thor)
@@ -196,22 +191,17 @@ n0.tabs = Explorer
 
     thor := new(Thor)
     defer free(thor)
-    defer editview.editor_destroy(&thor.editor)
-    defer editview.editor_destroy(&thor.editor2)
+    defer for &editor in thor.editors {editview.editor_destroy(&editor)}
     thor.active_file = make_signal(-1)
     thor.open_files = make([dynamic]^Open_File)
     thor.zombie_files = make([dynamic]^Open_File)
-    thor.finished_loads = make([dynamic]^Load_Job)
-    thor.finished_saves = make([dynamic]^Save_Job)
-    thor.pane_file = {-1, -1}
+    thor.pane_file = -1
     thor.workspace_dir = WORKSPACE
     defer {
         delete(thor.dock_layout)
         delete(thor.status_message)
         delete(thor.open_files)
         delete(thor.zombie_files)
-        delete(thor.finished_loads)
-        delete(thor.finished_saves)
     }
 
     // What a workspace arranged earlier in the run leaves behind.

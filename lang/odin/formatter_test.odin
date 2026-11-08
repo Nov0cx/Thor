@@ -22,19 +22,19 @@ test_format_config_integer_settings_apply :: proc(t: ^testing.T) {
     cfg_dir := strings.concatenate({root, "/.thor"}, context.temp_allocator)
     _ = os.make_directory(root)
     _ = os.make_directory(cfg_dir)
-    cfg := strings.concatenate({cfg_dir, "/odin-formatter.json"}, context.temp_allocator)
+    cfg := strings.concatenate({cfg_dir, "/odin-formatter.lua"}, context.temp_allocator)
     defer os.remove(root)
     defer os.remove(cfg_dir)
     defer os.remove(cfg)
 
     // Every numeric key written as a bare integer, plus tabs:false so
     // `spaces` is the one actually rendered — if read_int only matched
-    // json.Float, every field here would silently stay at its default.
-    cfg_src := "{\n" +
-        "    \"spaces\": 2,\n" +
-        "    \"tabs\": false,\n" +
-        "    \"character_width\": 40,\n" +
-        "    \"newline_limit\": 0\n" +
+    // a float, every field here would silently stay at its default.
+    cfg_src := "return {\n" +
+        "    spaces = 2,\n" +
+        "    tabs = false,\n" +
+        "    character_width = 40,\n" +
+        "    newline_limit = 0,\n" +
         "}\n"
     _ = os.write_entire_file(cfg, transmute([]byte)cfg_src)
 
@@ -135,11 +135,11 @@ test_format_range_keeps_imports_with_sort :: proc(t: ^testing.T) {
     cfg_dir := strings.concatenate({root, "/.thor"}, context.temp_allocator)
     _ = os.make_directory(root)
     _ = os.make_directory(cfg_dir)
-    cfg := strings.concatenate({cfg_dir, "/odin-formatter.json"}, context.temp_allocator)
+    cfg := strings.concatenate({cfg_dir, "/odin-formatter.lua"}, context.temp_allocator)
     defer os.remove(root)
     defer os.remove(cfg_dir)
     defer os.remove(cfg)
-    cfg_src := `{"sort_imports": true}`
+    cfg_src := `return { sort_imports = true }`
     _ = os.write_entire_file(cfg, transmute([]byte)cfg_src)
 
     src := "package demo\nimport \"core:os\"\nimport \"core:mem\"\nimport \"core:fmt\"\n"
@@ -260,12 +260,12 @@ test_format_config_reports_bad_values :: proc(t: ^testing.T) {
     cfg_dir := strings.concatenate({root, "/.thor"}, context.temp_allocator)
     _ = os.make_directory(root)
     _ = os.make_directory(cfg_dir)
-    cfg := strings.concatenate({cfg_dir, "/odin-formatter.json"}, context.temp_allocator)
+    cfg := strings.concatenate({cfg_dir, "/odin-formatter.lua"}, context.temp_allocator)
     defer os.remove(root)
     defer os.remove(cfg_dir)
     defer os.remove(cfg)
 
-    cfg_src := `{"spaces": 0, "tabs": "yes", "brace_style": "GNU", "colour": 1, "character_width": 80}`
+    cfg_src := `return { spaces = 0, tabs = "yes", brace_style = "GNU", colour = 1, character_width = 80 }`
     testing.expect_value(t, os.write_entire_file(cfg, transmute([]byte)cfg_src), nil)
 
     warnings := 0

@@ -21,7 +21,7 @@ import lang ".."
 @(private)
 request_decode :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
     #partial switch ask.req.kind {
-    case .Definition:
+    case .Definition, .Type_Definition, .Implementations:
         decode_definition(ask, value, res)
     case .Hover:
         decode_hover(ask, value, res)
@@ -39,6 +39,10 @@ request_decode :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         decode_pull_diagnostics(ask, value, res)
     case .Semantic_Tokens:
         decode_semantic_tokens(ask, value, res)
+    case .Inlay_Hints:
+        decode_inlay_hints(ask, value, res)
+    case .Document_Highlight:
+        decode_document_highlights(ask, value, res)
     case .Rename:
         decode_rename(ask, value, res)
     case .Code_Actions:
@@ -401,7 +405,7 @@ completion_edit :: proc(ask: ^Ask, value: json.Value) -> (text: string, start, e
         span, has_span = object["replace"]
     }
     if !has_span {
-        span, has_span = object["insert"]
+        span = object["insert"]
     }
     start_line, start_char, end_line, end_char, has_range := range_of(span)
     if !has_range {
@@ -595,8 +599,8 @@ decode_progress :: proc(params: json.Value) -> (lang.Result, bool) {
 }
 
 // One `Diagnostic`, as the 1-based line and byte column the seam reports. The
-// protocol's four severities coarsen to two: only Error stays one, and a
-// diagnostic that named no severity is read as an error.
+// protocol's Information and Hint both become Hint, and a diagnostic that named
+// no severity is read as an error.
 @(private)
 decode_one_diagnostic :: proc(lines: ^Line_Index, path: string, value: json.Value) -> (lang.Diagnostic, bool) {
     object, is_object := value.(json.Object)
@@ -609,8 +613,11 @@ decode_one_diagnostic :: proc(lines: ^Line_Index, path: string, value: json.Valu
         return {}, false
     }
     severity := lang.Diagnostic_Severity.Error
-    if level, has_level := number(object["severity"]); has_level && level != 1 {
-        severity = .Warning
+    if level, has_level := number(object["severity"]); has_level {
+        switch level {
+        case 2:    severity = .Warning
+        case 3, 4: severity = .Hint
+        }
     }
 
     offset := offset_from_position(lines, start_line, start_char)
@@ -723,6 +730,103 @@ decode_semantic_tokens :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) 
         append(&res.tokens, lang.Semantic_Token{start = start, end = end, kind = legend[entry].kind})
     }
     res.ok = len(res.tokens) > 0
+}
+
+// An InlayHint[] reply, sorted by offset. A label of parts is joined.
+@(private)
+decode_inlay_hints :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
+    hints, is_array := value.(json.Array)
+    if !is_array {
+        return
+    }
+    res.inlays = make([dynamic]lang.Inlay_Hint)
+    for entry in hints {
+        object, is_object := entry.(json.Object)
+        if !is_object {
+            continue
+        }
+        line, character, has_position := position_of(object["position"])
+        if !has_position {
+            continue
+        }
+        label := make([dynamic]u8, context.temp_allocator)
+        #partial switch text in object["label"] {
+        case json.String:
+            append(&label, string(text))
+        case json.Array:
+            for part in text {
+                part_object, is_part := part.(json.Object)
+                if !is_part {
+                    continue
+                }
+                if part_text, has_text := part_object["value"].(json.String); has_text {
+                    append(&label, string(part_text))
+                }
+            }
+        }
+        if len(label) == 0 {
+            continue
+        }
+        hint := lang.Inlay_Hint {
+            offset = offset_from_position(&ask.lines, line, character),
+            label  = strings.clone(string(label[:])),
+            kind   = .Type,
+        }
+        if kind, has_kind := number(object["kind"]); has_kind && kind == 2 {
+            hint.kind = .Parameter
+        }
+        if pad, has_pad := object["paddingLeft"].(json.Boolean); has_pad {
+            hint.pad_left = bool(pad)
+        }
+        if pad, has_pad := object["paddingRight"].(json.Boolean); has_pad {
+            hint.pad_right = bool(pad)
+        }
+        append(&res.inlays, hint)
+    }
+    slice.stable_sort_by(res.inlays[:], proc(a, b: lang.Inlay_Hint) -> bool {
+        return a.offset < b.offset
+    })
+    res.ok = len(res.inlays) > 0
+}
+
+// A DocumentHighlight[] reply, sorted by start. A missing kind is Text.
+@(private)
+decode_document_highlights :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
+    items, is_array := value.(json.Array)
+    if !is_array {
+        return
+    }
+    res.highlights = make([dynamic]lang.Document_Highlight)
+    for item in items {
+        object, is_object := item.(json.Object)
+        if !is_object {
+            continue
+        }
+        start_line, start_char, end_line, end_char, has_range := range_of(object["range"])
+        if !has_range {
+            continue
+        }
+        highlight := lang.Document_Highlight {
+            start = offset_from_position(&ask.lines, start_line, start_char),
+            end   = offset_from_position(&ask.lines, end_line, end_char),
+        }
+        if kind, has_kind := number(object["kind"]); has_kind {
+            switch kind {
+            case 2:
+                highlight.kind = .Read
+            case 3:
+                highlight.kind = .Write
+            }
+        }
+        if highlight.end < highlight.start {
+            continue
+        }
+        append(&res.highlights, highlight)
+    }
+    slice.stable_sort_by(res.highlights[:], proc(a, b: lang.Document_Highlight) -> bool {
+        return a.start < b.start
+    })
+    res.ok = len(res.highlights) > 0
 }
 
 // Reads a JSON array of whole numbers into an int64 slice; a non-number entry

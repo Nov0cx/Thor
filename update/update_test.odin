@@ -134,7 +134,7 @@ test_checksums_find :: proc(t: ^testing.T) {
     testing.expect(t, ok, "the binary-mode form is read")
     testing.expect_value(t, digest, "2222222222222222222222222222222222222222222222222222222222222222")
 
-    digest, ok = checksums_find(sums, "thor-2026.09.0-macos-arm64.tar.gz")
+    _, ok = checksums_find(sums, "thor-2026.09.0-macos-arm64.tar.gz")
     testing.expect(t, ok, "a ./ on the name is dropped")
 
     // A truncated digest is not a digest, so the line does not count.
@@ -293,6 +293,9 @@ test_commands :: proc(t: ^testing.T) {
     api := api_command(.Curl, API_URL, ".update/api.json", agent, context.temp_allocator)
     testing.expect(t, strings.contains(api, "X-GitHub-Api-Version"), "the api version is pinned")
     testing.expect(t, strings.contains(api, "%{http_code}"), "the status code is printed")
+    shell_api := api_command(.Powershell, API_URL, ".update/api.json", agent, context.temp_allocator)
+    testing.expect(t, strings.contains(shell_api, "try { $r = ") && strings.contains(shell_api, "@{Accept=") && strings.contains(shell_api, "catch { Write"), "the braces reach powershell")
+    testing.expect(t, !strings.contains(shell_api, "%!"), "the format has no error")
 
     for extractor in ([?]Extractor{.Tar, .Expand_Archive}) {
         command := extract_command(extractor, ".update/thor.zip", ".update/x", context.temp_allocator)
@@ -329,4 +332,66 @@ test_http_code :: proc(t: ^testing.T) {
     testing.expect_value(t, http_code("curl: (22) The requested URL returned error 403\n403"), 403)
     testing.expect_value(t, http_code(""), 0)
     testing.expect_value(t, http_code("curl: (6) Could not resolve host: api.github.com"), 0)
+}
+
+@(test)
+test_source_valid :: proc(t: ^testing.T) {
+    testing.expect(t, source_valid("Nov0cx/thor-theme.jogo"), "an owner/repo is valid")
+    testing.expect(t, source_valid("a_b/c-d"), "underscore and dash are valid")
+    bad := [?]string{"", "owner", "/repo", "owner/", "a/b/c", "a/..", "a b/c", "a/c;rm", "a/\"c\"", "a/c$x", "https://github.com/a/b"}
+    for s in bad {
+        testing.expectf(t, !source_valid(s), "%q must be refused", s)
+    }
+}
+
+@(test)
+test_ext_version_from_tag :: proc(t: ^testing.T) {
+    v, ok := ext_version_from_tag("v1.2.3")
+    testing.expect(t, ok, "a v tag parses")
+    testing.expect_value(t, v, Version{1, 2, 3})
+    v, ok = ext_version_from_tag("0.4.0")
+    testing.expect(t, ok, "a bare version parses")
+    testing.expect_value(t, v, Version{0, 4, 0})
+    _, ok = ext_version_from_tag("v")
+    testing.expect(t, !ok, "a bare v is refused")
+    _, ok = ext_version_from_tag("1.2")
+    testing.expect(t, !ok, "two fields are refused")
+}
+
+@(test)
+test_ext_urls :: proc(t: ^testing.T) {
+    testing.expect_value(t, ext_api_url("a/b", context.temp_allocator), "https://api.github.com/repos/a/b/releases/latest")
+    testing.expect_value(t, ext_archive_url("a/b", "v1.0.0", .Zip, context.temp_allocator), "https://codeload.github.com/a/b/zip/refs/tags/v1.0.0")
+    testing.expect_value(t, ext_archive_url("a/b", "v1.0.0", .Tar_Gz, context.temp_allocator), "https://codeload.github.com/a/b/tar.gz/refs/tags/v1.0.0")
+}
+
+@(test)
+test_ext_parse_count :: proc(t: ^testing.T) {
+    n, ok := ext_parse_count("3\n")
+    testing.expect(t, ok && n == 3, "a count with a newline parses")
+    n, ok = ext_parse_count("0")
+    testing.expect(t, ok && n == 0, "zero parses")
+    _, ok = ext_parse_count("")
+    testing.expect(t, !ok, "no output is refused")
+    _, ok = ext_parse_count("fatal: no upstream")
+    testing.expect(t, !ok, "an error line is refused")
+}
+
+// The byte count of a partial download is the size of its file in the staging folder.
+@(test)
+test_staged_bytes :: proc(t: ^testing.T) {
+    asset :: "staged_bytes_test.tmp"
+    testing.expect_value(t, staged_bytes(asset), 0)
+
+    testing.expect(t, os.make_directory_all(STAGE_DIR) == nil, "could not make the staging folder")
+    path := strings.concatenate({STAGE_DIR, "/", asset}, context.temp_allocator)
+    defer {
+        if err := os.remove(path); err != nil {
+            testing.expectf(t, false, "could not remove %q: %v", path, err)
+        }
+        // Fails when another test keeps a file in the folder, which is fine.
+        _ = os.remove(STAGE_DIR)
+    }
+    testing.expect(t, os.write_entire_file(path, "12345") == nil, "could not write the partial file")
+    testing.expect_value(t, staged_bytes(asset), 5)
 }

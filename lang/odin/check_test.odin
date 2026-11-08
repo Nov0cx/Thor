@@ -38,6 +38,21 @@ test_parse_warning_and_syntax :: proc(t: ^testing.T) {
     testing.expect_value(t, s.message, "expected ';'")
 }
 
+// An error the compiler prints with no level word, its suggestion after a tab dropped.
+@(test)
+test_parse_error_without_level :: proc(t: ^testing.T) {
+    p, ok := parse_diagnostic_line("D:/w/a.odin(6:2) Unhandled switch case: C\tSuggestion: Was '#partial switch' wanted? ")
+    testing.expect(t, ok, "should parse a line with no level word")
+    testing.expect_value(t, p.line, 6)
+    testing.expect(t, p.severity == lang.Diagnostic_Severity.Error, "severity should be error")
+    testing.expect_value(t, p.message, "Unhandled switch case: C")
+
+    _, at := parse_diagnostic_line("\tat D:/w/a.odin(4:2) ")
+    testing.expect(t, !at, "an `at` line must not parse")
+    _, bare := parse_diagnostic_line("D:/w/a.odin(4:2)")
+    testing.expect(t, !bare, "a position with no message must not parse")
+}
+
 @(test)
 test_parse_rejects_non_diagnostics :: proc(t: ^testing.T) {
     // A source-snippet line the compiler prints under a diagnostic: has a "(i:j)"
@@ -165,7 +180,7 @@ test_check_passes_config_collections :: proc(t: ^testing.T) {
     defer os.remove(app)
 
     foo_path, _ := filepath.join({foo, "foo.odin"}, context.temp_allocator)
-    cfg_path, _ := filepath.join({cfg_dir, "odin-analyzer.json"}, context.temp_allocator)
+    cfg_path, _ := filepath.join({cfg_dir, "odin-analyzer.lua"}, context.temp_allocator)
     app_path, _ := filepath.join({app, "app.odin"}, context.temp_allocator)
     defer os.remove(foo_path)
     defer os.remove(cfg_path)
@@ -176,7 +191,7 @@ test_check_passes_config_collections :: proc(t: ^testing.T) {
         src:  string,
     } {
         {foo_path, "package foo\n\nbar :: proc() -> int {\n\treturn 1\n}\n"},
-        {cfg_path, "{ \"collections\": [ { \"name\": \"shared\", \"path\": \"libs\" } ] }\n"},
+        {cfg_path, "return { collections = { { name = \"shared\", path = \"libs\" } } }\n"},
         {app_path, "package app\n\nimport \"shared:foo\"\n\nuse :: proc() -> int {\n\treturn foo.bar()\n}\n"},
     }
     for f in files {
@@ -254,7 +269,7 @@ temp_package :: proc(t: ^testing.T, name: string) -> (string, bool) {
 
 // True when `odin` runs from `cwd`. A missing compiler leaves the shell to
 // report it, which is a failed exit rather than a failed run.
-@(private = "file")
+@(private)
 odin_on_path :: proc(cwd: string) -> bool {
     out, code, ran := shell.run_status("odin version", cwd)
     defer delete(out)

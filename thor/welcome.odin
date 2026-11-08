@@ -73,7 +73,7 @@ thor_close_workspace :: proc(thor: ^Thor) {
     thor_explorer_set_root(thor, "")
     // The palette holds the prefix by reference and the old one was just freed.
 
-    // The workspace's .thor/tips.json went away with it, and the floating card
+    // The workspace's .thor/tips.lua went away with it, and the floating card
     // has no editor to float over.
     thor.tip_open = false
     thor_refresh_tip_cards(thor)
@@ -175,6 +175,10 @@ thor_welcome_view :: proc(thor: ^Thor) {
             "Open one file, and its folder as the workspace",
         ) {
             thor_welcome_open_file(thor)
+            return
+        }
+        if welcome_button(thor, "tour", "Take the tour", "school", "Start the guided tutorial") {
+            thor_tutorial_start(thor, 0)
             return
         }
     }

@@ -46,7 +46,7 @@ What helps, in order of preference:
 
 `user/thor.log` names a server that failed to start, and **Settings > Language
 Servers** shows the same state with the error beside the entry. See
-[Configuration](configuration.md) for the `lsp.json` layers and the `install`
+[Configuration](configuration.md) for the `lsp.lua` layers and the `install`
 command each entry can carry.
 
 ## A plugin does not load

@@ -16,10 +16,34 @@ import "../lang/odin"
 import "../setting"
 import "../textedit"
 import "../editview"
+
+// The directory of the Odin analyzer's tree cache: user/cache/odin beside the binary. Temp-allocated.
+thor_odin_cache_dir :: proc() -> string {
+    dir := setting.USER_DIR
+    if exe, err := os.get_executable_path(context.temp_allocator); err == nil {
+        if joined, jerr := filepath.join({os.dir(exe), setting.USER_DIR}, context.temp_allocator); jerr == nil {
+            dir = joined
+        }
+    }
+    path, jerr := filepath.join({dir, "cache", "odin"}, context.temp_allocator)
+    if jerr != nil {
+        return setting.USER_DIR + "/cache/odin"
+    }
+    abs, aerr := filepath.abs(path, context.temp_allocator)
+    return aerr == nil ? abs : path
+}
+
 // Points both editor panes at the handlers that answer them. Called once at
 // startup: the panes are values on Thor and outlive every frame's tree.
 thor_wire_editors :: proc(thor: ^Thor) {
-    for editor in ([2]^editview.Editor{&thor.editor, &thor.editor2}) {
+    for &pane_editor in thor.editors {
+        thor_wire_editor(thor, &pane_editor)
+    }
+}
+
+// Points one editor at the handlers that answer it.
+thor_wire_editor :: proc(thor: ^Thor, editor: ^editview.Editor) {
+    {
         editview.editor_set_on_save(editor, thor_request_save, thor)
         editview.editor_set_on_goto_definition(editor, thor_editor_goto_definition, thor)
         editview.editor_set_on_hover(editor, thor_editor_hover, thor)
@@ -27,6 +51,8 @@ thor_wire_editors :: proc(thor: ^Thor) {
         editview.editor_set_on_completion(editor, thor_editor_completion, thor)
         editview.editor_set_on_completion_accept(editor, thor_completion_accept, thor)
         editview.editor_set_on_type(editor, thor_editor_on_type, thor)
+        editview.editor_set_on_clipboard(editor, thor_clipboard_note, thor)
+        editview.editor_set_on_action(editor, thor_editor_action_note, thor)
         editor.wrap = true
     }
 }
@@ -66,11 +92,13 @@ thor_lang_busy_label :: proc(kinds: bit_set[lang.Request_Kind]) -> string {
     switch {
     case .Rename in kinds:
         return "Renaming..."
+    case .Resolve_Action in kinds:
+        return "Refactoring..."
     case .References in kinds:
         return "Finding references..."
     case .Workspace_Symbols in kinds:
         return "Scanning workspace..."
-    case .Definition in kinds, .Document_Symbols in kinds, .Hover in kinds, .Package_Doc in kinds:
+    case .Definition in kinds, .Type_Definition in kinds, .Document_Symbols in kinds, .Hover in kinds, .Package_Doc in kinds:
         return "Resolving..."
     case .Code_Actions in kinds:
         return "Looking for fixes..."
@@ -110,6 +138,19 @@ thor_apply_language_settings :: proc(thor: ^Thor) {
             file.diagnostics_revision = 0
         }
     }
+    if .Syntax_Diagnostics not_in after {
+        for file in thor.open_files {
+            thor_clear_file_syntax_diagnostics(file)
+        }
+    }
+    if .Inlay_Hints not_in after {
+        for file in thor.open_files {
+            thor_clear_file_inlays(file)
+        }
+    }
+    if .Document_Highlight not_in after {
+        thor_clear_occurrences(thor)
+    }
     if .Semantic_Tokens not_in after {
         for file in thor.open_files {
             // Re-merged by the per-frame highlight pass, now without the overlay.
@@ -125,7 +166,7 @@ thor_apply_language_settings :: proc(thor: ^Thor) {
 
 // One backend's effective admin gate: what the config layers state, and the
 // backend's own default for every key none of them states. An LSP server takes
-// its default from its lsp.json entry, so a server turned off there reads as off
+// its default from its lsp.lua entry, so a server turned off there reads as off
 // in Settings and can be turned back on; the Odin engine has no such file and
 // defaults to fully on. Shared by thor_apply_language_settings and the Settings
 // rows, so what the modal shows is what the seam enforces.
@@ -188,7 +229,7 @@ thor_reload_lang :: proc(thor: ^Thor) {
     odin_backend := odin.engine_backend(thor.odin_engine)
     // Registration order is precedence (lang.manager_register's contract) —
     // re-decided here exactly as thor_init decides it the first time, since
-    // the new workspace's .thor/lsp.json can flip "override" for .odin.
+    // the new workspace's .thor/lsp.lua can flip "override" for .odin.
     if lsp.client_overrides(thor.lsp_client, ".odin") {
         lang.manager_set_backends(&thor.lang_manager, lsp_backend, odin_backend)
     } else {
@@ -223,6 +264,7 @@ thor_remirror_open_files :: proc(thor: ^Thor) {
         file.lang_revision = 0
         thor_clear_file_diagnostics(file)
         file.diagnostics_revision = 0
+        thor_clear_file_syntax_diagnostics(file)
         thor_clear_file_semantic(file)
         thor_lang_notify(thor, file, .Opened)
     }
@@ -241,7 +283,7 @@ thor_drain_lang_manager :: proc(thor: ^Thor) {
     lang.manager_dispatch(&thor.lang_manager, nil, nil)
 }
 
-// Run-loop head: rebuilds the LSP client when an lsp.json layer changed or the
+// Run-loop head: rebuilds the LSP client when an lsp.lua layer changed or the
 // user asked for a restart, and restarts one server when a row or the palette
 // asked for that. Never inline in an event — both drain the manager and stop a
 // pump a dispatch would be standing on, the same reason thor_reload_plugins is
@@ -441,13 +483,38 @@ thor_sync_lang_documents :: proc(thor: ^Thor) {
     }
 }
 
-// Alt+Enter: resolve the symbol under the caret in the active file.
+// Alt+Enter: resolve the symbol under the caret in the active file, or in the peek when it has the focus.
 thor_goto_definition :: proc(thor: ^Thor) {
+    if thor.peek.open && thor.focus_owner == PEEK_KEY && thor.peek.file != nil && thor.peek.file.loaded {
+        file := thor.peek.file
+        caret := textedit.primary_cursor(&file.state).caret
+        thor_peek_close(thor)
+        thor_focus_pane(thor, thor.peek.pane)
+        thor_dispatch_goto(thor, file, caret)
+        return
+    }
     file := thor_active_open_file(thor)
     if file == nil || !file.loaded {
         return
     }
     thor_dispatch_goto(thor, file, textedit.primary_cursor(&file.state).caret)
+}
+
+// Alt+Shift+Enter: the declaration of the type of the symbol under the caret, in the active file or the peek.
+thor_goto_type_definition :: proc(thor: ^Thor) {
+    if thor.peek.open && thor.focus_owner == PEEK_KEY && thor.peek.file != nil && thor.peek.file.loaded {
+        file := thor.peek.file
+        caret := textedit.primary_cursor(&file.state).caret
+        thor_peek_close(thor)
+        thor_focus_pane(thor, thor.peek.pane)
+        thor_dispatch_goto(thor, file, caret, .Type_Definition)
+        return
+    }
+    file := thor_active_open_file(thor)
+    if file == nil || !file.loaded {
+        return
+    }
+    thor_dispatch_goto(thor, file, textedit.primary_cursor(&file.state).caret, .Type_Definition)
 }
 
 // Ctrl+Click: the editor hands back the buffer it was clicked in and the byte
@@ -462,11 +529,11 @@ thor_editor_goto_definition :: proc(data: rawptr, state: ^textedit.State, offset
     }
 }
 
-// Sends a Definition request for `file` at `offset`. A snapshot of the buffer
+// Sends a Definition or Type_Definition request for `file` at `offset`. A snapshot of the buffer
 // goes with it, so the worker never races later edits; the manager clones the
 // strings, so the temp source is fine to hand over.
 @(private = "file")
-thor_dispatch_goto :: proc(thor: ^Thor, file: ^Open_File, offset: int) {
+thor_dispatch_goto :: proc(thor: ^Thor, file: ^Open_File, offset: int, kind := lang.Request_Kind.Definition) {
     if !file.loaded {
         return
     }
@@ -477,7 +544,7 @@ thor_dispatch_goto :: proc(thor: ^Thor, file: ^Open_File, offset: int) {
     source := textedit.text(&file.state)
     lang.manager_request_latest(
         &thor.lang_manager,
-        .Definition,
+        kind,
         file.path,
         ext,
         source,
@@ -1448,8 +1515,8 @@ thor_show_package_doc :: proc(thor: ^Thor, res: ^lang.Result) {
         return
     }
 
-    // The doc goes in the pane the user is not editing in.
-    thor_render_doc_in_pane(thor, path, res.doc.text, 1 - thor.active_pane)
+    // The doc goes in the pane beside the one the user is editing in.
+    thor_render_doc_in_pane(thor, path, res.doc.text, thor_side_pane(thor))
 }
 
 // The per-session directory package-doc pages are written to: a `thor-docs`
@@ -1497,8 +1564,8 @@ thor_doc_file_stem :: proc(name: string) -> string {
     return strings.to_string(b)
 }
 
-// Writes `text` to `path` and shows it in editor pane `pane`, opening the split
-// when the target is the second pane. An already-open doc buffer is refreshed in
+// Writes `text` to `path` and shows it in editor pane `pane`, which must exist.
+// An already-open doc buffer is refreshed in
 // place (and kept clean so autosave never fires); a new one is opened into the
 // pane without moving keyboard focus off the user's code.
 @(private = "file")
@@ -1509,11 +1576,6 @@ thor_render_doc_in_pane :: proc(thor: ^Thor, path, text: string, pane: int) {
         return
     }
     canonical := thor_abs_path(path)
-
-    if pane == 1 && !thor.split_visible {
-        thor.split_visible = true
-        thor_apply_split(thor)
-    }
 
     if file, index := thor_find_open_file(thor, canonical); file != nil {
         if file.loaded {
@@ -1929,10 +1991,21 @@ thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
     thor := cast(^Thor) user
     #partial switch res.kind {
     case .Definition:
+        if thor_peek_take_result(thor, res) {
+            return
+        }
         if !res.ok {
             thor_flash_status(thor, "No definition found", is_error = true)
         } else if len(res.symbols) > 1 {
             // Several workspace files declare the name; let the user pick.
+            thor_show_definition_candidates(thor, res)
+        } else {
+            thor_goto_location(thor, res.location.path, res.location.start)
+        }
+    case .Type_Definition:
+        if !res.ok {
+            thor_flash_status(thor, "No type definition found", is_error = true)
+        } else if len(res.symbols) > 1 {
             thor_show_definition_candidates(thor, res)
         } else {
             thor_goto_location(thor, res.location.path, res.location.start)
@@ -1965,10 +2038,16 @@ thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
         thor_apply_rename(thor, res)
     case .Diagnostics:
         thor_apply_diagnostics(thor, res)
+    case .Syntax_Diagnostics:
+        thor_apply_syntax_diagnostics(thor, res)
     case .Code_Actions:
         thor_show_code_actions(thor, res)
     case .Semantic_Tokens:
         thor_update_semantic(thor, res)
+    case .Inlay_Hints:
+        thor_update_inlays(thor, res)
+    case .Document_Highlight:
+        thor_update_occurrences(thor, res)
     case .Format:
         thor_apply_format(thor, res)
     case .Format_Range:
@@ -1977,12 +2056,20 @@ thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
         thor_apply_on_type_format(thor, res)
     case .Execute_Command:
         thor_apply_execute_command(thor, res)
+    case .Resolve_Action:
+        thor_apply_resolved_action(thor, res)
     case .Progress:
         thor_apply_progress(thor, res)
     case .Apply_Edit:
         thor_apply_pushed_edit(thor, res)
     case .Message:
         thor_flash_status(thor, res.message.text, res.message.error)
+    case .Call_Hierarchy, .Type_Hierarchy, .Implementations:
+        thor_on_symbol_list(thor, res)
+    case .Selection_Range:
+        thor_on_selection_chain(thor, res)
+    case .Code_Lens:
+        thor_on_lens(thor, res)
     }
 }
 
@@ -2183,7 +2270,6 @@ thor_show_definition_candidates :: proc(thor: ^Thor, res: ^lang.Result) {
 // Rebuilds the picker's jump targets (doc_symbols) from a symbol result and
 // returns the matching rich rows in the same order, temp-allocated (the palette
 // deep-copies them). Shared by the document-symbol and workspace-symbol pickers.
-@(private = "file")
 thor_build_symbol_items :: proc(thor: ^Thor, res: ^lang.Result) -> []Pick_Item {
     thor_clear_doc_symbols(thor)
     items := make([dynamic]Pick_Item, context.temp_allocator)
@@ -2254,7 +2340,7 @@ thor_flash_status :: proc(thor: ^Thor, message: string, is_error := false) {
 
 // Jumps to `offset` in the file at `path`, opening it if needed. When the target
 // is still loading, the jump is deferred to thor_apply_pending_goto.
-@(private = "file")
+@(private)
 thor_goto_location :: proc(thor: ^Thor, path: string, offset: int) {
     thor_jump_record(thor)
     canonical := thor_abs_path(path)

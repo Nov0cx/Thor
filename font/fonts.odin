@@ -28,6 +28,11 @@ Font_Family :: struct {
     preload_sizes: []i32, // owned
     // Icon fonts have no ligatures, so the shaping probes skip them.
     icon_font:     bool,
+    // The family names of this family's own bold, italic and bold italic faces,
+    // by `transmute(u8)` of the style; "" where the manifest names none.
+    variants:      [4]string, // owned
+    // A style face of another family: drawn through it, never listed or chosen.
+    variant:       bool,
     // Glyph ids the ligature probes reach, collected once per family: shaping
     // returns the same ids at every pixel size. `ligature_scan` says the probe
     // ran, since an empty result is a valid answer.
@@ -120,6 +125,73 @@ register_family :: proc(name, ttf_path: string, codepoints: []rune, preload_size
     family.shaped = make(map[i32]map[u32]Shaped_Glyph)
     families[family.name] = family
     return family
+}
+
+// The manifest keys of a family's style faces.
+@(private = "file")
+VARIANT_KEYS := [?]struct {
+    key:   string,
+    style: Style,
+} {
+    {"bold", {.Bold}},
+    {"italic", {.Italic}},
+    {"bold_italic", {.Bold, .Italic}},
+}
+
+// Registers the style faces a manifest entry names as families of their own,
+// read on first use.
+@(private = "file")
+register_variants :: proc(family: ^Font_Family, entry: json.Object, dir: string, codepoints: []rune) {
+    for v in VARIANT_KEYS {
+        rel, ok := entry[v.key].(json.String)
+        if !ok || rel == "" {
+            continue
+        }
+        path := string(rel)
+        if !filepath.is_abs(path) {
+            path = strings.concatenate({dir, strings.trim_prefix(path, "./")}, context.temp_allocator)
+        }
+        if !os.exists(path) {
+            log.warnf("Font family %q: %s face %q is missing", family.name, v.key, path)
+            continue
+        }
+        name := strings.concatenate({family.name, ":", v.key}, context.temp_allocator)
+        face := register_family(name, path, codepoints, nil, false)
+        if face == nil {
+            continue
+        }
+        face.variant = true
+        slot := transmute(u8)v.style
+        delete(family.variants[slot])
+        family.variants[slot] = strings.clone(face.name)
+    }
+}
+
+// The family and the synthetic style that draw `family` in `style`: the
+// family's own face for the style when it has one, with no synthetic style left
+// over, else the family itself in the synthetic style. A missing bold italic
+// face uses the italic face drawn bold.
+resolve_style :: proc(family: string, style: Style) -> (string, Style) {
+    if style == {} {
+        return family, style
+    }
+    name := family != "" ? family : default_family_name
+    fam, found := families[name]
+    if !found {
+        return family, style
+    }
+    if face := fam.variants[transmute(u8)style]; face != "" {
+        return face, {}
+    }
+    if style == {.Bold, .Italic} {
+        if face := fam.variants[transmute(u8)Style{.Italic}]; face != "" {
+            return face, {.Bold}
+        }
+        if face := fam.variants[transmute(u8)Style{.Bold}]; face != "" {
+            return face, {.Italic}
+        }
+    }
+    return family, style
 }
 
 @(private = "file")
@@ -234,9 +306,12 @@ load_font_manifest :: proc(manifest_path: string, wanted: []string = nil, option
             full_path = strings.concatenate({dir, strings.trim_prefix(full_path, "./")}, context.temp_allocator)
         }
         read_data := len(wanted) == 0 || name == default_family_name || slice.contains(wanted, name)
-        if register_family(name, full_path, text_codepoints[:], sizes[:], read_data) != nil {
-            registered += 1
+        family := register_family(name, full_path, text_codepoints[:], sizes[:], read_data)
+        if family == nil {
+            continue
         }
+        registered += 1
+        register_variants(family, entry, dir, text_codepoints[:])
     }
 
     // No explicit default: fall back to any registered family.
@@ -400,7 +475,7 @@ icon_set_active_pack :: proc(pack_group, family_name: string) -> bool {
 family_names :: proc(allocator := context.temp_allocator) -> []string {
     names := make([dynamic]string, allocator)
     for name, family in families {
-        if !family.icon_font {
+        if !family.icon_font && !family.variant {
             append(&names, name)
         }
     }
@@ -419,7 +494,7 @@ default_family :: proc() -> string {
 // the family's own owned name, so no allocation is made.
 set_default_family :: proc(name: string) -> bool {
     family, found := families[name]
-    if !found || family.icon_font {
+    if !found || family.icon_font || family.variant {
         return false
     }
     default_family_name = family.name

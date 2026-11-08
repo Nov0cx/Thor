@@ -7,6 +7,7 @@ import "core:strconv"
 import "core:strings"
 
 import "../atomicfile"
+import "../luaconf"
 import ui "../vendor/loom/loom"
 
 Theme :: struct {
@@ -66,63 +67,65 @@ GROUP_LABELS := [Color_Group]string {
     .Syntax   = "Syntax",
 }
 
-// One color role: the key a theme file names it by, and the offset of its field.
+// One color role: its display label, its field, its group, the id a theme file
+// and a plugin name it by, and one line that says what it paints.
 Color_Entry :: struct {
-    key:    string,
+    key:    string, // display label; a theme file may also name the role by it
     offset: uintptr,
     group:  Color_Group,
-    role:   string, // the id plugins name it by (thor.theme.<role>)
+    role:   string, // theme file key and plugin id (thor.theme.<role>)
+    hint:   string,
 }
 
 // Every color role, grouped and in the order a written theme lists them. The one
 // key-to-field mapping in the program: assign_color, color, role_color, save
-// and the Settings rows all read it.
+// and the theme window rows all read it.
 COLORS := [?]Color_Entry {
-    {"Background",             offset_of(Theme, background),             .Surfaces, "background"},
-    {"Second Background",      offset_of(Theme, second_background),      .Surfaces, "second_background"},
-    {"Contrast",               offset_of(Theme, contrast),               .Surfaces, "contrast"},
-    {"Buttons",                offset_of(Theme, buttons),                .Surfaces, "buttons"},
-    {"Active",                 offset_of(Theme, active),                 .Surfaces, "active"},
-    {"Highlight",              offset_of(Theme, highlight),              .Surfaces, "highlight"},
-    {"Border",                 offset_of(Theme, border),                 .Surfaces, "border"},
-    {"Notifications",          offset_of(Theme, notifications),          .Surfaces, "notifications"},
-    {"Tree",                   offset_of(Theme, tree),                   .Surfaces, "tree"},
-    {"Selection Background",   offset_of(Theme, selection_background),   .Surfaces, "selection_background"},
-    {"Accent Color",           offset_of(Theme, accent_color),           .Surfaces, "accent"},
-    {"Accent Secondary Color", offset_of(Theme, accent_secondary_color), .Surfaces, "accent_secondary"},
+    {"Background",             offset_of(Theme, background),             .Surfaces, "background",           "The editor and the main panels."},
+    {"Second Background",      offset_of(Theme, second_background),      .Surfaces, "second_background",    "Headers, sidebars and the row under the pointer."},
+    {"Contrast",               offset_of(Theme, contrast),               .Surfaces, "contrast",             "The deepest surface: the window frame, input fields and shadows."},
+    {"Buttons",                offset_of(Theme, buttons),                .Surfaces, "buttons",              "Buttons, chips and tabs."},
+    {"Active",                 offset_of(Theme, active),                 .Surfaces, "active",               "The selected tab, row or button."},
+    {"Highlight",              offset_of(Theme, highlight),              .Surfaces, "highlight",            "The current line and marked areas."},
+    {"Border",                 offset_of(Theme, border),                 .Surfaces, "border",               "Lines between panels and around boxes."},
+    {"Notifications",          offset_of(Theme, notifications),          .Surfaces, "notifications",        "Toasts and the status flash."},
+    {"Tree",                   offset_of(Theme, tree),                   .Surfaces, "tree",                 "The indent guides of the file tree."},
+    {"Selection Background",   offset_of(Theme, selection_background),   .Surfaces, "selection_background", "Selected text. Use alpha to keep the syntax colors visible."},
+    {"Accent Color",           offset_of(Theme, accent_color),           .Surfaces, "accent",               "The caret, focus rings, toggles and the main buttons."},
+    {"Accent Secondary Color", offset_of(Theme, accent_secondary_color), .Surfaces, "accent_secondary",     "The second accent, for plugins and marks."},
 
-    {"Text",                   offset_of(Theme, text),                   .Text,     "text"},
-    {"Primary Text Color",     offset_of(Theme, primary_text_color),     .Text,     "primary_text"},
-    {"Foreground",             offset_of(Theme, foreground),             .Text,     "foreground"},
-    {"Muted Color",            offset_of(Theme, muted_color),            .Text,     "muted"},
-    {"Disabled",               offset_of(Theme, disabled),               .Text,     "disabled"},
-    {"Selection Foreground",   offset_of(Theme, selection_foreground),   .Text,     "selection_foreground"},
-    {"Excluded Files Color",   offset_of(Theme, excluded_files_color),   .Text,     "excluded_files"},
-    {"Links Color",            offset_of(Theme, links_color),            .Text,     "links"},
+    {"Text",                   offset_of(Theme, text),                   .Text,     "text",                 "Body text of the editor."},
+    {"Primary Text Color",     offset_of(Theme, primary_text_color),     .Text,     "primary_text",         "Names in lists: files, symbols and results."},
+    {"Foreground",             offset_of(Theme, foreground),             .Text,     "foreground",           "Labels, titles and the text of controls."},
+    {"Muted Color",            offset_of(Theme, muted_color),            .Text,     "muted",                "Second lines, paths and hints."},
+    {"Disabled",               offset_of(Theme, disabled),               .Text,     "disabled",             "Controls you cannot use, and line numbers."},
+    {"Selection Foreground",   offset_of(Theme, selection_foreground),   .Text,     "selection_foreground", "Text on the selected palette row."},
+    {"Excluded Files Color",   offset_of(Theme, excluded_files_color),   .Text,     "excluded_files",       "Ignored files in the file tree."},
+    {"Links Color",            offset_of(Theme, links_color),            .Text,     "links",                "Links in rendered markdown."},
 
-    {"Success Color",          offset_of(Theme, success_color),          .Status,   "success"},
-    {"Warning Color",          offset_of(Theme, warning_color),          .Status,   "warning"},
-    {"Info Color",             offset_of(Theme, info_color),             .Status,   "info"},
-    {"Danger Color",           offset_of(Theme, danger_color),           .Status,   "danger"},
-    {"Error Color",            offset_of(Theme, error_color),            .Status,   "error"},
-    {"Conflict Color",         offset_of(Theme, conflict_color),         .Status,   "conflict"},
-    {"Submodule Color",        offset_of(Theme, submodule_color),        .Status,   "submodule"},
+    {"Success Color",          offset_of(Theme, success_color),          .Status,   "success",              "Added lines and passed tasks."},
+    {"Warning Color",          offset_of(Theme, warning_color),          .Status,   "warning",              "Warnings and changed files."},
+    {"Info Color",             offset_of(Theme, info_color),             .Status,   "info",                 "Information marks and modified files."},
+    {"Danger Color",           offset_of(Theme, danger_color),           .Status,   "danger",               "Destructive buttons and deleted lines."},
+    {"Error Color",            offset_of(Theme, error_color),            .Status,   "error",                "Errors and failed tasks."},
+    {"Conflict Color",         offset_of(Theme, conflict_color),         .Status,   "conflict",             "Git merge conflicts."},
+    {"Submodule Color",        offset_of(Theme, submodule_color),        .Status,   "submodule",            "Git submodules."},
 
-    {"Comments Color",         offset_of(Theme, comments_color),         .Syntax,   "comments"},
-    {"Keywords Color",         offset_of(Theme, keywords_color),         .Syntax,   "keywords"},
-    {"Functions Color",        offset_of(Theme, functions_color),        .Syntax,   "functions"},
-    {"Strings Color",          offset_of(Theme, strings_color),          .Syntax,   "strings"},
-    {"Numbers Color",          offset_of(Theme, numbers_color),          .Syntax,   "numbers"},
-    {"Operators Color",        offset_of(Theme, operators_color),        .Syntax,   "operators"},
-    {"Variables Color",        offset_of(Theme, variables_color),        .Syntax,   "variables"},
-    {"Parameters Color",       offset_of(Theme, parameters_color),       .Syntax,   "parameters"},
-    {"Attributes Color",       offset_of(Theme, attributes_color),       .Syntax,   "attributes"},
-    {"Tags Color",             offset_of(Theme, tags_color),             .Syntax,   "tags"},
+    {"Comments Color",         offset_of(Theme, comments_color),         .Syntax,   "comments",             "Comments."},
+    {"Keywords Color",         offset_of(Theme, keywords_color),         .Syntax,   "keywords",             "Keywords such as if, for and return."},
+    {"Functions Color",        offset_of(Theme, functions_color),        .Syntax,   "functions",            "Names of functions and procedures."},
+    {"Strings Color",          offset_of(Theme, strings_color),          .Syntax,   "strings",              "String and character literals."},
+    {"Numbers Color",          offset_of(Theme, numbers_color),          .Syntax,   "numbers",              "Number literals and constants."},
+    {"Operators Color",        offset_of(Theme, operators_color),        .Syntax,   "operators",            "Operators and punctuation."},
+    {"Variables Color",        offset_of(Theme, variables_color),        .Syntax,   "variables",            "Variables and fields."},
+    {"Parameters Color",       offset_of(Theme, parameters_color),       .Syntax,   "parameters",           "Parameters of a procedure."},
+    {"Attributes Color",       offset_of(Theme, attributes_color),       .Syntax,   "attributes",           "Attributes, directives and annotations."},
+    {"Tags Color",             offset_of(Theme, tags_color),             .Syntax,   "tags",                 "Types, and tags in markup."},
 }
 
 // The built-in fallback theme: used as the base every loaded theme overlays, and
 // returned whole when a theme file is missing or malformed. Mirrors
-// assets/themes/mjolnir.json.
+// assets/themes/mjolnir.lua.
 mjolnir :: proc() -> Theme {
     return Theme {
         name = "Mjolnir",
@@ -166,29 +169,55 @@ mjolnir :: proc() -> Theme {
     }
 }
 
-// Loads a theme from a JSON file shaped `{ "name": string, "colors": { <key>: "#RRGGBB[AA]" } }`.
-// Keys are the display names accepted by assign_color. Unspecified keys keep the
-// built-in default, so partial themes are valid. On any failure the default is returned.
+// Loads a theme from a Lua file that returns `{ name = string, colors = { <role> = "#RRGGBB[AA]" } }`.
+// Keys are role ids; the old display labels are accepted too. A role the file
+// does not name keeps the built-in color, so a partial theme is valid. On any
+// failure the built-in theme is returned.
 load :: proc(path: string) -> (Theme, bool) {
-    theme := mjolnir()
-    // Own the name on every path so destroy can always free it.
-    theme.name = strings.clone(theme.name)
+    root, status, message := luaconf.eval_file(path, context.temp_allocator)
+    switch status {
+    case .Ok:
+    case .Missing:
+        log.warnf("Cannot read theme %q: the file does not exist", path)
+        return theme_default(), false
+    case .Failed:
+        log.warnf("Cannot load theme: %s", message)
+        return theme_default(), false
+    }
+    return from_value(root, path)
+}
 
+// Loads a theme from the JSON shape older versions wrote. Only the converter
+// reads it.
+load_json :: proc(path: string) -> (Theme, bool) {
     data, read_err := os.read_entire_file_from_path(path, context.temp_allocator)
     if read_err != nil {
         log.warnf("Cannot read theme %q: %v", path, read_err)
-        return theme, false
+        return theme_default(), false
     }
-
     root, parse_err := json.parse(data, allocator = context.temp_allocator)
     if parse_err != .None {
         log.warnf("Cannot parse theme %q: %v", path, parse_err)
-        return theme, false
+        return theme_default(), false
     }
+    return from_value(root, path)
+}
 
+// The built-in theme with an owned name, so destroy can always free it.
+@(private = "file")
+theme_default :: proc() -> Theme {
+    theme := mjolnir()
+    theme.name = strings.clone(theme.name)
+    return theme
+}
+
+// Reads a theme from the value tree of a theme file.
+@(private = "file")
+from_value :: proc(root: json.Value, path: string) -> (Theme, bool) {
+    theme := theme_default()
     obj, ok := root.(json.Object)
     if !ok {
-        log.warnf("Theme %q: root is not an object", path)
+        log.warnf("Theme %q: root is not a table", path)
         return theme, false
     }
 
@@ -199,13 +228,14 @@ load :: proc(path: string) -> (Theme, bool) {
 
     colors, has_colors := obj["colors"].(json.Object)
     if !has_colors {
-        log.warnf("Theme %q: missing \"colors\" object", path)
+        log.warnf("Theme %q: missing \"colors\" table", path)
         return theme, false
     }
 
     for key, value in colors {
         hex, is_string := value.(json.String)
         if !is_string {
+            log.warnf("Theme %q: color %q is not a string", path, key)
             continue
         }
         color, color_ok := parse_hex(string(hex))
@@ -281,14 +311,24 @@ parse_hex :: proc(value: string) -> (ui.Color, bool) {
     }, true
 }
 
-// The color field `key` names, nil for an unknown key.
-color_ptr :: proc(theme: ^Theme, key: string) -> ^ui.Color {
-    for entry in COLORS {
-        if entry.key == key {
-            return theme_color_field(theme, entry.offset)
+// The index into COLORS of the role `key` names, by role id or display label;
+// -1 for an unknown key.
+color_index :: proc(key: string) -> int {
+    for entry, i in COLORS {
+        if entry.role == key || entry.key == key {
+            return i
         }
     }
-    return nil
+    return -1
+}
+
+// The color field `key` names (role id or display label), nil for an unknown key.
+color_ptr :: proc(theme: ^Theme, key: string) -> ^ui.Color {
+    i := color_index(key)
+    if i < 0 {
+        return nil
+    }
+    return theme_color_field(theme, COLORS[i].offset)
 }
 
 // The color field of COLORS[index].
@@ -341,34 +381,42 @@ to_hex :: proc(color: ui.Color, allocator := context.temp_allocator) -> string {
     return strings.clone(string(buf[:n]), allocator)
 }
 
-// Writes `theme` as the JSON load reads, keys in COLORS order. Map
-// iteration is unordered, so the object is built by hand to keep the file stable.
-// Missing parent directories are created, so a first write to user/ lands.
-save :: proc(theme: Theme, path: string) -> bool {
-    name, marshal_err := json.marshal(theme.name, allocator = context.temp_allocator)
-    if marshal_err != nil {
-        log.errorf("Cannot encode theme name %q: %v", theme.name, marshal_err)
-        return false
-    }
-
-    builder := strings.builder_make(context.temp_allocator)
-    strings.write_string(&builder, "{\n    \"name\": ")
-    strings.write_bytes(&builder, name)
-    strings.write_string(&builder, ",\n    \"colors\": {\n")
+// The Lua source save writes: roles in COLORS order, one comment per group.
+encode :: proc(theme: Theme, allocator := context.temp_allocator) -> string {
+    builder := strings.builder_make(allocator)
+    strings.write_string(&builder, "-- Thor theme. A color is \"#RRGGBB\" or \"#RRGGBBAA\".\n")
+    strings.write_string(&builder, "-- A role this file does not name keeps the Mjolnir color.\n\n")
+    strings.write_string(&builder, "return {\n    name = ")
+    strings.write_string(&builder, luaconf.quote(theme.name, context.temp_allocator))
+    strings.write_string(&builder, ",\n    colors = {\n")
     palette := theme
     for entry, i in COLORS {
-        strings.write_string(&builder, "        \"")
-        strings.write_string(&builder, entry.key)
-        strings.write_string(&builder, "\": \"")
+        if i == 0 || entry.group != COLORS[i - 1].group {
+            if i > 0 {
+                strings.write_string(&builder, "\n")
+            }
+            strings.write_string(&builder, "        -- ")
+            strings.write_string(&builder, GROUP_LABELS[entry.group])
+            strings.write_string(&builder, "\n")
+        }
+        strings.write_string(&builder, "        ")
+        strings.write_string(&builder, entry.role)
+        strings.write_string(&builder, " = \"")
         strings.write_string(&builder, to_hex(color_at(&palette, i)^))
-        strings.write_string(&builder, i == len(COLORS) - 1 ? "\"\n" : "\",\n")
+        strings.write_string(&builder, "\",\n")
     }
-    strings.write_string(&builder, "    }\n}\n")
+    strings.write_string(&builder, "    },\n}\n")
+    return strings.to_string(builder)
+}
 
+// Writes `theme` as the Lua load reads. Missing parent directories are created,
+// so a first write to user/ lands.
+save :: proc(theme: Theme, path: string) -> bool {
+    text := encode(theme)
     if !theme_make_dirs(path) {
         return false
     }
-    if err := atomicfile.write(path, builder.buf[:]); err != nil {
+    if err := atomicfile.write(path, transmute([]u8)text); err != nil {
         log.errorf("Cannot write theme %q: %v", path, err)
         return false
     }
@@ -390,6 +438,27 @@ theme_make_dirs :: proc(path: string) -> bool {
         }
         if err := os.make_directory(dir); err != nil && !os.exists(dir) {
             log.errorf("Cannot create directory %q: %v", dir, err)
+            return false
+        }
+    }
+    return true
+}
+
+// A copy of `theme` with its own name. Pairs with destroy.
+clone :: proc(theme: Theme) -> Theme {
+    out := theme
+    out.name = strings.clone(theme.name)
+    return out
+}
+
+// Whether two themes have the same name and the same color for every role.
+equal :: proc(a, b: Theme) -> bool {
+    a, b := a, b
+    if a.name != b.name {
+        return false
+    }
+    for _, i in COLORS {
+        if color_at(&a, i)^ != color_at(&b, i)^ {
             return false
         }
     }

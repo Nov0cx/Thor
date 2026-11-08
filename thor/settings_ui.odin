@@ -4,7 +4,6 @@ import "core:fmt"
 import "core:slice"
 import "core:strings"
 
-import "../editview"
 import "../input"
 import "../lang"
 import "../plugin"
@@ -71,6 +70,10 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
         view, "autosave_delay_ms", "Autosave Delay (ms)", setting.autosave_delay_ms(config),
         setting.AUTOSAVE_DELAY_MIN, setting.AUTOSAVE_DELAY_MAX, 250,
     )
+    thor_settings_add_number(
+        view, "peek_height", "Peek Definition Height (rows)", setting.peek_height(config),
+        setting.PEEK_HEIGHT_MIN, setting.PEEK_HEIGHT_MAX, 1,
+    )
     thor_settings_add_choice(view, "insert_spaces", "Insert Spaces", thor_on_off_label(setting.insert_spaces(config)))
     thor_settings_add_choice(
         view, "detect_indentation", "Detect Indentation", thor_on_off_label(setting.detect_indentation(config)),
@@ -107,6 +110,11 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
 
     thor_settings_begin_category(view, "windows", "Windows", "window")
     thor_settings_add_choice(view, "open_folder_in", "Open Folder In", thor_open_folder_in_label(config))
+    thor_settings_add_choice(view, "pane_layout", "Editor Pane Layout", thor_pane_layout_label(config))
+    thor_settings_add_choice(view, "clipboard_history_save", "Save Clipboard History", thor_on_off_label(setting.clipboard_history_save(config)))
+    if thor_shell_menu_supported() {
+        thor_settings_add_choice(view, "shell_menu", "Explorer Menu Entry", thor_on_off_label(thor_shell_menu_registered()))
+    }
 
     thor_settings_begin_category(view, "terminal", "Terminal", "terminal-2")
     thor_settings_add_choice(view, "default_shell", "Default Shell", thor_default_shell_label(thor, config))
@@ -114,6 +122,9 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
 
     thor_settings_begin_category(view, "updates", "Updates", "download")
     thor_settings_add_choice(view, "check_for_updates", "Check for Updates", thor_on_off_label(setting.check_for_updates(config)))
+    if scope == .General {
+        thor_populate_ext_category(thor, config)
+    }
 
     // The Odin analyzer's rows, only while the master switch is on: off, none of
     // them does anything, and a screenful of dead rows reads as a screenful of
@@ -172,9 +183,15 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     for action in config.keybinds {
         append(&actions, action)
     }
+    // Plugin commands have no shipped entry, so they list unbound until set.
+    for action in thor_plugin_command_actions(thor) {
+        if action not_in config.keybinds {
+            append(&actions, action)
+        }
+    }
     slice.sort(actions[:])
     for action in actions {
-        kb := config.keybinds[action]
+        kb := config.keybinds[action] or_else {}
         chord := setting.keybind_to_string(kb, context.temp_allocator)
         thor_settings_add_keybind(view, action, action, chord)
     }
@@ -184,8 +201,8 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
 // applies live (and refreshes the modal's rows).
 thor_on_setting_number :: proc(data: rawptr, id: string, value: int) {
     thor := cast(^Thor) data
-    if !setting.persist_int(thor_active_settings_path(thor), id, value) {
-        thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
+    if err := setting.persist_int(thor_active_settings_path(thor), id, value); err != .None {
+        thor_settings_save_failed(thor, thor_active_settings_path(thor), err)
         return
     }
     thor_reload_settings(thor)
@@ -205,6 +222,9 @@ thor_on_setting_choice :: proc(data: rawptr, id: string) {
     }
     if backend_id, is_backend := thor_language_backend_name(id); is_backend {
         thor_cmd_change_language_backend(thor, backend_id)
+        return
+    }
+    if thor_ext_on_setting_choice(thor, id) {
         return
     }
     if id == THEME_EDITOR_SETTING {
@@ -250,8 +270,18 @@ thor_on_setting_choice :: proc(data: rawptr, id: string) {
         thor_cmd_change_format_on_type(thor)
     case "open_folder_in":
         thor_cmd_change_open_folder_in(thor)
+    case "pane_layout":
+        thor_select_open(
+            thor, "Editor Pane Layout", PANE_LAYOUT_LABELS[:], thor_pane_layout_label(&thor.config),
+            thor_no_preview, thor_pane_layout_commit, thor,
+        )
     case "right_alt":
         thor_cmd_change_right_alt(thor)
+    case "clipboard_history_save":
+        thor_select_open(
+            thor, "Save Clipboard History", ON_OFF_LABELS[:], thor_on_off_label(setting.clipboard_history_save(&thor.config)),
+            thor_no_preview, thor_clipboard_history_save_commit, thor,
+        )
     case "terminal_clipboard":
         thor_select_open(
             thor, "Programs Set Clipboard", ON_OFF_LABELS[:], thor_on_off_label(setting.terminal_clipboard(&thor.config)),
@@ -261,6 +291,8 @@ thor_on_setting_choice :: proc(data: rawptr, id: string) {
         thor_cmd_select_shell(thor)
     case "check_for_updates":
         thor_cmd_change_check_for_updates(thor)
+    case "shell_menu":
+        thor_cmd_toggle_shell_menu(thor)
     }
 }
 
@@ -316,6 +348,54 @@ thor_open_folder_in_commit :: proc(data: rawptr, choice: string) {
     }
 }
 
+// Picker rows for pane_layout: remember, then Pane_Layout order.
+@(private = "file")
+PANE_LAYOUT_LABELS := [1 + len(Pane_Layout)]string {
+    "Remember per Folder",
+    LAYOUT_TITLES[.Single],
+    LAYOUT_TITLES[.Columns2],
+    LAYOUT_TITLES[.Columns3],
+    LAYOUT_TITLES[.Rows2],
+    LAYOUT_TITLES[.Main_Stack],
+    LAYOUT_TITLES[.Grid4],
+    LAYOUT_TITLES[.Grid6],
+}
+
+// The current pane_layout setting as its picker row. An unknown name reads as remember.
+thor_pane_layout_label :: proc(config: ^setting.Settings) -> string {
+    if layout, ok := layout_from_name(setting.pane_layout(config)); ok {
+        return LAYOUT_TITLES[layout]
+    }
+    return PANE_LAYOUT_LABELS[0]
+}
+
+// Saves the picked layout and, unless it is remember, switches to it now.
+thor_pane_layout_commit :: proc(data: rawptr, choice: string) {
+    thor := cast(^Thor) data
+    value := "remember"
+    picked: Maybe(Pane_Layout)
+    for title, layout in LAYOUT_TITLES {
+        if title == choice {
+            value = LAYOUT_NAMES[layout]
+            picked = layout
+        }
+    }
+    path := setting.USER_SETTINGS
+    if err := setting.persist_string(path, "pane_layout", value); err != .None {
+        thor_settings_save_failed(thor, path, err)
+        return
+    }
+    delete(thor.config.general.pane_layout)
+    thor.config.general.pane_layout = strings.clone(value)
+    thor_settings_mark_clean(thor)
+    if layout, ok := picked.?; ok {
+        thor_set_layout(thor, layout)
+    }
+    if thor_settings_is_open(thor) {
+        thor_populate_settings_view(thor)
+    }
+}
+
 // Picker rows for right_alt, in Right_Alt order.
 @(private = "file")
 RIGHT_ALT_LABELS := [?]string {"Auto (Keyboard Layout)", "AltGr", "Alt"}
@@ -360,9 +440,9 @@ thor_right_alt_commit :: proc(data: rawptr, choice: string) {
         }
     }
     value := setting.right_alt_value(picked)
-    path := strings.concatenate({setting.USER_DIR, "/settings.json"}, context.temp_allocator)
-    if !setting.persist_string(path, "right_alt", value) {
-        thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
+    path := setting.USER_SETTINGS
+    if err := setting.persist_string(path, "right_alt", value); err != .None {
+        thor_settings_save_failed(thor, path, err)
         return
     }
     delete(thor.config.general.right_alt)
@@ -375,7 +455,6 @@ thor_right_alt_commit :: proc(data: rawptr, choice: string) {
 }
 
 // Picker rows for every on/off setting in the modal.
-@(private = "file")
 ON_OFF_LABELS := [?]string {"On", "Off"}
 
 thor_on_off_label :: proc(on: bool) -> string {
@@ -388,7 +467,7 @@ thor_on_off_label :: proc(on: bool) -> string {
 ODIN_ANALYZER_GROUP :: "language.odin"
 
 // The in-client Odin analyzer's id in the per-backend admin gate
-// (setting.LANGUAGE_BACKENDS_SETTING) — no lsp.json server is expected to use
+// (setting.LANGUAGE_BACKENDS_SETTING) — no lsp.lua server is expected to use
 // this id, so it can't collide with a configured server's own id.
 ODIN_BACKEND_ID :: "odin"
 
@@ -453,6 +532,7 @@ thor_language_backend_feature_name :: proc(id: string) -> (backend_id: string, k
 // names of the commands each one serves, not the seam's kind names.
 LANGUAGE_FEATURE_LABELS := [lang.Request_Kind]string {
     .Definition         = "Go to Definition",
+    .Type_Definition    = "Go to Type Definition",
     .Hover              = "Hover",
     .Document_Symbols   = "Document Symbols",
     .Workspace_Symbols  = "Workspace Symbols",
@@ -462,13 +542,22 @@ LANGUAGE_FEATURE_LABELS := [lang.Request_Kind]string {
     .Package_Doc        = "Package Documentation",
     .Rename             = "Rename Symbol",
     .Diagnostics        = "Diagnostics",
+    .Syntax_Diagnostics = "Live Syntax Errors",
     .Code_Actions       = "Code Actions",
     .Semantic_Tokens    = "Semantic Highlighting",
+    .Inlay_Hints        = "Inlay Hints",
+    .Document_Highlight = "Highlight Uses",
     .Format             = "Format Document",
     .Format_Range       = "Format Selection",
     .Format_On_Type     = "Format On Type",
     .Execute_Command    = "Server Commands",
     .Resolve_Completion = "Completion Follow-Up Edits",
+    .Resolve_Action     = "Refactorings That Ask",
+    .Call_Hierarchy     = "Call Hierarchy",
+    .Type_Hierarchy     = "Type Hierarchy",
+    .Implementations    = "Go to Implementations",
+    .Selection_Range    = "Expand Selection",
+    .Code_Lens          = "Reference Counts",
     .Progress           = "Progress Notifications",
     .Apply_Edit         = "Server-Applied Edits",
     .Message            = "Server Messages",
@@ -501,15 +590,14 @@ thor_language_master_preview :: proc(_: rawptr, _: string) {}
 thor_language_master_commit :: proc(data: rawptr, choice: string) {
     thor := cast(^Thor) data
     on := choice == ON_OFF_LABELS[0]
-    if !setting.persist_nested_bool(thor_active_settings_path(thor), setting.LANGUAGE_SETTING, setting.LANGUAGE_ENABLED_KEY, on) {
-        thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
+    if err := setting.persist_nested_bool(thor_active_settings_path(thor), setting.LANGUAGE_SETTING, setting.LANGUAGE_ENABLED_KEY, on); err != .None {
+        thor_settings_save_failed(thor, thor_active_settings_path(thor), err)
         return
     }
     thor_reload_settings(thor)
 }
 
 // Preview of a setting that shows nothing until it is committed.
-@(private = "file")
 thor_no_preview :: proc(_: rawptr, _: string) {}
 
 @(private = "file")
@@ -520,6 +608,11 @@ thor_insert_spaces_commit :: proc(data: rawptr, choice: string) {
 @(private = "file")
 thor_detect_indentation_commit :: proc(data: rawptr, choice: string) {
     thor_persist_bool_setting(cast(^Thor) data, "detect_indentation", choice == ON_OFF_LABELS[0])
+}
+
+@(private = "file")
+thor_clipboard_history_save_commit :: proc(data: rawptr, choice: string) {
+    thor_persist_bool_setting(cast(^Thor) data, "clipboard_history_save", choice == ON_OFF_LABELS[0])
 }
 
 @(private = "file")
@@ -545,7 +638,7 @@ thor_cmd_change_indent_guides :: proc(thor: ^Thor) {
 @(private = "file")
 thor_indent_guides_preview :: proc(data: rawptr, choice: string) {
     thor := cast(^Thor) data
-    for editor in ([2]^editview.Editor{&thor.editor, &thor.editor2}) {
+    for &editor in thor.editors {
         editor.indent_guides = choice == ON_OFF_LABELS[0]
     }
 }
@@ -575,7 +668,7 @@ thor_cmd_change_relative_line_numbers :: proc(thor: ^Thor) {
 @(private = "file")
 thor_relative_lines_preview :: proc(data: rawptr, choice: string) {
     thor := cast(^Thor) data
-    for editor in ([2]^editview.Editor{&thor.editor, &thor.editor2}) {
+    for &editor in thor.editors {
         editor.relative_lines = choice == ON_OFF_LABELS[0]
     }
 }
@@ -717,14 +810,14 @@ thor_format_on_type_commit :: proc(data: rawptr, choice: string) {
 // and changes nothing, so the row keeps reading what is actually on disk.
 @(private = "file")
 thor_persist_bool_setting :: proc(thor: ^Thor, key: string, on: bool) {
-    if !setting.persist_bool(thor_active_settings_path(thor), key, on) {
-        thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
+    if err := setting.persist_bool(thor_active_settings_path(thor), key, on); err != .None {
+        thor_settings_save_failed(thor, thor_active_settings_path(thor), err)
         return
     }
     thor_reload_settings(thor)
 }
 
-// Settings row: turn one backend (the Odin analyzer, or an lsp.json server) on
+// Settings row: turn one backend (the Odin analyzer, or an lsp.lua server) on
 // or off. Nothing to preview — the gate only shows in what the next request
 // does; an already-running LSP server process is left running idle rather than
 // stopped, same as blocking a running plugin waits for a restart.
@@ -796,12 +889,12 @@ thor_language_backend_feature_commit :: proc(data: rawptr, choice: string) {
 // the two share a shape, and both need the reload to reach the seam.
 @(private = "file")
 thor_persist_backend_key :: proc(thor: ^Thor, key: string, on: bool) {
-    ok := setting.persist_double_nested_bool(
-        thor_active_settings_path(thor), setting.LANGUAGE_BACKENDS_SETTING,
-        thor.language_backend_target, key, on,
+    path := thor_active_settings_path(thor)
+    err := setting.persist_double_nested_bool(
+        path, setting.LANGUAGE_BACKENDS_SETTING, thor.language_backend_target, key, on,
     )
-    if !ok {
-        thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
+    if err != .None {
+        thor_settings_save_failed(thor, path, err)
         return
     }
     thor_reload_settings(thor)
@@ -879,14 +972,14 @@ thor_plugin_permission_commit :: proc(data: rawptr, choice: string) {
     }
 }
 
-// Persists a captured (or cleared) chord to keybinds.json, then reloads so the
+// Persists a captured (or cleared) chord to keybinds.lua, then reloads so the
 // binding takes effect immediately.
 thor_on_setting_keybind :: proc(data: rawptr, id: string, key: ui.Key, mods: input.Modifiers) {
     thor := cast(^Thor) data
     kb := setting.Keybind {key = key, mods = mods}
     spec := setting.keybind_spec(kb, context.temp_allocator)
-    if !setting.persist_keybind(thor_active_keybinds_path(thor), id, spec) {
-        thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
+    if err := setting.persist_keybind(thor_active_keybinds_path(thor), id, spec); err != .None {
+        thor_settings_save_failed(thor, thor_active_keybinds_path(thor), err)
         return
     }
     thor_reload_settings(thor)

@@ -511,6 +511,48 @@ test_delete_word_and_lines :: proc(t: ^testing.T) {
     testing.expect_value(t, primary_cursor(&state).caret, 4)
 }
 
+@(test)
+test_delete_to_line_end :: proc(t: ^testing.T) {
+    state := ops_state("hello world\nnext", 5)
+    defer destroy(&state)
+
+    delete_to_line_end(&state)
+    testing.expect_value(t, text(&state), "hello\nnext")
+    testing.expect_value(t, primary_cursor(&state).caret, 5)
+
+    delete_to_line_end(&state)
+    testing.expect_value(t, text(&state), "hellonext")
+
+    undo(&state)
+    undo(&state)
+    testing.expect_value(t, text(&state), "hello world\nnext")
+
+    set_cursors(&state, []Cursor {{caret = 2, anchor = 2}, {caret = 14, anchor = 14}})
+    delete_to_line_end(&state)
+    testing.expect_value(t, text(&state), "he\nne")
+}
+
+@(test)
+test_delete_to_line_start :: proc(t: ^testing.T) {
+    state := ops_state("first\nhello world", 11)
+    defer destroy(&state)
+
+    delete_to_line_start(&state)
+    testing.expect_value(t, text(&state), "first\n world")
+    testing.expect_value(t, primary_cursor(&state).caret, 6)
+
+    delete_to_line_start(&state)
+    testing.expect_value(t, text(&state), "first world")
+
+    undo(&state)
+    undo(&state)
+    testing.expect_value(t, text(&state), "first\nhello world")
+
+    set_cursors(&state, []Cursor {{caret = 3, anchor = 3}, {caret = 11, anchor = 11}})
+    delete_to_line_start(&state)
+    testing.expect_value(t, text(&state), "st\n world")
+}
+
 // Two carets in one word grow onto the same boundary. Before they were merged,
 // the second range started behind the first delete and the running offset made a
 // negative edit position: wrong bytes removed, a corrupt undo entry, then a panic.
@@ -756,4 +798,30 @@ test_join_last_undo :: proc(t: ^testing.T) {
 
     redo(&state)
     testing.expect_value(t, text(&state), "ab = ab")
+}
+
+// The ranges, not the text, pick the next selection: the "x" at 6 is not one of them.
+@(test)
+test_select_range_or_next :: proc(t: ^testing.T) {
+    state := ops_state("x = 1; x; y = x", 1)
+    defer destroy(&state)
+    ranges := [][2]int{{0, 1}, {14, 15}}
+
+    testing.expect(t, select_range_or_next(&state, ranges))
+    lo, hi := selection_range(primary_cursor(&state))
+    testing.expect_value(t, lo, 0)
+    testing.expect_value(t, hi, 1)
+
+    testing.expect(t, select_range_or_next(&state, ranges))
+    testing.expect_value(t, len(state.cursors), 2)
+    lo, hi = selection_range(state.cursors[1])
+    testing.expect_value(t, lo, 14)
+    testing.expect_value(t, hi, 15)
+
+    testing.expect(t, select_range_or_next(&state, ranges)) // every range taken: no growth
+    testing.expect_value(t, len(state.cursors), 2)
+
+    other := ops_state("x = 1; x; y = x", 7)
+    defer destroy(&other)
+    testing.expect(t, !select_range_or_next(&other, ranges)) // the caret is on no range
 }

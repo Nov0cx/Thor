@@ -5,7 +5,6 @@ import "core:log"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
-import "core:sync"
 import "core:thread"
 import "core:time"
 
@@ -14,6 +13,7 @@ import "../plugin"
 import "../setting"
 import "../shell"
 import "../textedit"
+import "../lockfree"
 
 // One row of a plugin dropdown (see thor.menu). A separator carries no command.
 Plugin_Menu_Item :: struct {
@@ -98,7 +98,7 @@ thor_plugin_print :: proc(host: rawptr, text: string) {
     }
 }
 
-// thor.keybind(action): the chord currently bound to `action` in keybinds.json,
+// thor.keybind(action): the chord currently bound to `action` in keybinds.lua,
 // formatted for display, so plugins present the user's real shortcuts.
 thor_plugin_keybind :: proc(host: rawptr, action: string) -> (string, bool) {
     thor := cast(^Thor) host
@@ -141,7 +141,7 @@ thor_plugin_doc :: proc(host: rawptr, path: string, text: string, focus: bool) {
         }
         if focus {
             thor_set_active_file(thor, index)
-            thor.focus_request = "pane0"
+            thor.focus_request = thor_pane_key(thor.active_pane)
         }
         return
     }
@@ -162,6 +162,7 @@ PLUGIN_EXEC_TIMEOUT :: 120 * time.Second
 
 // A thor.exec with a callback, run on a worker thread.
 Plugin_Exec_Job :: struct {
+    queue_next: ^Plugin_Exec_Job, // link in Thor.finished_plugin_execs
     owner:     ^Thor,
     allocator: runtime.Allocator,
     worker:    ^thread.Thread,
@@ -197,9 +198,7 @@ plugin_exec_worker :: proc(job: ^Plugin_Exec_Job) {
     if !ok && job.code == 0 {
         job.code = -1
     }
-    sync.lock(&job.owner.io_mutex)
-    append(&job.owner.finished_plugin_execs, job)
-    sync.unlock(&job.owner.io_mutex)
+    lockfree.stack_push(&job.owner.finished_plugin_execs, job)
 }
 
 // Joins finished thor.exec workers and queues them for thor_dispatch_plugin_execs.
@@ -237,8 +236,6 @@ thor_free_plugin_execs :: proc(thor: ^Thor) {
     }
     delete(thor.plugin_exec_results)
     thor.plugin_exec_results = nil
-    delete(thor.finished_plugin_execs)
-    thor.finished_plugin_execs = nil
 }
 
 @(private = "file")
@@ -456,13 +453,4 @@ thor_plugin_dialog_text :: proc(data: rawptr, text: string) {
 thor_plugin_dialog_confirm :: proc(data: rawptr) {
     thor := cast(^Thor) data
     plugin.manager_dialog_confirm(&thor.plugins)
-}
-
-// Help -> Tutorial: starts the interactive tutorial plugin
-// (plugins/tutorial/plugin.lua).
-thor_cmd_tutorial :: proc(data: rawptr) {
-    thor := cast(^Thor) data
-    if !plugin.manager_run_command(&thor.plugins, "tutorial") {
-        thor_plugin_print(thor, "\nThe tutorial plugin is not installed (plugins/tutorial/plugin.lua).\n")
-    }
 }

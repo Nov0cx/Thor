@@ -10,24 +10,21 @@ import "../textedit"
 
 // Verifies the thor.doc host service (thor_plugin_doc): the first call opens a
 // tab that loads the written text, and a second call refreshes the same tab's
-// buffer in place (no new tab, no unsaved churn) rather than reopening it. This
-// is what lets the tutorial tick challenges off live. Run from the repo root.
+// buffer in place (no new tab, no unsaved churn) rather than reopening it, so a
+// plugin can keep a live document. Run from the repo root.
 @(test)
 test_plugin_doc_opens_and_refreshes :: proc(t: ^testing.T) {
     PATH :: "thor_doc_host_test.md"
 
     thor := new(Thor)
     defer free(thor)
-    defer editview.editor_destroy(&thor.editor)
-    defer editview.editor_destroy(&thor.editor2)
+    defer for &editor in thor.editors {editview.editor_destroy(&editor)}
     thor.config = setting.load("settings")
     defer setting.destroy(&thor.config)
     thor.active_file = make_signal(-1)
     thor.open_files = make([dynamic]^Open_File)
     thor.zombie_files = make([dynamic]^Open_File)
-    thor.finished_loads = make([dynamic]^Load_Job)
-    thor.finished_saves = make([dynamic]^Save_Job)
-    thor.pane_file = {-1, -1}
+    thor.pane_file = -1
     // thor_update_files runs the per-frame view swap, which sets these three
     // every call, so a partial Thor still needs them.
     // thor_update_editor_view also swaps the welcome page in when there is no
@@ -38,8 +35,6 @@ test_plugin_doc_opens_and_refreshes :: proc(t: ^testing.T) {
         }
         delete(thor.open_files)
         delete(thor.zombie_files)
-        delete(thor.finished_loads)
-        delete(thor.finished_saves)
     }
     defer os.remove(PATH)
 

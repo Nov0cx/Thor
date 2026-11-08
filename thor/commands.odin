@@ -5,23 +5,88 @@ import "core:fmt"
 import "core:log"
 import "core:os"
 import "core:strings"
-import "core:sync"
 import "core:thread"
 import "core:time"
 import "core:unicode/utf8"
 import rl "vendor:raylib"
 
 import "../lang/lsp"
+import "../luaconf"
 import "../setting"
 import "../textedit"
 import ui "../vendor/loom/loom"
 import "../font"
 import "../theme"
 import "../editview"
+import "../lockfree"
+// A global app chord: its keybinds.lua name, the live binding and the built-in default.
+App_Key :: struct {
+    name:    string,
+    key:     ^setting.Keybind,
+    default: setting.Keybind,
+}
+
+// The global app chords of thor_global_key. The slice is in the temp allocator.
+thor_app_keys :: proc(thor: ^Thor) -> []App_Key {
+    keys := [?]App_Key {
+    {"command_palette",          &thor.command_palette_key,       {key = .Period, mods = {.Ctrl}}},
+    {"quick_open",               &thor.quick_open_key,            {key = .Tab, mods = {.Ctrl}}},
+    {"toggle_fullscreen",        &thor.fullscreen_key,            {key = .F12}},
+    {"toggle_console",           &thor.console_toggle_key,        {key = .T, mods = {.Ctrl}}},
+    {"find",                     &thor.find_key,                  {key = .F, mods = {.Ctrl}}},
+    {"replace",                  &thor.replace_key,               {key = .R, mods = {.Ctrl}}},
+    {"focus_editor",             &thor.focus_editor_key,          {key = .E, mods = {.Ctrl, .Shift}}},
+    {"focus_explorer",           &thor.focus_explorer_key,        {key = .B, mods = {.Ctrl, .Shift}}},
+    {"focus_terminal",           &thor.focus_terminal_key,        {key = .T, mods = {.Ctrl, .Shift}}},
+    {"trim_trailing_whitespace", &thor.trim_whitespace_key,       {key = .W, mods = {.Ctrl, .Shift}}},
+    {"format_document",          &thor.format_key,                {key = .L, mods = {.Ctrl, .Alt}}},
+    {"format_selection",         &thor.format_selection_key,      {key = .L, mods = {.Ctrl, .Alt, .Shift}}},
+    {"align_at_char",            &thor.align_char_key,            {key = .A, mods = {.Ctrl, .Shift}}},
+    {"goto_line",                &thor.goto_line_key,             {key = .G, mods = {.Ctrl}}},
+    {"goto_definition",          &thor.goto_def_key,              {key = .Enter, mods = {.Alt}}},
+    {"goto_type_definition",     &thor.goto_type_def_key,         {key = .Enter, mods = {.Alt, .Shift}}},
+    {"peek_definition",          &thor.peek_def_key,              {key = .F12, mods = {.Alt}}},
+    {"goto_symbol",              &thor.goto_symbol_key,           {key = .O, mods = {.Ctrl, .Shift}}},
+    {"goto_workspace_symbol",    &thor.goto_workspace_symbol_key, {key = .Q, mods = {.Ctrl}}},
+    {"find_references",          &thor.find_references_key,       {key = .F10}},
+    {"signature_help",           &thor.signature_help_key,        {key = .Space, mods = {.Ctrl, .Shift}}},
+    {"package_doc",              &thor.package_doc_key,           {key = .F3}},
+    {"code_actions",             &thor.code_actions_key,          {key = .U, mods = {.Ctrl, .Shift}}},
+    // Ctrl+Alt+Left/Right, not the browsers' plain Alt+Left/Right: those two are
+    // already line_start / line_end.
+    {"jump_back",                &thor.jump_back_key,             {key = .Left, mods = {.Ctrl, .Alt}}},
+    {"jump_forward",             &thor.jump_forward_key,          {key = .Right, mods = {.Ctrl, .Alt}}},
+    {"last_file",                &thor.last_file_key,             {key = .E, mods = {.Ctrl}}},
+    {"toggle_split",             &thor.split_key,                 {}},
+    {"focus_pane_1",             &thor.focus_pane_keys[0],        {key = .Num_1, mods = {.Ctrl}}},
+    {"focus_pane_2",             &thor.focus_pane_keys[1],        {key = .Num_2, mods = {.Ctrl}}},
+    {"focus_pane_3",             &thor.focus_pane_keys[2],        {key = .Num_3, mods = {.Ctrl}}},
+    {"focus_pane_4",             &thor.focus_pane_keys[3],        {key = .Num_4, mods = {.Ctrl}}},
+    {"focus_pane_5",             &thor.focus_pane_keys[4],        {key = .Num_5, mods = {.Ctrl}}},
+    {"focus_pane_6",             &thor.focus_pane_keys[5],        {key = .Num_6, mods = {.Ctrl}}},
+    {"file_to_pane_1",           &thor.file_to_pane_keys[0],      {key = .Num_1, mods = {.Ctrl, .Shift}}},
+    {"file_to_pane_2",           &thor.file_to_pane_keys[1],      {key = .Num_2, mods = {.Ctrl, .Shift}}},
+    {"file_to_pane_3",           &thor.file_to_pane_keys[2],      {key = .Num_3, mods = {.Ctrl, .Shift}}},
+    {"file_to_pane_4",           &thor.file_to_pane_keys[3],      {key = .Num_4, mods = {.Ctrl, .Shift}}},
+    {"file_to_pane_5",           &thor.file_to_pane_keys[4],      {key = .Num_5, mods = {.Ctrl, .Shift}}},
+    {"file_to_pane_6",           &thor.file_to_pane_keys[5],      {key = .Num_6, mods = {.Ctrl, .Shift}}},
+    {"focus_next_pane",          &thor.focus_next_pane_key,       {key = .F6}},
+    {"focus_previous_pane",      &thor.focus_previous_pane_key,   {key = .F6, mods = {.Shift}}},
+    {"next_layout",              &thor.next_layout_key,           {key = .F1, mods = {.Ctrl}}},
+    {"close_tab",                &thor.close_tab_key,             {key = .W, mods = {.Ctrl}}},
+    {"next_tab",                 &thor.next_tab_key,              {key = .Page_Down, mods = {.Ctrl}}},
+    {"previous_tab",             &thor.previous_tab_key,          {key = .Page_Up, mods = {.Ctrl}}},
+    {"toggle_explorer",          &thor.toggle_explorer_key,       {key = .B, mods = {.Ctrl}}},
+    }
+    out := make([]App_Key, len(keys), context.temp_allocator)
+    copy(out, keys[:])
+    return out
+}
+
 // Applies the configurable settings to the live widgets. Called at startup and
 // on reload, so both paths stay in sync.
 thor_apply_settings :: proc(thor: ^Thor) {
-    // The editing keys: the built-in chord unless a keybinds.json names one. An
+    // The editing keys: the built-in chord unless a keybinds.lua names one. An
     // empty chord in a file takes the key away.
     editview.keymap_reset()
     for action in editview.Action {
@@ -29,44 +94,8 @@ thor_apply_settings :: proc(thor: ^Thor) {
             editview.keymap_bind(action, {kb.key, kb.mods})
         }
     }
-    // The app keys: the built-in chord unless a keybinds.json names one.
-    app_keys := [?]struct {
-        name:    string,
-        key:     ^setting.Keybind,
-        default: setting.Keybind,
-    } {
-        {"command_palette",          &thor.command_palette_key,       {key = .Period, mods = {.Ctrl}}},
-        {"quick_open",               &thor.quick_open_key,            {key = .Tab, mods = {.Ctrl}}},
-        {"toggle_fullscreen",        &thor.fullscreen_key,            {key = .F12}},
-        {"toggle_console",           &thor.console_toggle_key,        {key = .T, mods = {.Ctrl}}},
-        {"find",                     &thor.find_key,                  {key = .F, mods = {.Ctrl}}},
-        {"replace",                  &thor.replace_key,               {key = .R, mods = {.Ctrl}}},
-        {"focus_editor",             &thor.focus_editor_key,          {key = .E, mods = {.Ctrl, .Shift}}},
-        {"focus_explorer",           &thor.focus_explorer_key,        {key = .B, mods = {.Ctrl, .Shift}}},
-        {"focus_terminal",           &thor.focus_terminal_key,        {key = .T, mods = {.Ctrl, .Shift}}},
-        {"trim_trailing_whitespace", &thor.trim_whitespace_key,       {key = .W, mods = {.Ctrl, .Shift}}},
-        {"format_document",          &thor.format_key,                {key = .L, mods = {.Ctrl, .Alt}}},
-        {"format_selection",         &thor.format_selection_key,      {key = .L, mods = {.Ctrl, .Alt, .Shift}}},
-        {"align_at_char",            &thor.align_char_key,            {key = .A, mods = {.Ctrl, .Shift}}},
-        {"goto_line",                &thor.goto_line_key,             {key = .G, mods = {.Ctrl}}},
-        {"goto_definition",          &thor.goto_def_key,              {key = .Enter, mods = {.Alt}}},
-        {"goto_symbol",              &thor.goto_symbol_key,           {key = .O, mods = {.Ctrl, .Shift}}},
-        {"goto_workspace_symbol",    &thor.goto_workspace_symbol_key, {key = .Q, mods = {.Ctrl}}},
-        {"find_references",          &thor.find_references_key,       {key = .F10}},
-        {"signature_help",           &thor.signature_help_key,        {key = .Space, mods = {.Ctrl, .Shift}}},
-        {"package_doc",              &thor.package_doc_key,           {key = .F3}},
-        {"code_actions",             &thor.code_actions_key,          {key = .U, mods = {.Ctrl, .Shift}}},
-        // Ctrl+Alt+Left/Right, not the browsers' plain Alt+Left/Right: those two are
-        // already line_start / line_end.
-        {"jump_back",                &thor.jump_back_key,             {key = .Left, mods = {.Ctrl, .Alt}}},
-        {"jump_forward",             &thor.jump_forward_key,          {key = .Right, mods = {.Ctrl, .Alt}}},
-        {"last_file",                &thor.last_file_key,             {key = .E, mods = {.Ctrl}}},
-        {"toggle_split",             &thor.split_key,                 {}},
-        {"close_tab",                &thor.close_tab_key,             {key = .W, mods = {.Ctrl}}},
-        {"next_tab",                 &thor.next_tab_key,              {key = .Page_Down, mods = {.Ctrl}}},
-        {"previous_tab",             &thor.previous_tab_key,          {key = .Page_Up, mods = {.Ctrl}}},
-        {"toggle_explorer",          &thor.toggle_explorer_key,       {key = .B, mods = {.Ctrl}}},
-    }
+    // The app keys: the built-in chord unless a keybinds.lua names one.
+    app_keys := thor_app_keys(thor)
     for entry in app_keys {
         kb, ok := setting.keybind(&thor.config, entry.name)
         entry.key^ = ok ? kb : entry.default
@@ -82,9 +111,8 @@ thor_apply_settings :: proc(thor: ^Thor) {
         }
     }
 
-    editview.editor_set_font_size(&thor.editor, cast(i32) setting.font_size(&thor.config))
-    editview.editor_set_font_size(&thor.editor2, cast(i32) setting.font_size(&thor.config))
-    for editor in ([2]^editview.Editor{&thor.editor, &thor.editor2}) {
+    for &editor in thor.editors {
+        editview.editor_set_font_size(&editor, cast(i32) setting.font_size(&thor.config))
         editor.indent_guides = setting.indent_guides(&thor.config)
         editor.relative_lines = setting.relative_line_numbers(&thor.config)
     }
@@ -119,12 +147,18 @@ thor_reload_settings :: proc(thor: ^Thor) {
     setting.destroy(&thor.config)
     thor_load_config(thor, thor.workspace_dir)
 
-    if thor.config.general.theme != old_theme {
+    // A hand edit of the theme file reloads it too, unless the theme window holds
+    // unsaved changes.
+    theme_edited := thor_theme_file_sig(thor_theme_configured_name(thor)) != thor.theme_file_sig
+    if thor.config.general.theme != old_theme || (theme_edited && !(thor.theme_editor_open && thor_theme_dirty(thor))) {
         thor_load_active_theme(thor)
         thor_apply_theme(thor)
+        if thor.theme_editor_open {
+            thor_theme_editor_rebaseline(thor)
+        }
     }
     if thor.config.general.font != old_font && thor.config.general.font != "" {
-        if !font.set_default_family(thor.config.general.font) {
+        if !thor_set_font(thor.config.general.font) {
             log.warnf("Configured font %q is not available; using the default", thor.config.general.font)
         }
     }
@@ -140,6 +174,11 @@ thor_reload_settings :: proc(thor: ^Thor) {
     }
 
     thor_apply_settings(thor)
+    // file_languages may have moved a file to another language.
+    for file in thor.open_files {
+        file.highlighted = false
+        file.folds_ready = false
+    }
     thor_load_tasks(thor)
     // The tips and the chords they name both came from the config just replaced.
     thor_refresh_tip_cards(thor)
@@ -159,17 +198,32 @@ thor_workspace_config_dir :: proc(workspace_dir: string, allocator := context.te
 // loses without a word.
 SETTINGS_SAVE_FAILED :: "Could not save settings. Check the file for errors"
 
+// Reports a settings write that did not land. A key the file sets in code
+// cannot be patched, so that file opens for hand editing.
+thor_settings_save_failed :: proc(thor: ^Thor, path: string, err: luaconf.Patch_Error) {
+    #partial switch err {
+    case .Computed:
+        thor_flash_status(thor, "This setting is set by code in the file. Edit it by hand", is_error = true)
+        thor_open_file(thor, path)
+    case .Invalid:
+        thor_flash_status(thor, "The settings file has an error. Fix it, then try again", is_error = true)
+        thor_open_file(thor, path)
+    case:
+        thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
+    }
+}
+
 // Path a GUI-driven change writes to. While the Settings modal is open, its
 // General/Workspace tab picks the file explicitly; otherwise (a command bound
 // directly to a shortcut or the palette) the workspace .thor/ overlay wins
 // when initialized, since it is what actually takes effect, else the user/
 // layer. Never settings/, which a build and an update replace wholesale.
 thor_active_settings_path :: proc(thor: ^Thor) -> string {
-    return thor_active_config_path(thor, "settings.json")
+    return thor_active_config_path(thor, setting.SETTINGS_FILE)
 }
 
 thor_active_keybinds_path :: proc(thor: ^Thor) -> string {
-    return thor_active_config_path(thor, "keybinds.json")
+    return thor_active_config_path(thor, setting.KEYBINDS_FILE)
 }
 
 thor_active_lsp_path :: proc(thor: ^Thor) -> string {
@@ -203,13 +257,13 @@ thor_load_config :: proc(thor: ^Thor, workspace_dir: string) {
     }
 }
 
-// Starter contents for a new .thor/settings.json: the current defaults, so the
+// Starter contents for a new .thor/settings.lua: the current defaults, so the
 // file is a ready-to-edit template.
 @(private = "file")
-WORKSPACE_SETTINGS_TEMPLATE :: "{\n    \"tab_width\": 4,\n    \"font_size\": 18,\n    \"autosave_delay_ms\": 1500\n}\n"
+WORKSPACE_SETTINGS_TEMPLATE :: "-- Settings for this folder. They overlay user/settings.lua.\nreturn {\n    tab_width = 4,\n    font_size = 18,\n    autosave_delay_ms = 1500,\n}\n"
 
 // Promotes the current folder to a workspace: creates <workspace>/.thor/ with a
-// starter settings.json and reloads so the overlay applies immediately.
+// starter settings.lua and reloads so the overlay applies immediately.
 thor_cmd_init_workspace :: proc(data: rawptr) {
     thor := cast(^Thor) data
     cfg_dir := thor_workspace_config_dir(thor.workspace_dir)
@@ -219,7 +273,7 @@ thor_cmd_init_workspace :: proc(data: rawptr) {
             return
         }
     }
-    settings_path := strings.concatenate({cfg_dir, "/settings.json"}, context.temp_allocator)
+    settings_path := strings.concatenate({cfg_dir, "/", setting.SETTINGS_FILE}, context.temp_allocator)
     if !os.exists(settings_path) {
         if err := os.write_entire_file(settings_path, transmute([]u8) string(WORKSPACE_SETTINGS_TEMPLATE)); err != nil {
             log.errorf("Could not write %q: %v", settings_path, err)
@@ -260,7 +314,7 @@ App_Bind :: struct {
 }
 
 // Registers a palette command that can also be bound to a key. `action` is the
-// keybinds.json name; most ship empty, so they stay unbound until the user sets
+// keybinds.lua name; most ship empty, so they stay unbound until the user sets
 // a chord.
 @(private = "file")
 thor_add_bindable_command :: proc(thor: ^Thor, title, action: string, run: proc(data: rawptr), data: rawptr) {
@@ -270,11 +324,14 @@ thor_add_bindable_command :: proc(thor: ^Thor, title, action: string, run: proc(
 
 // Runs the app command bound to this chord, if any. Called from thor_global_key
 // after the built-in binds, so a user-set chord invokes an otherwise key-less
-// command. Unbound entries (KEY_NULL) never match a real press.
-thor_dispatch_app_bind :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
+// command. Unbound entries (KEY_NULL) never match a real press. A `prefix`
+// limits the match to the actions it starts.
+thor_dispatch_app_bind :: proc(thor: ^Thor, event: ui.Key_Event, prefix := "") -> bool {
     for bind in thor.app_binds {
         if bind.key.key != .None &&
+           strings.has_prefix(bind.action, prefix) &&
            setting.keybind_matches(bind.key, event.key, event.mods) {
+            thor_note_action(thor, bind.action)
             if bind.run != nil {
                 bind.run(bind.data)
             }
@@ -297,6 +354,13 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_add_bindable_command(thor, "View: Toggle Word Wrap", "toggle_word_wrap", thor_cmd_toggle_wrap, thor)
     thor_add_bindable_command(thor, "View: Toggle Whitespace", "toggle_whitespace", thor_cmd_toggle_whitespace, thor)
     thor_palette_add(thor, "View: Toggle Split Editor", thor_cmd_toggle_split, thor, action = "toggle_split")
+    thor_add_bindable_command(thor, "View: Pane Layout...", "pick_layout", thor_cmd_pick_layout, thor)
+    thor_add_bindable_command(thor, "View: Change Language of File...", "change_language", thor_cmd_change_language, thor)
+    thor_palette_add(thor, "View: Next Pane Layout", thor_cmd_next_layout, thor, action = "next_layout")
+    thor_palette_add(thor, "View: Focus Next Pane", thor_cmd_focus_next_pane, thor, action = "focus_next_pane")
+    thor_palette_add(thor, "View: Focus Previous Pane", thor_cmd_focus_previous_pane, thor, action = "focus_previous_pane")
+    thor_add_bindable_command(thor, "View: Open Active File to the Side", "open_to_side", thor_cmd_open_to_side, thor)
+    thor_add_bindable_command(thor, "View: Show Active File in Pane...", "pick_pane", thor_cmd_pick_pane, thor)
     thor_add_bindable_command(thor, "View: Toggle Markdown Preview", "toggle_markdown_preview", thor_cmd_toggle_markdown_preview, thor)
     thor_palette_add(thor, "View: Recenter", thor_cmd_recenter, thor, action = "recenter")
 
@@ -343,9 +407,17 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_palette_add(
         thor, "Edit: Toggle Block Comment", thor_cmd_toggle_block_comment, thor, action = "toggle_block_comment",
     )
+    thor_add_bindable_command(thor, "Edit: Clipboard History...", "clipboard_history", thor_cmd_clipboard_history, thor)
+    thor_add_bindable_command(thor, "Edit: Clear Clipboard History", "clear_clipboard_history", thor_cmd_clear_clipboard_history, thor)
     thor_palette_add(thor, "Edit: Select All", thor_cmd_select_all, thor, action = "select_all")
     thor_palette_add(thor, "Edit: Duplicate Line", thor_cmd_duplicate_line, thor, action = "duplicate_line_down")
     thor_palette_add(thor, "Edit: Delete Line", thor_cmd_delete_line, thor, action = "delete_line")
+    thor_palette_add(
+        thor, "Edit: Delete to Line End", thor_cmd_delete_to_line_end, thor, action = "delete_to_line_end",
+    )
+    thor_palette_add(
+        thor, "Edit: Delete to Line Start", thor_cmd_delete_to_line_start, thor, action = "delete_to_line_start",
+    )
     thor_palette_add(thor, "Edit: Join Lines", thor_cmd_join_lines, thor, action = "join_lines")
     thor_palette_add(thor, "Edit: Move Line Up", thor_cmd_move_line_up, thor, action = "move_line_up")
     thor_palette_add(thor, "Edit: Move Line Down", thor_cmd_move_line_down, thor, action = "move_line_down")
@@ -360,10 +432,20 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_palette_add(thor, "Selection: Add Cursor Above", thor_cmd_add_cursor_above, thor, action = "add_cursor_above")
     thor_palette_add(thor, "Selection: Add Cursor Below", thor_cmd_add_cursor_below, thor, action = "add_cursor_below")
     thor_palette_add(thor, "Go to Matching Bracket", thor_cmd_matching_bracket, thor, action = "matching_bracket")
+    thor_palette_add(thor, "Peek Definition", thor_cmd_peek_definition, thor, action = "peek_definition")
+    thor_palette_add(thor, "Go to Type Definition", thor_cmd_goto_type_definition, thor, action = "goto_type_definition")
     thor_palette_add(thor, "Go to Symbol in File", thor_cmd_goto_symbol, thor, action = "goto_symbol")
     thor_palette_add(thor, "Go to Symbol in Workspace", thor_cmd_goto_workspace_symbol, thor, action = "goto_workspace_symbol")
     thor_palette_add(thor, "Go Back", thor_cmd_jump_back, thor, action = "jump_back")
     thor_palette_add(thor, "Go Forward", thor_cmd_jump_forward, thor, action = "jump_forward")
+    thor_add_bindable_command(thor, "Show Incoming Calls", "incoming_calls", thor_cmd_incoming_calls, thor)
+    thor_add_bindable_command(thor, "Show Outgoing Calls", "outgoing_calls", thor_cmd_outgoing_calls, thor)
+    thor_add_bindable_command(thor, "Show Supertypes", "supertypes", thor_cmd_supertypes, thor)
+    thor_add_bindable_command(thor, "Show Subtypes", "subtypes", thor_cmd_subtypes, thor)
+    thor_add_bindable_command(thor, "Go to Implementations", "goto_implementations", thor_cmd_implementations, thor)
+    thor_add_bindable_command(thor, "Selection: Expand", "expand_selection", thor_cmd_expand_selection, thor)
+    thor_add_bindable_command(thor, "Selection: Shrink", "shrink_selection", thor_cmd_shrink_selection, thor)
+    thor_add_bindable_command(thor, "View: Toggle Reference Counts", "toggle_code_lens", thor_cmd_toggle_code_lens, thor)
     thor_palette_add(thor, "Find All References", thor_cmd_find_references, thor, action = "find_references")
     thor_palette_add(thor, "Signature Help", thor_cmd_signature_help, thor, action = "signature_help")
     thor_palette_add(thor, "Show Package Documentation", thor_cmd_package_doc, thor, action = "package_doc")
@@ -378,20 +460,26 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_add_bindable_command(thor, "Tasks: Run Task", "run_task", thor_cmd_run_task, thor)
     thor_add_bindable_command(thor, "Tasks: Add Task", "add_task", thor_cmd_add_task, thor)
     thor_add_bindable_command(thor, "Tasks: Remove Task", "remove_task", thor_cmd_remove_task, thor)
-    thor_add_bindable_command(thor, "Tasks: Edit Tasks (JSON)", "edit_tasks", thor_cmd_edit_tasks, thor)
+    thor_add_bindable_command(thor, "Tasks: Edit Tasks", "edit_tasks", thor_cmd_edit_tasks, thor)
 
     thor_add_bindable_command(thor, "Help: Tutorial", "tutorial", thor_cmd_tutorial, thor)
     thor_add_bindable_command(thor, "Help: Documentation", "docs", thor_cmd_docs, thor)
     thor_add_bindable_command(thor, "Help: Documentation Page", "docs_page", thor_cmd_docs_page, thor)
     thor_add_bindable_command(thor, "Help: Documentation in Browser", "docs_browser", thor_cmd_docs_browser, thor)
+    thor_add_bindable_command(thor, "Help: What's New", "whats_new", thor_cmd_whats_new, thor)
+    thor_add_bindable_command(thor, "Settings: Toggle File Manager Menu Entry", "toggle_shell_menu", thor_cmd_toggle_shell_menu, thor)
     thor_add_bindable_command(thor, "Help: Check for Updates", "check_for_updates", thor_cmd_check_for_updates, thor)
+    thor_add_bindable_command(thor, "Help: Check for Plugin and Theme Updates", "check_for_plugin_updates", thor_cmd_check_for_plugin_updates, thor)
     thor_add_bindable_command(thor, "Settings: Open Settings GUI", "open_settings_gui", thor_cmd_open_settings_gui, thor)
     thor_add_bindable_command(thor, "Language: Language Servers", "open_language_servers", thor_cmd_open_language_servers, thor)
     thor_add_bindable_command(thor, "Language: Restart Servers", "restart_language_servers", thor_cmd_restart_language_servers, thor)
     thor_add_bindable_command(thor, "Language: Restart One Server", "restart_one_language_server", thor_cmd_restart_one_language_server, thor)
+    thor_add_bindable_command(thor, "View: Problems", "open_problems", thor_cmd_open_problems, thor)
     thor_add_bindable_command(thor, "Git: Open Git UI", "open_git_gui", thor_cmd_open_git_view, thor)
     thor_add_bindable_command(thor, "Git: History", "open_git_history", thor_cmd_open_git_history, thor)
     thor_add_bindable_command(thor, "Git: Branches", "open_git_branches", thor_cmd_open_git_branches, thor)
+    thor_add_bindable_command(thor, "Git: Pull LFS Files", "git_lfs_pull", thor_cmd_git_lfs_pull, thor)
+    thor_add_bindable_command(thor, "Git: Track LFS Pattern", "git_lfs_track", thor_cmd_git_lfs_track, thor)
     thor_add_bindable_command(thor, "Settings: Open Keybinds", "open_keybinds", thor_cmd_open_keybinds, thor)
     thor_add_bindable_command(thor, "Settings: Open Comments", "open_comments", thor_cmd_open_comments, thor)
     thor_add_bindable_command(thor, "Settings: Open General Settings", "open_settings", thor_cmd_open_settings, thor)
@@ -404,6 +492,22 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_add_bindable_command(thor, "Preferences: Change Icon Pack", "change_icon_pack", thor_cmd_change_icon_pack, thor)
     thor_add_bindable_command(thor, "Preferences: Change File Icon Pack", "change_file_icon_pack", thor_cmd_change_file_icon_pack, thor)
     thor_add_bindable_command(thor, "Preferences: Ligatures", "change_ligatures", thor_cmd_change_ligatures, thor)
+
+    thor_add_bindable_command(thor, "Theme: Edit Colors", "theme_editor", thor_cmd_theme_editor, thor)
+    thor_add_bindable_command(thor, "Theme: Edit Another Theme", "theme_switch", thor_cmd_theme_switch, thor)
+    thor_add_bindable_command(thor, "Theme: Save", "theme_save", thor_cmd_theme_save, thor)
+    thor_add_bindable_command(thor, "Theme: Save As", "theme_save_as", thor_cmd_theme_save_as, thor)
+    thor_add_bindable_command(thor, "Theme: Duplicate", "theme_duplicate", thor_cmd_theme_duplicate, thor)
+    thor_add_bindable_command(thor, "Theme: Revert Changes", "theme_revert", thor_cmd_theme_revert, thor)
+    thor_add_bindable_command(thor, "Theme: Delete", "theme_delete", thor_cmd_theme_delete, thor)
+    thor_add_bindable_command(thor, "Theme: Reset to Shipped", "theme_reset", thor_cmd_theme_reset, thor)
+    thor_add_bindable_command(thor, "Theme: Open Theme File", "theme_open_file", thor_cmd_theme_open_file, thor)
+    thor_add_bindable_command(thor, "Theme: Generate From Colors", "theme_generate", thor_cmd_theme_generate, thor)
+    thor_add_bindable_command(thor, "Theme: Use Generated Palette", "theme_use_generated", thor_cmd_theme_use_generated, thor)
+    thor_add_bindable_command(thor, "Theme: Edit Selected Color", "theme_edit_color", thor_cmd_theme_edit_color, thor)
+    thor_add_bindable_command(thor, "Theme: Reset Selected Color", "theme_reset_color", thor_cmd_theme_reset_color, thor)
+    thor_add_bindable_command(thor, "Theme: Copy Selected Color", "theme_copy_color", thor_cmd_theme_copy_color, thor)
+    thor_add_bindable_command(thor, "Theme: Paste Selected Color", "theme_paste_color", thor_cmd_theme_paste_color, thor)
 }
 
 thor_cmd_toggle_explorer :: proc(data: rawptr) {thor_toggle_explorer(cast(^Thor) data)}
@@ -416,8 +520,9 @@ thor_cmd_toggle_wrap :: proc(data: rawptr) {editview.editor_toggle_wrap(thor_act
 // the other not.
 thor_cmd_toggle_whitespace :: proc(data: rawptr) {
     thor := cast(^Thor) data
-    editview.editor_toggle_whitespace(&thor.editor)
-    editview.editor_toggle_whitespace(&thor.editor2)
+    for &editor in thor.editors {
+        editview.editor_toggle_whitespace(&editor)
+    }
 }
 thor_cmd_toggle_split :: proc(data: rawptr) {thor_toggle_split(cast(^Thor) data)}
 
@@ -472,19 +577,22 @@ thor_cmd_show_indentation :: proc(data: rawptr) {
 // sync (ctrl+scroll still zooms only the hovered pane).
 thor_cmd_zoom_in :: proc(data: rawptr) {
     thor := cast(^Thor) data
-    editview.editor_zoom(&thor.editor, 1)
-    editview.editor_zoom(&thor.editor2, 1)
+    for &editor in thor.editors {
+        editview.editor_zoom(&editor, 1)
+    }
 }
 thor_cmd_zoom_out :: proc(data: rawptr) {
     thor := cast(^Thor) data
-    editview.editor_zoom(&thor.editor, -1)
-    editview.editor_zoom(&thor.editor2, -1)
+    for &editor in thor.editors {
+        editview.editor_zoom(&editor, -1)
+    }
 }
 
 thor_cmd_zoom_reset :: proc(data: rawptr) {
     thor := cast(^Thor) data
-    editview.editor_set_font_size(&thor.editor, cast(i32) setting.font_size(&thor.config))
-    editview.editor_set_font_size(&thor.editor2, cast(i32) setting.font_size(&thor.config))
+    for &editor in thor.editors {
+        editview.editor_set_font_size(&editor, cast(i32) setting.font_size(&thor.config))
+    }
 }
 
 thor_cmd_close_tab :: proc(data: rawptr) {
@@ -579,6 +687,8 @@ thor_can_redo :: proc(thor: ^Thor) -> bool {
 thor_cmd_select_all :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.select_all(s)}}
 thor_cmd_duplicate_line :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.duplicate_lines(s, 1)}}
 thor_cmd_delete_line :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.delete_lines(s)}}
+thor_cmd_delete_to_line_end :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.delete_to_line_end(s)}}
+thor_cmd_delete_to_line_start :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.delete_to_line_start(s)}}
 thor_cmd_move_line_up :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.move_lines(s, -1)}}
 thor_cmd_move_line_down :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.move_lines(s, 1)}}
 thor_cmd_trim_whitespace :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.trim_trailing_whitespace(s)}}
@@ -589,6 +699,9 @@ thor_cmd_goto_symbol :: proc(data: rawptr) {thor_goto_symbol(cast(^Thor) data)}
 thor_cmd_goto_workspace_symbol :: proc(data: rawptr) {thor_goto_workspace_symbol(cast(^Thor) data)}
 thor_cmd_jump_back :: proc(data: rawptr) {thor_jump_back(cast(^Thor) data)}
 thor_cmd_jump_forward :: proc(data: rawptr) {thor_jump_forward(cast(^Thor) data)}
+thor_cmd_goto_definition :: proc(data: rawptr) {thor_goto_definition(cast(^Thor) data)}
+thor_cmd_peek_definition :: proc(data: rawptr) {thor_peek_definition(cast(^Thor) data)}
+thor_cmd_goto_type_definition :: proc(data: rawptr) {thor_goto_type_definition(cast(^Thor) data)}
 thor_cmd_find_references :: proc(data: rawptr) {thor_find_references(cast(^Thor) data)}
 thor_cmd_signature_help :: proc(data: rawptr) {thor_signature_help(cast(^Thor) data)}
 thor_cmd_package_doc :: proc(data: rawptr) {thor_package_doc(cast(^Thor) data)}
@@ -708,7 +821,7 @@ thor_cmd_add_font :: proc(data: rawptr) {
     thor_open_file(thor, USER_FONTS_PATH)
 }
 
-// File > New Theme: copies the active palette into user/themes/custom.json and
+// File > New Theme: copies the active palette into user/themes/custom.lua and
 // opens it. assets/themes is replaced by every build and by every update, so a
 // hand-edited theme only survives in the user layer.
 thor_cmd_new_theme :: proc(data: rawptr) {
@@ -728,7 +841,7 @@ thor_cmd_new_theme :: proc(data: rawptr) {
 
 // Opens a config file for hand editing: the same layer a GUI change writes to,
 // so what the palette opens is what actually takes effect. An absent file opens
-// as an empty object rather than not at all — the user layer starts empty.
+// as an empty table rather than not at all — the user layer starts empty.
 @(private = "file")
 thor_open_config_file :: proc(thor: ^Thor, name: string) {
     path := thor_active_config_path(thor, name)
@@ -741,9 +854,9 @@ thor_open_config_file :: proc(thor: ^Thor, name: string) {
     thor_open_file(thor, path)
 }
 
-thor_cmd_open_keybinds :: proc(data: rawptr) {thor_open_config_file(cast(^Thor) data, "keybinds.json")}
-thor_cmd_open_comments :: proc(data: rawptr) {thor_open_config_file(cast(^Thor) data, "comments.json")}
-thor_cmd_open_settings :: proc(data: rawptr) {thor_open_config_file(cast(^Thor) data, "settings.json")}
+thor_cmd_open_keybinds :: proc(data: rawptr) {thor_open_config_file(cast(^Thor) data, setting.KEYBINDS_FILE)}
+thor_cmd_open_comments :: proc(data: rawptr) {thor_open_config_file(cast(^Thor) data, setting.COMMENTS_FILE)}
+thor_cmd_open_settings :: proc(data: rawptr) {thor_open_config_file(cast(^Thor) data, setting.SETTINGS_FILE)}
 thor_cmd_reload_settings :: proc(data: rawptr) {thor_reload_settings(cast(^Thor) data)}
 
 // The cached index once it has been warmed (thor_refresh_file_index); a
@@ -823,6 +936,7 @@ thor_collect_files :: proc(dir: string, files: ^[dynamic]string, depth: int, lim
 // same shape as Git_Status_Job. file_index_inflight/dirty coalesce a burst of
 // watcher activity into one more walk instead of one per event.
 File_Index_Job :: struct {
+    queue_next: ^File_Index_Job, // link in Thor.finished_file_index
     owner:     ^Thor,
     allocator: runtime.Allocator,
     worker:    ^thread.Thread,
@@ -864,9 +978,7 @@ file_index_worker :: proc(job: ^File_Index_Job) {
 
     job.files = thor_walk_workspace_files(job.root, job.allocator)
 
-    sync.lock(&job.owner.io_mutex)
-    append(&job.owner.finished_file_index, job)
-    sync.unlock(&job.owner.io_mutex)
+    lockfree.stack_push(&job.owner.finished_file_index, job)
 }
 
 // Drains a finished walk (called from thor_process_io). A workspace switch

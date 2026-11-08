@@ -3,7 +3,6 @@ package shell
 
 import "core:fmt"
 import "core:strings"
-import "core:sync"
 import win32 "core:sys/windows"
 import "core:time"
 
@@ -73,35 +72,28 @@ append_argument :: proc(builder: ^strings.Builder, arg: string) {
 // `run_status` and `exec_status`.
 @(private = "file")
 run_command_line :: proc(full: string, cwd: string, timeout: time.Duration) -> (output: string, code: int, ok: bool) {
-    sa := win32.SECURITY_ATTRIBUTES {
-        nLength        = size_of(win32.SECURITY_ATTRIBUTES),
-        bInheritHandle = true,
-    }
-
-    sync.mutex_lock(&spawn_mutex)
-    locked := true
-    defer if locked {
-        sync.mutex_unlock(&spawn_mutex)
-    }
-
+    // Neither end is inheritable; the child gets the write end by the handle list alone.
     read_pipe, write_pipe: win32.HANDLE
-    if !win32.CreatePipe(&read_pipe, &write_pipe, &sa, 0) {
+    if !win32.CreatePipe(&read_pipe, &write_pipe, nil, 0) {
         return strings.clone("[shell] could not create pipe\n"), -1, false
     }
     defer win32.CloseHandle(read_pipe)
-    // The read end stays with the parent; keep it out of the child. An end
-    // that stays inheritable would reach the child and hold the pipe open
-    // after it exits, so a failure here ends the start.
-    if !win32.SetHandleInformation(read_pipe, win32.HANDLE_FLAG_INHERIT, 0) {
+    inherited := [1]win32.HANDLE{write_pipe}
+    attributes, attributes_ok := inherit_only(inherited[:])
+    if !attributes_ok {
         win32.CloseHandle(write_pipe)
         return strings.clone("[shell] could not create pipe\n"), -1, false
     }
+    defer attribute_list_free(attributes)
 
-    si := win32.STARTUPINFOW {
-        cb         = size_of(win32.STARTUPINFOW),
-        dwFlags    = win32.STARTF_USESTDHANDLES,
-        hStdOutput = write_pipe,
-        hStdError  = write_pipe,
+    si := STARTUPINFOEXW {
+        StartupInfo = {
+            cb         = size_of(STARTUPINFOEXW),
+            dwFlags    = win32.STARTF_USESTDHANDLES,
+            hStdOutput = write_pipe,
+            hStdError  = write_pipe,
+        },
+        lpAttributeList = raw_data(attributes),
     }
     pi: win32.PROCESS_INFORMATION
 
@@ -116,7 +108,7 @@ run_command_line :: proc(full: string, cwd: string, timeout: time.Duration) -> (
     // A timed command starts suspended, so the job holds it before it can start
     // a child of its own that the kill would miss.
     job: win32.HANDLE
-    flags := win32.DWORD(win32.CREATE_NO_WINDOW)
+    flags := win32.DWORD(win32.CREATE_NO_WINDOW | win32.EXTENDED_STARTUPINFO_PRESENT)
     if timeout > 0 {
         job = create_kill_on_close_job()
         if job != nil {
@@ -124,12 +116,10 @@ run_command_line :: proc(full: string, cwd: string, timeout: time.Duration) -> (
         }
     }
 
-    started := win32.CreateProcessW(nil, cmdline, nil, nil, true, flags, nil, wdir, &si, &pi)
+    started := win32.CreateProcessW(nil, cmdline, nil, nil, true, flags, nil, wdir, cast(^win32.STARTUPINFOW)&si, &pi)
     // Close the parent's copy of the write end so ReadFile sees EOF when the
     // child (the only remaining writer) exits.
     win32.CloseHandle(write_pipe)
-    sync.mutex_unlock(&spawn_mutex)
-    locked = false
     if !started {
         if job != nil {
             win32.CloseHandle(job)

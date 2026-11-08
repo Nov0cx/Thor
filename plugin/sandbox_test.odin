@@ -165,18 +165,18 @@ test_scan_reports_manifest_permissions :: proc(t: ^testing.T) {
     testing.expect(t, len(found) > 0, "plugins found")
     testing.expect(t, len(m.plugins) == 0, "scanning runs nothing")
 
-    seen_git, seen_language := false, false
+    seen_exec, seen_language := false, false
     for p in found {
         switch p.id {
-        case "git":
-            seen_git = true
-            testing.expectf(t, p.perms == {.Exec, .Ui}, "git asks for %v", p.perms)
+        case "compile-commands":
+            seen_exec = true
+            testing.expectf(t, p.perms == {.Exec, .Read, .Write, .Ui}, "compile-commands asks for %v", p.perms)
         case "odin":
             seen_language = true
             testing.expectf(t, p.perms == {}, "a language plugin asks for %v", p.perms)
         }
     }
-    testing.expect(t, seen_git, "the git plugin was scanned")
+    testing.expect(t, seen_exec, "the compile-commands plugin was scanned")
     testing.expect(t, seen_language, "the odin plugin was scanned")
 
     names := permission_names({.Exec, .Ui}, context.temp_allocator)
@@ -297,7 +297,7 @@ test_sandbox_refuses_lua_bytecode :: proc(t: ^testing.T) {
     testing.expect(t, !manager_load_source(&m, "binary", "plugins/binary", bytecode, {}), "a bytecode plugin loaded")
 
     dir := "bin/test/bytecode-plugin"
-    os.make_directory(dir)
+    _ = os.make_directory(dir)
     path, join_err := filepath.join({dir, "mod.lua"}, context.temp_allocator)
     testing.expect(t, join_err == nil, "module path joined")
     testing.expect(t, os.write_entire_file(path, transmute([]byte) bytecode) == nil, "module written")
@@ -435,7 +435,7 @@ test_require_inside_coroutine :: proc(t: ^testing.T) {
     defer manager_destroy(&m)
 
     dir := "bin/test/require-coroutine-plugin"
-    os.make_directory(dir)
+    _ = os.make_directory(dir)
     path, _ := filepath.join({dir, "mod.lua"}, context.temp_allocator)
     testing.expect(t, os.write_entire_file(path, transmute([]byte) string(`return { value = 42 }`)) == nil, "module written")
     defer os.remove(path)
@@ -619,7 +619,7 @@ test_sandbox_refuses_a_link :: proc(t: ^testing.T) {
     }
     target, _ := filepath.join({r.workspace, "bin"}, context.temp_allocator)
     link, _ := filepath.join({dir, "out"}, context.temp_allocator)
-    os.remove(link)
+    _ = os.remove(link)
     if os.symlink(target, link) != nil {
         return
     }
@@ -800,7 +800,7 @@ test_tree_query_reads_scm_file_once :: proc(t: ^testing.T) {
     defer manager_destroy(&m)
 
     dir := "bin/test/query-cache-plugin"
-    os.make_directory(dir)
+    _ = os.make_directory(dir)
     path, _ := filepath.join({dir, "highlights.scm"}, context.temp_allocator)
     testing.expect(t, os.write_entire_file(path, transmute([]byte) string("(comment) @c")) == nil, "query file written")
     defer os.remove(path)
@@ -926,7 +926,7 @@ test_plugin_supplied_highlights_query :: proc(t: ^testing.T) {
     }
 
     dir := "bin/test/query-plugin"
-    os.make_directory(dir)
+    _ = os.make_directory(dir)
     path, _ := filepath.join({dir, "highlights.scm"}, context.temp_allocator)
     testing.expect(t, os.write_entire_file(path, transmute([]byte) string("(package_declaration) @keyword")) == nil, "query file written")
     defer os.remove(path)

@@ -17,6 +17,7 @@ settings_test_thor :: proc() -> ^Thor {
 @(private = "file")
 settings_test_destroy :: proc(thor: ^Thor) {
     thor_settings_destroy(thor)
+    thor_ext_clear(thor)
     thor_lsp_probes_destroy(thor)
     backend := lsp.client_backend(thor.lsp_client)
     backend.destroy(backend.data)

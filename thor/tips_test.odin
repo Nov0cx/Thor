@@ -47,7 +47,7 @@ test_tip_index_wraps :: proc(t: ^testing.T) {
     testing.expect_value(t, thor_wrap_tip(5, 5), 0)
     testing.expect_value(t, thor_wrap_tip(-1, 5), 4)
     testing.expect_value(t, thor_wrap_tip(-6, 5), 4)
-    // A tips.json that shrank leaves an index past the end.
+    // A tips.lua that shrank leaves an index past the end.
     testing.expect_value(t, thor_wrap_tip(11, 5), 1)
     // No tips at all: the caller hides the card, but the index must stay sane.
     testing.expect_value(t, thor_wrap_tip(3, 0), 0)

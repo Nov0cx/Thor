@@ -4,23 +4,61 @@ Configuration is layered, each layer overlaying the one before it per key:
 
 | Layer | Where | Written by |
 | --- | --- | --- |
-| Shipped defaults | `settings/*.json` beside the binary | Thor's releases and builds — replaced wholesale by an update |
-| Your settings | `user/*.json` beside the binary | The Settings view and the command palette |
-| Workspace | `<project>/.thor/*.json` | You, per project; usually checked in |
+| Shipped defaults | `settings/*.lua` beside the binary | Thor's releases and builds — replaced wholesale by an update |
+| Your settings | `user/*.lua` beside the binary | The Settings view and the command palette |
+| Workspace | `<project>/.thor/*.lua` | You, per project; usually checked in |
 
 Both files of a layer above may name only the keys they change. Nothing Thor
 writes ever lands in `settings/`, so an update or a rebuild cannot lose your
 settings; keep your own edits in `user/` for the same reason. `user/` is created
 on the first change and needs no `settings/` counterpart.
 
-Most of it is reachable without editing JSON by hand, through the in-editor
+Most of it is reachable without editing a file by hand, through the in-editor
 **Settings** view and the command palette (`ctrl + .`). The Settings view's
 **General** tab writes `user/`, its **Workspace** tab writes `.thor/`. The
-palette's "Open Settings (JSON)" and its keybinds and comments counterparts open
-whichever of the two a change would go to, creating the file when it is not
-there yet.
+palette's "Settings: Open General Settings" and its keybinds and comments
+counterparts open whichever of the two a change would go to, creating the file
+when it is not there yet.
 
-## `settings.json`
+## Lua config files
+
+Every config file is a Lua script that returns a table:
+
+```lua
+-- user/settings.lua
+local big = thor.env("THOR_BIG_FONT") ~= nil
+
+return {
+    font_size = big and 22 or 18,
+    -- Tabs on Windows only.
+    insert_spaces = thor.os ~= "windows",
+}
+```
+
+- A file runs in a sandbox. It has the `string`, `table`, `math` and `utf8`
+  libraries and the base functions, with no `io`, `os`, `load`, `require`,
+  `pcall`, `print` or metatables. A file that runs longer than one second or
+  uses more than 64 MiB stops with an error.
+- `thor.os` is `"windows"`, `"linux"`, `"darwin"`, `"freebsd"`, `"openbsd"` or
+  `"netbsd"`. `thor.arch` is `"amd64"`, `"arm64"`, `"i386"` or `"arm32"`.
+  `thor.env(name)` is the environment variable, or `nil`.
+- A table with the keys `1..n` is a list; any other table, also an empty one, is
+  a table of named keys. A function, a mixed table or a cycle is an error, and
+  the log names the key and the line.
+- When the Settings view or a command changes a value, it edits the
+  `key = value` in place. Comments, locals and the order of the file stay. A key
+  set by code (a variable, a call, `a and b`) cannot be edited this way: Thor
+  says so and opens the file.
+- A file with an error is skipped and the log (`user/thor.log`) says why. The
+  other layers still load.
+
+Older versions wrote JSON. At start, Thor converts each `.json` config in
+`user/`, in an opened folder's `.thor/` and in the plugin folders to `.lua`, and
+keeps the old file as `.json.bak`. A `.lua` file that is already there is never
+overwritten. `assets/fonts/fonts.json`, `user/fonts.json`,
+`assets/icons/icons.json` and the records in `sessions/` stay JSON.
+
+## `settings.lua`
 
 General editor preferences.
 
@@ -31,6 +69,7 @@ General editor preferences.
 | `insert_spaces` | Indent with spaces. `false` indents with a tab character | `true` |
 | `detect_indentation` | Take the indent style and width from the text of the file, so a tab-indented file gets tabs and a two-space file two spaces. A Makefile and a Go file get tabs with no text to read | `true` |
 | `autosave_delay_ms` | Delay after the last edit before autosave | `1500` |
+| `peek_height` | Rows of the peek definition editor, 4 to 40 | `12` |
 | `ligatures` | Draw programming ligatures (`->` as one glyph) | `true` |
 | `indent_guides` | Draw a vertical guide at every indentation stop inside a line's own indent | `true` |
 | `relative_line_numbers` | Number the gutter by distance from the caret line — the count `alt + <digit>` jumps by. Off numbers the lines from 1 | `true` |
@@ -42,13 +81,17 @@ General editor preferences.
 | `font` | Text font family, a name in `assets/fonts/fonts.json` or `user/fonts.json` | built-in default |
 | `icon_pack` | Primary icon pack, a family in `assets/icons/icons.json` | built-in default |
 | `file_icon_pack` | File-icon pack, same set as `icon_pack` | built-in default |
+| `check_for_plugin_updates` | Check plugins and themes that name a source (or are git clones) for updates shortly after start, at most once a day. **Help > Check for Plugin and Theme Updates** checks at any time. See [Plugins](plugins.md#updates) | `true` |
 | `check_for_updates` | Ask GitHub for a newer release shortly after start, at most once a day. **Help > Check for Updates** asks whatever this holds | `true` |
 | `open_folder_in` | What opening a folder does: `"ask"`, `"same"` (replace this window's workspace), or `"new"` (open a window) | `"ask"` |
+| `pane_layout` | The editor pane layout a folder opens with: `"remember"` (the folder's saved layout), or `"single"`, `"columns2"`, `"columns3"`, `"rows2"`, `"main_stack"`, `"grid4"`, `"grid6"` — see [Editor panes](keybindings.md#editor-panes) | `"remember"` |
 | `right_alt` | What the right Alt key is: `"auto"` (AltGr when the keyboard layout types characters with it, else Alt; Linux and macOS cannot ask the layout and take AltGr), `"altgr"` (types characters, never part of a shortcut), or `"alt"` (a shortcut modifier like the left one) | `"auto"` |
 | `default_shell` | Shell new terminals start with, by profile id (`"pwsh"`, `"git-bash"`, `"msvc"`, ...); empty picks the best one installed | `""` |
+| `clipboard_history_save` | Keep the clipboard history between sessions, in `sessions/clipboard.txt`, encrypted (XChaCha20-Poly1305) with a per-user key: on Windows `sessions/clipboard.key`, sealed with DPAPI so only your account on this machine opens it; on Linux and macOS `clipboard.key` in a `thor` folder under the user config directory, readable only by you. Losing the key loses the saved history. Text that looks like a secret (a private key, an access token, a password-like word, or a copy from a file such as `.env` or `id_rsa`) stays in the history only until Thor closes. Off removes the file | `true` |
 | `terminal_clipboard` | Let a program in a terminal set the clipboard (OSC 52) | `true` |
 | `language_intelligence` | Master switch for language features (hover, goto, completion, ...), both the built-in Odin support and any configured language server; either a plain boolean or an object with an `"enabled"` key plus per-feature toggles | `true` |
-| `language_backends` | Per-backend switch, one level more precise than `language_intelligence`: an object keyed by backend id (`"odin"` for the built-in support, or an `lsp.json` server's own `id`) whose value is the same shape as `language_intelligence` itself — a plain boolean, or an object with `"enabled"` plus per-feature toggles — scoped to that one backend | `{}` (every backend fully enabled) |
+| `language_backends` | Per-backend switch, one level more precise than `language_intelligence`: an object keyed by backend id (`"odin"` for the built-in support, or an `lsp.lua` server's own `id`) whose value is the same shape as `language_intelligence` itself — a plain boolean, or an object with `"enabled"` plus per-feature toggles — scoped to that one backend | `{}` (every backend fully enabled) |
+| `file_languages` | The language a file is coloured as, over the one its name gives: an object keyed by a path relative to the workspace (`"src/boot.inc"`) or a glob (`"*.inc"`, `"src/*.s"`), whose value is a language name as the status bar shows it (`"FASM"`). A glob with no `/` matches the file name. An exact path wins over a glob, a longer glob over a shorter one, and `""` turns detection back on | `{}` |
 
 Thor saves by itself, `autosave_delay_ms` after the last edit. A tab that
 closes, a folder switch and a quit write every unsaved buffer first. When the
@@ -56,16 +99,41 @@ disk refuses a file, its tab asks before it closes, and at exit the text goes
 to `sessions/backups/` beside the binary; the next open of that file puts the
 edits back as an unsaved buffer.
 
-An unset key falls back to its default, so a `settings.json` only needs the
+Click the language in the status bar, or run "View: Change Language of File..."
+(`change_language`), to pick the language of the active file. The choice goes
+into `file_languages` of the workspace's `.thor/settings.lua` (created when
+missing), or of `user/settings.lua` for a file outside the workspace. "Auto
+Detect" removes it again.
+
+```lua
+file_languages = {
+    ["*.inc"] = "FASM",
+    ["src/legacy.inc"] = "Pascal",
+},
+```
+
+An unset key falls back to its default, so a `settings.lua` only needs the
 keys you want to change. Every key applies as soon as the file is written,
 whether from the Settings view or by hand — the files of all three layers are
 watched.
 
-## `keybinds.json`
+## `keybinds.lua`
 
 Maps an action name to a key chord. See [Keybindings](keybindings.md) for the
-shipped bindings; rebind in Settings > Keybindings or by editing this file, or open it directly via the command palette or **Tasks** dropdown's
-"Edit Tasks (JSON)"-style actions.
+shipped bindings; rebind in Settings > Keybindings or by editing this file, or
+open it with "Settings: Open Keybinds". Every palette command has an action name
+here, and most ship with an empty chord, so any command can take a key:
+
+```lua
+-- user/keybinds.lua
+return {
+    theme = { theme_save = "ctrl+alt+s" },
+    editing = { delete_to_line_start = "ctrl+shift+backspace" },
+}
+```
+
+The groups (`editing`, `theme`, ...) are only for reading: action names share
+one namespace, and an action can be bound in any group.
 
 A chord is modifiers and one key, joined with `+`, in any order — for example
 `ctrl+shift+k` or `alt+page_up`. The modifier tokens are:
@@ -80,13 +148,15 @@ A chord is modifiers and one key, joined with `+`, in any order — for example
 The shipped bindings all use `ctrl`; bind `cmd` here to reach the Command key on
 macOS. An empty string unbinds an action.
 
-## `lsp.json`
+## `lsp.lua`
 
-The language servers Thor may start. Odin is served in the editor itself and
-needs no server; every other language gets its features — hover, go to
+The language servers Thor may start. Odin formatting, diagnostics,
+navigation, hover, completion, signature help and quick fixes are served in
+the editor itself and need no server. Every other language gets its features — hover, go to
 definition, find references, document symbols, workspace symbols, signature
-help, completion, diagnostics, semantic colors, rename, code actions, and
-document/selection/on-type formatting — from the server named here.
+help, completion, diagnostics, go to type definition, semantic colors, inlay hints, marked uses of
+the name at the caret (document highlight), rename, code
+actions, and document/selection/on-type formatting — from the server named here.
 
 A server is started the first time you open a file it claims, never before, and
 is stopped when Thor exits.
@@ -113,12 +183,12 @@ showing what it is doing and what to do about it:
 | Documentation | Opens the server's own install page in a browser |
 
 Above the servers are **Restart Language Servers**, **Add a Server…** (writes a
-skeleton entry into the right `lsp.json` and opens it) and **Look for Installed
+skeleton entry into the right `lsp.lua` and opens it) and **Look for Installed
 Servers Again** (`PATH` is only checked when the panel is built). One server on
 its own is restarted from its **Restart This Server** row, or from the command
 palette with **Language: Restart One Server** (`restart_one_language_server`). A
 **Configuration Problems** group appears when a config file has something wrong
-with it — invalid JSON, an unknown key, a key of the wrong type, or an entry
+with it — a Lua error, an unknown key, a key of the wrong type, or an entry
 with no command — instead of the entry quietly not being there.
 
 `clangd`'s **Set Up This Project** runs the bundled
@@ -158,8 +228,8 @@ does not claim its extensions, so it never competes with one that is on.
 | `root_markers` | Files that mark the project root, looked for at and above the opened file; the workspace root is used when none is found. File names, never globs — each one is looked for as written |
 | `enabled` | `false` starts the entry switched off: it stops claiming its extensions, so another entry can take the language over, and it still lists in Settings where it can be switched back on |
 | `cwd` | Working directory; empty is the project root, and a relative one resolves against the open folder |
-| `env` | An object of `"KEY": "value"` pairs added to the environment |
-| `initialization_options`, `settings` | JSON passed to the server as its initialization options and its configuration. `init_options` is accepted as an older spelling of the first. A server that asks for one section of `settings` (`"gopls"`, `"gopls.ui"`) gets that part, or all of it when the first name is not a key |
+| `env` | A table of `KEY = "value"` pairs added to the environment |
+| `initialization_options`, `settings` | Tables sent to the server as JSON: its initialization options and its configuration. `init_options` is accepted as an older spelling of the first. A server that asks for one section of `settings` (`"gopls"`, `"gopls.ui"`) gets that part, or all of it when the first name is not a key |
 | `install` | Install command per platform — `windows`, `darwin`, `linux`, or `any` for one that fits all three. What the panel's **Install It** button runs |
 | `docs_url` | The server's own install page, opened by the **Documentation** button |
 | `setup_command` | A plugin command offered as **Set Up This Project**; `clangd` names the `compile-commands` plugin's |
@@ -172,28 +242,32 @@ no value here is left as written and reported in **Configuration Problems**, so
 a typo shows as a path that does not resolve rather than an empty one. This is
 what points an entry at a project-local server:
 
-```json
-{ "id": "ruff", "command": ["${workspace}/.venv/bin/ruff", "server"] }
+```lua
+return {
+    servers = {
+        { id = "ruff", command = { "${workspace}/.venv/bin/ruff", "server" } },
+    },
+}
 ```
 
 A server claims an extension all-or-nothing, so overriding `.odin` also gives up
 what only the built-in support has: `Package_Doc` (`f3`) has no LSP equivalent,
-and the `.thor/odin-analyzer.json` collection mechanism goes with it.
+and the `.thor/odin-analyzer.lua` collection mechanism goes with it.
 
 One enabled entry answers for an extension. A second one claiming the same
 language is not a fallback chain — it simply never starts, and its **File
 Types** row names the entry that took it. Switch the first one off to hand the
 language over.
 
-Editing any of the three `lsp.json` layers reloads the servers where they
+Editing any of the three `lsp.lua` layers reloads the servers where they
 stand: the files are watched, and the change takes effect without reopening the
 folder. **Restart Language Servers** does the same on demand, and every open
 file is re-sent to the new servers. Switching a server (or the built-in Odin
 support) on or off, or gating one of its features, needs no reload at all — it
 takes effect on the next request, via the `language_backends` key above. Those
-switches start where `lsp.json` puts them and are stored under
+switches start where `lsp.lua` puts them and are stored under
 `language_backends`, so a server the file turns off is still listed and can be
-switched back on without editing JSON. Turning a server off leaves an
+switched back on without editing the file. Turning a server off leaves an
 already-running process idle rather than stopping it outright.
 
 When a server does not start, crashes, or gives up after three restarts, the
@@ -208,7 +282,7 @@ LSP-only; the native Odin printer answers whole-document formatting alone. A
 server's own config file (`.clang-format`, `rustfmt.toml`, ...) governs how it
 formats, same as it would from any other editor.
 
-## `comments.json`
+## `comments.lua`
 
 Maps a language id to its comment syntax and the file extensions that use it.
 Add an entry here to teach Thor a new language's comment syntax.
@@ -220,21 +294,21 @@ Add an entry here to teach Thor a new language's comment syntax.
 | `quotes` | The characters that open and close a string, so a bracket inside a string or a comment does not count when brackets are matched. Left out, `"`, `'` and `` ` `` all do. A short `'x'` is always a character literal |
 | `extensions` | File extensions, or whole file names such as `Makefile` |
 
-## `tips.json`
+## `tips.lua`
 
 The tips Thor shows, one a day. This file is the one exception to the layering
-above: layers **append** rather than overlay, so a `user/tips.json` or a
-workspace `.thor/tips.json` adds tips instead of hiding the shipped ones.
+above: layers **append** rather than overlay, so a `user/tips.lua` or a
+workspace `.thor/tips.lua` adds tips instead of hiding the shipped ones.
 
-```json
-{
-    "tips": [
+```lua
+return {
+    tips = {
         {
-            "title": "The command palette runs everything",
-            "body": "Every action in Thor is in the palette, with the chord it is bound to beside it.",
-            "action": "command_palette"
-        }
-    ]
+            title = "The command palette runs everything",
+            body = "Every action in Thor is in the palette, with the chord it is bound to beside it.",
+            action = "command_palette",
+        },
+    },
 }
 ```
 
@@ -242,7 +316,7 @@ workspace `.thor/tips.json` adds tips instead of hiding the shipped ones.
 | --- | --- |
 | `title` | The headline. Required; an entry without one is skipped |
 | `body` | The paragraph under it. Required |
-| `action` | The `keybinds.json` action the tip is about, never a chord. Thor resolves it against the bindings in force, so a rebind shows the new chord. Omit it, or leave it empty, for a tip with no action of its own |
+| `action` | The `keybinds.lua` action the tip is about, never a chord. Thor resolves it against the bindings in force, so a rebind shows the new chord. Omit it, or leave it empty, for a tip with no action of its own |
 
 The card shows the tip of the current day and the arrows step through the rest.
 It sits on the welcome page, and with a folder open it floats in the corner of
@@ -257,30 +331,118 @@ An opened folder can carry its own configuration in a `.thor/` directory at
 its root, layered on top of the global settings above. This repository's own
 `.thor/` is a working example.
 
-- **`tasks.json`** — named shell commands, surfaced by the task buttons left
+- **`tasks.lua`** — named shell commands, surfaced by the task buttons left
   of the window controls and under "Tasks:" in the command palette:
 
-  ```json
-  {
-      "tasks": [
-          { "name": "build", "command": "odin run build.odin -file" },
-          { "name": "test",  "command": "odin test thor" }
-      ]
+  ```lua
+  return {
+      tasks = {
+          { name = "build", command = "odin run build.odin -file" },
+          { name = "test", command = "odin test thor" },
+      },
   }
   ```
 
-  Tasks run in the console panel, exactly like typing the command at the
-  prompt. The dropdown next to the run button lists them, and can add, remove
+  Each task runs in its own console tab, named after the task, on the default
+  shell; the shell you type in is left alone. Running a task again restarts its
+  tab, which stops a run that is still going. The dropdown next to the run button lists them, and can add, remove
   or open this file for editing.
 
-- **`odin-analyzer.json`** — per-workspace settings for the Odin language
+- **`odin-analyzer.lua`** — per-workspace settings for the Odin language
   intelligence: which analyzer collections to load and which features
-  (`enable_hover`, `enable_document_symbols`, `enable_references`, ...) are on
+  (`enable_hover`, `enable_document_symbols`, `enable_references`,
+  `enable_completion`, ...) are on
   for this workspace. This is Thor's own file, not `ols.json`. A collection
   `name` must be an identifier (letters, digits and `_`, not starting with a
   digit); any other name is dropped.
 
-- **`odin-formatter.json`** — per-workspace options for formatting `.odin`
+  `enable_snippets` (default `true`) makes a procedure completion insert a
+  call with its parameters as stops; `false` inserts only the name:
+
+  ```lua
+  return { enable_snippets = false }
+  ```
+
+  `inlay_types` and `inlay_parameters` (both default `true`) turn off the type
+  hints and the parameter name hints; the `inlay_hints` feature of
+  `language_intelligence` turns all hints off, for every language:
+
+  ```lua
+  return { inlay_parameters = false }
+  ```
+
+  The analyzer keeps a cache of the Odin standard library's declarations in
+  `user/cache/odin/` beside the binary, so a new session does not parse it
+  again. Deleting the folder is safe; it is rebuilt automatically. A change to
+  a file under the Odin root can take up to 5 seconds to show.
+
+  The analyzer reads the workspace for the machine Thor runs on. `target`
+  picks another platform, and `defines` gives the values `#config(NAME, ...)`
+  reads. Both decide which files and which `when` branches count:
+
+  ```lua
+  return {
+      target = { os = "linux", arch = "amd64" },
+      defines = { MY_FEATURE = true, LOG_LEVEL = 2, BACKEND = "gl" },
+  }
+  ```
+
+  `os` is one of `windows`, `darwin`, `linux`, `freebsd`, `openbsd`, `netbsd`,
+  `haiku`, `wasi`, `js`, `orca`, `freestanding`; `arch` one of `amd64`, `i386`,
+  `arm32`, `arm64`, `wasm32`, `wasm64p32`, `riscv64`. A define value is a
+  boolean, an integer or a string. A define named like a build constant
+  (`ODIN_TEST`, `ODIN_DEBUG`) sets that constant for the live analysis. The
+  `odin check` after a save gets the same `-target` and `-define` flags, except
+  the defines named `ODIN_*`. A bad value, or an `os`/`arch` pair that is not a
+  compiler target, is logged and ignored.
+
+  `diagnostics` sets what each live diagnostic id is in this workspace:
+  `"off"` hides it, `"hint"`, `"warning"` and `"error"` set its severity. A
+  hint shows as a faint underline with no gutter mark. Ids not named keep
+  their default severity:
+
+  ```lua
+  return { diagnostics = { ["flow/missing-return"] = "warning", ["import/cycle"] = "off" } }
+  ```
+
+  The ids are `syntax/error`, `name/redeclared`, `name/undeclared`,
+  `name/private`, `import/unresolved`, `import/cycle`, `call/arity`,
+  `call/named`, `call/overload`, `type/no-member`, `type/mismatch`,
+  `const/overflow`, `switch/non-exhaustive`, `assert/static`,
+  `flow/missing-return`, `or_return/mismatch`, `poly/where`,
+  `assign/count`, `flow/unreachable`, `flow/unreachable-defer`,
+  `vet/unused-variable`, `vet/unused-import`, `vet/shadowing`,
+  `vet/using-stmt`, `vet/when-shadowing`, `flow/dead-store`, `api/fmt-verbs`,
+  `api/ignored-error`, `nil/deref`, `vet/cast`, `vet/unused-procedure`, `vet/style`, `vet/semicolon`, `vet/tabs`, `mem/dangling-slice`, `mem/temp-escape`, `defer/in-loop`, `api/deprecated`, `perf/range-copy`, `logic/self-assign`,
+  `logic/const-condition`, `logic/identical-branches`, `style/naming`, `mem/leak`,
+  `mem/double-free` and `mem/use-after-free`. `mem/leak`, `mem/double-free`, `mem/use-after-free`, `vet/unused-procedure`, `vet/style`,
+  `vet/semicolon` and `vet/tabs` are off until an entry sets them, for example
+  `["mem/leak"] = "hint"`; `nil/deref` is a hint and `vet/cast` a warning by default. An unknown id or value is logged and
+  ignored. The diagnostics `odin check` gives after a save are not affected, except the `vet/*` ids:
+  the save passes `odin check` one `-vet-*` flag for each of them that is not `"off"`, and gives the
+  lines it reports for them the same id and severity.
+
+  `package_diagnostics` (default `false`) also checks the other files of the open file's
+  package while typing. `diagnostics_telemetry` (default `false`) makes a save log where
+  `odin check` and the live check disagree:
+
+  ```lua
+  return { package_diagnostics = true, diagnostics_telemetry = true }
+  ```
+
+  `naming` sets the spelling `style/naming` accepts for each kind of name:
+  `type` (default `"ada_case"`), `proc` (`"snake_case"`), `variable`
+  (`"snake_case"`; a file-scope variable may also be `SCREAMING_SNAKE_CASE`),
+  `constant` and `enum_member`. A value is `"ada_case"`, `"snake_case"`,
+  `"screaming_snake_case"` or `"any"`, which switches that rule off. A name
+  of one letter, a name that starts with `_`, a name in a `foreign` block and
+  a declaration with `link_name` or `export` are never marked:
+
+  ```lua
+  return { naming = { type = "ada_case", variable = "any" } }
+  ```
+
+- **`odin-formatter.lua`** — per-workspace options for formatting `.odin`
   files — "Edit: Format Document", "Edit: Format Selection", `format_on_save`
   and `format_on_type` all read it — mirroring the odinfmt (OLS) schema. An
   absent file, or an absent key, uses the default shown. When the file names
@@ -305,8 +467,12 @@ its root, layered on top of the global settings above. This repository's own
   | `space_single_line_blocks` | `{ stmt }` for a one-statement block the source already wrote on one line | `false` |
   | `align_struct_fields` | Align a struct's field types into one column | `true` |
   | `align_struct_values` | Align the `=` of enum members and multi-line composite literals, and a bit field's `\|` | `true` |
-  | `align_struct_declarations` | Align consecutive `Name :: struct` / `union` / `enum` / `bit_field` declarations' `::` | `false` |
-  | `align_constant_definitions` | Align consecutive `NAME :: value` declarations' `::` | `false` |
+  | `align_struct_declarations` | Align consecutive `Name :: struct` / `union` / `enum` / `bit_field` declarations' `::` | `true` |
+  | `align_constant_definitions` | Align consecutive `NAME :: value` and `NAME: T : value` declarations' `::` and types | `true` |
+  | `align_variable_declarations` | Align consecutive `a := v` and `a: T = v` declarations' `:=`, `:` and `=` | `true` |
+  | `align_comments` | Start the trailing comments of consecutive fields, members, declarations and literal entries in one column | `true` |
+  | `align_case_comments` | The same for the comments after consecutive `case X:` lines | `true` |
+  | `align_field_defaults` | Align the tags that follow the types of consecutive struct fields | `true` |
 
   `character_width` takes 20 to 1000, `spaces` and `tabs_width` 1 to 16 and
   `newline_limit` 0 to 16. A key the formatter does not know, a value of the
@@ -326,7 +492,7 @@ its root, layered on top of the global settings above. This repository's own
   changes the buffer, by marking the file's line ending the same way the
   status-bar toggle does — the next save re-expands accordingly.
 
-- **`lsp.json`** — language servers for this project, in the shape described
+- **`lsp.lua`** — language servers for this project, in the shape described
   above. An entry is merged onto the shipped one with the same `id`, so a
   project can change one server's command or arguments without repeating the
   rest of the table; `"enabled": false` switches a shipped server off here —
@@ -335,13 +501,13 @@ its root, layered on top of the global settings above. This repository's own
 
   This file comes with the folder and names programs to start, so Thor does
   not read it until you allow it. The first time a folder with a
-  `.thor/lsp.json` opens, a prompt lists each entry and its command; **Allow**
+  `.thor/lsp.lua` opens, a prompt lists each entry and its command; **Allow**
   loads the file, **Cancel** leaves it out until it changes or Thor restarts.
   The answer is remembered for that folder and that exact file, in
   `sessions/lsp-grants.json` beside the binary. Any change to the file asks
-  again. The shipped and the user `lsp.json` are never asked about.
+  again. The shipped and the user `lsp.lua` are never asked about.
 
-- **`tips.json`** — tips of this project's own, in the shape described above.
+- **`tips.lua`** — tips of this project's own, in the shape described above.
   They are added to the shipped ones, not put in their place.
 
 - **`plugins/`** — the workspace's own Lua plugins, in addition to the bundled
@@ -349,31 +515,78 @@ its root, layered on top of the global settings above. This repository's own
 
 ## Themes, fonts and icons
 
-- Themes live in `assets/themes/*.json` (shipped) and `user/themes/*.json`
+- Themes live in `assets/themes/*.lua` (shipped) and `user/themes/*.lua`
   (yours), one file per theme; pick one by name (no extension) in `theme`, or
   through Settings, which lists every theme found. A user theme shadows a
   shipped one of the same name.
 
-- **Settings > Appearance > Theme Colors** opens the theme window: every color
-  role of the active theme under a foldable group (Surfaces, Text, Status,
-  Syntax), each row a swatch. A row opens a color picker with a
-  saturation/value square, a hue strip, an alpha strip and a hex field. The
-  change previews on the running editor, and OK writes it; Escape or a click
-  outside puts the old color back.
+- A theme file can set `version` and `source = "owner/repo"`, so that Thor
+  checks it for updates. A `user/themes/` folder that is a git clone is checked
+  against its upstream branch. See [Plugins](plugins.md#updates).
+- A theme file names each color by its role id. A role the file leaves out
+  keeps the Mjolnir color. The old names such as `["Keywords Color"]` still
+  load:
 
-- Editing a shipped theme copies it into `user/themes/` first and edits the
-  copy. `assets/` is replaced by every build and by every update, so only the
-  user layer survives one.
+  ```lua
+  return {
+      name = "My Theme",
+      colors = {
+          background = "#1A1C23",
+          accent = "#4FC3F7",
+          keywords = "#FF7B7B",
+          selection_background = "#3F51B570", -- the last two digits are alpha
+      },
+  }
+  ```
 
-- The theme window's **Generate From Colors** group builds a whole palette from
-  a background seed, an accent seed and a Dark/Light mode: the surfaces are
-  shaded from the background, the text and syntax colors are held to a WCAG AA
-  contrast floor against it, and the syntax palette is rotated off the accent.
-  It previews live; **Save Generated Theme** names it, writes
-  `user/themes/<name>.json` and switches to it.
+  The role ids are the ones the theme window shows beside each color, and the
+  names plugins read through `thor.theme`. A hand edit of the active theme file
+  applies at once.
+
+- **Settings > Appearance > Theme Colors**, or "Theme: Edit Colors", opens the
+  theme window. On the left is a preview of code, tabs, the file tree, status
+  colors and buttons in the theme's colors; a click on a part selects its color.
+  On the right is every color role under a foldable group (Surfaces, Text,
+  Status, Syntax), with its hex, a contrast badge on text and syntax colors
+  (amber under 4.5:1, red under 3:1 against the background) and a tooltip that
+  says what it paints. The filter field narrows the list by name, role or hex.
+
+- A click on a color opens the picker: a saturation/value square, a hue strip,
+  an alpha strip and a hex field. The change shows on the whole editor at once.
+
+- An edit changes a draft. Nothing is written until **Save**, and a dot in the
+  header marks unsaved changes. **Revert** puts the saved colors back, and the
+  arrow beside a changed color resets that one. Closing the window with unsaved
+  changes asks to save or discard them. The theme name in the header switches
+  to another theme.
+
+- **Save** writes `user/themes/<name>.lua`. Saving a shipped theme writes a copy
+  there that overrides it, since `assets/` is replaced by every build and by
+  every update. **Save As** and **Duplicate** write the draft as a new theme and
+  switch to it. **Delete** removes a theme you made; **Reset to Shipped**
+  removes your copy of a shipped one. **Open Theme File** opens the file for
+  hand editing (a shipped theme is copied to `user/themes/` first).
+
+- Window keys: Up/Down select a color, Enter edits it, `ctrl + c` and `ctrl + v`
+  copy and paste its hex (the `#` is optional), Delete resets it, `ctrl + s`
+  saves, `ctrl + f` goes to the filter and Escape closes.
+
+- The **Generate** tab builds a whole palette from a background seed, an accent
+  seed and a Dark/Light mode: the surfaces are shaded from the background, the
+  text and syntax colors are held to a WCAG AA contrast floor against it, and
+  the syntax palette is rotated off the accent. The preview shows the result.
+  **Use as Draft** makes it the draft, and Save asks for a name.
+
+- Every action of the window is a palette command under "Theme:", with an
+  action name in the `theme` group of `keybinds.lua`: `theme_editor`,
+  `theme_save`, `theme_save_as`, `theme_revert`, `theme_duplicate`,
+  `theme_delete`, `theme_reset`, `theme_open_file`, `theme_switch`,
+  `theme_generate`, `theme_use_generated`, `theme_edit_color`,
+  `theme_reset_color`, `theme_copy_color` and `theme_paste_color`. None has a
+  key by default. A key bound to one also works while the window is open.
 
 - **Preferences: New Theme** writes a copy of the active palette to
-  `user/themes/custom.json` and opens it for hand editing.
+  `user/themes/custom.lua` and opens it for hand editing.
 - Fonts and icon packs are named in `assets/fonts/fonts.json` and
   `assets/icons/icons.json`; Settings lists the available names for `font`,
   `icon_pack` and `file_icon_pack`.

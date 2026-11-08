@@ -55,9 +55,20 @@ each other:
   it owns that file.
 - The tag, `v<version>`.
 
+`WHATS_NEW.md` needs a `# <version>` heading too. It is the summary the editor
+shows once after an update (and in Help > What's New), built into the binary
+with `#load` together with the `CHANGELOG.md` section, which "All changes"
+shows. Write it from the changelog section: 5–10 bullets, only what a user has
+to know — new features, changed keys or settings, and anything that needs an
+action from the user. Leave out fixes and internals. Bold the name of the
+feature at the start of a bullet. Replace the previous version's section; the
+file holds only the newest. `thor.test_whats_new_covers_the_version` fails when
+`VERSION` has no section in either file.
+
 ```bash
 grep -n 'VERSION ::' thor/cli.odin
 head -3 CHANGELOG.md
+head -3 WHATS_NEW.md
 git tag -l "v<version>"
 ```
 
@@ -82,7 +93,7 @@ starting the GUI works but proves little here.
 ## 4. Commit and push
 
 ```bash
-git add thor/cli.odin CHANGELOG.md
+git add thor/cli.odin CHANGELOG.md WHATS_NEW.md
 git commit -m "release: <version>"
 git push origin master
 ```

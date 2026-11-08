@@ -9,6 +9,8 @@
 //    odin run build.odin -file -- test           # run the package tests
 //    odin run build.odin -file -- test -release  # run them with the release flags
 //    odin run build.odin -file -- deps           # get and build HarfBuzz and tree-sitter
+//    odin run build.odin -file -- bench          # time parse, diagnostics and completion against the budgets
+//    odin run build.odin -file -- gen_syntax     # write the Odin syntax kinds and views from syntax.schema
 //    odin run build.odin -file -- -h             # list the flags
 //
 // The Odin compiler reads the arguments before `--`, this program the rest.
@@ -20,9 +22,11 @@ import "core:flags"
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "core:strconv"
 import "core:strings"
 import "msvc"
+import syntaxgen "lang/odin/syntax/gen"
 
 EXE_EXT :: ".exe" when ODIN_OS == .Windows else ""
 LIB_EXT :: ".lib" when ODIN_OS == .Windows else ".a"
@@ -51,7 +55,7 @@ STAMP :: "thor.stamp"
 // third-party bindings under vendor/, which this repository cannot correct.
 // Add a package here when it is new.
 VET_PACKAGES ::
-    "main,thor,atomicfile,editview,font,input,lang,lsp,odin,odinfmt,markdown,msvc,piecetable," +
+    "main,thor,atomicfile,lockfree,editview,font,input,lang,lsp,luaconf,odin,odinfmt,odinsema,odinsyntax,syntaxgen,markdown,msvc,piecetable," +
     "plugin,render,search,setting,shell,snippet,syntax,textedit,theme,treecache," +
     "update,vt,watch"
 
@@ -70,6 +74,8 @@ Command :: enum {
     run,
     deps,
     clean,
+    gen_syntax,
+    bench,
 }
 
 Options :: struct {
@@ -77,6 +83,7 @@ Options :: struct {
     release: bool `usage:"Build optimized, into bin/release. With test: use the release flags."`,
     vet:     bool `usage:"Add -vet for the packages of this repository."`,
     verbose: bool `usage:"Print each command before it runs."`,
+    strict:  bool `usage:"With bench: fail when a measure is over its budget."`,
 }
 
 opt: Options
@@ -95,6 +102,8 @@ main :: proc() {
     case .run:   ok = build_thor() && launch()
     case .deps:  ok = build_deps()
     case .clean: ok = clean()
+    case .gen_syntax: ok = gen_syntax()
+    case .bench: ok = run_bench()
     }
 
     if !ok {
@@ -161,6 +170,10 @@ check_all :: proc() -> bool {
     return exec(args[:])
 }
 
+// The test packages that link raylib, directly or through an import. A package
+// missing here fails to link its tests on Windows; an extra one gets a warning.
+RAYLIB_TEST_PACKAGES :: []string{"editview", "font", "render", "theme", "thor"}
+
 // Runs the tests of each package that has a _test.odin file. Add a package here
 // when it gets its first test file. The working directory stays the root of the
 // repository, so a test finds assets/, plugins/ and settings/.
@@ -170,7 +183,7 @@ run_tests :: proc() -> bool {
     }
     // The plugin tests start a Lua state, and Windows looks for lua54.dll beside
     // the test binary, not the working directory.
-    if !copy_lua_dll("bin/test") {
+    if !copy_lua_dll("bin/test") || !copy_raylib_dll("bin/test") {
         return false
     }
 
@@ -183,6 +196,10 @@ run_tests :: proc() -> bool {
         "lang/lsp",
         "lang/odin",
         "lang/odin/format",
+        "lang/odin/sema",
+        "lang/odin/syntax",
+        "lockfree",
+        "luaconf",
         "markdown",
         "msvc",
         "piecetable",
@@ -214,6 +231,13 @@ run_tests :: proc() -> bool {
         append_common_flags(&args)
         append_codegen_flags(&args)
         append_link_flags(&args)
+        // The test runner links the static CRT through core:c/libc, and the
+        // static raylib.lib wants the dynamic one; the DLL keeps them apart.
+        when ODIN_OS == .Windows {
+            if slice.contains(RAYLIB_TEST_PACKAGES, pkg) {
+                append(&args, "-define:RAYLIB_SHARED=true")
+            }
+        }
         if !exec_msvc(args[:]) {
             append(&failed, pkg)
         }
@@ -226,10 +250,82 @@ run_tests :: proc() -> bool {
     return true
 }
 
+// Packages with benchmarks and the tests that run in each. The budgets are in plan sections 4.8 and 7.
+BENCHES :: []struct {
+    package_dir: string,
+    tests:       string,
+} {
+    {"lang/odin/syntax", "odinsyntax.test_bench_parse,odinsyntax.test_bench_reparse"},
+    {"lang/odin", "odin.test_bench_diagnostics,odin.test_bench_completion,odin.test_bench_cold_prewarm"},
+}
+
+// Times parse, reparse, diagnostics and completion on Thor's own sources with the release flags, one
+// test at a time so the runs do not share the machine. A measure over its budget is a warning in
+// the log; with -strict it fails the run.
+run_bench :: proc() -> bool {
+    if !mkdir("bin/bench") {
+        return false
+    }
+    if !copy_lua_dll("bin/bench") {
+        return false
+    }
+    failed := make([dynamic]string, context.temp_allocator)
+    for b in BENCHES {
+        out, _ := strings.replace_all(b.package_dir, "/", "_", context.temp_allocator)
+        args := make([dynamic]string, context.temp_allocator)
+        append(&args, "odin", "test", b.package_dir)
+        append(&args, fmt.tprintf("-out:bin/bench/%s%s", out, EXE_EXT))
+        append(&args, "-o:speed", "-no-bounds-check", "-disable-assert")
+        append(&args, "-define:THOR_BENCH=true", "-define:ODIN_TEST_THREADS=1")
+        append(&args, fmt.tprintf("-define:ODIN_TEST_NAMES=%s", b.tests))
+        if opt.strict {
+            append(&args, "-define:THOR_BENCH_STRICT=true")
+        }
+        append_link_flags(&args)
+        if !exec_msvc(args[:]) {
+            append(&failed, b.package_dir)
+        }
+    }
+    if len(failed) > 0 {
+        fmt.eprintfln("[build] these benchmark packages failed: %s", strings.join(failed[:], ", ", context.temp_allocator))
+        return false
+    }
+    return true
+}
+
 // Starts the editor with the root of the repository as the working directory;
 // the asset, plugin and settings paths are relative to it.
 launch :: proc() -> bool {
     return exec({join(out_dir, EXE)})
+}
+
+// Writes kind.odin, views.odin and views_table_test.odin of lang/odin/syntax from syntax.schema.
+gen_syntax :: proc() -> bool {
+    schema, serr := os.read_entire_file(syntaxgen.SCHEMA_PATH, context.temp_allocator)
+    if serr != nil {
+        fmt.eprintfln("[build] a read of %s failed: %v", syntaxgen.SCHEMA_PATH, serr)
+        return false
+    }
+    tokens, terr := os.read_entire_file(syntaxgen.TOKEN_PATH, context.temp_allocator)
+    if terr != nil {
+        fmt.eprintfln("[build] a read of %s failed: %v", syntaxgen.TOKEN_PATH, terr)
+        return false
+    }
+    out, errors := syntaxgen.generate(string(schema), string(tokens), context.temp_allocator)
+    if len(errors) > 0 {
+        for e in errors {
+            fmt.eprintln(e)
+        }
+        return false
+    }
+    files := [?][2]string{{syntaxgen.KIND_PATH, out.kinds}, {syntaxgen.VIEWS_PATH, out.views}, {syntaxgen.TABLE_PATH, out.table}}
+    for f in files {
+        if err := os.write_entire_file(f[0], f[1]); err != nil {
+            fmt.eprintfln("[build] a write of %s failed: %v", f[0], err)
+            return false
+        }
+    }
+    return true
 }
 
 clean :: proc() -> bool {
@@ -458,6 +554,22 @@ copy_lua_dll :: proc(dir := "") -> bool {
             return true
         }
         src := join(ODIN_ROOT, "vendor", "lua", "5.4", "windows", "lua54.dll")
+        if err := os.copy_file(dst, src); err != nil {
+            fmt.eprintfln("[build] a copy of %s failed: %v", src, err)
+            return false
+        }
+        return true
+    }
+}
+
+// Copies raylib.dll beside a binary built with RAYLIB_SHARED. Always copied: a
+// DLL left from an older Odin does not match the new import library.
+copy_raylib_dll :: proc(dir: string) -> bool {
+    when ODIN_OS != .Windows {
+        return true
+    } else {
+        dst := join(dir, "raylib.dll")
+        src := join(ODIN_ROOT, "vendor", "raylib", "windows", "raylib.dll")
         if err := os.copy_file(dst, src); err != nil {
             fmt.eprintfln("[build] a copy of %s failed: %v", src, err)
             return false

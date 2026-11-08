@@ -80,6 +80,9 @@ Status :: enum {
     Not_Installable,
     Install_Failed,
     Cancelled,
+    Bad_Source,
+    No_Upstream,
+    Local_Changes,
 }
 
 // What a check found. Every string is owned by the caller's allocator and is
@@ -154,6 +157,12 @@ status_message :: proc(status: Status) -> string {
         return "The update could not be written"
     case .Cancelled:
         return "The update was cancelled"
+    case .Bad_Source:
+        return "The source is not an owner/repo on GitHub"
+    case .No_Upstream:
+        return "The clone tracks no upstream branch"
+    case .Local_Changes:
+        return "The clone has local changes"
     }
     return "The update stopped"
 }

@@ -24,7 +24,7 @@ test_compile_commands_already_present_is_noop :: proc(t: ^testing.T) {
     manager_load(&m)
     testing.expect(t, manager_run_command(&m, "configure-compile-commands"), "configure-compile-commands ran")
 
-    _, has_tasks := env.files[resolved(".thor/tasks.json")]
+    _, has_tasks := env.files[resolved(".thor/tasks.lua")]
     testing.expect(t, !has_tasks, "no task was added")
     _, has_clangd := env.files[resolved(".clangd")]
     testing.expect(t, !has_clangd, "no .clangd was written")
@@ -48,9 +48,9 @@ test_compile_commands_cmake_adds_task_and_dot_clangd :: proc(t: ^testing.T) {
     manager_load(&m)
     testing.expect(t, manager_run_command(&m, "configure-compile-commands"), "configure-compile-commands ran")
 
-    tasks_json, has_tasks := env.files[resolved(".thor/tasks.json")]
+    tasks_lua, has_tasks := env.files[resolved(".thor/tasks.lua")]
     testing.expect(t, has_tasks, "a task was added")
-    testing.expect(t, strings.contains(tasks_json, "cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON"),
+    testing.expect(t, strings.contains(tasks_lua, "cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON"),
         "the task configures CMake with compile commands export")
 
     dot_clangd, has_clangd := env.files[resolved(".clangd")]
@@ -71,24 +71,25 @@ test_compile_commands_keeps_quoted_task :: proc(t: ^testing.T) {
     env := make_fake_env("linux")
     defer destroy_fake_env(&env)
     env.files[resolved("CMakeLists.txt")] = strings.clone("cmake_minimum_required(VERSION 3.20)\n")
-    existing := `{
-	"tasks": [
-		{
-			"name": "commit",
-			"command": "git commit -m \"wip }\""
-		}
-	]
-}`
-    env.files[resolved(".thor/tasks.json")] = strings.clone(existing)
+    existing := `return {
+    tasks = {
+        {
+            name = "commit",
+            command = "git commit -m \"wip }\"",
+        },
+    },
+}
+`
+    env.files[resolved(".thor/tasks.lua")] = strings.clone(existing)
 
     manager_set_host(&m, fake_host(&env))
     manager_load(&m)
     testing.expect(t, manager_run_command(&m, "configure-compile-commands"), "configure-compile-commands ran")
 
-    tasks_json := env.files[resolved(".thor/tasks.json")]
-    testing.expectf(t, strings.contains(tasks_json, `"command": "git commit -m \"wip }\""`),
-        "the quoted task was mangled by the rewrite: %s", tasks_json)
-    testing.expect(t, strings.contains(tasks_json, "cmake -S . -B build"), "the CMake task was still added")
+    tasks_lua := env.files[resolved(".thor/tasks.lua")]
+    testing.expectf(t, strings.contains(tasks_lua, `command = "git commit -m \"wip }\""`),
+        "the quoted task was mangled by the rewrite: %s", tasks_lua)
+    testing.expect(t, strings.contains(tasks_lua, "cmake -S . -B build"), "the CMake task was still added")
 }
 
 // An unknown key means a shape the plugin must not rewrite: it reports that
@@ -102,14 +103,14 @@ test_compile_commands_refuses_unknown_task_key :: proc(t: ^testing.T) {
     env := make_fake_env("linux")
     defer destroy_fake_env(&env)
     env.files[resolved("CMakeLists.txt")] = strings.clone("cmake_minimum_required(VERSION 3.20)\n")
-    existing := `{"tasks":[{"name":"build","command":"make","cwd":"sub"}]}`
-    env.files[resolved(".thor/tasks.json")] = strings.clone(existing)
+    existing := `return { tasks = { { name = "build", command = "make", cwd = "sub" } } }`
+    env.files[resolved(".thor/tasks.lua")] = strings.clone(existing)
 
     manager_set_host(&m, fake_host(&env))
     manager_load(&m)
     testing.expect(t, manager_run_command(&m, "configure-compile-commands"), "configure-compile-commands ran")
 
-    testing.expect(t, env.files[resolved(".thor/tasks.json")] == existing, "tasks.json was rewritten")
+    testing.expect(t, env.files[resolved(".thor/tasks.lua")] == existing, "tasks.lua was rewritten")
     told := false
     for line in env.printed {
         told ||= strings.contains(line, "by hand")
@@ -134,7 +135,7 @@ test_compile_commands_cmake_leaves_existing_dot_clangd_alone :: proc(t: ^testing
     manager_load(&m)
     testing.expect(t, manager_run_command(&m, "configure-compile-commands"), "configure-compile-commands ran")
 
-    _, has_tasks := env.files[resolved(".thor/tasks.json")]
+    _, has_tasks := env.files[resolved(".thor/tasks.lua")]
     testing.expect(t, has_tasks, "the CMake task is still added")
 
     dot_clangd := env.files[resolved(".clangd")]
@@ -167,9 +168,9 @@ test_compile_commands_bazel_writes_snippet_and_task :: proc(t: ^testing.T) {
         "BUILD.bazel loads the refresh rule")
     testing.expect(t, strings.contains(build_text, `name = "refresh_compile_commands"`), "BUILD.bazel defines the target")
 
-    tasks_json, has_tasks := env.files[resolved(".thor/tasks.json")]
+    tasks_lua, has_tasks := env.files[resolved(".thor/tasks.lua")]
     testing.expect(t, has_tasks, "a task was added")
-    testing.expect(t, strings.contains(tasks_json, "bazel run //:refresh_compile_commands"), "the task runs the refresh target")
+    testing.expect(t, strings.contains(tasks_lua, "bazel run //:refresh_compile_commands"), "the task runs the refresh target")
 }
 
 // Re-running the command once hedron is already wired in must not
@@ -215,7 +216,7 @@ test_compile_commands_bazel_legacy_workspace_only_hints :: proc(t: ^testing.T) {
     manager_load(&m)
     testing.expect(t, manager_run_command(&m, "configure-compile-commands"), "configure-compile-commands ran")
 
-    _, has_tasks := env.files[resolved(".thor/tasks.json")]
+    _, has_tasks := env.files[resolved(".thor/tasks.lua")]
     testing.expect(t, !has_tasks, "no task was added")
     testing.expect(t, strings.contains(env.printed[len(env.printed) - 1], "WORKSPACE"),
         "the hint mentions the legacy WORKSPACE setup")
@@ -238,14 +239,14 @@ test_compile_commands_make_posix :: proc(t: ^testing.T) {
 
     testing.expect(t, manager_run_command(&m, "configure-compile-commands"), "configure-compile-commands ran without bear")
     manager_dialog_confirm(&m)
-    tasks_json := env.files[resolved(".thor/tasks.json")]
-    testing.expect(t, strings.contains(tasks_json, "Install bear") && strings.contains(tasks_json, "apt-get"),
+    tasks_lua := env.files[resolved(".thor/tasks.lua")]
+    testing.expect(t, strings.contains(tasks_lua, "Install bear") && strings.contains(tasks_lua, "apt-get"),
         "a bear-install task was added when bear is missing")
 
     env.path_bins["bear"] = "/usr/bin/bear"
     testing.expect(t, manager_run_command(&m, "configure-compile-commands"), "configure-compile-commands ran with bear")
-    tasks_json = env.files[resolved(".thor/tasks.json")]
-    testing.expect(t, strings.contains(tasks_json, "bear -- make"), "the make task was added once bear is on PATH")
+    tasks_lua = env.files[resolved(".thor/tasks.lua")]
+    testing.expect(t, strings.contains(tasks_lua, "bear -- make"), "the make task was added once bear is on PATH")
 }
 
 // Make on Windows: compiledb runs the build directly when present; when it
@@ -265,14 +266,14 @@ test_compile_commands_make_windows :: proc(t: ^testing.T) {
 
     testing.expect(t, manager_run_command(&m, "configure-compile-commands"), "configure-compile-commands ran without compiledb")
     manager_dialog_confirm(&m)
-    tasks_json := env.files[resolved(".thor/tasks.json")]
-    testing.expect(t, strings.contains(tasks_json, "Install compiledb") && strings.contains(tasks_json, "pip install compiledb"),
+    tasks_lua := env.files[resolved(".thor/tasks.lua")]
+    testing.expect(t, strings.contains(tasks_lua, "Install compiledb") && strings.contains(tasks_lua, "pip install compiledb"),
         "a compiledb-install task was added when compiledb is missing")
 
     env.path_bins["compiledb"] = `C:\Python\Scripts\compiledb.exe`
     testing.expect(t, manager_run_command(&m, "configure-compile-commands"), "configure-compile-commands ran with compiledb")
-    tasks_json = env.files[resolved(".thor/tasks.json")]
-    testing.expect(t, strings.contains(tasks_json, "compiledb make"), "the make task was added once compiledb is on PATH")
+    tasks_lua = env.files[resolved(".thor/tasks.lua")]
+    testing.expect(t, strings.contains(tasks_lua, "compiledb make"), "the make task was added once compiledb is on PATH")
 }
 
 // A bare build.sh with no known build system only gets a hint to re-run it
@@ -292,7 +293,7 @@ test_compile_commands_bare_script_posix_hint_only :: proc(t: ^testing.T) {
     manager_load(&m)
     testing.expect(t, manager_run_command(&m, "configure-compile-commands"), "configure-compile-commands ran")
 
-    _, has_tasks := env.files[resolved(".thor/tasks.json")]
+    _, has_tasks := env.files[resolved(".thor/tasks.lua")]
     testing.expect(t, !has_tasks, "no task was added for a bare script")
     testing.expect(t, strings.contains(env.printed[len(env.printed) - 1], "bear -- ./build.sh"),
         "the hint suggests wrapping the script with bear")
@@ -314,7 +315,7 @@ test_compile_commands_bare_script_windows_hint_only :: proc(t: ^testing.T) {
     manager_load(&m)
     testing.expect(t, manager_run_command(&m, "configure-compile-commands"), "configure-compile-commands ran")
 
-    _, has_tasks := env.files[resolved(".thor/tasks.json")]
+    _, has_tasks := env.files[resolved(".thor/tasks.lua")]
     testing.expect(t, !has_tasks, "no task was added for a bare script")
     testing.expect(t, strings.contains(env.printed[len(env.printed) - 1], "no bear equivalent on Windows"),
         "the hint explains there is no automatic option")
@@ -334,7 +335,7 @@ test_compile_commands_nothing_found :: proc(t: ^testing.T) {
     manager_load(&m)
     testing.expect(t, manager_run_command(&m, "configure-compile-commands"), "configure-compile-commands ran")
 
-    _, has_tasks := env.files[resolved(".thor/tasks.json")]
+    _, has_tasks := env.files[resolved(".thor/tasks.lua")]
     testing.expect(t, !has_tasks, "no task was added")
     testing.expect(t, strings.contains(env.printed[len(env.printed) - 1], "nothing to configure"),
         "reported that nothing was found")

@@ -175,6 +175,43 @@ select_word_or_next :: proc(state: ^State, whole_word: bool) {
     normalize_cursors(state)
 }
 
+// select_word_or_next over `ranges` (ascending [start, end) pairs) instead of a text search: with no
+// selection the primary selects the range it is in, else a cursor selects the next range not taken.
+// False when the primary is not in a range or its selection is not one.
+select_range_or_next :: proc(state: ^State, ranges: [][2]int) -> bool {
+    txt := text(state)
+    primary := primary_cursor(state)
+    lo, hi := selection_range(primary)
+    at := -1
+    for r, i in ranges {
+        if has_selection(primary) ? lo == r[0] && hi == r[1] : lo >= r[0] && lo <= r[1] {
+            at = i
+            break
+        }
+    }
+    if at < 0 {
+        return false
+    }
+    if !has_selection(primary) {
+        cursor := &state.cursors[len(state.cursors) - 1]
+        cursor.anchor = ranges[at][0]
+        cursor.caret = ranges[at][1]
+        cursor.preferred_column = cursor_column(state, txt, cursor.caret)
+        normalize_cursors(state)
+        return true
+    }
+    for step in 1 ..< len(ranges) {
+        r := ranges[(at + step) % len(ranges)]
+        if r[1] > len(txt) || r[0] >= r[1] || occurrence_taken(state, r[0], r[1] - r[0]) {
+            continue
+        }
+        append(&state.cursors, Cursor{anchor = r[0], caret = r[1], preferred_column = cursor_column(state, txt, r[1])})
+        normalize_cursors(state)
+        break
+    }
+    return true
+}
+
 delete_word_backward :: proc(state: ^State) {
     txt := text(state)
     for &cursor in state.cursors {
@@ -197,6 +234,31 @@ delete_word_forward :: proc(state: ^State) {
     }
     normalize_cursors(state)
     delete_forward(state)
+}
+
+// Deletes from each caret to the end of its line. At the line end it joins the next line.
+delete_to_line_end :: proc(state: ^State) {
+    txt := text(state)
+    for &cursor in state.cursors {
+        if !has_selection(cursor) {
+            cursor.anchor = line_end(txt, cursor.caret)
+        }
+    }
+    normalize_cursors(state)
+    delete_forward(state)
+}
+
+// Deletes from the start of each caret's line to the caret. At the line start it
+// joins the previous line.
+delete_to_line_start :: proc(state: ^State) {
+    txt := text(state)
+    for &cursor in state.cursors {
+        if !has_selection(cursor) {
+            cursor.anchor = line_start(txt, cursor.caret)
+        }
+    }
+    normalize_cursors(state)
+    delete_backward(state)
 }
 
 // Deletes the whole line(s) covered by each cursor (Ctrl+Shift+K).
@@ -455,6 +517,15 @@ case_map_offset :: proc(ranges: []Case_Range, pos: int) -> int {
     return pos + shift
 }
 
+// Upper case of one rune. ß has no simple upper case in Unicode, so it maps to ẞ here.
+@(private = "file")
+upper_rune :: proc(r: rune) -> rune {
+    if r == 'ß' {
+        return 'ẞ'
+    }
+    return unicode.to_upper(r)
+}
+
 @(private = "file")
 transform_case_string :: proc(s: string, mode: Case_Transform, allocator := context.temp_allocator) -> string {
     builder := strings.builder_make(0, len(s), allocator)
@@ -463,7 +534,7 @@ transform_case_string :: proc(s: string, mode: Case_Transform, allocator := cont
         word := is_word_rune(r)
         switch mode {
         case .Upper:
-            strings.write_rune(&builder, unicode.to_upper(r))
+            strings.write_rune(&builder, upper_rune(r))
         case .Lower:
             strings.write_rune(&builder, unicode.to_lower(r))
         case .Title:
@@ -471,7 +542,7 @@ transform_case_string :: proc(s: string, mode: Case_Transform, allocator := cont
             // and differs from to_upper only for a few digraphs.
             switch {
             case word && at_word_start:
-                strings.write_rune(&builder, unicode.to_upper(r))
+                strings.write_rune(&builder, upper_rune(r))
             case word:
                 strings.write_rune(&builder, unicode.to_lower(r))
             case:

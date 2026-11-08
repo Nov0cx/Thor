@@ -1,0 +1,38 @@
+package types
+
+Ptr :: ^int
+Multi :: [^]u8
+Slice :: []int
+Fixed :: [4]int
+Inferred := [?]int{1, 2}
+Dyn :: [dynamic]int
+Capped :: [dynamic; 8]int
+Table :: map[string]int
+Flags :: bit_set[Color; u8]
+Range_Set :: bit_set[0 ..< 8]
+Mat :: matrix[2, 3]f32
+Vec :: #simd[4]f32
+Soa_Slice :: #soa[]Point
+Soa_Fixed :: #soa[4]Point
+Color :: enum u8 { Red, Green = 2, Blue }
+By_Color :: [Color]int
+Sparse :: #sparse[Color]int
+Packed :: struct #packed { a: u8, b: u32 }
+Raw :: struct #raw_union { i: i32, f: f32 }
+Aligned :: struct #align(16) { x: int "tag" }
+Generic :: struct($T: typeid, $N: int) where N > 0 { items: [N]T }
+Point :: struct {
+    using base: Base,
+    x, y: f32,
+}
+Base :: struct {}
+Value :: union #no_nil { int, f64 }
+Shared :: union #shared_nil #align(8) { ^int, rawptr }
+Maybe_Gen :: union($T: typeid) { T }
+Id :: distinct int
+Bits :: bit_field u16 {
+    low:  u8 | 4,
+    high: u8 | 4 "tag",
+}
+Any_Value :: any
+Type_Id :: typeid

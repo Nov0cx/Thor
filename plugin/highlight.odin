@@ -2,6 +2,7 @@ package plugin
 
 import "base:runtime"
 import "core:c"
+import "core:slice"
 import "core:strings"
 
 import lua "vendor:lua/5.4"
@@ -33,6 +34,44 @@ language_name :: proc(m: ^Manager, ext: string) -> string {
         return ""
     }
     return m.languages[index].name
+}
+
+// The extension that routes to the language named `name` (case ignored), "" when
+// no registered language has that name or a later one took all its extensions.
+// A name that starts with "." is taken as an extension.
+language_key :: proc(m: ^Manager, name: string) -> string {
+    if strings.has_prefix(name, ".") {
+        return name in m.by_ext ? name : ""
+    }
+    for i := len(m.languages) - 1; i >= 0; i -= 1 {
+        lang := &m.languages[i]
+        if !strings.equal_fold(lang.name, name) {
+            continue
+        }
+        for ext in lang.extensions {
+            if m.by_ext[ext] == i {
+                return ext
+            }
+        }
+    }
+    return ""
+}
+
+// The names of the languages a file can be shown as, sorted and without duplicates. Borrowed.
+language_names :: proc(m: ^Manager, allocator := context.allocator) -> []string {
+    names := make([dynamic]string, 0, len(m.languages), allocator)
+    for lang in m.languages {
+        if lang.name != "" && language_key(m, lang.name) != "" && !slice.contains(names[:], lang.name) {
+            append(&names, lang.name)
+        }
+    }
+    slice.sort_by(names[:], name_less)
+    return names[:]
+}
+
+@(private)
+name_less :: proc(a, b: string) -> bool {
+    return strings.to_lower(a, context.temp_allocator) < strings.to_lower(b, context.temp_allocator)
 }
 
 // Highlights `source` for the language bound to `ext`, returning role-tagged

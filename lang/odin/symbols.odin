@@ -1,149 +1,189 @@
-// The list-shaped features: document and workspace symbol outlines, and rename.
-// The reference scan both of the latter stand on lives in references.odin.
+// Document and workspace symbols from the item trees of package odinsema.
 package odin
 
+import "base:runtime"
 import "core:slice"
 import "core:strings"
-import "core:sync"
 
 import lang ".."
-import ts "../../vendor/odin-tree-sitter"
+import odinsema "sema"
 
-// Appends `source`'s top-level declarations (in `path`) whose name matches
-// `query` to res.symbols; an empty query keeps them all, which is what a
-// document outline always passes. Reuses
-// collect_defs — the same walk go-to-definition uses — and keeps only the
-// file-scope symbols a symbol list should show (procedures, types, enums,
-// constants and package-level vars), dropping parameters, struct fields, labels
-// and the package/import namespace captures. Each field is cloned into
-// context.allocator (the Manager's), freed on the main thread after the editor
-// reads them; the signature is the real Odin declaration line.
+// The lang.Symbol kind of an item; "" for an item no symbol list shows.
 @(private)
-collect_symbols_into :: proc(e: ^Engine, root: ts.Node, source, path: string, res: ^lang.Result, query := "") {
-    defs := collect_defs(e, root, source)
-    for d in defs {
-        if !d.top_level || !symbol_kind_shown(d.kind) || !lang.symbol_matches(query, d.name) {
+symbol_kind :: proc(kind: odinsema.Item_Kind) -> string {
+    switch kind {
+    case .Proc, .Proc_Group:
+        return "function"
+    case .Struct, .Union, .Bit_Set, .Bit_Field, .Type:
+        return "type"
+    case .Enum:
+        return "enum"
+    case .Const:
+        return "constant"
+    case .Var:
+        return "var"
+    case .Field:
+        return "field"
+    case .Enum_Member:
+        return "enum_member"
+    case .Import, .Foreign_Import:
+        return ""
+    }
+    return ""
+}
+
+// Fills `res` with the outline of the request's buffer in source order: each declaration, then its
+// fields or members, then the procedures and types declared in its body.
+@(private)
+document_symbols :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
+    ctx: Request_Context
+    opened := request_open(e, req, &ctx)
+    defer request_close(&ctx)
+    if !opened {
+        return
+    }
+    runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
+    lines := ctx.live.lines
+    for &item, i in ctx.live.tree.items {
+        if symbol_kind(item.kind) == "" {
             continue
         }
-        ident_start := clamp(d.ident_start, 0, len(source))
-        append(&res.symbols, lang.Symbol {
-            name      = strings.clone(d.name),
-            kind      = strings.clone(d.kind),
-            signature = signature_text(source, d),
-            path      = strings.clone(path),
-            line      = strings.count(source[:ident_start], "\n") + 1,
-            offset    = d.ident_start,
-        })
+        if kind := alias_symbol_kind(&ctx, &item, i); kind != "" {
+            append_symbol_to(&res.symbols, &item, req.path, lines, item.signature, kind)
+        } else {
+            append_symbol(res, &item, req.path, lines)
+        }
+        for &child in item.children {
+            append_symbol(res, &child, req.path, lines)
+        }
+        if item.kind != .Proc {
+            continue
+        }
+        nested, err := odinsema.nested_decls(ctx.parsed, &item, context.temp_allocator)
+        if err != nil {
+            continue
+        }
+        for &decl in nested {
+            append_symbol(res, &decl.item, req.path, lines)
+            for &child in decl.item.children {
+                append_symbol(res, &child, req.path, lines)
+            }
+        }
     }
-}
-
-// Fills `res` with one file's top-level declarations for a document outline,
-// sorted by position for a stable outline.
-@(private)
-collect_document_symbols :: proc(e: ^Engine, root: ts.Node, source, path: string, res: ^lang.Result) {
-    collect_symbols_into(e, root, source, path, res)
-    slice.sort_by(res.symbols[:], proc(a, b: lang.Symbol) -> bool {
-        return a.offset < b.offset
-    })
     res.ok = true
 }
 
-// Fills `res` with every top-level declaration across the workspace whose name
-// matches req.query: the live buffer first (so unsaved edits win over its
-// on-disk copy, which is skipped), then every other file straight from the
-// symbol index (no re-parse of unchanged files). Sorted by name (ties by path)
-// for a stable list the picker then ranks itself. An empty query answers
-// everything, which is what the first, pre-typing dispatch sends.
+// The symbol kind the checker gives a constant whose value is a name, `Foo :: pkg.Bar`: "type",
+// "enum" or "function". "" when the item is no such constant or the checker gives no other kind.
+@(private = "file")
+alias_symbol_kind :: proc(ctx: ^Request_Context, item: ^odinsema.Item, index: int) -> string {
+    if item.kind != .Const || item.value_offset < 0 {
+        return ""
+    }
+    c := request_checker(ctx)
+    if c == nil {
+        return ""
+    }
+    value, ok := odinsema.node_at(c, ctx.live.id, item.value_offset)
+    if !ok || (value.green.kind != .Ident && value.green.kind != .Selector_Expr) {
+        return ""
+    }
+    op := odinsema.item_operand(c, odinsema.Symbol{file = ctx.live.id, item = i32(index), child = -1})
+    #partial switch op.mode {
+    case .Type:
+        if odinsema.type_kind(&c.table, odinsema.type_base(&c.table, op.type)) == .Enum {
+            return "enum"
+        }
+        return "type"
+    case .Builtin:
+        return "function"
+    case .Value, .Const:
+        #partial switch odinsema.type_kind(&c.table, odinsema.type_base(&c.table, op.type)) {
+        case .Proc, .Proc_Group:
+            return "function"
+        }
+    }
+    return ""
+}
+
+// Fills `res` with the top-level declarations of the workspace whose name matches req.query,
+// sorted by name and then path; those a known-false `when` drops for the workspace target
+// (config_target) come last, marked " (inactive)". The live buffer counts in place of its file
+// on disk, and a disk file counts when it is in the build of that target.
 @(private)
-collect_workspace_symbols :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Request, res: ^lang.Result) {
+workspace_symbols :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
+    ctx: Request_Context
+    opened := request_open(e, req, &ctx)
+    defer request_close(&ctx)
+    if !opened {
+        return
+    }
+    inactive := make([dynamic]lang.Symbol, context.temp_allocator)
     if req.path != "" {
-        collect_symbols_into(e, root, req.source, req.path, res, req.query)
+        append_matches(res, &inactive, req.query, ctx.live.tree, req.path, ctx.live.lines, ctx.target)
     }
     if req.workspace != "" {
-        sync.lock(&e.index.mutex)
-        index_sync(e, parser, req)
-        index_all_symbols(e, req.path, req.query, res)
-        sync.unlock(&e.index.mutex)
-    }
-    slice.sort_by(res.symbols[:], proc(a, b: lang.Symbol) -> bool {
-        if a.name != b.name {
-            return a.name < b.name
+        for id in odinsema.db_workspace(&ctx.snap, req.workspace) {
+            if lang.request_cancelled(req) {
+                append(&res.symbols, ..inactive[:])
+                return
+            }
+            if id == ctx.live.id || !odinsema.db_in_build(&ctx.snap, id) {
+                continue
+            }
+            data := odinsema.db_file(&ctx.snap, id)
+            if data == nil {
+                continue
+            }
+            append_matches(res, &inactive, req.query, data.tree, odinsema.db_file_path(&ctx.snap, id), data.lines, ctx.target)
         }
-        return a.path < b.path
-    })
+    }
+    slice.sort_by(res.symbols[:], symbol_less)
+    slice.sort_by(inactive[:], symbol_less)
+    append(&res.symbols, ..inactive[:])
     res.ok = true
 }
 
-// Renames the symbol under the caret to `req.new_name`, returning the
-// replacements as `res.edits` rather than touching any file — the editor applies
-// them, so the change lands in an open buffer's undo history instead of behind
-// its back. Every occurrence find-references would list becomes one edit, so
-// rename inherits that reach *and* its precision: each occurrence is one the
-// reference scan proved binds to the same declaration — a local to its own
-// scope, a package symbol to its package (bare there, qualified elsewhere), a
-// field to the struct declaring it — and one it could not judge stays in, since
-// a usage left behind is code left broken. Answers nothing when the caret is not
-// on an identifier or the new name isn't a legal Odin one.
-@(private)
-rename :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Request, res: ^lang.Result) {
-    if !valid_identifier(req.new_name) {
-        return
+@(private = "file")
+symbol_less :: proc(a, b: lang.Symbol) -> bool {
+    if a.name != b.name {
+        return a.name < b.name
     }
-    ident, ok := identifier_at(root, req.source, req.offset)
-    if !ok {
-        return
-    }
-    name := ts.node_text(ident, req.source)
-    if name == req.new_name {
-        return // renaming to itself: no edits, nothing to apply
-    }
-
-    // A name bound to no declaration would rename every same-named identifier.
-    target := ref_target(e, parser, root, req, ident, name)
-    if target.unbound {
-        return
-    }
-    collect_target_references(e, parser, root, req, &target, res)
-    if !res.ok {
-        return
-    }
-
-    // The reference rows are consumed here: each one's span becomes an edit and
-    // its `path` moves into that edit, so a rename result carries edits alone
-    // and the display-only fields are freed rather than handed to the editor.
-    for sym in res.symbols {
-        append(&res.edits, lang.Text_Edit {
-            path     = sym.path,
-            start    = sym.offset,
-            end      = sym.offset + len(name),
-            old_text = strings.clone(name),
-            new_text = strings.clone(req.new_name),
-        })
-        delete(sym.name)
-        delete(sym.kind)
-        delete(sym.signature)
-    }
-    delete(res.symbols)
-    res.symbols = nil // handed over to `edits`; job_free must not free it twice
-    res.ok = len(res.edits) > 0
+    return a.path < b.path
 }
 
-// True when `s` can be written as an Odin identifier: a leading letter or `_`,
-// then letters, digits and `_`, and not a keyword or builtin type name.
-@(private)
-valid_identifier :: proc(s: string) -> bool {
-    if s == "" || (s[0] >= '0' && s[0] <= '9') {
-        return false
-    }
-    for i in 0 ..< len(s) {
-        if !is_word_byte(s[i]) {
-            return false
+// Appends the items of `tree` whose name matches `query`: to `res`, or to `inactive` with
+// " (inactive)" after the signature when a known-false guard drops the item for `target`.
+@(private = "file")
+append_matches :: proc(res: ^lang.Result, inactive: ^[dynamic]lang.Symbol, query: string, tree: ^odinsema.Item_Tree, path: string, lines: []int, target: odinsema.Target) {
+    for &item in tree.items {
+        if symbol_kind(item.kind) == "" || !lang.symbol_matches(query, item.name) {
+            continue
         }
-    }
-    for kw in ODIN_KEYWORDS {
-        if s == kw {
-            return false
+        if odinsema.guard_active(tree, item.guard, target) {
+            append_symbol(res, &item, path, lines)
+            continue
         }
+        signature := strings.concatenate({item.signature, " (inactive)"}, context.temp_allocator)
+        append_symbol_to(inactive, &item, path, lines, signature)
     }
-    return true
+}
+
+// Appends one item as a symbol; every string is cloned into context.allocator (the Manager's).
+@(private = "file")
+append_symbol :: proc(res: ^lang.Result, item: ^odinsema.Item, path: string, lines: []int) {
+    append_symbol_to(&res.symbols, item, path, lines, item.signature)
+}
+
+@(private = "file")
+append_symbol_to :: proc(out: ^[dynamic]lang.Symbol, item: ^odinsema.Item, path: string, lines: []int, signature: string, kind := "") {
+    line, _ := offset_line_col(lines, item.name_offset)
+    append(out, lang.Symbol {
+        name      = strings.clone(item.name),
+        kind      = strings.clone(kind != "" ? kind : symbol_kind(item.kind)),
+        signature = strings.clone(signature),
+        path      = strings.clone(path),
+        line      = line,
+        offset    = item.name_offset,
+    })
 }

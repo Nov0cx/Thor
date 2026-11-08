@@ -31,6 +31,8 @@ Select_Dialog :: struct {
     data:         rawptr,
     // Pane key the focus goes back to when the dialog closes.
     return_focus: string,
+    // Set on open: the next frame moves the focus to the dialog, away from a pane that takes the arrow keys.
+    focus_pending: bool,
 }
 
 thor_select_init :: proc(thor: ^Thor) {
@@ -91,6 +93,7 @@ thor_select_open :: proc(
         s.return_focus = thor.focus_owner
     }
     thor.select_open = true
+    s.focus_pending = true
 }
 
 thor_select_is_open :: proc(thor: ^Thor) -> bool {
@@ -234,10 +237,10 @@ thor_select_view :: proc(thor: ^Thor) {
 select_box :: proc(thor: ^Thor) {
     s := &thor.select
 
-    ui.scope(
+    box := ui.scope(
         {
             key = "select-box",
-            flags = {.Clickable},
+            flags = {.Clickable, .Focusable},
             props = {
                 w = ui.Px(SELECT_WIDTH),
                 max_w = ui.viewport().x - 80,
@@ -251,6 +254,10 @@ select_box :: proc(thor: ^Thor) {
             },
         },
     )
+    if s.focus_pending {
+        ui.set_focus(box.id)
+        s.focus_pending = false
+    }
 
     ui.label(
         s.title,

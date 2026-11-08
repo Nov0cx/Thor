@@ -8,11 +8,14 @@ import rl "vendor:raylib"
 
 import ui "../vendor/loom/loom"
 import "../editview"
+import "../lang"
+import "../textedit"
 // Points both editor panes at the shared context menu. Called once at startup;
 // every other menu is opened straight from the view that owns the click.
 thor_wire_menus :: proc(thor: ^Thor) {
-    editview.editor_set_on_context_menu(&thor.editor, thor_editor_context_menu, thor)
-    editview.editor_set_on_context_menu(&thor.editor2, thor_editor_context_menu, thor)
+    for &editor in thor.editors {
+        editview.editor_set_on_context_menu(&editor, thor_editor_context_menu, thor)
+    }
 }
 
 // Remembers the directory a New File/Folder prompt will create into.
@@ -27,9 +30,35 @@ thor_editor_context_menu :: proc(data: rawptr, position: ui.Vec2) {
     // The right-click focused its pane before this callback, but menu_open takes
     // focus next, so the frame's own thor_sync_active_pane would never see it.
     thor_sync_active_pane(thor)
-    has_file := thor_active_open_file(thor) != nil
+    file := thor_active_open_file(thor)
+    has_file := file != nil
+
+    // Format Selection formats the whole document when there is no selection.
+    format_selection := thor_menu_lang_allows(thor, .Format)
+    if file != nil && textedit.has_selection(textedit.primary_cursor(&file.state)) {
+        format_selection = thor_menu_lang_allows(thor, .Format_Range)
+    }
 
     thor_menu_clear(thor)
+    thor_menu_add(thor, "Go to Definition", thor_cmd_goto_definition, thor, thor_menu_lang_allows(thor, .Definition), action = "goto_definition")
+    thor_menu_add(thor, "Go to Type Definition", thor_cmd_goto_type_definition, thor, thor_menu_lang_allows(thor, .Type_Definition), action = "goto_type_definition")
+    thor_menu_add(thor, "Peek Definition", thor_cmd_peek_definition, thor, thor_menu_lang_allows(thor, .Definition), action = "peek_definition")
+    thor_menu_add(thor, "Find References", thor_cmd_find_references, thor, thor_menu_lang_allows(thor, .References), action = "find_references")
+    thor_menu_add(thor, "Go to Implementations", thor_cmd_implementations, thor, thor_menu_lang_allows(thor, .Implementations), action = "goto_implementations")
+    thor_menu_add(thor, "Show Incoming Calls", thor_cmd_incoming_calls, thor, thor_menu_lang_allows(thor, .Call_Hierarchy), action = "incoming_calls")
+    thor_menu_add(thor, "Show Outgoing Calls", thor_cmd_outgoing_calls, thor, thor_menu_lang_allows(thor, .Call_Hierarchy), action = "outgoing_calls")
+    thor_menu_add(thor, "Show Supertypes", thor_cmd_supertypes, thor, thor_menu_lang_allows(thor, .Type_Hierarchy), action = "supertypes")
+    thor_menu_add(thor, "Show Subtypes", thor_cmd_subtypes, thor, thor_menu_lang_allows(thor, .Type_Hierarchy), action = "subtypes")
+    thor_menu_add(thor, "Rename Symbol", thor_cmd_rename_symbol, thor, thor_menu_lang_allows(thor, .Rename), action = "replace")
+    thor_menu_add(thor, "Code Actions", thor_cmd_code_actions, thor, thor_menu_lang_allows(thor, .Code_Actions), action = "code_actions")
+    thor_menu_add(thor, "Signature Help", thor_cmd_signature_help, thor, thor_menu_lang_allows(thor, .Signature_Help), action = "signature_help")
+    thor_menu_add_separator(thor)
+    thor_menu_add(thor, "Format Document", thor_cmd_format_document, thor, thor_menu_lang_allows(thor, .Format), action = "format_document")
+    thor_menu_add(thor, "Format Selection", thor_cmd_format_selection, thor, format_selection, action = "format_selection")
+    thor_menu_add_separator(thor)
+    thor_menu_add(thor, "Go to Symbol in File", thor_cmd_goto_symbol, thor, thor_menu_lang_allows(thor, .Document_Symbols), action = "goto_symbol")
+    thor_menu_add(thor, "Package Documentation", thor_cmd_package_doc, thor, thor_menu_lang_allows(thor, .Package_Doc), action = "package_doc")
+    thor_menu_add_separator(thor)
     thor_menu_add(thor, "Undo", thor_cmd_undo, thor, thor_can_undo(thor), action = "undo")
     thor_menu_add(thor, "Redo", thor_cmd_redo, thor, thor_can_redo(thor), action = "redo")
     thor_menu_add_separator(thor)
@@ -39,6 +68,15 @@ thor_editor_context_menu :: proc(data: rawptr, position: ui.Vec2) {
     thor_menu_add_separator(thor)
     thor_menu_add(thor, "Select All", thor_cmd_select_all, thor, has_file, action = "select_all")
     thor_menu_open(thor, position)
+}
+
+// Reports whether a backend serves `kind` for the active file. False with no file open.
+thor_menu_lang_allows :: proc(thor: ^Thor, kind: lang.Request_Kind) -> bool {
+    file := thor_active_open_file(thor)
+    if file == nil || !file.loaded {
+        return false
+    }
+    return lang.manager_allows(&thor.lang_manager, thor_lang_key(thor, file.name), kind)
 }
 
 thor_console_context_menu :: proc(data: rawptr, position: ui.Vec2) {
@@ -84,6 +122,10 @@ thor_explorer_context_menu :: proc(thor: ^Thor, clicked: string, position: ui.Ve
     if on_folder {
         thor_menu_add_separator(thor)
         thor_menu_add(thor, "Open in New Window", thor_menu_open_new_window, thor)
+    } else if has_selection {
+        thor_menu_add_separator(thor)
+        thor_menu_add(thor, "Open to the Side", thor_menu_open_to_side, thor)
+        thor_menu_add(thor, "Open in Pane...", thor_menu_open_in_pane, thor)
     }
     thor_menu_add_separator(thor)
     thor_menu_add(thor, "Rename", thor_menu_rename, thor, has_selection, action = "rename_file")
@@ -218,6 +260,16 @@ thor_menu_explorer_delete :: proc(data: rawptr) {
 thor_menu_open_new_window :: proc(data: rawptr) {
     thor := cast(^Thor) data
     thor_new_window_for(thor, thor_explorer_selected(thor))
+}
+
+thor_menu_open_to_side :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    thor_open_file_in_pane(thor, thor_explorer_selected(thor), thor_side_pane(thor))
+}
+
+thor_menu_open_in_pane :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    thor_pane_pick_begin(thor, thor_explorer_selected(thor))
 }
 
 thor_menu_explorer_reveal :: proc(data: rawptr) {
@@ -383,6 +435,7 @@ thor_open_view_menu :: proc(data: rawptr) {
     thor_menu_clear(thor)
     thor_menu_add(thor, "Toggle Explorer", thor_cmd_toggle_explorer, thor, action = "toggle_explorer")
     thor_menu_add(thor, "Toggle Console", thor_cmd_toggle_console, thor, action = "toggle_console")
+    thor_menu_add(thor, "Problems", thor_cmd_open_problems, thor, action = "open_problems")
     thor_menu_add_separator(thor)
     thor_menu_add(thor, "Zoom In", thor_cmd_zoom_in, thor, action = "zoom_in")
     thor_menu_add(thor, "Zoom Out", thor_cmd_zoom_out, thor, action = "zoom_out")
@@ -391,6 +444,9 @@ thor_open_view_menu :: proc(data: rawptr) {
     thor_menu_add(thor, "Toggle Word Wrap", thor_cmd_toggle_wrap, thor, action = "toggle_word_wrap")
     thor_menu_add(thor, "Toggle Whitespace", thor_cmd_toggle_whitespace, thor, action = "toggle_whitespace")
     thor_menu_add(thor, "Toggle Split Editor", thor_cmd_toggle_split, thor, action = "toggle_split")
+    thor_menu_add(thor, "Change Language of File...", thor_cmd_change_language, thor, action = "change_language")
+    thor_menu_add(thor, "Pane Layout...", thor_cmd_pick_layout, thor, action = "pick_layout")
+    thor_menu_add(thor, "Open Active File to the Side", thor_cmd_open_to_side, thor, action = "open_to_side")
     thor_menu_add(thor, "Toggle Fullscreen", thor_cmd_toggle_fullscreen, thor, action = "toggle_fullscreen")
     thor_menu_open(thor, thor.menu_anchor)
 }
@@ -414,7 +470,9 @@ thor_open_help_menu :: proc(data: rawptr) {
     thor_menu_add(thor, "Documentation Page...", thor_cmd_docs_page, thor, action = "docs_page")
     thor_menu_add(thor, "Documentation in Browser", thor_cmd_docs_browser, thor, action = "docs_browser")
     thor_menu_add_separator(thor)
+    thor_menu_add(thor, "What's New", thor_cmd_whats_new, thor, action = "whats_new")
     thor_menu_add(thor, "Check for Updates", thor_cmd_check_for_updates, thor, action = "check_for_updates")
+    thor_menu_add(thor, "Check for Plugin and Theme Updates", thor_cmd_check_for_plugin_updates, thor, action = "check_for_plugin_updates")
     thor_menu_add_separator(thor)
     thor_menu_add(thor, "Settings", thor_cmd_open_settings_gui, thor, action = "open_settings_gui")
     thor_menu_add(thor, "Language Servers", thor_cmd_open_language_servers, thor, action = "open_language_servers")

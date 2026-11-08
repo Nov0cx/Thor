@@ -22,6 +22,7 @@ Doc_Variant :: union {
     Doc_Concat,
     Doc_If_Break,
     Doc_Break_Parent,
+    Doc_Col,
 }
 
 // Verbatim text with no embedded newline.
@@ -83,6 +84,13 @@ Doc_If_Break :: struct {
 // whose flat rendering would swallow the rest of the line.
 Doc_Break_Parent :: struct {}
 
+// A column stop: every Doc_Col sharing `id` pads to the rightmost column any of
+// them reached. The renderer measures that in a first pass over the finished
+// layout, so it counts the padding of nested Doc_Align cells.
+Doc_Col :: struct {
+    id: int,
+}
+
 @(private)
 doc_alloc :: proc(v: Doc_Variant, allocator := context.allocator) -> Doc {
     d, err := new(Doc_Node, allocator)
@@ -117,6 +125,10 @@ indent :: proc(children: []Doc, allocator := context.allocator) -> Doc {
 
 align :: proc(id: int, children: []Doc, allocator := context.allocator) -> Doc {
     return doc_alloc(Doc_Align{id = id, children = children}, allocator)
+}
+
+col :: proc(id: int, allocator := context.allocator) -> Doc {
+    return doc_alloc(Doc_Col{id = id}, allocator)
 }
 
 concat :: proc(children: []Doc, allocator := context.allocator) -> Doc {
@@ -170,6 +182,8 @@ measure_flat :: proc(d: Doc, opts: ^Options) -> (width: int, ok: bool) {
         return measure_flat_children(v.flat, opts)
     case Doc_Break_Parent:
         return 0, false
+    case Doc_Col:
+        return 0, true
     }
     return 0, true
 }
@@ -201,6 +215,8 @@ Render_State :: struct {
     level:        int, // indent level, in "tabs" (or opts.spaces-wide steps)
     lines:        int, // newlines written; an align cell that crossed one is never padded
     align_widths: map[int]int,
+    col_widths:   map[int]int, // rightmost column of each Doc_Col id
+    measuring:    bool,        // the first pass: Doc_Col records instead of padding
 }
 
 @(private)
@@ -318,32 +334,46 @@ render_doc :: proc(rs: ^Render_State, d: Doc, mode: Render_Mode) {
 
     case Doc_Break_Parent:
     // Nothing to write: it only ever changes a group's fits check.
+
+    case Doc_Col:
+        if rs.measuring {
+            if cur, ok := rs.col_widths[v.id]; !ok || rs.column > cur {
+                rs.col_widths[v.id] = rs.column
+            }
+        } else {
+            for rs.column < rs.col_widths[v.id] {
+                strings.write_byte(&rs.sb, ' ')
+                rs.column += 1
+            }
+        }
     }
 }
 
 // Widest flat width seen for each align id, over the whole document — the
 // pre-render measurement pass the renderer's Doc_Align padding relies on.
 @(private)
-compute_align_widths :: proc(d: Doc, opts: ^Options, widths: ^map[int]int) {
+compute_align_widths :: proc(d: Doc, opts: ^Options, widths: ^map[int]int) -> (has_cols: bool) {
     if d == nil {
         return
     }
     switch v in d.variant {
     case Doc_Text, Doc_Line, Doc_Hard_Line, Doc_Break_Parent:
+    case Doc_Col:
+        has_cols = true
     case Doc_If_Break:
         for c in v.flat {
-            compute_align_widths(c, opts, widths)
+            has_cols |= compute_align_widths(c, opts, widths)
         }
         for c in v.broken {
-            compute_align_widths(c, opts, widths)
+            has_cols |= compute_align_widths(c, opts, widths)
         }
     case Doc_Group:
         for c in v.children {
-            compute_align_widths(c, opts, widths)
+            has_cols |= compute_align_widths(c, opts, widths)
         }
     case Doc_Indent:
         for c in v.children {
-            compute_align_widths(c, opts, widths)
+            has_cols |= compute_align_widths(c, opts, widths)
         }
     case Doc_Align:
         // A cell with a hard line in it is never padded, so it must not widen
@@ -354,13 +384,14 @@ compute_align_widths :: proc(d: Doc, opts: ^Options, widths: ^map[int]int) {
             }
         }
         for c in v.children {
-            compute_align_widths(c, opts, widths)
+            has_cols |= compute_align_widths(c, opts, widths)
         }
     case Doc_Concat:
         for c in v.children {
-            compute_align_widths(c, opts, widths)
+            has_cols |= compute_align_widths(c, opts, widths)
         }
     }
+    return
 }
 
 // Renders `d` to a string using `opts`, starting broken at the top level (a
@@ -371,7 +402,15 @@ render :: proc(d: Doc, opts: ^Options, allocator := context.allocator) -> string
     rs.sb = strings.builder_make(allocator)
     rs.opts = opts
     rs.align_widths = make(map[int]int, context.temp_allocator)
-    compute_align_widths(d, opts, &rs.align_widths)
+    if compute_align_widths(d, opts, &rs.align_widths) {
+        // First pass: learn the column each Doc_Col id reaches, then render again.
+        rs.col_widths = make(map[int]int, context.temp_allocator)
+        rs.measuring = true
+        render_doc(&rs, d, .Break)
+        rs.measuring = false
+        strings.builder_reset(&rs.sb)
+        rs.column, rs.level, rs.lines = 0, 0, 0
+    }
     render_doc(&rs, d, .Break)
     return strings.to_string(rs.sb)
 }

@@ -1,0 +1,20 @@
+package procs
+
+c_proc :: proc "c" (x: i32) -> i32 { return x }
+inline_call :: proc() { #force_inline c_proc(1); #force_no_inline c_proc(2) }
+lit_inline :: #force_inline proc() {}
+ok_proc :: proc() -> (int, bool) #optional_ok { return 0, true }
+named :: proc(a: int, b := 2) -> (sum: int, ok: bool) { return }
+variadic :: proc(prefix: string, args: ..any) {}
+c_variadic :: proc "c" (fmt: cstring, #c_vararg args: ..any) {}
+flags :: proc(#any_int n: int, #by_ptr p: Big, #no_alias q: ^int, using s: S) {}
+poly :: proc(x: $T, $N: int) -> [N]T { return {} }
+spec :: proc($T: typeid/[]$E, v: T) -> E where size_of(E) > 1 { return v[0] }
+group :: proc{ poly, spec }
+Callback :: #type proc(data: rawptr) -> bool
+never :: proc() -> ! { for {} }
+nested :: proc() {
+    inner :: proc(x: int) -> int { return x * 2 }
+    _ = inner(1)
+}
+bare :: proc() ---

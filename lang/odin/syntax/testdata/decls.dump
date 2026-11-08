@@ -1,0 +1,234 @@
+Root@0..354
+  Package_Decl@0..13
+    Package@0..7 "package"
+    Ident@8..13
+      Ident@8..13 "decls"
+  Value_Decl@15..21
+    Name_List@15..16
+      Ident@15..16
+        Ident@15..16 "A"
+    Colon@17..18 ":"
+    Colon@18..19 ":"
+    Expr_List@20..21
+      Literal@20..21
+        Integer@20..21 "1"
+  Value_Decl@22..34
+    Name_List@22..26
+      Ident@22..23
+        Ident@22..23 "B"
+      Comma@23..24 ","
+      Ident@25..26
+        Ident@25..26 "C"
+    Colon@27..28 ":"
+    Colon@28..29 ":"
+    Expr_List@30..34
+      Literal@30..31
+        Integer@30..31 "2"
+      Comma@31..32 ","
+      Literal@33..34
+        Integer@33..34 "3"
+  Value_Decl@35..49
+    Name_List@35..36
+      Ident@35..36
+        Ident@35..36 "T"
+    Colon@37..38 ":"
+    Colon@38..39 ":"
+    Expr_List@40..49
+      Struct_Type@40..49
+        Struct@40..46 "struct"
+        Field_List@47..49
+          Open_Brace@47..48 "{"
+          Close_Brace@48..49 "}"
+  Value_Decl@50..56
+    Name_List@50..51
+      Ident@50..51
+        Ident@50..51 "v"
+    Colon@51..52 ":"
+    Ident@53..56
+      Ident@53..56 "int"
+  Value_Decl@57..63
+    Name_List@57..58
+      Ident@57..58
+        Ident@57..58 "w"
+    Colon@59..60 ":"
+    Eq@60..61 "="
+    Expr_List@62..63
+      Literal@62..63
+        Integer@62..63 "4"
+  Value_Decl@64..80
+    Name_List@64..68
+      Ident@64..65
+        Ident@64..65 "x"
+      Comma@65..66 ","
+      Ident@67..68
+        Ident@67..68 "y"
+    Colon@68..69 ":"
+    Ident@70..73
+      Ident@70..73 "f32"
+    Eq@74..75 "="
+    Expr_List@76..80
+      Literal@76..77
+        Integer@76..77 "1"
+      Comma@77..78 ","
+      Literal@79..80
+        Integer@79..80 "2"
+  Value_Decl@81..95
+    Name_List@81..82
+      Ident@81..82
+        Ident@81..82 "z"
+    Colon@82..83 ":"
+    Array_Type@84..89
+      Open_Bracket@84..85 "["
+      Literal@85..86
+        Integer@85..86 "4"
+      Close_Bracket@86..87 "]"
+      Ident@87..89
+        Ident@87..89 "u8"
+    Eq@90..91 "="
+    Expr_List@92..95
+      Undef_Expr@92..95
+        Undef@92..95 "---"
+  Value_Decl@96..107
+    Name_List@96..97
+      Ident@96..97
+        Ident@96..97 "k"
+    Colon@98..99 ":"
+    Ident@100..103
+      Ident@100..103 "int"
+    Colon@104..105 ":"
+    Expr_List@106..107
+      Literal@106..107
+        Integer@106..107 "5"
+  Value_Decl@109..126
+    Attribute@109..119
+      At@109..110 "@"
+      Open_Paren@110..111 "("
+      Ident@111..118
+        Ident@111..118 "private"
+      Close_Paren@118..119 ")"
+    Name_List@120..121
+      Ident@120..121
+        Ident@120..121 "p"
+    Colon@122..123 ":"
+    Eq@123..124 "="
+    Expr_List@125..126
+      Literal@125..126
+        Integer@125..126 "1"
+  Value_Decl@128..151
+    Attribute@128..136
+      At@128..129 "@"
+      Ident@129..136
+        Ident@129..136 "private"
+    Name_List@137..138
+      Ident@137..138
+        Ident@137..138 "q"
+    Colon@139..140 ":"
+    Colon@140..141 ":"
+    Expr_List@142..151
+      Proc_Lit@142..151
+        Proc_Type@142..148
+          Proc@142..146 "proc"
+          Param_List@146..148
+            Open_Paren@146..147 "("
+            Close_Paren@147..148 ")"
+        Block@149..151
+          Open_Brace@149..150 "{"
+          Close_Brace@150..151 "}"
+  Value_Decl@153..226
+    Attribute@153..194
+      At@153..154 "@"
+      Open_Paren@154..155 "("
+      Ident@155..170
+        Ident@155..170 "require_results"
+      Comma@170..171 ","
+      Field_Value@172..193
+        Ident@172..182
+          Ident@172..182 "deprecated"
+        Eq@183..184 "="
+        Literal@185..193
+          String@185..193 "\"use r2\""
+      Close_Paren@193..194 ")"
+    Name_List@195..196
+      Ident@195..196
+        Ident@195..196 "r"
+    Colon@197..198 ":"
+    Colon@198..199 ":"
+    Expr_List@200..226
+      Proc_Lit@200..226
+        Proc_Type@200..213
+          Proc@200..204 "proc"
+          Param_List@204..206
+            Open_Paren@204..205 "("
+            Close_Paren@205..206 ")"
+          Result_List@207..213
+            Arrow_Right@207..209 "->"
+            Field@210..213
+              Ident@210..213
+                Ident@210..213 "int"
+        Block@214..226
+          Open_Brace@214..215 "{"
+          Return_Stmt@216..224
+            Return@216..222 "return"
+            Expr_List@223..224
+              Literal@223..224
+                Integer@223..224 "0"
+          Close_Brace@225..226 "}"
+  When_Stmt@228..353
+    When@228..232 "when"
+    Binary_Expr@233..252
+      Ident@233..240
+        Ident@233..240 "ODIN_OS"
+      Cmp_Eq@241..243 "=="
+      Implicit_Selector@244..252
+        Period@244..245 "."
+        Ident@245..252
+          Ident@245..252 "Windows"
+    Block@253..276
+      Open_Brace@253..254 "{"
+      Value_Decl@259..274
+        Name_List@259..261
+          Ident@259..261
+            Ident@259..261 "OS"
+        Colon@262..263 ":"
+        Colon@263..264 ":"
+        Expr_List@265..274
+          Literal@265..274
+            String@265..274 "\"windows\""
+      Close_Brace@275..276 "}"
+    Else@277..281 "else"
+    When_Stmt@282..353
+      When@282..286 "when"
+      Binary_Expr@287..304
+        Ident@287..294
+          Ident@287..294 "ODIN_OS"
+        Cmp_Eq@295..297 "=="
+        Implicit_Selector@298..304
+          Period@298..299 "."
+          Ident@299..304
+            Ident@299..304 "Linux"
+      Block@305..326
+        Open_Brace@305..306 "{"
+        Value_Decl@311..324
+          Name_List@311..313
+            Ident@311..313
+              Ident@311..313 "OS"
+          Colon@314..315 ":"
+          Colon@315..316 ":"
+          Expr_List@317..324
+            Literal@317..324
+              String@317..324 "\"linux\""
+        Close_Brace@325..326 "}"
+      Else@327..331 "else"
+      Block@332..353
+        Open_Brace@332..333 "{"
+        Value_Decl@338..351
+          Name_List@338..340
+            Ident@338..340
+              Ident@338..340 "OS"
+          Colon@341..342 ":"
+          Colon@342..343 ":"
+          Expr_List@344..351
+            Literal@344..351
+              String@344..351 "\"other\""
+        Close_Brace@352..353 "}"
+  EOF@354..354 ""

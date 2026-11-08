@@ -157,6 +157,50 @@ test_completion_click_in_text_dismisses :: proc(t: ^testing.T) {
     testing.expect(t, textedit.length(&state) > before_len, "the Tab was typed")
 }
 
+@(private = "file")
+editor_test_menu_hits: int
+
+@(private = "file")
+editor_test_count_menu :: proc(data: rawptr, position: ui.Vec2) {
+    editor_test_menu_hits += 1
+}
+
+// A right-click outside every selection moves the caret; one inside a selection keeps it.
+@(test)
+test_right_click_places_caret_outside_selection :: proc(t: ^testing.T) {
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+
+    editor: Editor
+    defer delete(editor.visual_rows)
+    defer delete(editor.completion_rows)
+
+    editor_test_completion_setup(&editor, &state, "alpha beta\ngamma\n")
+    editor_set_on_context_menu(&editor, editor_test_count_menu, nil)
+    editor_test_menu_hits = 0
+
+    point := ui.Vec2 {500, 30}
+    at, hit := editor_pos_at(&editor, point)
+    testing.expect(t, hit, "the point is on a row")
+    testing.expect(t, at >= 11, "the point is on the second line")
+
+    textedit.select_range(&state, 0, 5)
+    testing.expect(t, editor_press(&editor, point, .Right, {}, 1))
+    cursor := textedit.primary_cursor(&state)
+    testing.expect_value(t, len(state.cursors), 1)
+    testing.expect_value(t, cursor.caret, at)
+    testing.expect_value(t, cursor.anchor, at)
+    testing.expect_value(t, editor_test_menu_hits, 1)
+
+    textedit.select_range(&state, 11, at)
+    testing.expect(t, editor_press(&editor, point, .Right, {}, 1))
+    lo, hi := textedit.selection_range(textedit.primary_cursor(&state))
+    testing.expect_value(t, lo, 11)
+    testing.expect_value(t, hi, at)
+    testing.expect_value(t, editor_test_menu_hits, 2)
+}
+
 @(test)
 test_swatch_needs_a_word_end :: proc(t: ^testing.T) {
     swatches: [4]Row_Swatch
@@ -237,6 +281,33 @@ test_hover_diagnostic_lookup :: proc(t: ^testing.T) {
     editor.diagnostics = []Diagnostic{{start = 14, end = 15, line = 2, severity = .Error}}
     _, ok = editor_hover_diagnostic(&editor, 14, whole_line = false)
     testing.expect(t, !ok, "an empty message is not a popup")
+}
+
+// A hint ranks below a warning in a hover, and a line with only hints has no gutter dot.
+@(test)
+test_hint_diagnostic_rank :: proc(t: ^testing.T) {
+    src := "package demo\n\nx := 1\n"
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+    textedit.set_text(&state, src)
+
+    editor: Editor
+    editor.state = &state
+    editor.diagnostics = []Diagnostic {
+        {start = 14, end = 15, line = 2, severity = .Hint, message = "hint"},
+        {start = 19, end = 20, line = 2, severity = .Warning, message = "warning"},
+    }
+    d, ok := editor_hover_diagnostic(&editor, 14, whole_line = true)
+    testing.expect(t, ok && d.message == "warning", "the gutter takes the warning over the hint")
+    severity, has := editor_line_diagnostic(&editor, 2)
+    testing.expect(t, has && severity == .Warning, "the dot is the warning's")
+
+    editor.diagnostics = []Diagnostic{{start = 14, end = 15, line = 2, severity = .Hint, message = "hint"}}
+    _, has = editor_line_diagnostic(&editor, 2)
+    testing.expect(t, !has, "a line with only hints has no dot")
+    d, ok = editor_hover_diagnostic(&editor, 14, whole_line = false)
+    testing.expect(t, ok && d.message == "hint", "a dwell still explains a hint")
 }
 
 // A collapsed fold builds no row for the lines it hides, so a caret left on one
@@ -1300,4 +1371,184 @@ test_snippet_takes_the_line_indent :: proc(t: ^testing.T) {
     editor_test_accept_snippet(&editor, &state, "  fn\n", "if {\n\t$0\n}")
     testing.expect_value(t, textedit.text(&state), "  if {\n      \n  }\n")
     testing.expect_value(t, textedit.primary_cursor(&state).caret, len("  if {\n      "))
+}
+
+@(private = "file")
+editor_test_count_completion :: proc(data: rawptr, editor: ^Editor, state: ^textedit.State, offset: int) -> bool {
+    (^int)(data)^ += 1
+    return true
+}
+
+// `x.(` and `x->` ask the owner for candidates at once; a call paren and a lone `>` do not.
+@(test)
+test_completion_triggers_after_assertion_and_arrow :: proc(t: ^testing.T) {
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+
+    editor: Editor
+    defer delete(editor.visual_rows)
+    defer delete(editor.completion_rows)
+    defer editor_test_free_completions(&editor)
+
+    asked := 0
+    editor_test_completion_setup(&editor, &state, "x\n")
+    textedit.select_range(&state, 1, 1)
+    editor_set_on_completion(&editor, editor_test_count_completion, &asked)
+    editor_set_completion_semantic(&editor, true)
+
+    editor_text(&editor, '-', {})
+    testing.expect_value(t, asked, 0)
+    editor_text(&editor, '>', {})
+    testing.expect_value(t, asked, 1)
+
+    editor_text(&editor, ' ', {})
+    editor_text(&editor, 'y', {})
+    before := asked
+    editor_text(&editor, '.', {})
+    editor_text(&editor, '(', {})
+    testing.expect_value(t, asked, before + 2)
+
+    editor_text(&editor, ' ', {})
+    editor_text(&editor, 'f', {})
+    before = asked
+    editor_text(&editor, '(', {})
+    editor_text(&editor, '>', {})
+    testing.expect_value(t, asked, before)
+}
+
+// An inlay opens a gap before its byte: the caret there draws after it, and a click in its
+// left half lands before it. Clusters are zero wide with no font atlas, so the gap is all the width.
+@(test)
+test_inlay_gap_moves_caret_and_hit_test :: proc(t: ^testing.T) {
+    state: textedit.State
+    defer textedit.destroy(&state)
+    editor: Editor
+    editor_test_overlay_setup(&editor, &state, "abc")
+    defer delete(editor.visual_rows)
+    inlays := []Inlay{{offset = 1, label = "n:", parameter = true, pad_right = true}}
+    editor_set_inlays(&editor, inlays)
+    width := editor_inlay_width(&editor, inlays[0])
+    testing.expect(t, width > 0, "an inlay opens a gap")
+
+    left := editor.view.x + editor.gutter_width + TEXT_PAD_LEFT - editor.scroll_x
+    x0, _, _, ok0 := editor_screen_at(&editor, 0)
+    x1, _, _, ok1 := editor_screen_at(&editor, 1)
+    testing.expect(t, ok0 && ok1)
+    testing.expect_value(t, x0, left)
+    testing.expect_value(t, x1, left + width)
+
+    y := editor_test_row_point(&editor, 0).y
+    at, hit := editor_pos_at(&editor, {left + width * 0.25, y})
+    testing.expect(t, hit)
+    testing.expect_value(t, at, 0)
+    at, hit = editor_pos_at(&editor, {left + width * 0.75, y})
+    testing.expect(t, hit)
+    testing.expect_value(t, at, 1)
+}
+
+// A zone adds empty rows below its line that no offset maps to, that Down steps over and that
+// a click resolves to the end of the line above.
+@(test)
+test_zone_rows :: proc(t: ^testing.T) {
+    state: textedit.State
+    defer textedit.destroy(&state)
+    editor: Editor
+    editor_test_overlay_setup(&editor, &state, "ab\ncd\nef")
+    defer delete(editor.visual_rows)
+
+    editor_set_zone(&editor, 0, 3)
+    editor_ensure_visual_rows(&editor)
+    testing.expect_value(t, len(editor.visual_rows), 6)
+    testing.expect(t, editor.visual_rows[1].spacer && editor.visual_rows[3].spacer)
+    testing.expect_value(t, editor_visual_row_index(&editor, 2), 0)
+    testing.expect_value(t, editor_visual_row_index(&editor, 3), 4)
+    testing.expect(t, !editor_row_continues(&editor, 0), "a spacer does not continue its line")
+
+    rect, has := editor_zone_rect(&editor)
+    lh := cast(f32) font.line_height(editor.font_size)
+    testing.expect(t, has)
+    testing.expect_value(t, rect.y, editor.view.y + lh)
+    testing.expect_value(t, rect.h, 3 * lh)
+
+    textedit.set_single_cursor(&state, 1)
+    editor_move_visual(&editor, 1, false)
+    testing.expect_value(t, textedit.primary_cursor(&state).caret, 4)
+    editor_move_visual(&editor, -1, false)
+    testing.expect_value(t, textedit.primary_cursor(&state).caret, 1)
+
+    at, hit := editor_pos_at(&editor, editor_test_row_point(&editor, 2))
+    testing.expect(t, hit)
+    testing.expect_value(t, at, 2)
+
+    editor_clear_zone(&editor)
+    editor_ensure_visual_rows(&editor)
+    testing.expect_value(t, len(editor.visual_rows), 3)
+}
+
+// The zone follows an edit above its line, and goes when its line is deleted.
+@(test)
+test_zone_follows_edits :: proc(t: ^testing.T) {
+    state: textedit.State
+    defer textedit.destroy(&state)
+    editor: Editor
+    editor_test_overlay_setup(&editor, &state, "ab\ncd\nef")
+    defer delete(editor.visual_rows)
+
+    editor_set_zone(&editor, 1, 2)
+    textedit.set_single_cursor(&state, 0)
+    textedit.insert_text(&state, "x\n")
+    line, ok := editor_zone_line(&editor)
+    testing.expect(t, ok)
+    testing.expect_value(t, line, 2)
+
+    textedit.select_range(&state, 4, 7)
+    textedit.delete_backward(&state)
+    _, ok = editor_zone_line(&editor)
+    testing.expect(t, !ok, "deleting the line drops the zone")
+}
+
+// A lens opens one row above its line that no offset maps to, and the zone ignores it.
+@(test)
+test_lens_rows :: proc(t: ^testing.T) {
+    state: textedit.State
+    defer textedit.destroy(&state)
+    editor: Editor
+    editor_test_overlay_setup(&editor, &state, "ab\ncd\nef")
+    defer delete(editor.visual_rows)
+    defer delete(editor.lens_offsets)
+
+    lenses := [?]Inlay{{offset = 3, label = "1 reference"}, {offset = 4, label = "dup"}, {offset = 6, label = "no references"}}
+    editor_set_lenses(&editor, lenses[:])
+    editor_ensure_visual_rows(&editor)
+    testing.expect_value(t, len(editor.visual_rows), 5)
+    testing.expect(t, editor.visual_rows[1].lens && editor.visual_rows[1].spacer)
+    testing.expect(t, editor.visual_rows[3].lens)
+    testing.expect_value(t, editor.visual_rows[2].start, 3)
+    testing.expect(t, editor.visual_rows[2].first)
+    lens, has := editor_row_lens(&editor, editor.visual_rows[1])
+    testing.expect(t, has)
+    testing.expect_value(t, lens.label, "1 reference")
+    _, has = editor_row_lens(&editor, editor.visual_rows[0])
+    testing.expect(t, !has)
+
+    testing.expect_value(t, editor_visual_row_index(&editor, 3), 2)
+    at, hit := editor_pos_at(&editor, editor_test_row_point(&editor, 1))
+    testing.expect(t, hit)
+    testing.expect_value(t, at, 3)
+
+    textedit.set_single_cursor(&state, 1)
+    editor_move_visual(&editor, 1, false)
+    testing.expect_value(t, textedit.primary_cursor(&state).caret, 4)
+
+    editor_set_zone(&editor, 0, 1)
+    editor_ensure_visual_rows(&editor)
+    rect, zone := editor_zone_rect(&editor)
+    testing.expect(t, zone)
+    testing.expect_value(t, rect.y, editor.view.y + cast(f32) font.line_height(editor.font_size))
+
+    editor_clear_zone(&editor)
+    editor_set_lenses(&editor, nil)
+    editor_ensure_visual_rows(&editor)
+    testing.expect_value(t, len(editor.visual_rows), 3)
 }

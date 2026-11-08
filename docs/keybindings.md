@@ -8,7 +8,7 @@ physical position.
 A held key repeats, except for the shortcuts that open or toggle something —
 those act once per press.
 
-Every binding below is a default and can be changed in `keybinds.json`
+Every binding below is a default and can be changed in `keybinds.lua`
 — see [Configuration](configuration.md) for the chord format, including the
 `cmd` token that reaches the Command key on macOS.
 
@@ -33,6 +33,8 @@ Every binding below is a default and can be changed in `keybinds.json`
 | ctrl + e | flip to the previously active file (press again to flip back) |
 | ctrl + g | go to line (opens the palette in line-number mode) |
 | alt + enter (or ctrl + click) | go to definition of the symbol under the caret |
+| alt + shift + enter | go to the declaration of the type of the symbol under the caret |
+| alt + f12 | peek definition: show the definition in an editor under the caret's line |
 | ctrl + alt + left / right | jump back / forward through the places a jump left |
 | f10 | find all references to the symbol under the caret |
 | ctrl + shift + o | go to a symbol of the file |
@@ -41,7 +43,10 @@ Every binding below is a default and can be changed in `keybinds.json`
 | f2 | rename the file of the active tab |
 | f9 | run the selected task |
 | ctrl + hover | show the declaration of the symbol under the mouse |
-| ctrl + shift + u | code actions: the fixes available at the caret, in a picker (scoped to the selection instead, on a language-server-backed file) |
+| ctrl + shift + u | code actions: the fixes available at the caret, in a picker (on the lines of the selection for Odin, scoped to the selection on a language-server-backed file) |
+| (unbound) | the palette commands "Show Incoming Calls", "Show Outgoing Calls", "Show Supertypes", "Show Subtypes" and "Go to Implementations" list the callers, callees, parent types, child types or implementations of the symbol at the caret in a picker; bind them under `actions` in `user/keybinds.lua` (`incoming_calls`, `outgoing_calls`, `supertypes`, `subtypes`, `goto_implementations`) |
+| (unbound) | "View: Toggle Reference Counts" (`toggle_code_lens`) shows how many uses each declaration of the file has, in a row above the declaration |
+| ctrl + shift + m | the Problems panel (`open_problems`, "View: Problems"): the diagnostics of the open files and of the other files of the checked packages, by file; click one to jump to it |
 | ctrl + f | find |
 | ctrl + shift + f | find in files |
 | ctrl + r | rename the symbol under the caret across every file that uses it; falls back to find & replace when the caret is not on a renameable symbol |
@@ -98,6 +103,7 @@ read, and the list stops at 1000 matches.
 | ctrl + c | copy selection (no selection: copy whole line) |
 | ctrl + x | cut selection (no selection: cut whole line) |
 | ctrl + v | paste |
+| ctrl + shift + v | clipboard history: pick an earlier copy, cut or paste and paste it again (also the "Edit: Clipboard History..." command); kept between sessions in `sessions/clipboard.txt` (see `clipboard_history_save` in [Configuration](configuration.md)); "Edit: Clear Clipboard History" empties it |
 
 ## Movement
 
@@ -133,11 +139,12 @@ Add `shift` to any movement to extend the selection.
 | Binding | Action |
 | --- | --- |
 | ctrl + a | select all |
-| ctrl + d | select word; press again: add cursor at next whole-word occurrence |
+| ctrl + d | select word; press again: add cursor at next whole-word occurrence. While the uses of the name at the caret are marked, it selects the next use instead, and skips the same text in comments, strings and other scopes |
 | ctrl + shift + d | same, matching substrings instead of whole words |
 | ctrl + l | select line; press again: extend one line |
 | ctrl + alt + up / down | add cursor above / below |
 | escape | collapse to one cursor, clear selection |
+| ctrl + alt + shift + right / left | expand the selection to the enclosing syntax node / shrink it back (Odin and language servers that answer selection ranges) |
 
 ## Editing
 
@@ -147,6 +154,8 @@ Add `shift` to any movement to extend the selection.
 | ctrl + y | redo |
 | ctrl + backspace / delete | delete word left / right |
 | ctrl + shift + k | delete line |
+| ctrl + shift + delete | delete from the caret to the line end; at the line end, join the next line |
+| (unbound) | `delete_to_line_start`: delete from the line start to the caret; at the line start, join the previous line |
 | ctrl + j | join the line below onto the current one (selection joins all covered lines) |
 | alt + up / down | move line up / down |
 | shift + alt + up / down | duplicate line up / down |
@@ -176,8 +185,15 @@ cursor between them; typing over the closing character steps past it, and
 backspace on an empty pair deletes both. Selecting text and typing a bracket or
 quote wraps the selection.
 
-Undo and Redo also sit at the top of the **Edit** menu and the editor's
-right-click menu, greyed out when there is nothing to move. A rename or code
+The editor's right-click menu starts with the language features — go to
+definition, peek definition, find references, rename, code actions, signature help, format
+document and selection, go to symbol and package documentation — greyed out
+when the file's language does not serve them. A right-click outside the
+selection first moves the caret to the click, so the menu acts on the word
+under the mouse.
+
+Undo and Redo also sit at the top of the **Edit** menu and below the language
+items in the editor's right-click menu, greyed out when there is nothing to move. A rename or code
 action that changed several files moves as one step, files that were never open
 included; once any of them has moved on, undo and redo fall back to the focused
 buffer alone.
@@ -191,17 +207,25 @@ buffer alone.
 | ctrl + shift + j | recenter the view on the caret (repeat cycles center / top / bottom) |
 | f4 | toggle the rendered markdown preview (markdown files only) — see [Previews](#previews) |
 | f12 | toggle borderless fullscreen |
-| f1 | toggle the editor split — see below |
+| f1 | toggle between one pane and the last multi-pane layout — see [Editor panes](#editor-panes) |
+| ctrl + f1 | next pane layout |
+| ctrl + 1 … ctrl + 6 | focus pane 1 … 6 |
+| ctrl + shift + 1 … ctrl + shift + 6 | show the active file in pane 1 … 6 (the layout grows to have it) |
+| f6 / shift + f6 | focus the next / previous pane |
+
+Click the language in the status bar, or run "View: Change Language of
+File..." (`change_language`, unbound), to colour the active file as another
+language. See `file_languages` in [Configuration](configuration.md).
 
 ## Previews
 
 Three file kinds open in a view of their own instead of the text editor. Each is
 a tab like any other, in the pane its tab owns, so the explorer, the terminal and
-the tab strip stay where they are, and a split can show two at once.
+the tab strip stay where they are, and several panes can show several at once.
 
 **Markdown** (`f4`, markdown files only) renders the file beside its source: the
-focused pane keeps the text, the other shows the page, and the split opens if it
-was closed. A link in it is clickable — a URL opens in the browser, a relative
+focused pane keeps the text, the next pane shows the page, and a second pane opens
+if there is only one. A link in it is clickable — a URL opens in the browser, a relative
 path opens as a tab.
 
 The page shows headings (`#` and the underlined form), paragraphs with hard line
@@ -231,8 +255,9 @@ outside Thor is reloaded into its view.
 ## Git
 
 The Git UI ("Git" in the top bar; the palette actions "Git: Open Git UI",
-"Git: History" and "Git: Branches" ship unbound — bindable as `open_git_gui`,
-`open_git_history`, `open_git_branches`). Inside the modal:
+"Git: History", "Git: Branches", "Git: Pull LFS Files" and "Git: Track LFS
+Pattern" ship unbound — bindable as `open_git_gui`, `open_git_history`,
+`open_git_branches`, `git_lfs_pull`, `git_lfs_track`). Inside the modal:
 
 | Binding | Action |
 | --- | --- |
@@ -243,14 +268,45 @@ Everything else in the modal works with the mouse.
 
 See [Git](git.md) for the full tour.
 
-## Editor split
+## Editor panes
 
-"View: Toggle Split Editor" (command palette, or the View menu) shows a second
-editor pane beside the first. The two panes hold **independent files**: focus a
-pane and pick a tab or open a file to change what it shows; the tabbar and
-status bar follow whichever pane has focus. Drag the divider to resize, and each
-pane scrolls and zooms (ctrl + scroll) on its own. Opening the split puts the
-previously active file in the new pane when there is one.
+The editor area shows up to six panes, arranged by a layout:
+
+| Layout | Panes |
+| --- | --- |
+| Single | 1 |
+| 2 Columns, 2 Rows | 2 |
+| 3 Columns, Main + Stack (one tall pane, two stacked beside it) | 3 |
+| 2x2 Grid | 4 |
+| 3x2 Grid | 6 |
+
+Panes are numbered down each column, then across, so pane 1 is always top left.
+Pick a layout with "View: Pane Layout..." (palette or View menu), step through
+them with ctrl + f1, or set the one a folder opens with in
+[`pane_layout`](configuration.md). A layout that would make a pane smaller than
+240 × 120 px is skipped. Each folder remembers its layout, pane files and sizes.
+
+The panes hold **independent files** and share one tab strip: focus a pane and
+pick a tab or open a file to change what it shows; the status bar follows the
+focused pane. A tab shows small numbers for the panes it is in, the focused
+pane's in the accent colour. Drag a divider to resize, double click it to even
+the panes it splits; each pane scrolls and zooms (ctrl + scroll) on its own.
+
+To open a file in a given pane:
+
+| Where | Binding | Action |
+| --- | --- | --- |
+| quick open | ctrl + enter | open in the next pane ("to the side") |
+| quick open | shift + enter | pick the pane: press 1 … 6 or click it, escape cancels |
+| explorer | alt + click, ctrl + enter | open to the side |
+| explorer | shift + enter, or right click > "Open in Pane..." | pick the pane |
+| anywhere | drag a tab or explorer rows onto a pane | open there (the pane is outlined while dragging) |
+| anywhere | ctrl + shift + 1 … 6 | show the active file in that pane |
+
+From a single pane, "to the side" opens the last multi-pane layout first. The
+palette actions "View: Open Active File to the Side" (`open_to_side`),
+"View: Show Active File in Pane..." (`pick_pane`) and "View: Pane Layout..."
+(`pick_layout`) ship unbound.
 
 ## Terminal
 
@@ -281,15 +337,16 @@ selection, when there is one), "Copy All", "Paste", plus Clear and the
 terminal-tab actions.
 
 While the terminal holds the keyboard the editor's chords stay out of its way:
-only the command palette, quick open, and the binds that toggle or focus a panel
-still reach the editor. Everything else is the shell's.
+only the command palette, quick open, the Settings chord (`ctrl + comma`, and
+`cmd + comma` on macOS) and the binds that toggle or focus a panel still reach
+the editor. Everything else is the shell's.
 
 The grid follows the panel: resize it and the shell re-wraps, and a full-screen
 program redraws.
 
 The five "Terminal:" palette actions — New Terminal, Close Terminal, Next
 Terminal, Restart Shell, Select Default Shell — ship unbound; give them chords in
-the `terminal` group of `keybinds.json`. Which shell new terminals open
+the `terminal` group of `keybinds.lua`. Which shell new terminals open
 with is the `default_shell` setting (Settings > Terminal > Default Shell);
 empty means the best shell found on the machine.
 
@@ -308,6 +365,12 @@ text.
 In a language served by a language server, a candidate may bring more than its
 own name: the import line it needs is added at the top of the file, and a
 function may arrive as a snippet with its arguments already in place.
+
+The built-in Odin support does the same: a procedure arrives as a call snippet
+(`enable_snippets` in `.thor/odin-analyzer.lua` turns this off, see
+[Configuration](configuration.md)), and a package the file does not import yet
+brings its `import` line. After `x.` a value also offers postfix templates that wrap it: `if`, `ifnot`, `ifnil`, `ifnotnil`, `for`, `fori`, `switch`, `var`, `return`, `defer_delete` and `defer_free`, each only for a type it fits. After `x.(` the list holds the variants of the union
+`x`, and after `x->` the procedure members of `x`.
 
 ### Snippets
 
@@ -360,8 +423,9 @@ The variables: `TM_SELECTED_TEXT`, `TM_CURRENT_LINE`, `TM_LINE_NUMBER`,
 
 Left of the window controls sit three task buttons: **+** adds a task, the
 **selector** names the active one, and **▶** runs it. Tasks are named shell
-commands (build, test, run, ...) and run in the console panel, exactly like
-typing them at the prompt.
+commands (build, test, run, ...). Each runs in its own console tab, named
+after the task; running it again restarts that tab and stops a run that is
+still going. Keyboard focus stays in the editor.
 
 | Control | Action |
 | --- | --- |
@@ -370,19 +434,19 @@ typing them at the prompt.
 | ▶ | run the selected task |
 
 The dropdown also carries "Run Task...", "Add Task...", "Remove Task..." and
-"Edit Tasks (JSON)", which opens the file the tasks live in,
-`<workspace>/.thor/tasks.json`. That file is committable and reloads as soon as
+"Edit Tasks", which opens the file the tasks live in,
+`<workspace>/.thor/tasks.lua`. That file is committable and reloads as soon as
 it is saved. Which task is selected is personal, so it stays in the session
 rather than the file. The same actions are in the command palette under "Tasks:"
-and can be given chords in `keybinds.json` — "Tasks: Run Selected Task"
+and can be given chords in `keybinds.lua` — "Tasks: Run Selected Task"
 is the one worth binding.
 
-```json
-{
-    "tasks": [
-        { "name": "build", "command": "odin run build.odin -file" },
-        { "name": "test",  "command": "odin test thor" }
-    ]
+```lua
+return {
+    tasks = {
+        { name = "build", command = "odin run build.odin -file" },
+        { name = "test", command = "odin test thor" },
+    },
 }
 ```
 
@@ -391,13 +455,36 @@ is the one worth binding.
 `ctrl + .` opens the command palette. Type to fuzzy-filter, arrows/enter to run,
 escape to dismiss. Commands that have a keybinding show the chord right-aligned
 in the list. "Go to File" and "Go to Line" switch it into file / line input
-modes. Three "Language:" actions ship unbound and take chords in `keybinds.json`
+modes. Three "Language:" actions ship unbound and take chords in `keybinds.lua`
 as `open_language_servers` (Settings' Language Servers page),
 `restart_language_servers` and `restart_one_language_server` (pick one server
-from a list). All bindings above live in `keybinds.json`; comment markers in
-`comments.json`; tab width, font size and autosave delay in `settings.json` —
+from a list). Each command a plugin registers is listed as "Plugin: <name>
+(<plugin>)" and takes a chord as `plugin.<name>`, for example
+`["plugin.my-command"] = "ctrl+alt+p"` in any group of `keybinds.lua`; Settings
+> Keybindings lists them too. All bindings above live in `keybinds.lua`; comment markers in
+`comments.lua`; tab width, font size and autosave delay in `settings.lua` —
 see [Configuration](configuration.md) for the three directories those are
 layered from.
+
+## Theme window
+
+"Theme: Edit Colors" (or Settings > Appearance > Theme Colors) opens the theme
+window. Inside it:
+
+| Key | Action |
+| --- | --- |
+| up / down | select a color |
+| enter | edit the selected color |
+| ctrl + c / ctrl + v | copy / paste the hex of the selected color |
+| delete | reset the selected color to its saved value |
+| ctrl + s | save the theme |
+| ctrl + f | go to the filter field |
+| escape | clear the filter, else close the window |
+
+Every action of the window is also a palette command under "Theme:". None has a
+chord; bind one in the `theme` group of `keybinds.lua` (`theme_save`,
+`theme_revert`, `theme_editor`, ...). A chord bound to one works while the
+window is open too. See [Configuration](configuration.md#themes-fonts-and-icons).
 
 ## Help
 
@@ -411,4 +498,4 @@ The **Help** menu opens this manual without leaving the editor:
 
 The pages ship beside the binary, so they are readable offline. The same three
 actions are in the command palette under "Help:" and take chords in
-`keybinds.json` as `docs`, `docs_page` and `docs_browser`.
+`keybinds.lua` as `docs`, `docs_page` and `docs_browser`.

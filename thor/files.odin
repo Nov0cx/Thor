@@ -20,6 +20,7 @@ import "../setting"
 import "../textedit"
 import ui "../vendor/loom/loom"
 import "../editview"
+import "../lockfree"
 // Line terminator a file uses on disk. The buffer holds LF, so a CRLF file is
 // collapsed on load and expanded again on save; the editing core and every byte
 // offset downstream never see a CR. A file that mixes the two is Mixed: its
@@ -106,6 +107,18 @@ Open_File :: struct {
     // result lands. thor_rebase_semantic diffs it against the live text to move
     // the tokens onto it.
     semantic_source:    string,
+    // Inlay hints over [inlay_start, inlay_end) of `inlay_source` (owned, as are the labels).
+    // `inlay_view` holds them rebased onto the live text, labels borrowed.
+    inlays:              [dynamic]editview.Inlay,
+    inlay_source:        string,
+    inlay_revision:      u64,
+    inlay_start:         int,
+    inlay_end:           int,
+    inlay_ready:         bool,
+    inlay_view:          [dynamic]editview.Inlay,
+    inlay_view_revision: u64,
+    inlay_view_valid:    bool,
+    lens:                File_Lens, // reference counts after declaration names
     // Document sync for a backend that mirrors the editor's buffers.
     // `lang_open` marks the mirror as started, `lang_revision` the buffer
     // revision it last received. See thor_lang_notify.
@@ -116,6 +129,14 @@ Open_File :: struct {
     // buffer still matches that revision (an edit clears them until re-checked).
     diagnostics:        [dynamic]editview.Diagnostic,
     diagnostics_revision: u64,
+    // Live syntax errors and the revision they were parsed at. Shown when the
+    // compiler diagnostics are stale.
+    syntax_diagnostics: [dynamic]editview.Diagnostic, // owned
+    syntax_revision:    u64,
+    syntax_ready:       bool,
+    // The compiler diagnostics and the lint items of the live check, shown when both are
+    // current. Messages are borrowed from the two lists above.
+    merged_diagnostics: [dynamic]editview.Diagnostic,
     // Line-level git diff vs HEAD, refreshed alongside git status. Index i
     // (0-based) holds line i's status; drives the editor's gutter diff bar.
     diff_lines:         [dynamic]editview.Diff_Line_Kind,
@@ -137,6 +158,7 @@ Open_File :: struct {
 // it. A live mapping stops the process that owns the file from truncating it, so
 // it must not outlive the read.
 Load_Job :: struct {
+    queue_next: ^Load_Job, // link in Thor.finished_loads
     owner:   ^Thor,
     file:    ^Open_File,
     path:    string, // borrowed from file; valid while pending_jobs > 0
@@ -177,6 +199,7 @@ Load_Job :: struct {
 }
 
 Save_Job :: struct {
+    queue_next: ^Save_Job, // link in Thor.finished_saves
     owner:     ^Thor,
     file:      ^Open_File,
     path:      string, // borrowed from file; valid while pending_jobs > 0
@@ -218,6 +241,7 @@ File_Op_Entry :: struct {
 // closes the tabs of deleted files before the job starts, so the worker only
 // touches the disk.
 File_Op_Job :: struct {
+    queue_next: ^File_Op_Job, // link in Thor.finished_file_ops
     owner:      ^Thor,
     allocator:  mem.Allocator,
     worker:     ^thread.Thread,
@@ -281,9 +305,7 @@ thor_to_disk_text :: proc(text: string, ending: Line_Ending, allocator := contex
 load_worker :: proc(job: ^Load_Job) {
     defer {
         free_all(context.temp_allocator)
-        sync.lock(&job.owner.io_mutex)
-        append(&job.owner.finished_loads, job)
-        sync.unlock(&job.owner.io_mutex)
+        lockfree.stack_push(&job.owner.finished_loads, job)
     }
 
     bytes, ok := file_map_open(&job.mapping, job.path)
@@ -375,9 +397,7 @@ save_worker :: proc(job: ^Save_Job) {
     }
     free_all(context.temp_allocator)
 
-    sync.lock(&job.owner.io_mutex)
-    append(&job.owner.finished_saves, job)
-    sync.unlock(&job.owner.io_mutex)
+    lockfree.stack_push(&job.owner.finished_saves, job)
 }
 
 @(private = "file")
@@ -404,9 +424,7 @@ file_op_worker :: proc(job: ^File_Op_Job) {
         }
     }
 
-    sync.lock(&job.owner.io_mutex)
-    append(&job.owner.finished_file_ops, job)
-    sync.unlock(&job.owner.io_mutex)
+    lockfree.stack_push(&job.owner.finished_file_ops, job)
 }
 
 // Starts `entries` on a worker thread and takes ownership of them. `dest_label`
@@ -668,6 +686,12 @@ thor_active_open_file :: proc(thor: ^Thor) -> ^Open_File {
 }
 
 thor_open_file :: proc(thor: ^Thor, path: string) {
+    thor_open_file_tab(thor, path, activate = true)
+}
+
+// Opens `path` in a tab, or finds its tab, and gives its buffer; nil for a folder. `activate`
+// shows it in the active pane.
+thor_open_file_tab :: proc(thor: ^Thor, path: string, activate: bool) -> ^Open_File {
     // Canonicalize so the same file opened via different path spellings (a
     // relative command path vs. the explorer's) resolves to one tab.
     canonical := path
@@ -675,9 +699,11 @@ thor_open_file :: proc(thor: ^Thor, path: string) {
         canonical = abs
     }
 
-    if _, index := thor_find_open_file(thor, canonical); index >= 0 {
-        thor_set_active_file(thor, index)
-        return
+    if open, index := thor_find_open_file(thor, canonical); index >= 0 {
+        if activate {
+            thor_set_active_file(thor, index)
+        }
+        return open
     }
 
     // A folder has no buffer. Callers that take a path from a language server,
@@ -686,7 +712,7 @@ thor_open_file :: proc(thor: ^Thor, path: string) {
     if os.is_dir(canonical) {
         log.warnf("Refusing to open directory %q", canonical)
         thor_flash_status(thor, "Only files can be opened in the editor", is_error = true)
-        return
+        return nil
     }
 
     file := new(Open_File)
@@ -709,7 +735,10 @@ thor_open_file :: proc(thor: ^Thor, path: string) {
     }
 
     thor_update_tab_labels(thor)
-    thor_set_active_file(thor, len(thor.open_files) - 1)
+    if activate {
+        thor_set_active_file(thor, len(thor.open_files) - 1)
+    }
+    return file
 }
 
 // Bookkeeping and dispatch shared by every load worker launch: marks the file
@@ -803,7 +832,10 @@ thor_invalidate_file_derived :: proc(file: ^Open_File) {
     file.indent_revision = 0
     thor_clear_file_diagnostics(file)
     file.diagnostics_revision = 0
+    thor_clear_file_syntax_diagnostics(file)
     thor_clear_file_semantic(file)
+    thor_clear_file_inlays(file)
+    thor_clear_file_lens(file)
 }
 
 // Applies a reload job's freshly mapped bytes to its open buffer, if they differ
@@ -934,12 +966,12 @@ thor_rebind_reloaded_panes :: proc(thor: ^Thor, file: ^Open_File, old_text, new_
         if index < 0 || index >= len(thor.open_files) || thor.open_files[index] != file {
             continue
         }
-        editor := pane == 0 ? thor.editor : thor.editor2
-        top := editview.editor_top_offset(&editor)
+        editor := thor_pane_editor(thor, pane)
+        top := editview.editor_top_offset(editor)
         moved := thor_remap_offset(old_text, new_text, top, prefix, suffix)
         shift := textedit.line_index(new_text, moved) - textedit.line_index(old_text, top)
         thor_bind_pane(thor, pane, keep_view = true)
-        editview.editor_scroll_lines(&editor, shift)
+        editview.editor_scroll_lines(editor, shift)
     }
 }
 
@@ -1096,7 +1128,7 @@ thor_close_file :: proc(thor: ^Thor, index: int) {
     ordered_remove(&thor.open_files, index)
     thor_update_tab_labels(thor)
 
-    // Fix up both panes for the shift: the closed slot falls back to its
+    // Fix up every pane for the shift: the closed slot falls back to its
     // neighbour (or none), later slots shift down one.
     for &pane_index in thor.pane_file {
         if pane_index == index {
@@ -1214,6 +1246,14 @@ thor_update_files :: proc(thor: ^Thor) {
         delete(thor.semantic_source)
         thor.semantic_source = ""
     }
+    thor_recover_inlay_slot(thor)
+    thor_recover_lens_slot(thor)
+    thor_recover_occurrence_slot(thor)
+    thor_peek_tick(thor)
+    if thor.syntax_request_id != 0 &&
+       !lang.manager_has_request(&thor.lang_manager, thor.syntax_request_id) {
+        thor.syntax_request_id = 0
+    }
 
     autosave_delay := time.Duration(setting.autosave_delay_ms(&thor.config)) * time.Millisecond
     for file in thor.open_files {
@@ -1244,15 +1284,13 @@ thor_update_files :: proc(thor: ^Thor) {
 
     // Push (or clear, when the buffer moved past the checked revision) each
     // visible pane's diagnostics.
-    thor_sync_pane_diagnostics(thor, 0)
-    if thor.split_visible && thor.pane_file[1] != thor.pane_file[0] {
-        thor_sync_pane_diagnostics(thor, 1)
-    }
-
-    // Push each visible pane's git diff lines for the gutter bar.
-    thor_sync_pane_diff(thor, 0)
-    if thor.split_visible && thor.pane_file[1] != thor.pane_file[0] {
-        thor_sync_pane_diff(thor, 1)
+    for pane in 0 ..< thor_pane_count(thor) {
+        thor_request_pane_syntax_diagnostics(thor, pane)
+        thor_sync_pane_diagnostics(thor, pane)
+        thor_sync_pane_inlays(thor, pane)
+        thor_sync_pane_occurrences(thor, pane)
+        // Each visible pane's git diff lines for the gutter bar.
+        thor_sync_pane_diff(thor, pane)
     }
 }
 
@@ -1260,12 +1298,7 @@ thor_update_files :: proc(thor: ^Thor) {
 // longer cover what the pane displays — the spans span a window around the view,
 // so scrolling out of it needs a fresh one just as an edit does.
 @(private = "package")
-thor_highlight_pane_file :: proc(thor: ^Thor, pane: int) {
-    index := thor.pane_file[pane]
-    if index < 0 || index >= len(thor.open_files) {
-        return
-    }
-    file := thor.open_files[index]
+thor_highlight_editor_file :: proc(thor: ^Thor, file: ^Open_File, editor: ^editview.Editor) {
     if !file.loaded {
         return
     }
@@ -1276,10 +1309,17 @@ thor_highlight_pane_file :: proc(thor: ^Thor, pane: int) {
         thor_update_highlights(thor, file)
         return
     }
-    editor := thor_pane_editor(thor, pane)
     visible_start, visible_end, ok := editview.editor_visible_byte_range(editor)
     if ok && (visible_start < file.highlight_start || visible_end > file.highlight_end) {
         thor_update_highlights(thor, file)
+    }
+}
+
+// Appends every job on `stack` to `out`, oldest first.
+@(private = "file")
+thor_take_jobs :: proc(stack: ^lockfree.Stack($T), out: ^[dynamic]^T) {
+    for job := lockfree.stack_take(stack); job != nil; job = job.queue_next {
+        append(out, job)
     }
 }
 
@@ -1295,59 +1335,23 @@ thor_process_io :: proc(thor: ^Thor) {
     shells := make([dynamic]^Shell_Detect_Job, context.temp_allocator)
     file_index := make([dynamic]^File_Index_Job, context.temp_allocator)
     updates := make([dynamic]^Update_Job, context.temp_allocator)
+    ext_updates := make([dynamic]^Ext_Job, context.temp_allocator)
     md_images := make([dynamic]^Md_Image_Job, context.temp_allocator)
     plugin_execs := make([dynamic]^Plugin_Exec_Job, context.temp_allocator)
 
-    sync.lock(&thor.io_mutex)
-    for job in thor.finished_md_images {
-        append(&md_images, job)
-    }
-    clear(&thor.finished_md_images)
-    for job in thor.finished_plugin_execs {
-        append(&plugin_execs, job)
-    }
-    clear(&thor.finished_plugin_execs)
-    for job in thor.finished_loads {
-        append(&loads, job)
-    }
-    for job in thor.finished_saves {
-        append(&saves, job)
-    }
-    for job in thor.finished_git {
-        append(&git, job)
-    }
-    for job in thor.finished_git_ops {
-        append(&git_ops, job)
-    }
-    for job in thor.finished_file_ops {
-        append(&ops, job)
-    }
-    for job in thor.finished_shells {
-        append(&shells, job)
-    }
-    for job in thor.finished_file_index {
-        append(&file_index, job)
-    }
-    for job in thor.finished_file_searches {
-        append(&file_searches, job)
-    }
-    for job in thor.finished_outside_stats {
-        append(&outside_stats, job)
-    }
-    clear(&thor.finished_outside_stats)
-    for job in thor.finished_updates {
-        append(&updates, job)
-    }
-    clear(&thor.finished_loads)
-    clear(&thor.finished_saves)
-    clear(&thor.finished_git)
-    clear(&thor.finished_git_ops)
-    clear(&thor.finished_file_ops)
-    clear(&thor.finished_shells)
-    clear(&thor.finished_file_index)
-    clear(&thor.finished_file_searches)
-    clear(&thor.finished_updates)
-    sync.unlock(&thor.io_mutex)
+    thor_take_jobs(&thor.finished_md_images, &md_images)
+    thor_take_jobs(&thor.finished_plugin_execs, &plugin_execs)
+    thor_take_jobs(&thor.finished_loads, &loads)
+    thor_take_jobs(&thor.finished_saves, &saves)
+    thor_take_jobs(&thor.finished_git, &git)
+    thor_take_jobs(&thor.finished_git_ops, &git_ops)
+    thor_take_jobs(&thor.finished_file_ops, &ops)
+    thor_take_jobs(&thor.finished_shells, &shells)
+    thor_take_jobs(&thor.finished_file_index, &file_index)
+    thor_take_jobs(&thor.finished_file_searches, &file_searches)
+    thor_take_jobs(&thor.finished_outside_stats, &outside_stats)
+    thor_take_jobs(&thor.finished_updates, &updates)
+    thor_take_jobs(&thor.finished_ext_updates, &ext_updates)
 
     for job in shells {
         thor_apply_shell_profiles(thor, job)
@@ -1508,6 +1512,9 @@ thor_process_io :: proc(thor: ^Thor) {
     for job in updates {
         thor_apply_update_job(thor, job)
     }
+    for job in ext_updates {
+        thor_apply_ext_job(thor, job)
+    }
     for job in md_images {
         thor_apply_md_image(thor, job)
     }
@@ -1536,8 +1543,15 @@ thor_free_open_file :: proc(file: ^Open_File, thor: ^Thor = nil) {
     delete(file.folds)
     delete(file.semantic)
     delete(file.semantic_source)
+    thor_clear_file_inlays(file)
+    delete(file.inlays)
+    delete(file.inlay_view)
+    thor_destroy_file_lens(file)
     thor_clear_file_diagnostics(file)
     delete(file.diagnostics)
+    thor_clear_file_syntax_diagnostics(file)
+    delete(file.syntax_diagnostics)
+    delete(file.merged_diagnostics)
     delete(file.diff_lines)
     delete(file.tab_label)
     delete(file.path)
@@ -1820,11 +1834,15 @@ thor_tree_move :: proc(data: rawptr, src_path: string, dst_dir: string) {
 }
 
 // Rows were dragged out of the explorer and released at `position`. Dropping on
-// the editor column opens the files as tabs; anywhere else (title bar, status
+// the editor column opens the files as tabs, in the pane under the pointer; anywhere else (title bar, status
 // bar, off-window) the drag is abandoned.
 thor_tree_drag_out :: proc(thor: ^Thor, paths: []string, position: ui.Vec2) {
     if !ui.rect_contains(thor.editor_rect, position) {
         return
+    }
+    // Dropped on a pane: the files open there.
+    if pane := thor_pane_at(thor, position); pane >= 0 {
+        thor_focus_pane(thor, pane)
     }
     opened := 0
     for path in paths {
@@ -1873,7 +1891,7 @@ thor_delete_tree :: proc(path: string) -> os.Error {
         return open_err
     }
     infos, dir_err := os.read_dir(handle, -1, context.allocator)
-    os.close(handle) // an open handle blocks the remove of the directory itself
+    _ = os.close(handle) // an open handle blocks the remove of the directory itself
     if dir_err != nil {
         return dir_err
     }
@@ -2103,6 +2121,7 @@ Md_Image :: struct {
 }
 
 Md_Image_Job :: struct {
+    queue_next: ^Md_Image_Job, // link in Thor.finished_md_images
     owner:     ^Thor,
     allocator: mem.Allocator,
     worker:    ^thread.Thread,
@@ -2126,9 +2145,7 @@ md_image_worker :: proc(job: ^Md_Image_Job) {
     context.allocator = job.allocator
     defer {
         free_all(context.temp_allocator)
-        sync.lock(&job.owner.io_mutex)
-        append(&job.owner.finished_md_images, job)
-        sync.unlock(&job.owner.io_mutex)
+        lockfree.stack_push(&job.owner.finished_md_images, job)
     }
 
     data, err := os.read_entire_file(job.path, context.allocator)

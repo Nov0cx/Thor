@@ -10,13 +10,15 @@ import ui "../vendor/loom/loom"
 Token :: struct {
     text:   string,
     color:  ui.Color,
+    style:  Style,
     code:   bool,
+    kbd:    bool, // a `<kbd>` key cap
     link:   bool,
     url:    string, // borrowed from the source, "" when not a link
-    glue:   bool,   // no space between it and the token before
+    glue:   bool, // no space between it and the token before
     strike: bool,
-    brk:    bool,   // a hard line break follows
-    image:  bool,   // `url` is an image the host can show, `text` its alternative text
+    brk:    bool, // a hard line break follows
+    image:  bool, // `url` is an image the host can show, `text` its alternative text
     size:   [2]f32, // the pixel size of that image
 }
 
@@ -29,10 +31,13 @@ Inline :: struct {
     space:  bool,
 }
 
+// What a run of inline text is drawn as.
 @(private = "file")
-Style :: struct {
+Span_Style :: struct {
     color:  ui.Color,
+    style:  Style,
     strike: bool,
+    url:    string,
 }
 
 @(private)
@@ -43,7 +48,7 @@ inline_begin :: proc(b: ^Build, tokens: ^[dynamic]Token) -> Inline {
 // Adds one source line to the block. Two spaces or a backslash at its end make
 // a hard break; a plain line end is a space.
 @(private)
-inline_line :: proc(st: ^Inline, line: string, color: ui.Color) {
+inline_line :: proc(st: ^Inline, line: string, color: ui.Color, style: Style = {}) {
     s := line
     hard := false
     switch {
@@ -54,7 +59,7 @@ inline_line :: proc(st: ^Inline, line: string, color: ui.Color) {
         s = s[:len(s) - 1]
     }
     st.space = true
-    inline_span(st, strings.trim_space(s), Style{color = color})
+    inline_span(st, strings.trim_space(s), Span_Style{color = color, style = style})
     if hard {
         inline_break(st)
     }
@@ -63,10 +68,10 @@ inline_line :: proc(st: ^Inline, line: string, color: ui.Color) {
 
 // The tokens of a block that is one line of source.
 @(private)
-inline :: proc(b: ^Build, s: string, color: ui.Color) -> [dynamic]Token {
+inline :: proc(b: ^Build, s: string, color: ui.Color, style: Style = {}) -> [dynamic]Token {
     tokens := make([dynamic]Token, context.temp_allocator)
     st := inline_begin(b, &tokens)
-    inline_span(&st, s, Style{color = color})
+    inline_span(&st, s, Span_Style{color = color, style = style})
     return tokens
 }
 
@@ -79,10 +84,10 @@ inline_break :: proc(st: ^Inline) {
 }
 
 // Splits inline markdown into wrap tokens: code spans, emphasis, strikethrough,
-// links, autolinks, `<br>` and backslash escapes. Every token text borrows from
-// `s`; only colors and flags are computed here.
+// links, footnote references, autolinks, inline HTML and backslash escapes.
+// Every token text borrows from `s`; only colors and flags are computed here.
 @(private = "file")
-inline_span :: proc(st: ^Inline, s: string, style: Style) {
+inline_span :: proc(st: ^Inline, s: string, style: Span_Style) {
     i := 0
     run := 0
     for i < len(s) {
@@ -91,7 +96,7 @@ inline_span :: proc(st: ^Inline, s: string, style: Style) {
         case '\\':
             if i + 1 < len(s) && is_punct(s[i + 1]) {
                 push_words(st, s[run:i], style)
-                push_token(st, Token{text = s[i + 1:i + 2], color = style.color, strike = style.strike})
+                push_styled(st, s[i + 1:i + 2], style)
                 i += 2
                 run = i
                 continue
@@ -108,7 +113,17 @@ inline_span :: proc(st: ^Inline, s: string, style: Style) {
                 if len(inner) > 2 && inner[0] == ' ' && inner[len(inner) - 1] == ' ' {
                     inner = inner[1:len(inner) - 1]
                 }
-                push_token(st, Token{text = inner, color = st.b.pal.code, code = true, strike = style.strike})
+                push_token(
+                    st,
+                    Token {
+                        text = inner,
+                        color = style.url != "" ? st.b.pal.link : st.b.pal.code,
+                        code = true,
+                        link = style.url != "",
+                        url = style.url,
+                        strike = style.strike,
+                    },
+                )
                 i = close + n
                 run = i
                 continue
@@ -131,6 +146,11 @@ inline_span :: proc(st: ^Inline, s: string, style: Style) {
                 run = i
                 continue
             }
+            if past, ok := inline_html(st, s, i, style, run); ok {
+                i = past
+                run = i
+                continue
+            }
 
         case '!':
             if i + 1 < len(s) && s[i + 1] == '[' {
@@ -144,18 +164,26 @@ inline_span :: proc(st: ^Inline, s: string, style: Style) {
             }
 
         case '[':
+            if label, past, ok := footnote_ref(s, i); ok {
+                push_words(st, s[run:i], style)
+                // `^label` names the footnote's anchor.
+                push_token(st, Token{text = label, color = st.b.pal.link, link = true, url = s[i + 1:past - 1]})
+                i = past
+                run = i
+                continue
+            }
             if close, url, past, ok := scan_link(st.b, s, i); ok {
                 push_words(st, s[run:i], style)
-                text, code := link_text(s[i + 1:close])
-                push_token(st, Token{text = text, color = st.b.pal.link, code = code, link = true, url = url, strike = style.strike})
+                inner := style
+                inner.color = st.b.pal.link
+                inner.url = url
+                inline_span(st, s[i + 1:close], inner)
                 i = past
                 run = i
                 continue
             }
 
         case '*', '_':
-            // Strong and emphasis both take the strong color: the one face the
-            // page draws in cannot bold or slant.
             n := i + 1 < len(s) && s[i + 1] == c ? 2 : 1
             close := emphasis_close(s, i, n)
             if close < 0 && n == 2 {
@@ -164,7 +192,16 @@ inline_span :: proc(st: ^Inline, s: string, style: Style) {
             }
             if close >= 0 {
                 push_words(st, s[run:i], style)
-                inline_span(st, s[i + n:close], Style{color = st.b.pal.strong, strike = style.strike})
+                inner := style
+                if n == 2 {
+                    inner.style += {.Bold}
+                    if inner.url == "" {
+                        inner.color = st.b.pal.strong
+                    }
+                } else {
+                    inner.style += {.Italic}
+                }
+                inline_span(st, s[i + n:close], inner)
                 i = close + n
                 run = i
                 continue
@@ -177,7 +214,9 @@ inline_span :: proc(st: ^Inline, s: string, style: Style) {
                 if close := strings.index(s[i + 2:], "~~"); close > 0 {
                     at := i + 2 + close
                     push_words(st, s[run:i], style)
-                    inline_span(st, s[i + 2:at], Style{color = style.color, strike = true})
+                    inner := style
+                    inner.strike = true
+                    inline_span(st, s[i + 2:at], inner)
                     i = at + 2
                     run = i
                     continue
@@ -189,6 +228,178 @@ inline_span :: proc(st: ^Inline, s: string, style: Style) {
     push_words(st, s[run:], style)
 }
 
+// A `[^label]` footnote reference at `open`: the label and the position past it.
+@(private = "file")
+footnote_ref :: proc(s: string, open: int) -> (label: string, past: int, ok: bool) {
+    if open + 3 >= len(s) || s[open + 1] != '^' {
+        return
+    }
+    close := strings.index_byte(s[open:], ']')
+    if close < 3 {
+        return
+    }
+    label = s[open + 2:open + close]
+    if strings.contains_any(label, " \t[") {
+        return
+    }
+    // `[^label]:` starts a definition, which is not a reference.
+    past = open + close + 1
+    if past < len(s) && s[past] == ':' {
+        return
+    }
+    return label, past, true
+}
+
+// An inline tag at `open`: a tag GitHub styles opens a run up to its close
+// tag, `<img>` is an image, and any other tag is dropped with its text kept.
+// The text before it, from `run`, is pushed first.
+@(private = "file")
+inline_html :: proc(st: ^Inline, s: string, open: int, style: Span_Style, run: int) -> (past: int, ok: bool) {
+    if strings.has_prefix(s[open:], "<!--") {
+        end := strings.index(s[open:], "-->")
+        push_words(st, s[run:open], style)
+        return end < 0 ? len(s) : open + end + 3, true
+    }
+    close := strings.index_byte(s[open:], '>')
+    if close < 2 {
+        return
+    }
+    tag := s[open + 1:open + close]
+    closing := strings.has_prefix(tag, "/")
+    name := strings.trim_prefix(tag, "/")
+    attrs := ""
+    if cut := strings.index_any(name, " \t/"); cut >= 0 {
+        attrs = name[cut:]
+        name = name[:cut]
+    }
+    if name == "" || !is_tag_name(name) {
+        return
+    }
+    push_words(st, s[run:open], style)
+    after := open + close + 1
+    lower := strings.to_lower(name, context.temp_allocator)
+
+    if lower == "img" && !closing {
+        if src := html_attr(attrs, "src"); src != "" {
+            push_image(st, html_attr(attrs, "alt"), src, style)
+        }
+        return after, true
+    }
+    if closing {
+        return after, true
+    }
+
+    end_tag := strings.concatenate({"</", name, ">"}, context.temp_allocator)
+    end := index_fold(s[after:], end_tag)
+    if end < 0 {
+        return after, true
+    }
+    inner := s[after:after + end]
+    resume := after + end + len(end_tag)
+    sub := style
+    switch lower {
+    case "b", "strong":
+        sub.style += {.Bold}
+        sub.color = st.b.pal.strong
+    case "i", "em":
+        sub.style += {.Italic}
+    case "s", "del", "strike":
+        sub.strike = true
+    case "a":
+        if href := html_attr(attrs, "href"); href != "" {
+            sub.url = href
+            sub.color = st.b.pal.link
+        }
+    case "code":
+        push_token(st, Token{text = inner, color = st.b.pal.code, code = true, strike = style.strike})
+        return resume, true
+    case "kbd":
+        push_token(st, Token{text = inner, color = style.color, kbd = true})
+        return resume, true
+    }
+    inline_span(st, inner, sub)
+    return resume, true
+}
+
+@(private = "file")
+is_tag_name :: proc(name: string) -> bool {
+    for i in 0 ..< len(name) {
+        c := name[i]
+        if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (i > 0 && c >= '0' && c <= '9')) {
+            return false
+        }
+    }
+    return true
+}
+
+// The index of `needle` in `s`, ignoring ASCII case, or -1.
+@(private = "file")
+index_fold :: proc(s, needle: string) -> int {
+    for i in 0 ..= len(s) - len(needle) {
+        if strings.equal_fold(s[i:i + len(needle)], needle) {
+            return i
+        }
+    }
+    return -1
+}
+
+// The value of attribute `name` in a tag's attribute text, "" when absent.
+@(private = "file")
+html_attr :: proc(attrs, name: string) -> string {
+    i := 0
+    for i < len(attrs) {
+        at := index_fold(attrs[i:], name)
+        if at < 0 {
+            return ""
+        }
+        start := i + at
+        i = start + len(name)
+        if start > 0 && attrs[start - 1] != ' ' && attrs[start - 1] != '\t' {
+            continue
+        }
+        j := i
+        for j < len(attrs) && attrs[j] == ' ' {
+            j += 1
+        }
+        if j >= len(attrs) || attrs[j] != '=' {
+            continue
+        }
+        j += 1
+        for j < len(attrs) && attrs[j] == ' ' {
+            j += 1
+        }
+        if j >= len(attrs) {
+            return ""
+        }
+        if q := attrs[j]; q == '"' || q == '\'' {
+            end := strings.index_byte(attrs[j + 1:], q)
+            return end < 0 ? "" : attrs[j + 1:j + 1 + end]
+        }
+        end := j
+        for end < len(attrs) && attrs[end] != ' ' && attrs[end] != '>' && attrs[end] != '/' {
+            end += 1
+        }
+        return attrs[j:end]
+    }
+    return ""
+}
+
+// One token of text in `style`.
+@(private = "file")
+push_styled :: proc(st: ^Inline, text: string, style: Span_Style) {
+    push_token(
+        st,
+        Token {
+            text = text,
+            color = style.color,
+            style = style.style,
+            strike = style.strike,
+            link = style.url != "",
+            url = style.url,
+        },
+    )
+}
+
 @(private = "file")
 push_token :: proc(st: ^Inline, tok: Token) {
     tok := tok
@@ -198,9 +409,9 @@ push_token :: proc(st: ^Inline, tok: Token) {
 }
 
 // An image the host can size is an image token. Any other one is its
-// alternative text as a link to the source.
+// alternative text as a link to the source, or to the link it sits in.
 @(private = "file")
-push_image :: proc(st: ^Inline, alt, src: string, style: Style) {
+push_image :: proc(st: ^Inline, alt, src: string, style: Span_Style) {
     m := st.b.m
     if m.image_size != nil {
         if w, h, ok := m.image_size(src, m.user); ok && w > 0 && h > 0 {
@@ -208,13 +419,14 @@ push_image :: proc(st: ^Inline, alt, src: string, style: Style) {
             return
         }
     }
-    push_token(st, Token{text = alt != "" ? alt : src, color = st.b.pal.link, link = true, url = src, strike = style.strike})
+    url := style.url != "" ? style.url : src
+    push_token(st, Token{text = alt != "" ? alt : src, color = st.b.pal.link, link = true, url = url, strike = style.strike})
 }
 
 // Splits plain text into word tokens. A word with no space before it is glued
-// to the token before.
+// to the token before. A bare `https://` or `www.` word is a link.
 @(private = "file")
-push_words :: proc(st: ^Inline, text: string, style: Style) {
+push_words :: proc(st: ^Inline, text: string, style: Span_Style) {
     i := 0
     for i < len(text) {
         if text[i] == ' ' || text[i] == '\t' {
@@ -226,8 +438,32 @@ push_words :: proc(st: ^Inline, text: string, style: Style) {
         for i < len(text) && text[i] != ' ' && text[i] != '\t' {
             i += 1
         }
-        push_token(st, Token{text = text[start:i], color = style.color, strike = style.strike})
+        word := text[start:i]
+        if style.url == "" && bare_url(word) {
+            // Trailing punctuation is not part of the address.
+            end := len(word)
+            for end > 0 && strings.index_byte(".,:;!?)'\"", word[end - 1]) >= 0 {
+                end -= 1
+            }
+            push_token(st, Token{text = word[:end], color = st.b.pal.link, link = true, url = word[:end], strike = style.strike})
+            if end < len(word) {
+                push_styled(st, word[end:], style)
+            }
+            continue
+        }
+        push_styled(st, word, style)
     }
+}
+
+// True when a word is an address GitHub links without brackets.
+@(private = "file")
+bare_url :: proc(word: string) -> bool {
+    for prefix in ([]string{"https://", "http://", "www."}) {
+        if len(word) > len(prefix) + 2 && strings.has_prefix(word, prefix) {
+            return true
+        }
+    }
+    return false
 }
 
 @(private)
@@ -327,24 +563,6 @@ autolink :: proc(s: string, open: int) -> (url: string, past: int, ok: bool) {
     return inner, open + close + 1, true
 }
 
-// What a link shows. A text that is one code span or one strong run loses its
-// markers, since a link token is not parsed again.
-@(private = "file")
-link_text :: proc(text: string) -> (shown: string, code: bool) {
-    if len(text) > 2 && text[0] == '`' && text[len(text) - 1] == '`' {
-        return text[1:len(text) - 1], true
-    }
-    if len(text) > 4 && strings.has_prefix(text, "**") && strings.has_suffix(text, "**") {
-        return text[2:len(text) - 2], false
-    }
-    // A linked image shows its alternative text.
-    if strings.has_prefix(text, "![") {
-        if close := strings.index_byte(text, ']'); close > 2 {
-            return text[2:close], false
-        }
-    }
-    return text, false
-}
 
 // From a '[' at `open`: `[text](url "title")`, `[text][label]`, `[text][]` or a
 // `[label]` the document defines. Returns the index of the `]` that closes the

@@ -29,6 +29,8 @@ Menu :: struct {
     size: ui.Vec2,
     // Pane key the focus goes back to when the menu closes.
     return_focus: string,
+    // The box takes the focus on the next frame, so no pane reads keys under it.
+    focus_pending: bool,
 }
 
 thor_menu_init :: proc(thor: ^Thor) {
@@ -76,6 +78,7 @@ thor_menu_open :: proc(thor: ^Thor, position: ui.Vec2) {
     }
     thor.menu.anchor = position
     thor.menu.size = {}
+    thor.menu.focus_pending = true
     thor.menu_open = true
 }
 
@@ -137,7 +140,7 @@ thor_menu_view :: proc(thor: ^Thor) {
         box := ui.scope(
             {
                 key = "menu-box",
-                flags = {.Clickable},
+                flags = {.Clickable, .Focusable},
                 props = {
                     position = .Fixed,
                     inset = {l = x, t = y},
@@ -154,6 +157,10 @@ thor_menu_view :: proc(thor: ^Thor) {
             },
         )
         m.size = {box.rect.w, box.rect.h}
+        if m.focus_pending {
+            ui.set_focus(box.id)
+            m.focus_pending = false
+        }
 
         for item, i in m.items {
             ui.push_id_int(i64(i))
@@ -166,6 +173,9 @@ thor_menu_view :: proc(thor: ^Thor) {
 
     if picked.run != nil {
         thor_menu_close(thor)
+        if picked.action != "" {
+            thor_note_action(thor, picked.action)
+        }
         picked.run(picked.data)
         return
     }

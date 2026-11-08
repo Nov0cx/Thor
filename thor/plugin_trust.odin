@@ -1,6 +1,6 @@
 package thor
 
-// Permission prompts for plugins. A plugin whose plugin.json asks for a
+// Permission prompts for plugins. A plugin whose manifest.lua asks for a
 // capability (exec, read, write, ui, keys) does not run until the user allows
 // it. The answer is remembered under <exe>/sessions/, so the question is asked
 // once per machine, and every plugin still waiting is asked in one prompt.
@@ -116,6 +116,7 @@ thor_reload_plugins :: proc(thor: ^Thor) {
     thor_clear_plugin_panels(thor)
     thor_clear_plugin_requests(thor)
     thor.plugin_prompt_shown = false
+    thor_clear_plugin_commands(thor)
 
     plugin.manager_destroy(&thor.plugins)
     plugin.manager_init(&thor.plugins)
@@ -140,7 +141,6 @@ thor_poll_plugin_reload :: proc(thor: ^Thor) {
 }
 
 // The plugins the open workspace carries, or nothing when it has none.
-@(private = "file")
 thor_scan_workspace_plugins :: proc(thor: ^Thor, allocator := context.temp_allocator) -> []plugin.Pending_Plugin {
     if thor.workspace_dir == "" {
         return nil

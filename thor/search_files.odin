@@ -16,6 +16,7 @@ import "../lang"
 import "../search"
 import "../shell"
 import "../textedit"
+import "../lockfree"
 
 // Rows the picker takes; a scan stops when it has this many.
 @(private = "file")
@@ -42,6 +43,7 @@ File_Search_Hit :: struct {
 }
 
 File_Search_Job :: struct {
+    queue_next: ^File_Search_Job, // link in Thor.finished_file_searches
     owner:       ^Thor,
     allocator:   runtime.Allocator,
     worker:      ^thread.Thread,
@@ -172,9 +174,7 @@ file_search_worker :: proc(job: ^File_Search_Job) {
         }
     }
 
-    sync.lock(&job.owner.io_mutex)
-    append(&job.owner.finished_file_searches, job)
-    sync.unlock(&job.owner.io_mutex)
+    lockfree.stack_push(&job.owner.finished_file_searches, job)
 }
 
 // The files to scan, as absolute paths in the temp allocator. A git work tree

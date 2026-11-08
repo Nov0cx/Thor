@@ -1,5 +1,6 @@
 package thor
 
+import "core:strings"
 import "core:time"
 
 import "../watch"
@@ -72,14 +73,67 @@ thor_shutdown_watcher :: proc(thor: ^Thor) {
 // Explorer subscriber: a created/deleted path changes the tree shape; any change
 // (content included) can change git status. Both are coalesced to one refresh per
 // poll via the dirty flags. A change reported on the root itself is the watcher's
-// "events were lost" hint, so it refreshes the tree too.
+// "events were lost" hint, so it refreshes the tree too. A git lock file is
+// ignored: git status takes one itself, and a refresh on it never stops.
 @(private = "file")
 thor_watch_explorer :: proc(data: rawptr, change: watch.Change) {
     thor := cast(^Thor) data
+    if thor_git_lock_path(change.path, thor.workspace_dir) {
+        return
+    }
     if change.kind != .Modified || thor_same_path(change.path, thor.workspace_dir) {
         thor.watch_tree_dirty = true
     }
     thor.watch_git_dirty = true
+}
+
+// True for a `*.lock` file at any depth inside `<workspace>/.git/`. Either separator, mixed forms included.
+thor_git_lock_path :: proc(path, workspace: string) -> bool {
+    if !strings.has_suffix(path, ".lock") || workspace == "" {
+        return false
+    }
+    base := strings.trim_right(workspace, "/\\")
+    if len(path) <= len(base) {
+        return false
+    }
+    for i in 0 ..< len(base) {
+        if !thor_path_byte_equal(path[i], base[i]) {
+            return false
+        }
+    }
+    rest := path[len(base):]
+    if rest[0] != '/' && rest[0] != '\\' {
+        return false
+    }
+    rest = strings.trim_left(rest, "/\\")
+    if len(rest) <= len(".git/.lock") {
+        return false
+    }
+    for c, i in ".git/" {
+        if !thor_path_byte_equal(rest[i], u8(c)) {
+            return false
+        }
+    }
+    return true
+}
+
+// One path byte compare: `\` equals `/`, and Windows folds ASCII case.
+@(private = "file")
+thor_path_byte_equal :: proc(a, b: u8) -> bool {
+    if a == b {
+        return true
+    }
+    if (a == '/' || a == '\\') && (b == '/' || b == '\\') {
+        return true
+    }
+    when ODIN_OS == .Windows {
+        lower :: proc(c: u8) -> u8 {
+            return c >= 'A' && c <= 'Z' ? c + 32 : c
+        }
+        return lower(a) == lower(b)
+    } else {
+        return false
+    }
 }
 
 // Open-buffer subscriber: when a file open in a tab changes on disk, reload it.

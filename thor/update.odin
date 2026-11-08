@@ -21,6 +21,7 @@ import "core:time"
 import "../atomicfile"
 import "../setting"
 import "../update"
+import "../lockfree"
 
 import rl "vendor:raylib"
 // The titlebar button's metrics, matching the task selector beside it.
@@ -37,7 +38,7 @@ UPDATE_BUTTON_MIN_WIDTH :: 40
 UPDATE_BUTTON_MAX_WIDTH :: 180
 
 // Where the throttle and the dismissal live. Machine state, not a preference,
-// so it sits beside the other session records and not in settings.json.
+// so it sits beside the other session records and not in settings.lua.
 @(private = "file")
 UPDATE_FILE :: "sessions/update.json"
 
@@ -67,8 +68,9 @@ Update_Kind :: enum {
 }
 
 // Async update work. The worker fills the out_ fields and appends itself to
-// thor.finished_updates under io_mutex; the main thread applies and frees.
+// thor.finished_updates; the main thread applies and frees.
 Update_Job :: struct {
+    queue_next: ^Update_Job, // link in Thor.finished_updates
     owner:        ^Thor,
     allocator:    runtime.Allocator,
     worker:       ^thread.Thread,
@@ -83,6 +85,8 @@ Update_Job :: struct {
     // Set by the main thread at shutdown, read by the worker between download
     // slices so a quit does not wait out a whole download.
     cancel:       bool,
+    // The install step, stored by the worker and read by the title bar.
+    phase:        update.Install_Phase,
     // Results, applied and freed on the main thread.
     status:       update.Status,
     out_version:  string, // owned
@@ -96,11 +100,13 @@ Update_Job :: struct {
 }
 
 // What a previous run left: when the last completed check was (unix seconds,
-// so the throttle survives a restart) and the one version the user dismissed.
+// so the throttle survives a restart), the one version the user dismissed, and
+// when plugins and themes were last checked.
 @(private = "file")
 Update_Record :: struct {
     last_check:      i64,
     skipped_version: string,
+    last_ext_check:  i64, // the plugin and theme check
 }
 
 // Whether a background check is due. Always true for a manual one, which is an
@@ -197,9 +203,7 @@ update_check_worker :: proc(job: ^Update_Job) {
     job.out_size = result.size
     job.out_installable = result.installable
 
-    sync.lock(&job.owner.io_mutex)
-    append(&job.owner.finished_updates, job)
-    sync.unlock(&job.owner.io_mutex)
+    lockfree.stack_push(&job.owner.finished_updates, job)
 }
 
 @(private = "file")
@@ -215,13 +219,11 @@ update_install_worker :: proc(job: ^Update_Job) {
         target   = job.in_target,
     }
     agent := update.user_agent(VERSION, context.temp_allocator)
-    result := update.install_apply(plan, agent, &job.cancel, job.allocator)
+    result := update.install_apply(plan, agent, &job.cancel, &job.phase, job.allocator)
     job.status = result.status
     job.out_root = result.root
 
-    sync.lock(&job.owner.io_mutex)
-    append(&job.owner.finished_updates, job)
-    sync.unlock(&job.owner.io_mutex)
+    lockfree.stack_push(&job.owner.finished_updates, job)
 }
 
 // Applies a finished job (called from thor_process_io). The swap itself is
@@ -263,7 +265,8 @@ thor_apply_update_check :: proc(thor: ^Thor, job: ^Update_Job) {
     #partial switch job.status {
     case .Ok:
         thor_set_found_update(thor, job)
-        thor_write_update_record(time.to_unix_seconds(time.now()), record.skipped_version)
+        record.last_check = time.to_unix_seconds(time.now())
+        thor_write_update_record(record)
         // A dismissed version keeps the button but never raises the prompt
         // again, so the user decides when to come back to it.
         thor.update_prompt_shown = !thor_update_should_prompt(record.skipped_version, thor.update_version)
@@ -272,7 +275,8 @@ thor_apply_update_check :: proc(thor: ^Thor, job: ^Update_Job) {
         }
     case .Up_To_Date:
         thor.update_state = .Idle
-        thor_write_update_record(time.to_unix_seconds(time.now()), record.skipped_version)
+        record.last_check = time.to_unix_seconds(time.now())
+        thor_write_update_record(record)
         if job.manual {
             thor_flash_status(thor, update.status_message(.Up_To_Date))
         }
@@ -281,7 +285,8 @@ thor_apply_update_check :: proc(thor: ^Thor, job: ^Update_Job) {
         // A transient failure must not eat the day's slot, so only a real
         // answer from GitHub moves the throttle forward.
         if job.status != .No_Network && job.status != .Rate_Limited {
-            thor_write_update_record(time.to_unix_seconds(time.now()), record.skipped_version)
+            record.last_check = time.to_unix_seconds(time.now())
+            thor_write_update_record(record)
         }
         if job.manual {
             thor_flash_status(thor, update.status_message(job.status), true)
@@ -344,6 +349,7 @@ thor_clear_update :: proc(thor: ^Thor) {
     thor.update_prompt = ""
     thor.update_swap_root = ""
     thor.update_swap_pending = false
+    thor_ext_clear(thor)
 }
 
 // Asks an in-flight download to stop between slices, so quitting mid-update
@@ -352,11 +358,13 @@ thor_cancel_update :: proc(thor: ^Thor) {
     if thor.update_job != nil {
         sync.atomic_store(&thor.update_job.cancel, true)
     }
+    thor_cancel_ext_update(thor)
 }
 
 // The updater's frame slot, called from the run loop. Everything that takes
 // focus or replaces files happens here rather than in a callback or a drain.
 thor_poll_update :: proc(thor: ^Thor) {
+    thor_poll_update_bytes(thor)
     if thor.update_swap_pending {
         thor_swap_and_relaunch(thor)
         return
@@ -367,6 +375,12 @@ thor_poll_update :: proc(thor: ^Thor) {
             record := thor_read_update_record()
             if thor_update_due(record.last_check, time.to_unix_seconds(time.now()), false) {
                 thor_check_for_updates(thor, manual = false)
+            }
+        }
+        if setting.check_for_plugin_updates(&thor.config) {
+            record := thor_read_update_record()
+            if thor_update_due(record.last_ext_check, time.to_unix_seconds(time.now()), false) {
+                thor_check_ext_updates(thor, manual = false)
             }
         }
     }
@@ -422,7 +436,8 @@ thor_accept_update :: proc(data: rawptr) {
 thor_dismiss_update :: proc(data: rawptr) {
     thor := cast(^Thor) data
     record := thor_read_update_record()
-    thor_write_update_record(record.last_check, thor.update_version)
+    record.skipped_version = thor.update_version
+    thor_write_update_record(record)
     thor_flash_status(thor, "Update kept in the title bar")
 }
 
@@ -461,7 +476,67 @@ thor_update_button_state :: proc(thor: ^Thor) -> (label, icon: string, shown: bo
     if thor.update_state != .Found && thor.update_state != .Installing {
         return "", "", false
     }
-    return thor.update_version, thor.update_state == .Installing ? "loader-2" : "download", true
+    if thor.update_state == .Installing {
+        return thor_update_install_label(thor), "loader-2", true
+    }
+    return thor.update_version, "download", true
+}
+
+// What the install is doing now. Temporary memory.
+thor_update_install_label :: proc(thor: ^Thor) -> string {
+    switch thor_update_phase(thor) {
+    case .Verifying:
+        return "Verifying..."
+    case .Extracting:
+        return "Installing..."
+    case .Idle, .Downloading:
+        if percent := thor_update_percent(thor); percent >= 0 {
+            return fmt.tprintf("Downloading %d%%", percent)
+        }
+        return "Downloading..."
+    }
+    return "Downloading..."
+}
+
+// The step of the running install; Idle when none runs.
+thor_update_phase :: proc(thor: ^Thor) -> update.Install_Phase {
+    if thor.update_job == nil {
+        return .Idle
+    }
+    return sync.atomic_load(&thor.update_job.phase)
+}
+
+// How much of the archive is downloaded, 0 to 100; -1 when the size or the first byte is not known.
+thor_update_percent :: proc(thor: ^Thor) -> int {
+    if thor.update_size <= 0 || thor.update_bytes <= 0 {
+        return -1
+    }
+    return int(min(thor.update_bytes * 100 / thor.update_size, 100))
+}
+
+// Reads how far the download is, at most four times a second.
+@(private = "file")
+thor_poll_update_bytes :: proc(thor: ^Thor) {
+    if thor.update_state != .Installing || thor.update_job == nil {
+        thor.update_bytes = 0
+        return
+    }
+    if thor_update_phase(thor) == .Verifying || thor_update_phase(thor) == .Extracting {
+        return
+    }
+    now := rl.GetTime()
+    if now - thor.update_bytes_time < 0.25 {
+        return
+    }
+    thor.update_bytes_time = now
+    thor.update_bytes = update.staged_bytes(thor.update_job.in_asset)
+}
+
+// Moves the plugin and theme check throttle to now.
+thor_record_ext_check :: proc() {
+    record := thor_read_update_record()
+    record.last_ext_check = time.to_unix_seconds(time.now())
+    thor_write_update_record(record)
 }
 
 // Reads what a previous run remembered. A missing file is the first run and is
@@ -481,14 +556,13 @@ thor_read_update_record :: proc() -> (record: Update_Record) {
 }
 
 @(private = "file")
-thor_write_update_record :: proc(last_check: i64, skipped_version: string) {
+thor_write_update_record :: proc(record: Update_Record) {
     if !os.is_dir("sessions") {
         if err := os.make_directory("sessions"); err != nil {
             log.errorf("Could not create sessions dir: %v", err)
             return
         }
     }
-    record := Update_Record{last_check, skipped_version}
     data, err := json.marshal(record, {pretty = true}, context.temp_allocator)
     if err != nil {
         log.errorf("Could not marshal the update record: %v", err)

@@ -152,7 +152,7 @@ test_scan_tree_walks_a_real_directory :: proc(t: ^testing.T) {
 @(test)
 test_scan_tree_skips_git_objects :: proc(t: ^testing.T) {
     root :: "bin/test/scan_skip_test"
-    os.remove_all(root)
+    _ = os.remove_all(root)
     defer os.remove_all(root)
 
     testing.expect(t, os.make_directory_all(root) == nil)

@@ -135,7 +135,7 @@ test_watch_create_modify_delete :: proc(t: ^testing.T) {
 
     // Delete.
     sink_clear(&sink)
-    os.remove(file)
+    _ = os.remove(file)
     pump_until(&w, &sink, proc(s: ^Sink) -> bool {
         for c in s.changes {
             if c.kind == .Deleted {

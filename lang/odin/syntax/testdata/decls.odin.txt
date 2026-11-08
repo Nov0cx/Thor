@@ -1,0 +1,27 @@
+package decls
+
+A :: 1
+B, C :: 2, 3
+T :: struct {}
+v: int
+w := 4
+x, y: f32 = 1, 2
+z: [4]u8 = ---
+k : int : 5
+
+@(private)
+p := 1
+
+@private
+q :: proc() {}
+
+@(require_results, deprecated = "use r2")
+r :: proc() -> int { return 0 }
+
+when ODIN_OS == .Windows {
+    OS :: "windows"
+} else when ODIN_OS == .Linux {
+    OS :: "linux"
+} else {
+    OS :: "other"
+}

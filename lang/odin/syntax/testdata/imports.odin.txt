@@ -1,0 +1,21 @@
+package imports
+
+import "core:fmt"
+import str "core:strings"
+import "base:runtime"
+
+foreign import libc "system:c"
+foreign import kernel32 {
+    "system:kernel32.lib",
+    "system:user32.lib",
+}
+
+@(default_calling_convention = "c", link_prefix = "SDL_")
+foreign libc {
+    puts :: proc(s: cstring) -> i32 ---
+    @(link_name = "errno") err: i32
+}
+
+foreign {
+    hidden :: proc() ---
+}
