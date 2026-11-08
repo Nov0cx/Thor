@@ -1,5 +1,12 @@
 # 2026.11.0
 
+- Odin: a quick fix inserts the comma the compiler asks for ("Expected a comma, got a newline").
+- Odin: `const/overflow` also covers `/`, `<<` and unary minus on typed constants, in 128 bits.
+- Odin: a call that returns nothing is marked as an argument or a returned value.
+- Odin: `mem/dangling-slice` follows a compound literal with the address of a local and a store through a local pointer.
+- Odin: long float constants and hex float leaves in an expression are reported with the compiler's value.
+- Odin: the Odin root is cached on disk, so the first start needs no `odin root` process.
+- Odin: the formatter keeps the space in `c. /* f */ d` and indents the rest after a line comment inside brackets.
 - Odin: the first request after a file opens is faster: about 110 ms, down from about 250 ms, and about 21 ms once the startup prewarm is done.
 - Odin: `mem/dangling-slice` follows the address of a local through assignments, fields, conversions and calls.
 - Odin: `nil/deref` follows fixed-array elements at constant indexes.

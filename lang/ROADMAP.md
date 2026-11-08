@@ -2456,12 +2456,14 @@ not a status, so this section stays the source of truth for what is built.
     call's result and two types that print the same stay silent. An untyped
     integer or rune constant that its integer place cannot hold, also in a
     typed constant declaration and a conversion `u8(300)`
-    (`const_overflows`, `conversion_overflow`); a float that would be
-    truncated stays silent. A call of a procedure group that no member takes
+    (`const_overflows`, `conversion_overflow`); a float literal or a
+    `+ - * /` expression of literals that an integer type would truncate is
+    reported (`sema/float_lit.odin`). A call of a procedure group that no member takes
     (`group_no_match`): every member gets the wrong number of arguments, or,
     with every argument typed and not untyped, an argument it cannot take;
     a polymorphic member and an argument of unknown type keep it silent. An
-    ambiguous call is not reported: the compiler breaks most ties itself. A
+    ambiguous call (`group_ambiguous`) is reported only for plain members, since
+    the compiler breaks most other ties itself. A
     procedure with results whose body can end with no `return` (`sema/flow.odin`,
     `missing_return`: the compiler's terminating rules for `return`, a call of
     a `-> !` procedure, blocks, `if` with `else`, `for` with no condition and
@@ -2505,9 +2507,11 @@ not a status, so this section stays the source of truth for what is built.
     specialization of a `$T` argument; a `where` on a `$T` left unbound
     holds. `$N` in a length or capacity is a constant, and a type-valued
     intrinsic (`type_field_type`) is a type. Over every package of the repository
-    `test_live_clean_sources` finds none. Not yet: an ambiguous group call, float
-    truncation and overflow, constant arithmetic of typed constants, and a
-    call with no value used as a value.
+    `test_live_clean_sources` finds none. A call with no value is flagged as an
+    assigned value, a declared value, an argument and a returned value.
+    `const/overflow` covers `+ - * / <<` and unary minus on typed constants in
+    128 bits. Not yet: float truncation of named or typed float constants,
+    and operands above `i64` (`u64(18446744073709551615)`).
   - **Control flow** (`sema/cfg.odin`, plan §5.6, M7): `cfg_build` gives the
     graph of one procedure body: basic blocks of statements, an edge per
     jump. A `defer` runs as a `Defer_Run` step on every edge that leaves its
@@ -2631,7 +2635,8 @@ not a status, so this section stays the source of truth for what is built.
     place expects. The compiler's own lines (`req.diagnostics`) get
     `compiler_fixes.odin`: a copy of an assigned or addressed parameter, an
     assignment for a redeclared `name :=`, and removal of a `Found unneeded
-    semicolon`. Not yet: other compiler messages.
+    semicolon`, and a `,` inserted for `Expected a comma, got a newline`. Not
+    yet: other compiler messages.
   - **Refactorings** (`refactor.odin`, `extract.odin`,
     `change_signature.odin`, `move_decl.odin`, plan §6, M7): offered as
     `Code_Actions` of kind `refactor`. Inline variable puts the value of
@@ -2787,8 +2792,9 @@ not a status, so this section stays the source of truth for what is built.
       local declared with it (one `:=`, slices of it included). A return and a
       named result are not flagged: the standard library returns temp values
       on purpose (30 hits over the clean corpus, none a bug). A procedure with
-      `temp` or `tprint` in its name is left out. Not yet: taint through a
-      second assignment, a call or a field.
+      `temp` or `tprint` in its name is left out. `mem/dangling-slice` also follows a
+      compound literal that holds the address of a local, and a store through
+      a local pointer or slice declared once from a parameter or a global.
     - `defer/in-loop` (`sema/defer_loop.odin`): a `defer` in a loop body whose
       call has a release name (`delete`, `free`, `destroy`, `close`,
       `release`) and names only locals declared before the loop. It runs on
@@ -2890,11 +2896,17 @@ not a status, so this section stays the source of truth for what is built.
     `engine_prewarm` on startup lists the importable packages and finds the Odin root, which brings
     the first completion to about 20 ms; a package of three or more unread files loads on up to six
     threads, the package walk on up to eight); warm
-    live diagnostics take about 32 ms against the 50 ms budget. Not reported:
-    a hex float literal whose fraction needs more than 17 binary
-    places (the compiler's own rounding is not copied), unknown struct tags (the
+    live diagnostics take about 32 ms against the 50 ms budget. The first request needs no `odin root` spawn after
+    the first run: the root is cached in the cache directory (`odin-root.txt`).
+    Not reported:
+    a hex float literal whose result is not an integer and needs more than 17
+    binary places (the compiler's own rounding is not copied), a float
+    constant with a comment inside, unknown struct tags (the
     compiler accepts them). Float constants built with `+ - * /`, parentheses
-    and negation print as exact fractions (`3.0 / 2` is `3.0/2`). `nil/deref` follows the elements of a fixed array only at a constant index; a
+    and negation print as exact fractions (`3.0 / 2` is `3.0/2`) with
+    big-integer arithmetic. The `vet` list of `odin-analyzer.lua` also reaches
+    the `odin check` after a save for `-vet-unused-procedures`; style, semicolon
+    and tabs stay live-only. `nil/deref` follows the elements of a fixed array only at a constant index; a
     variable-index store resets them all. The
     Problems panel (`thor/problems.odin`) lists open files and the stored
     diagnostics of the other files of the checked packages.
