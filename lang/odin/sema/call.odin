@@ -1361,7 +1361,7 @@ instance_key :: proc(c: ^Checker, sym: Symbol, ops: []Operand) -> (string, bool)
         switch x in op.value {
         case i64:    ok = put_int(c, &buf, 'I', x)
         case Wide_Int:
-            ok = put_int(c, &buf, 'W', x.neg ? 1 : 0) && put_int(c, &buf, 'H', i64(transmute(i128)x.mag >> 64)) && put_int(c, &buf, 'L', i64(x.mag))
+            ok = put_int(c, &buf, 'W', x.neg ? 1 : 0) && put_int(c, &buf, 'H', i64(i128(x.mag) >> 64)) && put_int(c, &buf, 'L', i64(x.mag))
         case f64:    ok = put_int(c, &buf, 'F', transmute(i64)x)
         case bool:   ok = put_int(c, &buf, 'B', x ? 1 : 0)
         case rune:   ok = put_int(c, &buf, 'R', i64(x))
