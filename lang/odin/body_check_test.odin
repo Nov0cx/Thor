@@ -1413,6 +1413,59 @@ main :: proc() {
 }
 
 @(test)
+test_live_fmt_verbs_user_formatter_elsewhere :: proc(t: ^testing.T) {
+    root := fixture(t, "live_fmt_user_elsewhere", {
+        {".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`},
+        {"app/reg.odin", "package app\n\nimport \"core:fmt\"\n\nOther :: distinct int\n\n@(init)\nregister :: proc() {\n\t_ = fmt.register_user_formatter(typeid_of(Other), nil)\n}\n"},
+        {"app/q/q.odin", "package q\n\nimport \"core:fmt\"\n\nRemote :: distinct int\n\n@(init)\nregister :: proc() {\n\t_ = fmt.register_user_formatter(type_info_of(Remote).id, nil)\n}\n"},
+    })
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+import "core:fmt"
+import "q"
+
+Id :: distinct int
+
+main :: proc() {
+	i: Id
+	fmt.printf("%s", i)
+	o: Other
+	fmt.printf("%s", o)
+	r: q.Remote
+	fmt.printf("%s", r)
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"%s\", i)", "Verb 's' does not take an argument of type 'Id'", 0},
+    })
+
+    // A registration of a type the analysis cannot read frees every named type.
+    other := fixture(t, "live_fmt_user_unknown", {
+        {".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`},
+        {"app/reg.odin", "package app\n\nimport \"core:fmt\"\n\n@(init)\nregister :: proc(id: typeid) {\n\t_ = fmt.register_user_formatter(id, nil)\n}\n"},
+    })
+    src2 := `package app
+
+import "core:fmt"
+
+Id :: distinct int
+
+main :: proc() {
+	i: Id
+	fmt.printf("%s", i)
+}
+`
+    res2 := live_check(e, src2, other, fixture_path(other, "app/main.odin"))
+    defer free_live(&res2)
+    expect_errors(t, &res2, src2, {})
+}
+
+@(test)
 test_live_const_arith_and_no_value :: proc(t: ^testing.T) {
     root := fixture(t, "live_const_arith", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
     e := engine_create()
