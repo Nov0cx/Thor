@@ -1,6 +1,9 @@
 return {
-    align_constant_definitions = false,
-    align_struct_declarations = false,
+    align_case_comments = true,
+    align_comments = true,
+    align_constant_definitions = true,
+    align_field_defaults = true,
+    align_struct_declarations = true,
     align_struct_fields = true,
     align_struct_values = true,
     brace_style = "_1TBS",

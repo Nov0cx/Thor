@@ -263,8 +263,10 @@ test_align_constant_definitions :: proc(t: ^testing.T) {
 
 @(test)
 test_align_constant_definitions_off :: proc(t: ^testing.T) {
+    opts := default_options()
+    opts.align_constant_definitions = false
     src := "package p\nA :: 1\nLONGER :: 2\n"
-    out, ok := format(src, default_options())
+    out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
     testing.expect(t, strings.contains(out, "A :: 1"), out)
