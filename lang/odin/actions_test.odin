@@ -662,7 +662,9 @@ f :: proc(a: int, p: ^int) -> int {
     g := cast(int)-a
     h := cast(int)cast(int)a
     i := cast(int)p^ // deref
-    return b + c + d + e + g + h + i
+    j := cast(int)-a // neg
+    k := cast(int)(a) // paren
+    return b + c + d + e + g + h + i + j + k
 }
 `
     root := fixture(t, "action_unneeded_cast", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
@@ -681,6 +683,8 @@ f :: proc(a: int, p: ^int) -> int {
         {"-a", "Unneeded cast of '-a' to identical type 'int'", "Remove the unneeded cast", "cast(int)-a", "(-a)", .Warning},
         {"cast(int)a\n    i", "Unneeded cast of 'cast(int)a' to identical type 'int'", "Remove the unneeded cast", "cast(int)cast(int)a", "cast(int)a", .Warning},
         {"p^", "Unneeded cast of 'p^' to identical type 'int'", "Remove the unneeded cast", "cast(int)p^ // deref", "p^ // deref", .Warning},
+        {"-a // neg", "Unneeded cast of '-a' to identical type 'int'", "Remove the unneeded cast", "cast(int)-a // neg", "(-a) // neg", .Warning},
+        {"(a) // paren", "Unneeded cast of '(a)' to identical type 'int'", "Remove the unneeded cast", "cast(int)(a) // paren", "a // paren", .Warning},
     }
     for w in wants {
         res := compiler_line_actions(t, e, root, SRC, w.marker, w.message, w.severity)
