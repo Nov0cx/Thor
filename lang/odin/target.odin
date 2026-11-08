@@ -36,6 +36,7 @@ Request_Context :: struct {
     universe:    [2]odinsema.Universe_Package, // directories in the arena of `snap`
     naming:      odinsema.Naming_Rules, // set by the live body check
     vet:         odinsema.Vet_Flags,    // set by the live body check
+    own_leak, own_double, own_after: bool, // the ownership lints the config turns on; set by the live body check
 }
 
 // The state of the checker of a request.

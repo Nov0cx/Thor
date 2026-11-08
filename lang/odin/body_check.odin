@@ -20,6 +20,10 @@ body_diagnostics :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, whens: []
     }
     rc.naming = config_naming(rc.e, rc.req.workspace)
     rc.vet = live_vet_flags(rc)
+    severities := config_severities(rc.e, rc.req.workspace)
+    rc.own_leak = severities[CODE_LEAK] != .Off && CODE_LEAK in severities
+    rc.own_double = severities[CODE_DOUBLE_FREE] != .Off && CODE_DOUBLE_FREE in severities
+    rc.own_after = severities[CODE_USE_AFTER_FREE] != .Off && CODE_USE_AFTER_FREE in severities
     walk_body(rc, c, m, whens, odinsyntax.node_root(rc.parsed.tree), report)
 }
 
@@ -571,10 +575,7 @@ const_text :: proc(v: odinsema.Const_Value) -> (string, bool) {
 // Off until the workspace config sets one of the ids.
 @(private = "file")
 ownership_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope_Map, lit: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
-    severities := config_severities(rc.e, rc.req.workspace)
-    leak := severities[CODE_LEAK] != .Off && CODE_LEAK in severities
-    double := severities[CODE_DOUBLE_FREE] != .Off && CODE_DOUBLE_FREE in severities
-    after := severities[CODE_USE_AFTER_FREE] != .Off && CODE_USE_AFTER_FREE in severities
+    leak, double, after := rc.own_leak, rc.own_double, rc.own_after
     if !leak && !double && !after {
         return
     }
