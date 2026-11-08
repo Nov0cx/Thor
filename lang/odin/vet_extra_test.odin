@@ -167,6 +167,158 @@ f :: proc(c: bool, q: ^T, q2: ^[4]int) -> int {
 }
 
 @(test)
+test_live_nil_deref_narrowing :: proc(t: ^testing.T) {
+    root := fixture(t, "live_nil_deref_narrowing", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+T :: struct { x: int, next: ^T }
+S :: struct { cb: proc(), p: ^T, inner: struct { cb: proc() } }
+U :: struct { using s: S }
+V :: struct { cb: proc(v: ^V) }
+
+make_t :: proc() -> ^T { return nil }
+use :: proc(s: ^S) {}
+
+f :: proc(c: bool, d: bool) -> int {
+	n := 0
+	a: ^T
+	if a == nil {
+		n += a.x
+	}
+	b: ^T
+	if b != nil {
+		n += b.x
+	}
+	g: ^T
+	if g == nil {
+		return n
+	}
+	n += g.x
+	h: ^T
+	if h == nil || c {
+		n += 1
+	} else {
+		n += h.x
+	}
+	i: ^T
+	if i != nil && i.x > 0 {
+		n += 1
+	}
+	j: ^T
+	if !(j != nil) {
+		n += j.x
+	}
+	k: ^T
+	for k != nil {
+		k = k.next
+	}
+	n += k.x
+	l: ^T
+	for _ in 0 ..< 2 {
+		if l == nil {
+			continue
+		}
+		n += l.x
+	}
+	m: ^T
+	if m == nil {
+		m = make_t()
+	}
+	n += m.x
+	o: ^T
+	ok := o != nil
+	if ok {
+		n += o.x
+	}
+	q: ^T
+	if q == nil && c {
+		n += q.x
+	}
+	r: ^T
+	if r != nil || d {
+		n += 1
+	}
+	n += r.x
+	return n
+}
+
+fields :: proc(c: bool) {
+	s: S
+	s.cb()
+	t: S
+	t.cb = proc() {}
+	t.cb()
+	u: S
+	if c {
+		u.cb = proc() {}
+	}
+	u.cb()
+	v: S
+	v.p.x = 1
+	w: S
+	w.p = make_t()
+	w.p.x = 1
+	x: S = {}
+	if x.cb != nil {
+		x.cb()
+	}
+	y: S
+	use(&y)
+	y.cb()
+	z: S
+	z = S{}
+	z.cb()
+	aa: S
+	aa.inner.cb()
+	ab: S
+	ab.inner = {}
+	ab.inner.cb()
+	ac: U
+	ac.cb()
+	ad: S
+	if ad.cb == nil {
+		ad.cb()
+	}
+	ae: V
+	ae->cb()
+	ae.cb(nil)
+}
+
+multi :: proc(n: int) -> int {
+	p: [^]int
+	q: [^]int
+	if n > 0 {
+		q = raw_data([]int{1})
+	}
+	r: [^]int
+	if r == nil {
+		return 0
+	}
+	return p[0] + q[0] + r[0]
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"a.x", "Dereferencing 'a', which is always nil here", 0},
+        {"j.x", "Dereferencing 'j', which is always nil here", 0},
+        {"k.x", "Dereferencing 'k', which is always nil here", 0},
+        {"q.x", "Dereferencing 'q', which is always nil here", 0},
+        {"r.x", "Dereferencing 'r', which is always nil here", 0},
+        {"s.cb()", "Calling 's.cb', which is always nil here", 0},
+        {"v.p.x", "Dereferencing 'v.p', which is always nil here", 0},
+        {"z.cb()", "Calling 'z.cb', which is always nil here", 0},
+        {"aa.inner.cb()", "Calling 'aa.inner.cb', which is always nil here", 0},
+        {"ab.inner.cb()", "Calling 'ab.inner.cb', which is always nil here", 0},
+        {"ad.cb()", "Calling 'ad.cb', which is always nil here", 0},
+        {"p[0]", "Dereferencing 'p', which is always nil here", 0},
+    })
+}
+
+@(test)
 test_live_vet_unused_procedure :: proc(t: ^testing.T) {
     root := fixture(
         t,

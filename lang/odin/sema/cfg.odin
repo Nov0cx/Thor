@@ -33,8 +33,12 @@ Cfg_Step :: struct {
 }
 
 Cfg_Block :: struct {
-    steps: [dynamic]Cfg_Step,
-    succs: [dynamic]Block_Id,
+    steps:    [dynamic]Cfg_Step,
+    succs:    [dynamic]Block_Id,
+    cond:     odinsyntax.Syntax_Node, // the `if` or `for` condition the block ends in; `node.parent` is nil
+    has_cond: bool,
+    on_true:  Block_Id, // where `cond` true goes
+    on_false: Block_Id, // where `cond` false goes
 }
 
 // Where a `break` or `continue` goes.
@@ -207,6 +211,18 @@ step :: proc(b: ^Cfg_Builder, n: odinsyntax.Syntax_Node, kind: Cfg_Step_Kind) {
     n.parent = nil
     _, err := append(&b.g.blocks[b.cur].steps, Cfg_Step{n, kind})
     note(b, err)
+}
+
+// Notes the condition block `from` ends in and where it goes.
+@(private = "file")
+set_cond :: proc(b: ^Cfg_Builder, from: Block_Id, cond: odinsyntax.Syntax_Node, on_true, on_false: Block_Id) {
+    cond := cond
+    cond.parent = nil
+    blk := &b.g.blocks[from]
+    blk.cond = cond
+    blk.has_cond = true
+    blk.on_true = on_true
+    blk.on_false = on_false
 }
 
 // Ends the current block with no successor, as after `return` or a diverging call.
@@ -429,19 +445,26 @@ build_if :: proc(b: ^Cfg_Builder, n: odinsyntax.Syntax_Node) {
         flow_expr(b, cond)
     }
     head := b.cur
+    cond, has_cond := odinsyntax.if_stmt_cond(&is)
+    on_true, on_false := NO_BLOCK, after
     if body, ok := odinsyntax.if_stmt_body(&is); ok {
         b.cur = new_block(b)
+        on_true = b.cur
         edge(b, head, b.cur)
         build_stmt(b, body)
         edge(b, b.cur, after)
     }
     if other, ok := odinsyntax.if_stmt_else_branch(&is); ok {
         b.cur = new_block(b)
+        on_false = b.cur
         edge(b, head, b.cur)
         build_stmt(b, other)
         edge(b, b.cur, after)
     } else {
         edge(b, head, after)
+    }
+    if has_cond && on_true != NO_BLOCK {
+        set_cond(b, head, cond, on_true, on_false)
     }
     b.cur = after
     pop(&b.scopes)
@@ -516,6 +539,7 @@ build_for :: proc(b: ^Cfg_Builder, n: odinsyntax.Syntax_Node) {
         step(b, cond, .Expr)
         flow_expr(b, cond)
         edge(b, b.cur, after)
+        set_cond(b, b.cur, cond, body, after)
     }
     edge(b, b.cur, body)
     push_target(b, label_of(n), after, post, true)

@@ -84,66 +84,8 @@ outliving_store :: proc(c: ^Checker, file: File_Id, lhs: odinsyntax.Syntax_Node,
     }
 }
 
-// The offset of `n` and the call that made it, when `n` is a value from the temp allocator: a call
-// given `context.temp_allocator` or a `tprint*` call, or a local declared with one, or a slice of
-// either, or a local copied from one. A procedure whose own name has `temp` or `tprint` in it stores such values on purpose.
-temp_place :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, depth := 0) -> (offset: int, ok: bool) {
-    if temp_helper(n) {
-        return
-    }
-    n := n
-    for {
-        #partial switch n.green.kind {
-        case .Paren_Expr:
-            p, _ := odinsyntax.as_paren_expr(n)
-            n = odinsyntax.paren_expr_expr(&p) or_return
-        case .Slice_Expr:
-            se, _ := odinsyntax.as_slice_expr(n)
-            n = odinsyntax.slice_expr_operand(&se) or_return
-        case .Call_Expr:
-            return int(n.offset), temp_call(n)
-        case .Ident:
-            r := lookup_name(c, file, odinsyntax.node_text(n), int(n.offset))
-            if r.kind != .Local || r.local.kind != .Var || static_local(c, file, r.local.name_offset) {
-                return
-            }
-            value := local_value(c, file, r.local.name_offset) or_return
-            // A copy of another temp local carries the taint.
-            if depth < 4 && (value.green.kind == .Ident || value.green.kind == .Slice_Expr) {
-                _, tainted := temp_place(c, file, value, depth + 1)
-                return int(n.offset), tainted
-            }
-            return int(n.offset), temp_call(value)
-        case:
-            return
-        }
-    }
-}
-
-// The value a plain `:=` or `:` declaration gives the local declared at `name_offset`.
-@(private = "file")
-local_value :: proc(c: ^Checker, file: File_Id, name_offset: int) -> (value: odinsyntax.Syntax_Node, ok: bool) {
-    path := node_path(c, file, name_offset)
-    #reverse for d in path {
-        if d.green.kind != .Value_Decl {
-            continue
-        }
-        d := d
-        v, result, found := decl_value(&d, name_offset)
-        if !found || result > 0 {
-            return
-        }
-        for v.green.kind == .Paren_Expr {
-            p, _ := odinsyntax.as_paren_expr(v)
-            v = odinsyntax.paren_expr_expr(&p) or_return
-        }
-        return v, true
-    }
-    return
-}
-
 // True when `n` is a call that takes `context.temp_allocator`, or a `tprint*` call.
-@(private = "file")
+@(private)
 temp_call :: proc(n: odinsyntax.Syntax_Node) -> bool {
     if n.green.kind != .Call_Expr {
         return false
@@ -166,7 +108,7 @@ temp_call :: proc(n: odinsyntax.Syntax_Node) -> bool {
 }
 
 // True when `n` is in a procedure whose name has `temp` or `tprint` in it.
-@(private = "file")
+@(private)
 temp_helper :: proc(n: odinsyntax.Syntax_Node) -> bool {
     for p := n.parent; p != nil; p = p.parent {
         if p.green.kind != .Value_Decl {

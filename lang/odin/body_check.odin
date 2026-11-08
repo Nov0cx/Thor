@@ -2,6 +2,7 @@
 package odin
 
 import "core:fmt"
+import "core:path/filepath"
 import "core:strings"
 
 import lang ".."
@@ -85,6 +86,7 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope
         liveness_errors(rc, c, m, n, report)
         ownership_errors(rc, c, m, n, report)
         nil_errors(rc, c, m, whens, n, report)
+        temp_errors(rc, c, m, whens, n, report)
     case .Binary_Expr:
         if p, ok := odinsema.const_arith_overflow(c, rc.live.id, n); ok {
             text := strings.join(strings.fields(odinsyntax.node_text(n), context.temp_allocator), " ", context.temp_allocator)
@@ -336,7 +338,7 @@ format_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odinsynt
         case .Bad_Precision:
             message = fmt.aprintf("Precision argument of type '%s' is not a number", odinsema.type_string(&c.table, p.type, context.temp_allocator))
         case .Bad_Verb:
-            if user_formatted(c, call, p.type) {
+            if user_formatted(rc, c, p.type) {
                 continue
             }
             message = fmt.aprintf("Verb '%c' does not take an argument of type '%s'", p.verb, odinsema.type_string(&c.table, p.type, context.temp_allocator))
@@ -347,20 +349,48 @@ format_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odinsynt
     }
 }
 
-// True when `type` is a named type and the file of `call` registers a user formatter, which may take
-// any verb. A formatter registered in another file is not seen.
+// True when a user formatter is registered for `type`, which then takes any verb. The buffer and its
+// package are read first. A named type also reads its declaring package and the workspace. A
+// registration of a type the analysis cannot read frees every named type.
 @(private = "file")
-user_formatted :: proc(c: ^odinsema.Checker, call: odinsyntax.Syntax_Node, type: odinsema.Type_Id) -> bool {
-    #partial switch _ in odinsema.type_get(&c.table, type) {
-    case odinsema.Named_Type, odinsema.Distinct_Type:
-    case:
+user_formatted :: proc(rc: ^Request_Context, c: ^odinsema.Checker, type: odinsema.Type_Id) -> bool {
+    if !rc.formatters_known {
+        rc.formatters_known = true
+        files := make([dynamic]odinsema.File_Id, context.temp_allocator)
+        append(&files, rc.live.id)
+        append_package_files(rc, odinsema.db_file_path(&rc.snap, rc.live.id), &files)
+        rc.formatters = odinsema.user_formatters(c, files[:])
+    }
+    if odinsema.user_formatted(c, rc.formatters, type) {
+        return true
+    }
+    sym, named := odinsema.type_declaration(c, type)
+    if !named {
         return false
     }
-    root := call
-    for root.parent != nil {
-        root = root.parent^
+    files := make([dynamic]odinsema.File_Id, context.temp_allocator)
+    append_package_files(rc, odinsema.db_file_path(&rc.snap, sym.file), &files)
+    if declared := odinsema.user_formatters(c, files[:]); odinsema.user_formatted(c, declared, type) {
+        return true
     }
-    return strings.contains(odinsyntax.node_text(root), "register_user_formatter")
+    if !rc.workspace_formatters_known {
+        rc.workspace_formatters_known = true
+        rc.workspace_formatters = odinsema.user_formatters(c, odinsema.db_workspace(&rc.snap, rc.req.workspace))
+    }
+    return odinsema.user_formatted(c, rc.workspace_formatters, type)
+}
+
+// Appends the files of the package that holds the file at `path`.
+@(private = "file")
+append_package_files :: proc(rc: ^Request_Context, path: string, files: ^[dynamic]odinsema.File_Id) {
+    dir := filepath.dir(path)
+    if dir == "" || dir == "." && path == "" {
+        return
+    }
+    view := odinsema.db_package(&rc.snap, odinsema.db_package_id(&rc.snap, dir))
+    if view != nil {
+        append(files, ..view.files)
+    }
 }
 
 // Reports, as a lint, a call statement that drops an error result.
@@ -442,7 +472,7 @@ dangling_returns :: proc(rc: ^Request_Context, c: ^odinsema.Checker, ret: odinsy
     }
     it := odinsyntax.expr_list_items(&values)
     for v in odinsyntax.child_iter_next(&it) {
-        dangling_report(rc, c, v, "returned", false, report)
+        dangling_report(rc, c, v, "returned", report)
     }
 }
 
@@ -463,25 +493,32 @@ dangling_stores :: proc(rc: ^Request_Context, c: ^odinsema.Checker, assign: odin
             return
         }
         if odinsema.outliving_store(c, rc.live.id, target) && !odinsema.cleared_by_defer(assign, target) {
-            temp := odinsema.outliving_store(c, rc.live.id, target, results = false)
-            dangling_report(rc, c, value, "stored", temp, report)
+            dangling_report(rc, c, value, "stored", report)
         }
     }
 }
 
-// Reports a dangling address or slice in `value`, and a temp allocator value when `temp` is set:
-// a procedure may hand out a temp value in its result on purpose, but not park it in a global.
+// Reports a dangling address or slice in `value`.
 @(private = "file")
-dangling_report :: proc(rc: ^Request_Context, c: ^odinsema.Checker, value: odinsyntax.Syntax_Node, what: string, temp: bool, report: ^lang.Diagnostic_Report) {
+dangling_report :: proc(rc: ^Request_Context, c: ^odinsema.Checker, value: odinsyntax.Syntax_Node, what: string, report: ^lang.Diagnostic_Report) {
     if at, name, ok := odinsema.dangling_place(c, rc.live.id, value); ok {
         report_error(rc, report, at, CODE_DANGLING_SLICE, fmt.aprintf("Address of local '%s' is %s and dangles after the procedure returns", name, what), .Hint, lint = true)
+    }
+}
+
+// Reports, as a lint, a temp allocator value stored where it outlives the frame. A procedure may
+// hand one out in its result on purpose, but not park it in a global.
+@(private = "file")
+temp_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope_Map, whens: []Branch, lit: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+    stores, err := odinsema.temp_stores(c, rc.live.id, m, lit, context.temp_allocator)
+    if err != nil {
         return
     }
-    if !temp {
-        return
-    }
-    if at, ok := odinsema.temp_place(c, rc.live.id, value); ok {
-        report_error(rc, report, at, CODE_TEMP_ESCAPE, fmt.aprintf("Value from the temp allocator is %s and is freed by the next free_all(context.temp_allocator)", what), .Hint, lint = true)
+    for s in stores {
+        if in_untaken_branch(whens, s.offset) {
+            continue
+        }
+        report_error(rc, report, s.offset, CODE_TEMP_ESCAPE, strings.clone("Value from the temp allocator is stored and is freed by the next free_all(context.temp_allocator)"), .Hint, lint = true)
     }
 }
 

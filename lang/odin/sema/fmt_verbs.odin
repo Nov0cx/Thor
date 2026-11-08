@@ -504,3 +504,113 @@ count_fits :: proc(t: ^Type_Table, id: Type_Id) -> bool {
     }
     return true
 }
+
+// The types `fmt.register_user_formatter` is given in a set of files.
+User_Formatters :: struct {
+    types: map[Type_Id]struct{},
+    any:   bool, // a registration names a type the analysis cannot read: any named type may be formatted
+}
+
+// The registrations of user formatters in `files`. Only a file that names the procedure is read.
+user_formatters :: proc(c: ^Checker, files: []File_Id, allocator := context.temp_allocator) -> User_Formatters {
+    out := User_Formatters {
+        types = make(map[Type_Id]struct{}, allocator),
+    }
+    for id in files {
+        raw := db_parse(c.snap, id)
+        mentions := raw != nil && raw.tree != nil && strings.contains(raw.tree.text, "register_user_formatter")
+        db_parse_release(c.snap, raw)
+        if !mentions {
+            continue
+        }
+        parsed := checker_parse(c, id)
+        if parsed == nil || parsed.tree == nil {
+            continue
+        }
+        scan_formatters(c, id, odinsyntax.node_root(parsed.tree), &out)
+    }
+    return out
+}
+
+// True when `type` has a user formatter among `formatters`, which takes any verb.
+user_formatted :: proc(c: ^Checker, formatters: User_Formatters, type: Type_Id) -> bool {
+    if type in formatters.types {
+        return true
+    }
+    #partial switch _ in type_get(&c.table, type) {
+    case Named_Type, Distinct_Type:
+        return formatters.any
+    }
+    return false
+}
+
+// The declaration of a named or distinct type.
+type_declaration :: proc(c: ^Checker, type: Type_Id) -> (Symbol, bool) {
+    #partial switch v in type_get(&c.table, type) {
+    case Named_Type:
+        return v.symbol, true
+    case Distinct_Type:
+        return v.symbol, true
+    }
+    return {}, false
+}
+
+@(private = "file")
+scan_formatters :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, out: ^User_Formatters) {
+    n := n
+    if n.green.kind == .Call_Expr {
+        ce, _ := odinsyntax.as_call_expr(n)
+        if callee, has := odinsyntax.call_expr_callee(&ce); has && strings.has_suffix(odinsyntax.node_text(callee), "register_user_formatter") {
+            registered_type(c, file, ce, out)
+        }
+    }
+    it := odinsyntax.child_iter(&n, {kinds = ~odinsyntax.Kind_Set{}})
+    for child in odinsyntax.child_iter_next(&it) {
+        scan_formatters(c, file, child, out)
+    }
+}
+
+// Adds the type the first argument of the registration `call` names: `T`, `typeid_of(T)`,
+// `type_info_of(T)` or `type_info_of(T).id`.
+@(private = "file")
+registered_type :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Call_Expr, out: ^User_Formatters) {
+    call := call
+    list, has_list := odinsyntax.call_expr_args(&call)
+    if !has_list {
+        out.any = true
+        return
+    }
+    it := odinsyntax.arg_list_args(&list)
+    first, has_first := odinsyntax.child_iter_next(&it)
+    if !has_first {
+        out.any = true
+        return
+    }
+    n := strip_parens(first)
+    if n.green.kind == .Selector_Expr {
+        se, _ := odinsyntax.as_selector_expr(n)
+        field, has_field := odinsyntax.selector_expr_field(&se)
+        operand, has_operand := odinsyntax.selector_expr_operand(&se)
+        if has_field && has_operand && odinsyntax.node_text(odinsyntax.Syntax_Node(field)) == "id" {
+            n = strip_parens(operand)
+        }
+    }
+    if n.green.kind == .Call_Expr {
+        inner, _ := odinsyntax.as_call_expr(n)
+        callee, has_callee := odinsyntax.call_expr_callee(&inner)
+        args, has_args := odinsyntax.call_expr_args(&inner)
+        text := has_callee ? odinsyntax.node_text(callee) : ""
+        if has_args && (text == "typeid_of" || text == "type_info_of") {
+            arg_it := odinsyntax.arg_list_args(&args)
+            if arg, has_arg := odinsyntax.child_iter_next(&arg_it); has_arg {
+                n = arg
+            }
+        }
+    }
+    op := expr_type(c, file, n)
+    if op.mode == .Type && op.type != INVALID_TYPE {
+        out.types[op.type] = {}
+        return
+    }
+    out.any = true
+}
