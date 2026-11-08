@@ -331,6 +331,8 @@ config_parse_target :: proc(cache: ^Config_Cache, obj: json.Object) {
         }
     }
 
+    config_validate_target(cache)
+
     raw, has := obj["defines"]
     if !has {
         return
@@ -364,6 +366,91 @@ config_parse_target :: proc(cache: ^Config_Cache, obj: json.Object) {
             continue
         }
         append(&cache.cfg.defines, odinsema.Target_Define{name = strings.clone(name), value = d})
+    }
+}
+
+// The `-target:` value of an os and arch pair, empty when the compiler has no such target.
+@(private)
+target_triple :: proc(target_os: odinsema.Target_OS, arch: odinsema.Target_Arch) -> string {
+    #partial switch target_os {
+    case .Windows:
+        #partial switch arch {
+        case .amd64: return "windows_amd64"
+        case .i386:  return "windows_i386"
+        case .arm64: return "windows_arm64"
+        }
+    case .Linux:
+        #partial switch arch {
+        case .amd64: return "linux_amd64"
+        case .i386:  return "linux_i386"
+        case .arm64: return "linux_arm64"
+        case .arm32: return "linux_arm32"
+        case .riscv64: return "linux_riscv64"
+        }
+    case .Darwin:
+        #partial switch arch {
+        case .amd64: return "darwin_amd64"
+        case .arm64: return "darwin_arm64"
+        }
+    case .FreeBSD:
+        #partial switch arch {
+        case .amd64: return "freebsd_amd64"
+        case .arm64: return "freebsd_arm64"
+        case .i386:  return "freebsd_i386"
+        }
+    case .OpenBSD:
+        if arch == .amd64 {
+            return "openbsd_amd64"
+        }
+    case .NetBSD:
+        #partial switch arch {
+        case .amd64: return "netbsd_amd64"
+        case .arm64: return "netbsd_arm64"
+        }
+    case .Haiku:
+        if arch == .amd64 {
+            return "haiku_amd64"
+        }
+    case .WASI:
+        #partial switch arch {
+        case .wasm32: return "wasi_wasm32"
+        case .wasm64p32: return "wasi_wasm64p32"
+        }
+    case .JS:
+        #partial switch arch {
+        case .wasm32: return "js_wasm32"
+        case .wasm64p32: return "js_wasm64p32"
+        }
+    case .Orca:
+        if arch == .wasm32 {
+            return "orca_wasm32"
+        }
+    case .Freestanding:
+        #partial switch arch {
+        case .wasm32: return "freestanding_wasm32"
+        case .wasm64p32: return "freestanding_wasm64p32"
+        case .amd64: return "freestanding_amd64_sysv"
+        case .arm64: return "freestanding_arm64"
+        case .riscv64: return "freestanding_riscv64"
+        }
+    }
+    return ""
+}
+
+// Drops a configured os and arch pair the compiler has no target for. A key left unset takes the host's.
+// context.allocator is the engine allocator.
+@(private = "file")
+config_validate_target :: proc(cache: ^Config_Cache) {
+    if cache.cfg.target_os == .Unknown && cache.cfg.target_arch == .Unknown {
+        return
+    }
+    host := odinsema.target_host()
+    target_os := cache.cfg.target_os != .Unknown ? cache.cfg.target_os : host.os
+    arch := cache.cfg.target_arch != .Unknown ? cache.cfg.target_arch : host.arch
+    if target_triple(target_os, arch) == "" {
+        log.warnf("odin-analyzer.lua: target %v/%v is not a compiler target and was ignored", target_os, arch)
+        cache.cfg.target_os = .Unknown
+        cache.cfg.target_arch = .Unknown
     }
 }
 

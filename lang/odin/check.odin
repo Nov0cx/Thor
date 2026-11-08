@@ -14,6 +14,7 @@ import "core:time"
 
 import lang ".."
 import "../../shell"
+import odinsema "sema"
 import odinsyntax "syntax"
 
 // Longest an `odin check` may run. A compiler that hangs holds the check lock.
@@ -56,6 +57,7 @@ check_package :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     args := make([dynamic]string, context.temp_allocator)
     append(&args, "check", dir, "-no-entry-point")
     collection_flags(e, req.workspace, &args)
+    target_flags(e, req.workspace, &args)
     vet_flag_args(e, req.workspace, req.path, &args)
     // An argument list, not a shell line: the directory and the collection
     // roots come from the workspace.
@@ -127,6 +129,37 @@ collection_flags :: proc(e: ^Engine, workspace: string, args: ^[dynamic]string) 
             continue
         }
         append(args, fmt.tprintf("-collection:%s=%s", c.name, c.dir))
+    }
+}
+
+// `-target:<os>_<arch>` when the workspace config sets a target, then `-define:<name>=<value>` for each
+// of its defines. A name the compiler owns (`ODIN_*`) is left out. Scratch-allocated.
+@(private)
+target_flags :: proc(e: ^Engine, workspace: string, args: ^[dynamic]string) {
+    if workspace == "" {
+        return
+    }
+    cache := &e.config
+    sync.lock(&cache.mutex)
+    defer sync.unlock(&cache.mutex)
+    config_ensure(cache, workspace)
+    if cache.cfg.target_os != .Unknown || cache.cfg.target_arch != .Unknown {
+        host := odinsema.target_host()
+        target_os := cache.cfg.target_os != .Unknown ? cache.cfg.target_os : host.os
+        arch := cache.cfg.target_arch != .Unknown ? cache.cfg.target_arch : host.arch
+        if triple := target_triple(target_os, arch); triple != "" {
+            append(args, fmt.tprintf("-target:%s", triple))
+        }
+    }
+    for d in cache.cfg.defines {
+        if strings.has_prefix(d.name, "ODIN_") {
+            continue
+        }
+        switch v in d.value {
+        case bool:   append(args, fmt.tprintf("-define:%s=%v", d.name, v))
+        case i64:    append(args, fmt.tprintf("-define:%s=%d", d.name, v))
+        case string: append(args, fmt.tprintf("-define:%s=%s", d.name, v))
+        }
     }
 }
 

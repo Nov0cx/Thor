@@ -82,3 +82,49 @@ test_config_target_bad_values :: proc(t: ^testing.T) {
     testing.expect_value(t, target.arch, host.arch)
     testing.expect_value(t, len(target.defines), 0)
 }
+
+@(test)
+test_target_flags :: proc(t: ^testing.T) {
+    root, cfg_path, ok := write_config(t, "thor_lang_flags_ws", `return { target = { os = "linux", arch = "arm64" }, defines = { FAST = true, LEVEL = 3, NAME = "thor", ODIN_DEBUG = true } }`)
+    if !ok {
+        return
+    }
+    defer remove_config(root, cfg_path)
+
+    e := engine_create()
+    defer engine_destroy(e)
+
+    args := make([dynamic]string, context.temp_allocator)
+    target_flags(e, root, &args)
+    seen_target, seen_fast, seen_level, seen_name: bool
+    for a in args {
+        seen_target ||= a == "-target:linux_arm64"
+        seen_fast ||= a == "-define:FAST=true"
+        seen_level ||= a == "-define:LEVEL=3"
+        seen_name ||= a == "-define:NAME=thor"
+        testing.expect(t, a != "-define:ODIN_DEBUG=true")
+    }
+    testing.expect(t, seen_target && seen_fast && seen_level && seen_name)
+
+    none := make([dynamic]string, context.temp_allocator)
+    target_flags(e, "", &none)
+    testing.expect_value(t, len(none), 0)
+}
+
+@(test)
+test_target_flags_invalid_pair :: proc(t: ^testing.T) {
+    root, cfg_path, ok := write_config(t, "thor_lang_flagsbad_ws", `return { target = { os = "darwin", arch = "i386" } }`)
+    if !ok {
+        return
+    }
+    defer remove_config(root, cfg_path)
+
+    e := engine_create()
+    defer engine_destroy(e)
+
+    args := make([dynamic]string, context.temp_allocator)
+    target_flags(e, root, &args)
+    testing.expect_value(t, len(args), 0)
+    testing.expect_value(t, target_triple(.Windows, .amd64), "windows_amd64")
+    testing.expect_value(t, target_triple(.Darwin, .i386), "")
+}
