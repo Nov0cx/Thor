@@ -42,6 +42,8 @@ Thor :: struct {
     // The settings modal's own rows, categories and capture; see settings_view.odin.
     settings: Settings_State,
     git_open: bool,
+    problems_open: bool,
+    problems: Problems_View, // see problems.odin
     // The git modal's own lists, diff and commit box; see git_view.odin.
     git: Git_View,
     theme_editor_open: bool,

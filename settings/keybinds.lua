@@ -75,6 +75,7 @@ return {
         open_folder = "ctrl+alt+o",
         open_folder_new_window = "ctrl+alt+shift+o",
         open_git_branches = "",
+        open_problems = "ctrl+shift+m",
         open_git_gui = "",
         open_git_history = "",
         outgoing_calls = "",
