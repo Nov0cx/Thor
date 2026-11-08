@@ -142,6 +142,15 @@
 - The first start after an update shows a summary of the new version. "All changes" shows its full changelog. Help > "What's New" (`whats_new`) opens it again.
 - Fixed: the tutorial lab explanations showed `%!(MISSING CLOSE BRACE)` instead of the key chords.
 - Fixed: the PowerShell fallback of the update check sent a broken command.
+- Odin: call hierarchy ("Show Incoming Calls", "Show Outgoing Calls"), type hierarchy ("Show Supertypes", "Show Subtypes") and "Go to Implementations" list their results in a picker. Bind them in `keybinds.lua` (`incoming_calls`, `outgoing_calls`, `supertypes`, `subtypes`, `goto_implementations`).
+- Expand and shrink the selection by syntax node: ctrl + alt + shift + right / left.
+- "View: Toggle Reference Counts" shows how many uses each declaration of an Odin file has.
+- Odin: after `x.` the completion offers postfix templates such as `if`, `ifnil`, `for`, `fori`, `switch`, `var`, `return` and `defer_delete`, each for the types it fits.
+- Odin: deprecated declarations are coloured as deprecated, and a `when` branch the build target makes false is greyed out (`inactive` and `deprecated` captures in `plugins/odin/plugin.lua`).
+- Odin: a cast to the type the value already has is a warning while typing (`vet/cast`). A pointer that is always nil where it is dereferenced gets a hint (`nil/deref`). A call that drops its `ok` result gets the `api/ignored-error` hint.
+- Odin: `vet/unused-procedure`, `vet/style`, `vet/semicolon` and `vet/tabs` are opt-in. Set the id in `diagnostics`, or use a `#+vet` tag.
+- Odin: `package_diagnostics = true` in `.thor/odin-analyzer.lua` also checks the other files of the package while typing. `diagnostics_telemetry = true` logs where `odin check` and the live check disagree. Both default to false.
+- `odin run build.odin -file -- bench [-strict]` times parse, diagnostics and completion.
 
 # 2026.10.7
 
