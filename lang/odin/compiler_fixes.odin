@@ -39,6 +39,30 @@ semicolon_fix :: proc(rc: ^Request_Context, offset: int, res: ^lang.Result) {
     push_action(res, rc.req, "Remove the unneeded semicolon", Edit_Spec{from, offset + 1, ""})
 }
 
+@(private = "file")
+MISSING_COMMA :: "Expected a comma, got a newline"
+
+// Inserts the comma after the last token before the newline the compiler names.
+@(private = "file")
+comma_fix :: proc(rc: ^Request_Context, offset: int, res: ^lang.Result) {
+    toks := odinsyntax.lex_all(rc.req.source, context.temp_allocator)
+    for j := len(toks) - 1; j >= 0; j -= 1 {
+        tok := toks[j]
+        if int(tok.offset) >= offset {
+            continue
+        }
+        #partial switch tok.kind {
+        case .Whitespace, .Line_Comment, .Block_Comment, .Line_Continuation, .Newline:
+            continue
+        case .Comma, .Open_Brace, .Open_Paren, .Semicolon:
+            return
+        }
+        at := int(tok.offset + tok.len)
+        push_action(res, rc.req, "Add the missing trailing comma", Edit_Spec{at, at, ","})
+        return
+    }
+}
+
 // Offers a fix for each error of the request's diagnostics that the compiler words in a known way.
 @(private)
 compiler_fixes :: proc(rc: ^Request_Context, res: ^lang.Result) {
@@ -48,6 +72,10 @@ compiler_fixes :: proc(rc: ^Request_Context, res: ^lang.Result) {
         }
         if d.message == UNNEEDED_SEMICOLON {
             semicolon_fix(rc, d.start, res)
+            continue
+        }
+        if d.message == MISSING_COMMA {
+            comma_fix(rc, d.start, res)
             continue
         }
         if d.severity != .Error {

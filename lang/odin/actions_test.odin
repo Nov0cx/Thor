@@ -467,6 +467,32 @@ h :: proc(n: int) { n += 1 }
 }
 
 @(test)
+test_action_missing_comma :: proc(t: ^testing.T) {
+    SRC :: "package app\n\nE :: enum {\n    A,\n    B // last\n}\n"
+    root := fixture(t, "action_comma", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    offset := strings.index(SRC, "\n}")
+    diags := []lang.Diagnostic_Ref{{start = offset, end = offset + 1, severity = .Warning, message = "Expected a comma, got a newline"}}
+    req := lang.Request {
+        kind        = .Code_Actions,
+        path        = fixture_path(root, "app/main.odin"),
+        ext         = ".odin",
+        source      = SRC,
+        workspace   = root,
+        offset      = offset,
+        end         = offset,
+        diagnostics = diags,
+    }
+    res: lang.Result
+    code_actions(e, &req, &res)
+    defer free_actions(&res)
+    want, _ := strings.replace(SRC, "B // last", "B, // last", 1, context.temp_allocator)
+    testing.expect_value(t, applied(t, &res, SRC, "Add the missing trailing comma"), want)
+}
+
+@(test)
 test_action_unneeded_semicolon :: proc(t: ^testing.T) {
     SRC :: "package app\n\nf :: proc() {\n    x := 1 ;\n    _ = x\n}\n"
     root := fixture(t, "action_semicolon", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
