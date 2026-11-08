@@ -402,3 +402,66 @@ take :: proc(s: string) {}
     got = applied(t, &variable, SRC, "Create variable 'missing'")
     testing.expect(t, strings.contains(got, "    missing: string\n    take(missing)\n"), got)
 }
+
+@(test)
+test_action_compiler_lines :: proc(t: ^testing.T) {
+    SRC :: `package app
+
+f :: proc(n: int, s: []int) -> int {
+    n += 1
+    return n + len(s)
+}
+
+g :: proc() {
+    x := 5
+    x := 6
+    _ = x
+}
+
+h :: proc(n: int) { n += 1 }
+`
+    root := fixture(t, "action_compiler_lines", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    at :: proc(src, marker: string, skip := 0) -> int {
+        from := 0
+        for _ in 0 ..< skip {
+            from += strings.index(src[from:], marker) + 1
+        }
+        return from + strings.index(src[from:], marker)
+    }
+    run :: proc(e: ^Engine, root: string, offset: int, message: string) -> lang.Result {
+        diags := []lang.Diagnostic_Ref{{start = offset, end = offset + 1, severity = .Error, message = message}}
+        req := lang.Request {
+            kind        = .Code_Actions,
+            path        = fixture_path(root, "app/main.odin"),
+            ext         = ".odin",
+            source      = SRC,
+            workspace   = root,
+            offset      = offset,
+            end         = offset,
+            diagnostics = diags,
+        }
+        res: lang.Result
+        code_actions(e, &req, &res)
+        return res
+    }
+
+    res := run(e, root, at(SRC, "n += 1"), "Cannot assign to 'n' which is a procedure parameter")
+    want, _ := strings.replace(SRC, "    n += 1\n    return", "    n := n\n    n += 1\n    return", 1, context.temp_allocator)
+    testing.expect_value(t, applied(t, &res, SRC, "Copy parameter 'n' into a local variable"), want)
+    free_actions(&res)
+
+    res = run(e, root, at(SRC, "x := 6"), "Redeclaration of 'x' in this scope")
+    want, _ = strings.replace(SRC, "x := 6", "x = 6", 1, context.temp_allocator)
+    testing.expect_value(t, applied(t, &res, SRC, "Assign to the existing 'x' instead of declaring it again"), want)
+    free_actions(&res)
+
+    // A body on the line of its parameters gets no fix.
+    res = run(e, root, at(SRC, "n += 1", 1), "Cannot assign to 'n' which is a procedure parameter")
+    for a in res.actions {
+        testing.expect(t, !strings.has_prefix(a.title, "Copy parameter"), "one-line body")
+    }
+    free_actions(&res)
+}

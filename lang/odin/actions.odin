@@ -39,6 +39,7 @@ code_actions :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
             refactor_actions(&rc, m, caret, res)
             unused_variable_fixes(&rc, m, caret, res)
             unused_import_fixes(&rc, m, whens[:], caret, res)
+            compiler_fixes(&rc, res)
         }
     }
     if !lang.request_cancelled(req) {
