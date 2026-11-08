@@ -182,17 +182,19 @@ value from `context.temp_allocator` or `tprintf` that is stored there
 (`mem/temp-escape`). A `defer` in a loop that frees a variable declared before the
 loop, such as `defer delete(buf)`, is marked too, since it runs on every iteration
 (`defer/in-loop`). A use of a declaration marked `@(deprecated)` is marked too
-(`api/deprecated`). With `mem/leak`, `mem/double-free` or `mem/use-after-free` set in
+(`api/deprecated`), a deprecated member of a procedure group and a deprecated type
+in a type position included. With `mem/leak`, `mem/double-free` or `mem/use-after-free` set in
 `diagnostics`, a hint marks a `make`, `new` or `strings.clone` result that a path
 neither frees nor hands on, a free of a value every path already freed, and a use of
 such a value. A `for x in items` loop that copies a large element (512
 bytes or more) on every iteration and only reads it is marked too, since
 `for &x` avoids the copy (`perf/range-copy`). An assignment of a place to itself, an `if` with the
-literal condition `true` or `false` and an `if` with the same text in both
+literal condition `true` or `false` (or a constant expression such as `N > 4`, in an
+`if` or a `for`, when it does not depend on the build target) and an `if` with the same text in both
 branches are marked too (`logic/self-assign`, `logic/const-condition`,
 `logic/identical-branches`). A name that breaks the Odin naming style, such
 as a `camelCase` variable or a type without `Ada_Case`, is marked too
-(`style/naming`). The checks of `odin check -vet` are warnings
+(`style/naming`); an alias follows the rule of what it names. The checks of `odin check -vet` are warnings
 while typing: a variable that nothing uses (`vet/unused-variable`), an import
 that nothing uses (`vet/unused-import`), a variable that shadows an earlier one
 of the same type (`vet/shadowing`) and a declaration in a file-scope `when`
@@ -236,7 +238,9 @@ Thor counts at once; a file changed by another program counts within a second.
 `switch` (or `#partial`), the removal of an unused import (one, or all of
 them), an unused variable made `_`, the import of a package a qualifier names
 (`fmt.` with no `import "core:fmt"`), the fields a struct literal leaves out,
-`or_return` on a call, a declaration for a name nothing declares, and a
+`or_return` on a call, `&` for a `for` or `switch` variable the compiler
+rejects as immutable, the removal of an unneeded cast or `transmute`, the
+indentation of a line with tabs (`-vet-tabs`), a declaration for a name nothing declares, and a
 `thor:ignore` comment for each id on the caret's line, for the line or for the
 file. The same picker holds the refactorings: inline variable, `if` chain to
 `switch` and back, extract variable and extract procedure (select first),
@@ -251,6 +255,11 @@ Counts" shows the number of uses of each declaration of the file. Semantic highl
 also marks `deprecated` declarations, and greys out a `when` branch the build target makes
 false (`inactive`); a plugin colours both through the `inactive` and `deprecated`
 captures (`plugins/odin/plugin.lua`).
+
+The status bar of an Odin file shows its build target (`target`, before the
+language). Click it, or run "Odin: Select Build Target..." (also in the View
+menu), to check that file for another `-target:`; "Workspace Default" removes the
+choice. It is kept in `file_targets`, see [Configuration](configuration.md).
 
 Every other language gets these features from a language server.
 **Settings > Language Servers** (or **Help > Language Servers**) lists the ones

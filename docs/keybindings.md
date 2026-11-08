@@ -217,6 +217,10 @@ Click the language in the status bar, or run "View: Change Language of
 File..." (`change_language`, unbound), to colour the active file as another
 language. See `file_languages` in [Configuration](configuration.md).
 
+Click the build target in the status bar of an Odin file, or run "Odin: Select
+Build Target..." (`select_build_target`, unbound), to check that file for
+another `-target:`. See `file_targets` in [Configuration](configuration.md).
+
 ## Previews
 
 Three file kinds open in a view of their own instead of the text editor. Each is

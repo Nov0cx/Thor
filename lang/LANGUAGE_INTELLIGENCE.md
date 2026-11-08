@@ -255,7 +255,7 @@ Package names: `odin`, `odinsema`, `odinsyntax`, `odinfmt`, `syntaxgen`.
 | File(s) | What |
 | --- | --- |
 | `item_tree.odin`, `nested.odin` | Top-level declarations of one file: kind, visibility, attributes, doc comment, one-line signature, children. `when` branches kept as guards. Owns its strings. |
-| `target.odin`, `files.odin` | `file_in_build`: the compiler's file-name suffix rules and `#+build` expressions. Target is the host, overlaid by `target` and `defines` in `odin-analyzer.lua`. |
+| `target.odin`, `files.odin` | `file_in_build`: the compiler's file-name suffix rules and `#+build` expressions. Target is the host, overlaid by `target` and `defines` in `odin-analyzer.lua`, then per file by the `file_targets` setting (`file_target.odin`; an unknown target is ignored with a log warning). |
 | `when.odin` | `guard_state` evaluates a compiled `when` condition to true, false or unknown. Unknown counts as active. |
 | `package.odin`, `imports.odin` | `package_scope` (name to items, with conflicts), `file_imports` (alias to package directory). An item under a false `when` stays for navigation, marked inactive, and never conflicts. |
 | `scope.odin`, `resolve.odin`, `using.odin` | `scope_map`: what each identifier in a body names lexically. `using` expansion. |
@@ -288,7 +288,7 @@ size, the format and a schema hash. Any mismatch rebuilds silently. Parses stay 
 | `Completion` | `completion.odin`, `auto_import.odin` | Scope and member completion, expected-type ranking, struct-literal fields, snippets, postfix templates, auto-import. |
 | `Semantic_Tokens` | `semantic.odin` | Kinds plus modifiers (`deprecated`, `distinct`) and inactive `when` ranges. Sparse by design. |
 | `Inlay_Hints` | `inlay.odin` | Types of `:=` and `::`, parameter names at calls. |
-| `Code_Actions`, `Resolve_Action` | `actions.odin`, `fixes.odin`, `compiler_fixes.odin`, `create_decl.odin`, `refactor.odin`, `extract.odin`, `change_signature.odin`, `move_decl.odin` | Quick fixes and refactorings. Four refactorings ask for a name or path through `Code_Action.prompt`. |
+| `Code_Actions`, `Resolve_Action` | `actions.odin`, `fixes.odin`, `compiler_fixes.odin`, `create_decl.odin`, `refactor.odin`, `extract.odin`, `change_signature.odin`, `move_decl.odin` | Quick fixes and refactorings. Compiler-message fixes include `&` for an immutable `for`/`switch` variable, removing an unneeded cast or `transmute`, and indenting a `-vet-tabs` line with tabs. Four refactorings ask for a name or path through `Code_Action.prompt`. |
 | `Call_Hierarchy`, `Type_Hierarchy`, `Implementations` | `hierarchy.odin` | |
 | `Selection_Range` | `selection.odin` | |
 | `Code_Lens` | `lens.odin` | Reference counts. |
@@ -311,6 +311,13 @@ read-only for the running editor.
 `enable_snippets`, `target`, `defines`, `diagnostics` (id to `off`/`hint`/`warning`/`error`), `vet`,
 `inlay_types`, `inlay_parameters`, `package_diagnostics`, `diagnostics_telemetry`, `naming`. The file
 is Thor's own, not `ols.json`. The engine caches it and re-reads it only when modtime or size moves.
+
+Per-file build target: the `file_targets` setting (workspace-relative path or glob to `-target:`
+value, matched like `file_languages`) is written to `<workspace>/.thor/settings.lua` for a workspace
+file, else to the user layer; an empty value removes a lower layer's entry. The editor side is
+`thor/file_target.odin`: the palette command "Odin: Select Build Target..." (`select_build_target`,
+unbound), the View menu row, the status-bar segment `target` before `lang` (Odin files, engine on)
+and the picker "Build Target of the File" with a "Workspace Default" row.
 
 ### 4.5 Performance (release build)
 
@@ -362,6 +369,14 @@ and `-vet-packages:<package>`, and maps its lines to the same ids.
 `flow/unreachable`, `flow/dead-store`, `api/fmt-verbs`, `api/ignored-error`, `api/deprecated`,
 `mem/dangling-slice`, `mem/temp-escape`, `defer/in-loop`, `perf/range-copy`, `nil/deref`,
 `logic/self-assign`, `logic/const-condition`, `logic/identical-branches`, `style/naming`.
+
+`api/deprecated` also covers proc-group members and bare deprecated types in type positions.
+`logic/const-condition` reads constant expressions in `if`/`else if` (both polarities) and `for`
+(always-false only), never `when`; it skips target-dependent conditions (`ODIN_*`, directives,
+`size_of`) and conditions built only from names with no literal. `style/naming` checks an alias by
+what it names (type, procedure or constant rule) and skips an alias named like the last part of its
+target (`HWND :: win32.HWND`), an alias of a basic type, foreign blocks and aliases of
+`base:intrinsics`/builtin.
 Opt-in ownership dataflow: `mem/leak`, `mem/double-free`, `mem/use-after-free`.
 
 Most lints were audited for false positives on the clean `base`/`core`/`vendor` corpus before they
@@ -822,18 +837,15 @@ Things that do not exist yet. Each is a candidate for future work.
 
 ### Analyzer (Odin)
 
-- **Multi-target diagnostics.** One target at a time (the host, or `target` in `odin-analyzer.lua`).
-  Showing errors for several targets at once is not built.
+- **Multi-target diagnostics.** One target per file at a time (the host, `target` in
+  `odin-analyzer.lua`, or `file_targets`). Showing errors for several targets at once is not built.
+  Files of one package with different targets make the `Package_Memo` (one configuration per package
+  slot) and the `TYPE_STATE_SLOTS` (4) type caches churn. The result is correct but slower.
 - **Workspace disk cache.** Only the stdlib item trees persist. Item trees of workspace files keyed
   by content hash are not cached.
 - **Custom lints from Lua plugins.** The sema API is not exposed to plugins.
-- **Other compiler messages as quick fixes** (`compiler_fixes.odin` handles a few).
-- **Lint gaps.**
-  - `api/deprecated`: a deprecated proc-group member and a deprecated type in a type position.
-  - `logic/const-condition`: a constant expression such as `N > 4` is not read.
-  - `style/naming`: an alias such as `a :: b` is not read.
-- **Per-file build target in the editor.** The target comes from the workspace config, not from a
-  per-file choice.
+- **Other compiler messages as quick fixes.** `compiler_fixes.odin` handles a few; more remain. The
+  indented `Suggestion:` lines of the compiler output are not read.
 
 ### Seam and host
 

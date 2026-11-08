@@ -92,6 +92,7 @@ General editor preferences.
 | `language_intelligence` | Master switch for language features (hover, goto, completion, ...), both the built-in Odin support and any configured language server; either a plain boolean or an object with an `"enabled"` key plus per-feature toggles | `true` |
 | `language_backends` | Per-backend switch, one level more precise than `language_intelligence`: an object keyed by backend id (`"odin"` for the built-in support, or an `lsp.lua` server's own `id`) whose value is the same shape as `language_intelligence` itself — a plain boolean, or an object with `"enabled"` plus per-feature toggles — scoped to that one backend | `{}` (every backend fully enabled) |
 | `file_languages` | The language a file is coloured as, over the one its name gives: an object keyed by a path relative to the workspace (`"src/boot.inc"`) or a glob (`"*.inc"`, `"src/*.s"`), whose value is a language name as the status bar shows it (`"FASM"`). A glob with no `/` matches the file name. An exact path wins over a glob, a longer glob over a shorter one, and `""` turns detection back on | `{}` |
+| `file_targets` | The `-target:` value the Odin analyzer checks a file for, over the workspace default (`target` in `odin-analyzer.lua`): an object keyed like `file_languages` (a path relative to the workspace or a glob) whose value is a target such as `"linux_amd64"`. An empty value removes the entry of a lower layer. An unknown target is ignored and logged as a warning | `{}` |
 
 Thor saves by itself, `autosave_delay_ms` after the last edit. A tab that
 closes, a folder switch and a quit write every unsaved buffer first. When the
@@ -109,6 +110,21 @@ Detect" removes it again.
 file_languages = {
     ["*.inc"] = "FASM",
     ["src/legacy.inc"] = "Pascal",
+},
+```
+
+Click the build target in the status bar of an Odin file (shown while the
+built-in Odin support is on), or run "Odin: Select Build Target..."
+(`select_build_target`, unbound; also in the View menu), to pick the
+`-target:` value the analyzer and the live checks use for that file. The row
+"Workspace Default" removes the choice. It goes into `file_targets` of the
+workspace's `.thor/settings.lua` for a file in the workspace, else of
+`user/settings.lua`.
+
+```lua
+file_targets = {
+    ["src/win32/*.odin"] = "windows_amd64",
+    ["src/boot.odin"] = "linux_arm64",
 },
 ```
 
@@ -422,6 +438,13 @@ its root, layered on top of the global settings above. This repository's own
   the save passes `odin check` one `-vet-*` flag for each of them that is not `"off"`, and gives the
   lines it reports for them the same id and severity.
 
+  `logic/const-condition` reads a constant expression such as `N > 4` in an
+  `if` or `else if` (true or false) and in a `for` (always false only), never in
+  a `when`. It skips a condition that depends on the target (`ODIN_*`, a
+  directive, `size_of`) and one built only from names with no literal.
+  `api/deprecated` also marks a deprecated member of a procedure group and a
+  deprecated type in a type position.
+
   `package_diagnostics` (default `false`) also checks the other files of the open file's
   package while typing. `diagnostics_telemetry` (default `false`) makes a save log where
   `odin check` and the live check disagree:
@@ -436,7 +459,11 @@ its root, layered on top of the global settings above. This repository's own
   `constant` and `enum_member`. A value is `"ada_case"`, `"snake_case"`,
   `"screaming_snake_case"` or `"any"`, which switches that rule off. A name
   of one letter, a name that starts with `_`, a name in a `foreign` block and
-  a declaration with `link_name` or `export` are never marked:
+  a declaration with `link_name` or `export` are never marked. An alias
+  (`a :: b`) follows the rule of what it names: type, procedure or constant.
+  An alias named like the last part of its target (`HWND :: win32.HWND`), an
+  alias of a basic type, an alias in a `foreign` block and an alias of
+  something in `base:intrinsics` or the builtins are skipped:
 
   ```lua
   return { naming = { type = "ada_case", variable = "any" } }
