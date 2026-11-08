@@ -1436,6 +1436,7 @@ thor_process_io :: proc(thor: ^Thor) {
             // placeholder); a reload that replaced the buffer re-bound itself.
             // The document mirror starts here, not in thor_open_file: before
             // the read lands there is no text to send.
+            thor_apply_file_target(thor, file)
             thor_lang_notify(thor, file, .Opened)
             thor_rebind_file_panes(thor, file)
         }

@@ -593,54 +593,81 @@ test_lang_busy_label_prefers_the_visible_kind :: proc(t: ^testing.T) {
     testing.expect_value(t, thor_lang_busy_label({.Completion, .Hover}), "Resolving...")
 }
 
-// A build target change re-asks the analyzer about the file: a check is queued, the tokens and hints
-// go stale, and a classification in flight for the old target is dropped.
+// The file_targets setting reaches the engine at the head of the frame after a reload. A file whose target
+// moved is asked about again: a check is queued, the tokens and hints go stale, and a classification in
+// flight for the old target is dropped. A file whose target stayed keeps what it has.
 @(test)
-test_file_target_refreshes_analysis :: proc(t: ^testing.T) {
+test_file_targets_apply_and_refresh :: proc(t: ^testing.T) {
     thor := new(Thor)
     defer free(thor)
     thor.open_files = make([dynamic]^Open_File)
     lang.manager_init(&thor.lang_manager)
     thor.odin_engine = odin.engine_create()
     lang.manager_register(&thor.lang_manager, odin.engine_backend(thor.odin_engine))
+    thor.config.general.file_targets = make(map[string]string)
     defer {
         for file in thor.open_files {
             thor_free_open_file(file)
         }
         delete(thor.open_files)
         lang.manager_destroy(&thor.lang_manager)
+        delete(thor.config.general.file_targets)
     }
+    thor.workspace_dir = "thor_file_target_ws.tmp"
 
-    file := new(Open_File)
-    file.path = strings.clone("thor_file_target.odin")
-    file.name = file.path
-    textedit.init(&file.state)
-    textedit.set_text(&file.state, "package demo\n")
-    file.loaded = true
-    file.semantic_ready = true
-    file.inlay_ready = true
-    file.syntax_ready = true
-    file.highlighted = true
-    append(&thor.open_files, file)
+    open :: proc(thor: ^Thor, path: string) -> ^Open_File {
+        file := new(Open_File)
+        file.path = strings.clone(path)
+        file.name = file.path
+        textedit.init(&file.state)
+        textedit.set_text(&file.state, "package demo\n")
+        file.loaded = true
+        file.semantic_ready = true
+        file.inlay_ready = true
+        file.syntax_ready = true
+        file.highlighted = true
+        append(&thor.open_files, file)
+        return file
+    }
+    a := open(thor, "thor_file_target_ws.tmp/src/a.odin")
+    b := open(thor, "thor_file_target_ws.tmp/src/b.odin")
 
-    triple, own := thor_file_build_target(thor, file)
+    triple, own := thor_file_build_target(thor, a)
     testing.expect(t, triple != "" && !own)
-    thor.semantic_request_id = lang.manager_request_debounced(&thor.lang_manager, .Semantic_Tokens, file.path, ".odin", "package demo\n", 0, file.state.revision, "")
+    thor.semantic_request_id = lang.manager_request_debounced(&thor.lang_manager, .Semantic_Tokens, a.path, ".odin", "package demo\n", 0, a.state.revision, "")
     testing.expect(t, thor.semantic_request_id != 0)
 
-    testing.expect(t, thor_set_file_target(thor, file, "freestanding_wasm32"))
-    triple, own = thor_file_build_target(thor, file)
+    thor.config.general.file_targets["src/a.odin"] = "freestanding_wasm32"
+    thor_poll_file_targets(thor)
+    _, own = thor_file_build_target(thor, a)
+    testing.expect(t, !own, "nothing applies until a reload asks for it")
+
+    thor.file_targets_pending = true
+    thor_poll_file_targets(thor)
+    testing.expect(t, !thor.file_targets_pending)
+    triple, own = thor_file_build_target(thor, a)
     testing.expect_value(t, triple, "freestanding_wasm32")
     testing.expect(t, own)
-    testing.expect(t, !file.semantic_ready && !file.inlay_ready && !file.syntax_ready && !file.highlighted)
+    testing.expect(t, !a.semantic_ready && !a.inlay_ready && !a.syntax_ready && !a.highlighted)
     testing.expect(t, lang.manager_debounce_pending(&thor.lang_manager, .Diagnostics), "a check is queued")
     testing.expect(t, !lang.manager_has_request(&thor.lang_manager, thor.semantic_request_id), "the old classification is dropped")
-
-    testing.expect(t, !thor_set_file_target(thor, file, "plan9_amd64"))
-    triple, _ = thor_file_build_target(thor, file)
-    testing.expect_value(t, triple, "freestanding_wasm32")
-
-    testing.expect(t, thor_set_file_target(thor, file, ""))
-    _, own = thor_file_build_target(thor, file)
+    testing.expect(t, b.semantic_ready && b.inlay_ready && b.syntax_ready && b.highlighted, "a file whose target stayed keeps its answers")
+    _, own = thor_file_build_target(thor, b)
     testing.expect(t, !own)
+
+    // A target the compiler does not know takes the workspace default.
+    thor.config.general.file_targets["src/a.odin"] = "plan9_amd64"
+    thor.file_targets_pending = true
+    thor_poll_file_targets(thor)
+    _, own = thor_file_build_target(thor, a)
+    testing.expect(t, !own)
+
+    // A file that opens takes its target before its first request.
+    thor.config.general.file_targets["src/c.odin"] = "linux_arm64"
+    c := open(thor, "thor_file_target_ws.tmp/src/c.odin")
+    thor_apply_file_target(thor, c)
+    triple, own = thor_file_build_target(thor, c)
+    testing.expect_value(t, triple, "linux_arm64")
+    testing.expect(t, own)
+    testing.expect(t, c.semantic_ready, "an open asks nothing again")
 }

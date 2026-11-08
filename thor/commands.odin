@@ -179,6 +179,7 @@ thor_reload_settings :: proc(thor: ^Thor) {
         file.highlighted = false
         file.folds_ready = false
     }
+    thor.file_targets_pending = true
     thor_load_tasks(thor)
     // The tips and the chords they name both came from the config just replaced.
     thor_refresh_tip_cards(thor)

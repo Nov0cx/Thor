@@ -79,6 +79,8 @@ General :: struct {
     language_backends: map[string]Backend_Setting,
     // "file_languages": a workspace-relative path or glob -> language name. Owned keys and values.
     file_languages:    map[string]string,
+    // "file_targets": a workspace-relative path or glob -> `-target:` value of the Odin analyzer. Owned keys and values.
+    file_targets:      map[string]string,
 }
 
 // One backend's admin gate: mirrors General's own language_enabled/
@@ -111,6 +113,11 @@ LANGUAGE_BACKENDS_SETTING :: "language_backends"
 // or glob ("src/boot.inc", "*.inc") -> language name ("FASM"). An empty name
 // removes an entry a lower layer set.
 FILE_LANGUAGES_SETTING :: "file_languages"
+
+// settings.lua key holding the per-file build targets of the Odin analyzer: an object of path or glob
+// ("src/x_linux.odin", "*_linux.odin") -> `-target:` value ("linux_amd64"). An empty value removes an entry
+// a lower layer set.
+FILE_TARGETS_SETTING :: "file_targets"
 
 // The shipped defaults, staged beside the binary by a build and swapped by an
 // update. Read-only: nothing Thor writes lands here.
@@ -213,6 +220,7 @@ load :: proc(dir: string) -> Settings {
         language_features = lang.FEATURES_ALL,
         language_backends = make(map[string]Backend_Setting),
         file_languages    = make(map[string]string),
+        file_targets      = make(map[string]string),
     }
 
     load_dir(&s, dir)
@@ -264,6 +272,12 @@ destroy :: proc(s: ^Settings) {
         delete(value)
     }
     delete(s.general.file_languages)
+
+    for key, value in s.general.file_targets {
+        delete(key)
+        delete(value)
+    }
+    delete(s.general.file_targets)
 
     for tip in s.tips {
         delete(tip.title)
@@ -469,10 +483,22 @@ backend_feature_enabled :: proc(s: ^Settings, id: string, kind: lang.Request_Kin
 // exact path wins over a glob, a longer glob over a shorter one. A glob with no
 // `/` matches the base name.
 file_language :: proc(s: ^Settings, rel: string) -> string {
+    return file_pattern_lookup(s.general.file_languages, rel)
+}
+
+// The `-target:` value file_targets sets for `rel`, matched as file_language matches. "" means the
+// workspace default.
+file_target :: proc(s: ^Settings, rel: string) -> string {
+    return file_pattern_lookup(s.general.file_targets, rel)
+}
+
+// The value of the entry of `entries` that matches `rel` best: an exact path, else the longest glob.
+@(private)
+file_pattern_lookup :: proc(entries: map[string]string, rel: string) -> string {
     path := file_pattern_fold(rel)
     base := path[strings.last_index_byte(path, '/') + 1:]
     best, best_len := "", -1
-    for pattern, name in s.general.file_languages {
+    for pattern, name in entries {
         p := file_pattern_fold(pattern)
         if p == path {
             return name
@@ -506,6 +532,23 @@ persist_file_language :: proc(path, key, name: string) -> luaconf.Patch_Error {
 
 // Drops file_languages[key] from the settings file at `path`. A missing file or key is no error.
 remove_file_language :: proc(path, key: string) -> luaconf.Patch_Error {
+    return remove_file_entry(path, FILE_LANGUAGES_SETTING, key)
+}
+
+// Sets file_targets[key] = triple in the settings file at `path`. An empty triple writes "", which takes
+// the workspace default for the key over every lower layer.
+persist_file_target :: proc(path, key, triple: string) -> luaconf.Patch_Error {
+    return luaconf.patch(path, {FILE_TARGETS_SETTING, key}, json.String(triple))
+}
+
+// Drops file_targets[key] from the settings file at `path`. A missing file or key is no error.
+remove_file_target :: proc(path, key: string) -> luaconf.Patch_Error {
+    return remove_file_entry(path, FILE_TARGETS_SETTING, key)
+}
+
+// Drops `key` from the object `setting_key` of the settings file at `path`. A missing file or key is no error.
+@(private)
+remove_file_entry :: proc(path, setting_key, key: string) -> luaconf.Patch_Error {
     root, status, message := luaconf.eval_file(path)
     switch status {
     case .Missing:
@@ -516,7 +559,7 @@ remove_file_language :: proc(path, key: string) -> luaconf.Patch_Error {
     case .Ok:
     }
     obj, _ := root.(json.Object)
-    current, has := obj[FILE_LANGUAGES_SETTING].(json.Object)
+    current, has := obj[setting_key].(json.Object)
     if !has || key not_in current {
         return .None
     }
@@ -526,7 +569,7 @@ remove_file_language :: proc(path, key: string) -> luaconf.Patch_Error {
             rest[k] = v
         }
     }
-    return luaconf.patch(path, {FILE_LANGUAGES_SETTING}, rest)
+    return luaconf.patch(path, {setting_key}, rest)
 }
 
 // Where an opened folder goes. Unset or unrecognized means Ask.
@@ -1041,29 +1084,30 @@ load_general :: proc(s: ^Settings, path: string) {
     read_string(root, "default_shell", &s.general.default_shell)
     read_language(s, root)
     read_backend_toggles(s, root)
-    read_file_languages(s, root)
+    read_file_entries(root, FILE_LANGUAGES_SETTING, &s.general.file_languages, "a language name")
+    read_file_entries(root, FILE_TARGETS_SETTING, &s.general.file_targets, "a build target")
 }
 
-// Reads the per-file language overrides. Each entry overlays the one a lower
-// layer set for the same key.
+// Reads the per-file entries of the object `setting_key` into `entries`: path or glob -> string. Each
+// entry overlays the one a lower layer set for the same key. `what` names the value in a warning.
 @(private)
-read_file_languages :: proc(s: ^Settings, root: json.Object) {
-    obj, ok := root[FILE_LANGUAGES_SETTING].(json.Object)
+read_file_entries :: proc(root: json.Object, setting_key: string, entries: ^map[string]string, what: string) {
+    obj, ok := root[setting_key].(json.Object)
     if !ok {
         return
     }
     for key, value in obj {
         name, is_string := value.(json.String)
         if !is_string {
-            log.warnf("Settings %s.%s: the value is not a language name", FILE_LANGUAGES_SETTING, key)
+            log.warnf("Settings %s.%s: the value is not %s", setting_key, key, what)
             continue
         }
-        if key in s.general.file_languages {
-            old_key, old_value := delete_key(&s.general.file_languages, key)
+        if key in entries {
+            old_key, old_value := delete_key(entries, key)
             delete(old_key)
             delete(old_value)
         }
-        s.general.file_languages[strings.clone(key)] = strings.clone(string(name))
+        entries[strings.clone(key)] = strings.clone(string(name))
     }
 }
 

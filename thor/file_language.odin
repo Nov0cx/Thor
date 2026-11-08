@@ -39,10 +39,9 @@ thor_file_highlight_key :: proc(thor: ^Thor, file: ^Open_File) -> string {
     return thor_highlight_key(&thor.plugins, file.name)
 }
 
-// The settings file an override for `path` goes to: the workspace's .thor/
+// The settings file a per-file entry for `path` goes to: the workspace's .thor/
 // for a file in the workspace, else the user layer.
-@(private = "file")
-thor_file_language_settings_path :: proc(thor: ^Thor, path: string) -> string {
+thor_file_settings_path :: proc(thor: ^Thor, path: string) -> string {
     if thor.workspace_dir != "" && thor_path_within(path, thor.workspace_dir) {
         return strings.concatenate(
             {thor_workspace_config_dir(thor.workspace_dir), "/", setting.SETTINGS_FILE},
@@ -116,7 +115,7 @@ thor_change_language_commit :: proc(data: rawptr, choice: string) {
 // still set a language.
 thor_set_file_language :: proc(thor: ^Thor, path, name: string) -> bool {
     key := thor_file_language_key(thor, path)
-    target := thor_file_language_settings_path(thor, path)
+    target := thor_file_settings_path(thor, path)
     if name != "" {
         if err := setting.persist_file_language(target, key, name); err != .None {
             thor_settings_save_failed(thor, target, err)

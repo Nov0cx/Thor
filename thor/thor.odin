@@ -432,6 +432,8 @@ Thor :: struct {
     // on at the head of the run loop, never inside an event: thor_reload_lang
     // destroys the backend a dispatch may be standing on.
     lang_reload_pending: bool,
+    // Set by a settings reload: the file_targets setting reaches the Odin engine at the head of the run loop.
+    file_targets_pending: bool,
     // The one server a row or the palette asked to restart, acted on at the same
     // point and for the same reason. Owned; "" when none is owed.
     lang_restart_id: string,
@@ -989,6 +991,7 @@ run :: proc(thor: ^Thor) {
         // Before anything dispatches: the rebuild drains the manager and
         // destroys the LSP backend, which no in-flight request may be inside.
         thor_poll_lang_reload(thor)
+        thor_poll_file_targets(thor)
         thor_update_files(thor)
         thor_sync_lang_documents(thor)
         lang.manager_dispatch(&thor.lang_manager, thor, thor_on_lang_result)

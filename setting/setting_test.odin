@@ -590,3 +590,43 @@ test_file_language_lookup :: proc(t: ^testing.T) {
     testing.expect_value(t, file_language(&r, "src/boot.inc"), "Pascal")
     testing.expect_value(t, file_language(&r, "lib/plain.inc"), "")
 }
+
+// file_targets: matched as file_languages, kept apart from them, and "" takes the workspace default.
+@(test)
+test_file_target_lookup :: proc(t: ^testing.T) {
+    user := "thor_file_target_user.tmp"
+    workspace := "thor_file_target_ws.tmp"
+    defer for dir in ([]string{user, workspace}) {
+        _ = os.remove(concat_for_test(dir, "/settings.lua"))
+        _ = os.remove(dir)
+    }
+    user_file := concat_for_test(user, "/settings.lua")
+    ws_file := concat_for_test(workspace, "/settings.lua")
+
+    testing.expect_value(t, persist_file_target(user_file, "*_linux.odin", "linux_amd64"), luaconf.Patch_Error.None)
+    testing.expect_value(t, persist_file_target(ws_file, "src/x_linux.odin", "linux_arm64"), luaconf.Patch_Error.None)
+    testing.expect_value(t, persist_file_target(ws_file, "lib/y_linux.odin", ""), luaconf.Patch_Error.None)
+    testing.expect_value(t, persist_file_language(ws_file, "src/x_linux.odin", "Odin"), luaconf.Patch_Error.None)
+
+    s := load(user)
+    defer destroy(&s)
+    load_overlay(&s, workspace)
+
+    testing.expect_value(t, file_target(&s, "src/x_linux.odin"), "linux_arm64")
+    testing.expect_value(t, file_target(&s, "app/z_linux.odin"), "linux_amd64")
+    testing.expect_value(t, file_target(&s, "lib/y_linux.odin"), "")
+    testing.expect_value(t, file_target(&s, "main.odin"), "")
+    testing.expect_value(t, file_language(&s, "src/x_linux.odin"), "Odin")
+    testing.expect_value(t, len(s.general.file_languages), 1)
+    when ODIN_OS == .Windows {
+        testing.expect_value(t, file_target(&s, `SRC\X_Linux.odin`), "linux_arm64")
+    }
+
+    testing.expect_value(t, remove_file_target(ws_file, "src/x_linux.odin"), luaconf.Patch_Error.None)
+    testing.expect_value(t, remove_file_target(ws_file, "missing"), luaconf.Patch_Error.None)
+    r := load(user)
+    defer destroy(&r)
+    load_overlay(&r, workspace)
+    testing.expect_value(t, file_target(&r, "src/x_linux.odin"), "linux_amd64")
+    testing.expect_value(t, file_language(&r, "src/x_linux.odin"), "Odin")
+}
