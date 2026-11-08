@@ -1,6 +1,8 @@
 package odinsema
 
 import "core:fmt"
+import "core:math"
+import "core:math/big"
 import "core:strconv"
 import "core:strings"
 
@@ -65,10 +67,10 @@ strip_signs :: proc(n: odinsyntax.Syntax_Node) -> (node: odinsyntax.Syntax_Node,
 }
 
 // The float expression `n` as a number: a literal, or a sum, difference, product or quotient of
-// them, with parentheses and negations. False for any other node, a hexadecimal float inside an
-// operator, a spelling with a comment, or a number too long to print.
+// them, with parentheses and negations. False for any other node, a spelling with a comment, or a number too long to print.
 @(private = "file")
 literal_number :: proc(n: odinsyntax.Syntax_Node) -> (num: Literal_Number, ok: bool) {
+    context.allocator = context.temp_allocator
     node, negative := strip_signs(n)
     text := odinsyntax.node_text(n)
     if strings.contains(text, "/*") || strings.contains(text, "//") {
@@ -80,7 +82,11 @@ literal_number :: proc(n: odinsyntax.Syntax_Node) -> (num: Literal_Number, ok: b
             return {}, false
         }
         if negative {
-            r.num = -r.num
+            neg, nok := rat_neg(r)
+            if !nok {
+                return {}, false
+            }
+            r = neg
         }
         return rational_number(r)
     }
@@ -163,60 +169,136 @@ literal_leaf :: proc(node: odinsyntax.Syntax_Node) -> (num: Literal_Number, ok: 
     return num, true
 }
 
+// The most bits a numerator or denominator may take before the value is left unsettled.
+RAT_MAX_BITS :: 4096
+
 // An exact fraction; `den` is positive and `num` / `den` is in lowest terms.
 @(private = "file")
 Rational :: struct {
-    num, den: i128,
+    num, den: big.Int,
     dotted:   bool, // a float literal is part of it
+    hexfrac:  bool, // a hexadecimal float with a fraction is part of it
 }
 
 @(private = "file")
-rat_mul :: proc(a, b: i128) -> (i128, bool) {
-    if a == 0 || b == 0 {
-        return 0, true
-    }
-    if a == min(i128) || b == min(i128) {
-        return 0, false
-    }
-    r := a * b
-    if r / b != a {
-        return 0, false
-    }
-    return r, true
+big_from :: proc(v: i64) -> (r: big.Int, ok: bool) {
+    err := big.int_set_from_integer(&r, v)
+    return r, err == nil
 }
 
 @(private = "file")
-rat_add :: proc(a, b: i128) -> (i128, bool) {
-    r := a + b
-    if (b > 0 && r < a) || (b < 0 && r > a) {
-        return 0, false
-    }
-    return r, true
+big_parse :: proc(text: string) -> (r: big.Int, ok: bool) {
+    err := big.int_atoi(&r, text)
+    return r, err == nil
 }
 
 @(private = "file")
-rat_gcd :: proc(a, b: i128) -> i128 {
-    x, y := abs(a), abs(b)
-    for y != 0 {
-        x, y = y, x % y
-    }
-    return x
+big_mul :: proc(a, b: big.Int) -> (r: big.Int, ok: bool) {
+    a, b := a, b
+    err := big.int_mul(&r, &a, &b)
+    return r, err == nil
 }
 
 @(private = "file")
-rat_make :: proc(num, den: i128, dotted: bool) -> (Rational, bool) {
-    if den == 0 || num == min(i128) || den == min(i128) {
+big_add :: proc(a, b: big.Int) -> (r: big.Int, ok: bool) {
+    a, b := a, b
+    err := big.int_add(&r, &a, &b)
+    return r, err == nil
+}
+
+@(private = "file")
+big_neg :: proc(a: big.Int) -> (r: big.Int, ok: bool) {
+    a := a
+    err := big.int_neg(&r, &a)
+    return r, err == nil
+}
+
+@(private = "file")
+big_abs :: proc(a: big.Int) -> (r: big.Int, ok: bool) {
+    a := a
+    err := big.int_abs(&r, &a)
+    return r, err == nil
+}
+
+@(private = "file")
+big_div :: proc(a, b: big.Int) -> (r: big.Int, ok: bool) {
+    a, b := a, b
+    err := big.int_div(&r, &a, &b)
+    return r, err == nil
+}
+
+@(private = "file")
+big_shl :: proc(a: big.Int, bits: int) -> (r: big.Int, ok: bool) {
+    a := a
+    err := big.int_shl(&r, &a, bits)
+    return r, err == nil
+}
+
+@(private = "file")
+big_bits :: proc(a: big.Int) -> int {
+    a := a
+    n, err := big.count_bits(&a)
+    return n if err == nil else max(int)
+}
+
+@(private = "file")
+big_sign :: proc(a: big.Int) -> (negative, zero: bool, ok: bool) {
+    a := a
+    z, zerr := big.int_is_zero(&a)
+    n, nerr := big.int_is_negative(&a)
+    return n, z, zerr == nil && nerr == nil
+}
+
+@(private = "file")
+big_text :: proc(a: big.Int) -> (string, bool) {
+    a := a
+    s, err := big.int_itoa_string(&a)
+    return s, err == nil
+}
+
+@(private = "file")
+rat_make :: proc(num, den: big.Int, dotted, hexfrac: bool) -> (Rational, bool) {
+    _, dzero, dok := big_sign(den)
+    if !dok || dzero {
         return {}, false
     }
     num, den := num, den
-    if den < 0 {
-        num, den = -num, -den
+    if dneg, _, _ := big_sign(den); dneg {
+        n, nok := big_neg(num)
+        d, dnok := big_neg(den)
+        if !nok || !dnok {
+            return {}, false
+        }
+        num, den = n, d
     }
-    g := rat_gcd(num, den)
-    if g > 1 {
-        num, den = num / g, den / g
+    mag, mok := big_abs(num)
+    if !mok {
+        return {}, false
     }
-    return {num = num, den = den, dotted = dotted}, true
+    g: big.Int
+    if big.int_gcd(&g, &mag, &den) != nil {
+        return {}, false
+    }
+    if big_bits(g) > 1 {
+        n, nok := big_div(num, g)
+        d, dnok := big_div(den, g)
+        if !nok || !dnok {
+            return {}, false
+        }
+        num, den = n, d
+    }
+    if big_bits(num) > RAT_MAX_BITS || big_bits(den) > RAT_MAX_BITS {
+        return {}, false
+    }
+    return {num = num, den = den, dotted = dotted, hexfrac = hexfrac}, true
+}
+
+@(private = "file")
+rat_neg :: proc(r: Rational) -> (out: Rational, ok: bool) {
+    n, nok := big_neg(r.num)
+    out = r
+    out.num = n
+    return out, nok
 }
 
 // The value of the constant expression `n` made of numbers, parentheses, negation and `+ - * /`.
@@ -228,9 +310,47 @@ rational_of :: proc(n: odinsyntax.Syntax_Node, depth: int) -> (r: Rational, ok: 
     node, negative := strip_signs(n)
     r, ok = rational_node(node, depth)
     if ok && negative {
-        r.num = -r.num
+        r, ok = rat_neg(r)
     }
     return r, ok
+}
+
+// The exact value of the finite f64 `f`.
+@(private = "file")
+rat_of_f64 :: proc(f: f64) -> (Rational, bool) {
+    if f != f || abs(f) > max(f64) {
+        return {}, false
+    }
+    one, ook := big_from(1)
+    if !ook {
+        return {}, false
+    }
+    if f == 0 {
+        zero, zok := big_from(0)
+        if !zok {
+            return {}, false
+        }
+        return rat_make(zero, one, true, false)
+    }
+    frac, exp := math.frexp(abs(f))
+    mant := i64(frac * (1 << 53))
+    exp -= 53
+    m, mok := big_from(mant if f > 0 else -mant)
+    if !mok {
+        return {}, false
+    }
+    if exp >= 0 {
+        num, nok := big_shl(m, exp)
+        if !nok {
+            return {}, false
+        }
+        return rat_make(num, one, true, false)
+    }
+    den, dok := big_shl(one, -exp)
+    if !dok {
+        return {}, false
+    }
+    return rat_make(m, den, true, true)
 }
 
 @(private = "file")
@@ -243,38 +363,59 @@ rational_node :: proc(node: odinsyntax.Syntax_Node, depth: int) -> (Rational, bo
             return {}, false
         }
         text := odinsyntax.syntax_token_text(tok)
+        one, ook := big_from(1)
+        if !ook {
+            return {}, false
+        }
         if tok.green.kind == .Integer {
             clean, _ := strings.remove_all(text, "_", context.temp_allocator)
             v, parsed := strconv.parse_i64_maybe_prefixed(clean)
             if !parsed {
                 return {}, false
             }
-            return rat_make(i128(v), 1, false)
+            num, nok := big_from(v)
+            if !nok {
+                return {}, false
+            }
+            return rat_make(num, one, false, false)
         }
         leaf, lok := literal_leaf(node)
-        if !lok || leaf.hex || len(leaf.digits) > 18 || leaf.exp10 > 18 || leaf.exp10 < -18 {
+        if !lok {
             return {}, false
         }
-        mant: i64 = 0
+        if leaf.hex {
+            return rat_of_f64(leaf.float)
+        }
+        if leaf.exp10 > 1000 || leaf.exp10 < -1000 {
+            return {}, false
+        }
+        mant := big.Int{}
         if leaf.digits != "" {
             parsed: bool
-            mant, parsed = strconv.parse_i64(leaf.digits, 10)
+            mant, parsed = big_parse(leaf.digits)
             if !parsed {
                 return {}, false
             }
+        } else {
+            zero, zok := big_from(0)
+            if !zok {
+                return {}, false
+            }
+            mant = zero
         }
-        scale: i128 = 1
-        for _ in 0 ..< abs(leaf.exp10) {
-            scale *= 10
+        scale_text := strings.concatenate({"1", strings.repeat("0", abs(leaf.exp10), context.temp_allocator)}, context.temp_allocator)
+        scale, sok := big_parse(scale_text)
+        if !sok {
+            return {}, false
         }
         if leaf.exp10 >= 0 {
-            m, mok := rat_mul(i128(mant), scale)
+            m, mok := big_mul(mant, scale)
             if !mok {
                 return {}, false
             }
-            return rat_make(m, 1, leaf.dotted)
+            return rat_make(m, one, leaf.dotted, false)
         }
-        return rat_make(i128(mant), scale, leaf.dotted)
+        return rat_make(mant, scale, leaf.dotted, false)
     case .Binary_Expr:
         b, _ := odinsyntax.as_binary_expr(node)
         lhs, has_lhs := odinsyntax.binary_expr_lhs(&b)
@@ -289,59 +430,125 @@ rational_node :: proc(node: odinsyntax.Syntax_Node, depth: int) -> (Rational, bo
             return {}, false
         }
         dotted := a.dotted || c.dotted
+        hexfrac := a.hexfrac || c.hexfrac
         #partial switch op.green.kind {
         case .Add, .Sub:
             if op.green.kind == .Sub {
-                c.num = -c.num
+                neg, nok := rat_neg(c)
+                if !nok {
+                    return {}, false
+                }
+                c = neg
             }
-            x, xok := rat_mul(a.num, c.den)
-            y, yok := rat_mul(c.num, a.den)
-            d, dok := rat_mul(a.den, c.den)
-            s, sok := rat_add(x, y)
-            if !xok || !yok || !dok || !sok {
+            x, xok := big_mul(a.num, c.den)
+            y, yok := big_mul(c.num, a.den)
+            d, dok := big_mul(a.den, c.den)
+            if !xok || !yok || !dok {
                 return {}, false
             }
-            return rat_make(s, d, dotted)
+            s, sok := big_add(x, y)
+            if !sok {
+                return {}, false
+            }
+            return rat_make(s, d, dotted, hexfrac)
         case .Mul:
-            x, xok := rat_mul(a.num, c.num)
-            d, dok := rat_mul(a.den, c.den)
+            x, xok := big_mul(a.num, c.num)
+            d, dok := big_mul(a.den, c.den)
             if !xok || !dok {
                 return {}, false
             }
-            return rat_make(x, d, dotted)
+            return rat_make(x, d, dotted, hexfrac)
         case .Quo:
-            if c.num == 0 {
+            if _, zero, sok := big_sign(c.num); !sok || zero {
                 return {}, false
             }
-            x, xok := rat_mul(a.num, c.den)
-            d, dok := rat_mul(a.den, c.num)
+            x, xok := big_mul(a.num, c.den)
+            d, dok := big_mul(a.den, c.num)
             if !xok || !dok {
                 return {}, false
             }
-            return rat_make(x, d, dotted)
+            return rat_make(x, d, dotted, hexfrac)
         }
     }
     return {}, false
 }
 
-// A `Literal_Number` that prints the fraction `r`.
+// The f64 nearest the fraction `r`, infinite beyond the range.
+@(private = "file")
+rat_f64 :: proc(r: Rational) -> (f64, bool) {
+    neg, _, sok := big_sign(r.num)
+    mag, mok := big_abs(r.num)
+    if !sok || !mok {
+        return 0, false
+    }
+    shifted, shok := big_shl(mag, 64)
+    if !shok {
+        return 0, false
+    }
+    q, qok := big_div(shifted, r.den)
+    if !qok {
+        return 0, false
+    }
+    f := math.inf_f64(1)
+    if big_bits(q) <= 1100 {
+        text, tok := big_text(q)
+        if !tok {
+            return 0, false
+        }
+        parsed: bool
+        f, parsed = strconv.parse_f64(text)
+        if !parsed && f == 0 {
+            return 0, false
+        }
+        f = math.ldexp(f, -64)
+    }
+    return -f if neg else f, true
+}
+
+// A `Literal_Number` that prints the fraction `r`. False for a fraction the compiler prints from
+// a hexadecimal float, which is not reproduced.
 @(private = "file")
 rational_number :: proc(r: Rational) -> (num: Literal_Number, ok: bool) {
-    mag := abs(r.num)
-    digits := fmt.tprintf("%d", mag)
-    sign := "-" if r.num < 0 else ""
-    num.negative = r.num < 0
-    num.digits = "" if mag == 0 else digits
+    negative, zero, sok := big_sign(r.num)
+    mag, mok := big_abs(r.num)
+    one, ook := big_from(1)
+    if !sok || !mok || !ook {
+        return {}, false
+    }
+    den := r.den
+    cmp, cerr := big.int_compare(&one, &den)
+    if cerr != nil {
+        return {}, false
+    }
+    integral := cmp == 0 || zero
+    if r.hexfrac && !integral {
+        return {}, false
+    }
+    digits, dok := big_text(mag)
+    if !dok {
+        return {}, false
+    }
+    f, fok := rat_f64(r)
+    if !fok {
+        return {}, false
+    }
+    sign := "-" if negative else ""
+    num.negative = negative
+    num.digits = "" if zero else digits
     num.dotted = true
-    num.float = f64(r.num) / f64(r.den)
+    num.float = f
     num.rat = true
-    num.rat_integral = r.den == 1 || r.num == 0
-    if r.num == 0 {
+    num.rat_integral = integral
+    if zero {
         num.rat_text = "0"
-    } else if r.den == 1 {
+    } else if integral {
         num.rat_text = strings.concatenate({sign, digits}, context.temp_allocator)
     } else {
-        num.rat_text = fmt.tprintf("%s%d.0/%d", sign, mag, r.den)
+        den, den_ok := big_text(r.den)
+        if !den_ok {
+            return {}, false
+        }
+        num.rat_text = strings.concatenate({sign, digits, ".0/", den}, context.temp_allocator)
     }
     return num, true
 }
