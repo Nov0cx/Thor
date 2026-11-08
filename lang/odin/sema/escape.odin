@@ -86,8 +86,8 @@ outliving_store :: proc(c: ^Checker, file: File_Id, lhs: odinsyntax.Syntax_Node,
 
 // The offset of `n` and the call that made it, when `n` is a value from the temp allocator: a call
 // given `context.temp_allocator` or a `tprint*` call, or a local declared with one, or a slice of
-// either. A procedure whose own name has `temp` or `tprint` in it stores such values on purpose.
-temp_place :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (offset: int, ok: bool) {
+// either, or a local copied from one. A procedure whose own name has `temp` or `tprint` in it stores such values on purpose.
+temp_place :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, depth := 0) -> (offset: int, ok: bool) {
     if temp_helper(n) {
         return
     }
@@ -108,6 +108,11 @@ temp_place :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (of
                 return
             }
             value := local_value(c, file, r.local.name_offset) or_return
+            // A copy of another temp local carries the taint.
+            if depth < 4 && (value.green.kind == .Ident || value.green.kind == .Slice_Expr) {
+                _, tainted := temp_place(c, file, value, depth + 1)
+                return int(n.offset), tainted
+            }
             return int(n.offset), temp_call(value)
         case:
             return

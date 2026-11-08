@@ -1707,6 +1707,11 @@ to_global :: proc(s: string) {
 to_param :: proc(out: ^string, name: string) {
 	out^ = fmt.tprintf("hi %s", name)
 }
+copied :: proc(s: string) {
+	a := strings.clone(s, context.temp_allocator)
+	b := a
+	keep = b
+}
 fine :: proc(s: string) -> string {
 	return strings.clone(s)
 }
@@ -1722,7 +1727,8 @@ temp_name :: proc(s: string) -> string {
     defer free_live(&res)
     expect_errors(t, &res, src, {
         {"dup\n}", "Value from the temp allocator is stored and is freed by the next free_all(context.temp_allocator)", 0},
-        {"fmt.tprintf(\"hi %s\", name)\n}\nfine", "Value from the temp allocator is stored and is freed by the next free_all(context.temp_allocator)", 0},
+        {"fmt.tprintf(\"hi %s\", name)\n}\ncopied","Value from the temp allocator is stored and is freed by the next free_all(context.temp_allocator)", 0},
+        {"b\n}\nfine ::", "Value from the temp allocator is stored and is freed by the next free_all(context.temp_allocator)", 0},
     })
     for d in res.report.items {
         testing.expect_value(t, d.code, CODE_TEMP_ESCAPE)
