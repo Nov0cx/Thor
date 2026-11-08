@@ -1786,6 +1786,11 @@ test_live_naming :: proc(t: ^testing.T) {
 
     src := `package app
 
+import "base:intrinsics"
+import "core:strings"
+
+IS_FLOAT :: intrinsics.type_is_float
+
 Good_Type :: struct {
 	good_field: int,
 	badField:   int,
@@ -1796,6 +1801,17 @@ badType :: struct {}
 Color :: enum { red, Green }
 
 oddConstant :: 1
+
+Good_Alias :: Good_Type
+bad_alias :: Good_Type
+Builder :: strings.Builder
+string_builder :: strings.Builder
+my_int :: i32
+write_rune :: strings.write_rune
+WriteRune :: strings.write_rune
+run :: main
+Run :: main
+odd_alias :: oddConstant
 
 main :: proc(good_param: int, badParam: int) {
 	_ = good_param
@@ -1814,6 +1830,10 @@ main :: proc(good_param: int, badParam: int) {
         {"badField", "'badField' should be snake_case", 0},
         {"badType", "'badType' should be Ada_Case", 0},
         {"Green", "'Green' should be snake_case", 0},
+        {"bad_alias", "'bad_alias' should be Ada_Case", 0},
+        {"string_builder", "'string_builder' should be Ada_Case", 0},
+        {"WriteRune", "'WriteRune' should be snake_case", 0},
+        {"Run ::", "'Run' should be snake_case", 0},
         {"badParam: int", "'badParam' should be snake_case", 0},
         {"badVar :=", "'badVar' should be snake_case", 0},
     })

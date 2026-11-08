@@ -20,7 +20,7 @@ Naming_Rules :: struct {
     type:        Name_Styles, // struct, union, enum, bit_set, bit_field, distinct and proc types
     procedure:   Name_Styles, // `name :: proc`
     variable:    Name_Styles, // variables, parameters, fields and loop variables; a file-scope variable may be SCREAMING_SNAKE_CASE too
-    constant:    Name_Styles, // constants with a literal value
+    constant:    Name_Styles, // constants that are not a type or a procedure
     enum_member: Name_Styles,
 }
 
@@ -130,11 +130,22 @@ name_has_style :: proc(name: string, style: Name_Style) -> bool {
 // that starts with `_`, a polymorphic name, a name in a `foreign` block and a declaration with
 // `link_name`, `link_prefix` or `export` are left out.
 naming_problems :: proc(n: odinsyntax.Syntax_Node, rules: Naming_Rules, allocator := context.allocator) -> []Naming_Problem {
+    return naming_problems_of(nil, {}, n, rules, allocator)
+}
+
+// naming_problems that also checks an alias by what its value names: a type, a procedure or a
+// constant. An alias with the name of its target, of a basic type or of a builtin is left out.
+naming_problems_checked :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, rules: Naming_Rules, allocator := context.allocator) -> []Naming_Problem {
+    return naming_problems_of(c, file, n, rules, allocator)
+}
+
+@(private = "file")
+naming_problems_of :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, rules: Naming_Rules, allocator := context.allocator) -> []Naming_Problem {
     out := make([dynamic]Naming_Problem, allocator)
     n := n
     #partial switch n.green.kind {
     case .Value_Decl:
-        value_decl_naming(&n, rules, &out)
+        value_decl_naming(c, file, &n, rules, &out)
     case .Field:
         field_naming(&n, rules, &out)
     case .Range_Stmt:
@@ -160,7 +171,7 @@ naming_problems :: proc(n: odinsyntax.Syntax_Node, rules: Naming_Rules, allocato
 }
 
 @(private = "file")
-value_decl_naming :: proc(n: ^odinsyntax.Syntax_Node, rules: Naming_Rules, out: ^[dynamic]Naming_Problem) {
+value_decl_naming :: proc(c: ^Checker, file: File_Id, n: ^odinsyntax.Syntax_Node, rules: Naming_Rules, out: ^[dynamic]Naming_Problem) {
     if in_foreign_block(n^) {
         return
     }
@@ -202,14 +213,74 @@ value_decl_naming :: proc(n: ^odinsyntax.Syntax_Node, rules: Naming_Rules, out: 
         case .Literal:
             styles = rules.constant
         case:
-            // An alias or a computed value can stand for anything.
-            return
+            alias_ok: bool
+            styles, alias_ok = alias_styles(c, file, names, first, rules)
+            if !alias_ok {
+                return
+            }
         }
     }
     it := odinsyntax.name_list_names(&names)
     for name in odinsyntax.child_iter_next(&it) {
         check_name(name, styles, out)
     }
+}
+
+// The rule an alias `name :: value` follows by what `value` names. False when there is no checker,
+// the value is not known, the alias has the name of its target, aliases a basic type or a builtin.
+@(private = "file")
+alias_styles :: proc(c: ^Checker, file: File_Id, names: odinsyntax.Name_List, value: odinsyntax.Syntax_Node, rules: Naming_Rules) -> (Name_Styles, bool) {
+    if c == nil {
+        return {}, false
+    }
+    names := names
+    it := odinsyntax.name_list_names(&names)
+    name, has_name := odinsyntax.child_iter_next(&it)
+    if !has_name {
+        return {}, false
+    }
+    target: odinsyntax.Syntax_Node
+    #partial switch value.green.kind {
+    case .Ident:
+        target = value
+    case .Selector_Expr:
+        sel, _ := odinsyntax.as_selector_expr(value)
+        if field, ok := odinsyntax.selector_expr_field(&sel); ok {
+            target = odinsyntax.Syntax_Node(field)
+        }
+    }
+    if target.green != nil && odinsyntax.node_text(target) == odinsyntax.node_text(name) {
+        return {}, false
+    }
+    op := expr_type(c, file, value)
+    #partial switch op.mode {
+    case .Type:
+        if type_kind(&c.table, op.type) == .Basic {
+            return {}, false
+        }
+        return rules.type, true
+    case .Value, .Const:
+        #partial switch type_kind(&c.table, type_base(&c.table, op.type)) {
+        case .Proc, .Proc_Group:
+            return rules.procedure, op.has_symbol && !built_in_file(c, op.symbol.file)
+        }
+        if op.mode == .Const {
+            return rules.constant, true
+        }
+    }
+    return {}, false
+}
+
+// True when `file` is in base:intrinsics or base:builtin.
+@(private = "file")
+built_in_file :: proc(c: ^Checker, file: File_Id) -> bool {
+    fc := file_cache(c, file)
+    if fc == nil {
+        return false
+    }
+    dir, _ := strings.replace_all(fc.dir, "\\", "/", context.temp_allocator)
+    dir = strings.trim_right(dir, "/")
+    return strings.has_suffix(dir, "base/intrinsics") || strings.has_suffix(dir, "base/builtin")
 }
 
 // A parameter, a result or a field: it has a name only when a colon follows the names.

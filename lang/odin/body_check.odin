@@ -36,7 +36,7 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope
     n := n
     #partial switch n.green.kind {
     case .Value_Decl, .Field, .Range_Stmt, .Enum_Type:
-        naming_errors(rc, n, report)
+        naming_errors(rc, c, n, report)
     }
     #partial switch n.green.kind {
     case .Call_Expr:
@@ -416,8 +416,8 @@ ignored_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, stmt: odinsyn
 
 // Reports, as a lint, the names of `n` that do not fit the naming rules of the workspace.
 @(private = "file")
-naming_errors :: proc(rc: ^Request_Context, n: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
-    for p in odinsema.naming_problems(n, rc.naming, context.temp_allocator) {
+naming_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, n: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+    for p in odinsema.naming_problems_checked(c, rc.live.id, n, rc.naming, context.temp_allocator) {
         want := odinsema.styles_text(p.want, context.temp_allocator)
         report_error(rc, report, p.offset, CODE_NAMING, fmt.aprintf("'%s' should be %s", p.name, want), .Hint, lint = true)
     }
