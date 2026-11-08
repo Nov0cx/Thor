@@ -648,3 +648,55 @@ g :: proc(arr: [3]int, u: U) {
         free_actions(&res)
     }
 }
+
+// Messages as `odin check -vet-cast` dev-2026-11-nightly:9a69916 words them; the live check gives them as warnings.
+@(test)
+test_action_unneeded_cast :: proc(t: ^testing.T) {
+    SRC :: `package app
+
+f :: proc(a: int, p: ^int) -> int {
+    b := cast(int)a
+    c := transmute(int)a
+    d := cast(int)(a + 1)
+    e := cast(int)(a)
+    g := cast(int)-a
+    h := cast(int)cast(int)a
+    i := cast(int)p^ // deref
+    return b + c + d + e + g + h + i
+}
+`
+    root := fixture(t, "action_unneeded_cast", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    Want :: struct {
+        marker, message, title, from, to: string,
+        severity:                         lang.Diagnostic_Severity,
+    }
+    wants := []Want {
+        {"a\n    c", "Unneeded cast of 'a' to identical type 'int'", "Remove the unneeded cast", "cast(int)a\n", "a\n", .Warning},
+        {"transmute", "Unneeded transmute of 'transmute(int)a' to identical type 'int'", "Remove the unneeded transmute", "transmute(int)a", "a", .Warning},
+        {"(a + 1)", "Unneeded cast of '(a + 1)' to identical type 'int'", "Remove the unneeded cast", "cast(int)(a + 1)", "(a + 1)", .Hint},
+        {"(a)", "Unneeded cast of '(a)' to identical type 'int'", "Remove the unneeded cast", "cast(int)(a)", "a", .Error},
+        {"-a", "Unneeded cast of '-a' to identical type 'int'", "Remove the unneeded cast", "cast(int)-a", "(-a)", .Warning},
+        {"cast(int)a\n    i", "Unneeded cast of 'cast(int)a' to identical type 'int'", "Remove the unneeded cast", "cast(int)cast(int)a", "cast(int)a", .Warning},
+        {"p^", "Unneeded cast of 'p^' to identical type 'int'", "Remove the unneeded cast", "cast(int)p^ // deref", "p^ // deref", .Warning},
+    }
+    for w in wants {
+        res := compiler_line_actions(t, e, root, SRC, w.marker, w.message, w.severity)
+        want, _ := strings.replace(SRC, w.from, w.to, 1, context.temp_allocator)
+        testing.expect_value(t, applied(t, &res, SRC, w.title), want)
+        free_actions(&res)
+    }
+
+    // A cast named at its keyword, a transmute named at its operand, and another message.
+    res := compiler_line_actions(t, e, root, SRC, "cast(int)a", "Unneeded cast of 'a' to identical type 'int'", .Warning)
+    testing.expect(t, !has_action_prefix(&res, "Remove the unneeded"), "cast at the keyword")
+    free_actions(&res)
+    res = compiler_line_actions(t, e, root, SRC, "a\n    d", "Unneeded transmute of 'a' to identical type 'int'", .Warning)
+    testing.expect(t, !has_action_prefix(&res, "Remove the unneeded"), "transmute at the operand")
+    free_actions(&res)
+    res = compiler_line_actions(t, e, root, SRC, "a\n    c", "Cannot cast 'a' to 'int'", .Warning)
+    testing.expect(t, !has_action_prefix(&res, "Remove the unneeded"), "other message")
+    free_actions(&res)
+}

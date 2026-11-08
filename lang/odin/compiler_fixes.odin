@@ -64,6 +64,62 @@ comma_fix :: proc(rc: ^Request_Context, offset: int, res: ^lang.Result) {
     }
 }
 
+@(private = "file")
+UNNEEDED_CAST :: "Unneeded cast of '"
+
+@(private = "file")
+UNNEEDED_TRANSMUTE :: "Unneeded transmute of '"
+
+// Replaces the conversion the compiler names with its operand. A cast is named at its operand, a
+// transmute at its keyword.
+@(private = "file")
+unneeded_cast_fix :: proc(rc: ^Request_Context, offset: int, is_transmute: bool, res: ^lang.Result) {
+    tok, found := odinsyntax.node_token_at(odinsyntax.node_root(rc.parsed.tree), u32(offset), context.temp_allocator)
+    if !found {
+        return
+    }
+    for n := tok.parent; n != nil; n = n.parent {
+        ce, is_cast := odinsyntax.as_cast_expr(n^)
+        if !is_cast {
+            continue
+        }
+        keyword := odinsyntax.cast_expr_keyword(&ce) or_continue
+        operand := odinsyntax.cast_expr_operand(&ce) or_continue
+        at := is_transmute ? int(n.offset) : int(operand.offset)
+        if at != offset || (keyword.green.kind == .Transmute) != is_transmute {
+            continue
+        }
+        text := operand_text(operand)
+        if !atomic_expr(operand.green.kind) {
+            text = strings.concatenate({"(", text, ")"}, context.temp_allocator)
+        } else if operand.green.kind == .Paren_Expr {
+            pe := odinsyntax.Paren_Expr(operand)
+            if inner, has := odinsyntax.paren_expr_expr(&pe); has && atomic_expr(inner.green.kind) && inner.green.kind != .Comp_Lit {
+                text = operand_text(inner)
+            }
+        }
+        what := is_transmute ? "transmute" : "cast"
+        push_action(res, rc.req, fmt.tprintf("Remove the unneeded %s", what), Edit_Spec{int(n.offset), int(n.offset) + len(operand_text(n^)), text})
+        return
+    }
+}
+
+// The text of `n` without the blanks after it.
+@(private = "file")
+operand_text :: proc(n: odinsyntax.Syntax_Node) -> string {
+    return strings.trim_right_space(odinsyntax.node_text(n))
+}
+
+// True when an expression of `kind` needs no parentheses to stand where a cast stood.
+@(private = "file")
+atomic_expr :: proc(kind: odinsyntax.Syntax_Kind) -> bool {
+    #partial switch kind {
+    case .Ident, .Literal, .Context_Expr, .Paren_Expr, .Selector_Expr, .Implicit_Selector, .Selector_Call_Expr, .Index_Expr, .Matrix_Index_Expr, .Slice_Expr, .Deref_Expr, .Call_Expr, .Comp_Lit, .Cast_Expr, .Auto_Cast_Expr:
+        return true
+    }
+    return false
+}
+
 // Offers a fix for each error of the request's diagnostics that the compiler words in a known way.
 @(private)
 compiler_fixes :: proc(rc: ^Request_Context, res: ^lang.Result) {
@@ -77,6 +133,14 @@ compiler_fixes :: proc(rc: ^Request_Context, res: ^lang.Result) {
         }
         if d.message == MISSING_COMMA {
             comma_fix(rc, d.start, res)
+            continue
+        }
+        if strings.has_prefix(d.message, UNNEEDED_CAST) {
+            unneeded_cast_fix(rc, d.start, false, res)
+            continue
+        }
+        if strings.has_prefix(d.message, UNNEEDED_TRANSMUTE) {
+            unneeded_cast_fix(rc, d.start, true, res)
             continue
         }
         if d.severity != .Error {
