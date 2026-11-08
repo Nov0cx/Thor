@@ -1214,3 +1214,34 @@ test_format_window_matches_full_with_comment_runs :: proc(t: ^testing.T) {
     testing.expect(t, ok2)
     testing.expect_value(t, win, full)
 }
+
+@(test)
+test_align_typed_and_variable_runs :: proc(t: ^testing.T) {
+    opts := default_options()
+    opts.tabs = false
+    src := "package p\nf :: proc() {\n    a := 1\n    longer := 2\n\n    x: int = 1\n    yyyy: f32 = 2\n}\n\nA: int : 1\nLONGER: f32 : 2\n"
+    out, ok := format(src, opts)
+    defer delete(out)
+    testing.expect(t, ok)
+    testing.expect(t, strings.contains(out, "    a      := 1\n    longer := 2\n"), out)
+    testing.expect(t, strings.contains(out, "    x:    int = 1\n    yyyy: f32 = 2\n"), out)
+    testing.expect(t, strings.contains(out, "A:      int : 1\nLONGER: f32 : 2\n"), out)
+    opts.align_variable_declarations = false
+    out2, ok2 := format(src, opts)
+    defer delete(out2)
+    testing.expect(t, ok2 && strings.contains(out2, "    a := 1\n    longer := 2\n"), out2)
+}
+
+@(test)
+test_align_field_defaults :: proc(t: ^testing.T) {
+    opts := default_options()
+    opts.tabs = false
+    src := "package p\nS :: struct {\n    a: int \"p\",\n    bbb: f32 \"q\",\n    c: i8,\n    d: string \"x\",\n    ee: u8 \"y\",\n}\n"
+    out, ok := format(src, opts)
+    defer delete(out)
+    testing.expect(t, ok)
+    testing.expect(t, strings.contains(out, "    a:   int \"p\",\n    bbb: f32 \"q\",\n    c:   i8,\n    d:   string \"x\",\n    ee:  u8     \"y\",\n"), out)
+    out2, ok2 := format(out, opts)
+    defer delete(out2)
+    testing.expect(t, ok2 && out2 == out, out2)
+}

@@ -98,7 +98,11 @@ print_field :: proc(pr: ^Printer, out: ^[dynamic]Doc, f: Node) {
     if has_colon {
         append(out, text(after_cell))
     }
-    append(out, ..type_doc[:])
+    if cell.value != 0 {
+        append(out, align(cell.value, type_doc[:]))
+    } else {
+        append(out, ..type_doc[:])
+    }
 
     if is_node(p.default) {
         if has_type {
@@ -183,10 +187,52 @@ assign_field_align_ids :: proc(pr: ^Printer, fields: []Node) {
     }
 }
 
+// Whether an alignable field carries a default or a tag after its type.
+@(private)
+field_has_tail :: proc(pr: ^Printer, f: Node) -> bool {
+    if !field_alignable(pr, f) {
+        return false
+    }
+    p := field_parts(pr, f)
+    return is_node(p.default) || p.tag != ""
+}
+
+// One value id per maximal run of two or more adjacent alignable fields that each
+// carry a default or a tag, so what follows the type lines up. A field without
+// either has nothing to pad towards and ends the run.
+@(private)
+assign_field_default_ids :: proc(pr: ^Printer, fields: []Node) {
+    if !pr.opts.align_field_defaults {
+        return
+    }
+    for i := 0; i < len(fields); {
+        if !field_has_tail(pr, fields[i]) {
+            i += 1
+            continue
+        }
+        end := i + 1
+        for end < len(fields) &&
+            field_has_tail(pr, fields[end]) &&
+            same_align_run(pr, end_line(pr, fields[end - 1]), start_line(pr, fields[end])) {
+            end += 1
+        }
+        if end - i >= 2 {
+            id := next_align(pr)
+            for f in fields[i:end] {
+                cell := pr.align_ids[align_key(f)]
+                cell.value = id
+                pr.align_ids[align_key(f)] = cell
+            }
+        }
+        i = end
+    }
+}
+
 // One field per line, comma-terminated — the struct body shape.
 @(private)
 print_field_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, open_line, close_line: int, fields: []Node) {
     assign_field_align_ids(pr, fields)
+    assign_field_default_ids(pr, fields)
     assign_comment_cols(pr, fields)
     append(out, text("{"))
     if len(fields) == 0 {
