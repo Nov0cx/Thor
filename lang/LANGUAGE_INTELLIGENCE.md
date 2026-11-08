@@ -830,8 +830,6 @@ Things that do not exist yet. Each is a candidate for future work.
 - **Other compiler messages as quick fixes** (`compiler_fixes.odin` handles a few).
 - **Lint gaps.**
   - `api/deprecated`: a deprecated proc-group member and a deprecated type in a type position.
-  - `mem/dangling-slice`: a compound literal that holds the address, and a store through a local
-    pointer (partly covered; see the code).
   - `logic/const-condition`: a constant expression such as `N > 4` is not read.
   - `style/naming`: an alias such as `a :: b` is not read.
 - **Per-file build target in the editor.** The target comes from the workspace config, not from a
