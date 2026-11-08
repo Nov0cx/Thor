@@ -1,5 +1,12 @@
 # 2026.11.0
 
+- Odin: the first request after a file opens is faster: about 110 ms, down from about 250 ms, and about 21 ms once the startup prewarm is done.
+- Odin: `mem/dangling-slice` follows the address of a local through assignments, fields, conversions and calls.
+- Odin: `nil/deref` follows fixed-array elements at constant indexes.
+- Odin: the formatter keeps comments inside index, slice and selector expressions.
+- Odin: a quick fix removes an unneeded semicolon the compiler reports.
+- Odin: `vet = { "-vet-style", ... }` in `.thor/odin-analyzer.lua` switches on the opt-in vet checks.
+- Odin: float constants such as `3.0 / 2`, parenthesised ones and hex float literals with an exact fraction are reported with the compiler's value.
 - Odin: live diagnostics are about four times faster (about 30 ms for a typical file).
 - Odin: the `odin check` after a save gets `-target` and `-define` from `target` and `defines` in `.thor/odin-analyzer.lua`.
 - Problems panel: ctrl + shift + m or "View: Problems" lists the diagnostics of open files and of the other files of the checked packages, by file. Click one to jump to it.

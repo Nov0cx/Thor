@@ -48,8 +48,8 @@ Also landed: call and type hierarchy, implementations, selection range, code len
 postfix completions, semantic token modifiers with inactive `when` ranges, `vet/cast`, `nil/deref`,
 a dropped `ok`, opt-in `vet/unused-procedure`, `vet/style`, `vet/semicolon` and `vet/tabs`, package
 live diagnostics, diagnostics telemetry and `build.odin -- bench`. Live diagnostics run at about 32 ms, the save's
-`odin check` takes `-target`/`-define` and the Problems panel lists them. Open: the formatter (section 12) and
-the polymorphic-instance errors in ROADMAP "Known gaps".
+`odin check` takes `-target`/`-define` and the Problems panel lists them. A cold first request takes about 110 ms (21 ms
+after the startup prewarm).
 `lang/ROADMAP.md` ("Next engine") tracks the rest. Section 11 lists the
 feature questions whose answers change the plan.
 

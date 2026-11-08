@@ -2505,8 +2505,7 @@ not a status, so this section stays the source of truth for what is built.
     specialization of a `$T` argument; a `where` on a `$T` left unbound
     holds. `$N` in a length or capacity is a constant, and a type-valued
     intrinsic (`type_field_type`) is a type. Over every package of the repository
-    `test_live_clean_sources` finds none. Not yet: an error inside a
-    polymorphic body for one instance, an ambiguous group call, float
+    `test_live_clean_sources` finds none. Not yet: an ambiguous group call, float
     truncation and overflow, constant arithmetic of typed constants, and a
     call with no value used as a value.
   - **Control flow** (`sema/cfg.odin`, plan §5.6, M7): `cfg_build` gives the
@@ -2892,8 +2891,7 @@ not a status, so this section stays the source of truth for what is built.
     the first completion to about 20 ms; a package of three or more unread files loads on up to six
     threads, the package walk on up to eight); warm
     live diagnostics take about 32 ms against the 50 ms budget. Not reported:
-    an error inside a polymorphic body for one instance (the compiler repeats it
-    per instance), a hex float literal whose fraction needs more than 17 binary
+    a hex float literal whose fraction needs more than 17 binary
     places (the compiler's own rounding is not copied), unknown struct tags (the
     compiler accepts them). Float constants built with `+ - * /`, parentheses
     and negation print as exact fractions (`3.0 / 2` is `3.0/2`). `nil/deref` follows the elements of a fixed array only at a constant index; a
