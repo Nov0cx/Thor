@@ -503,8 +503,51 @@ test_character_width_wraps_case_list_at_commas :: proc(t: ^testing.T) {
     out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
-    testing.expect(t, strings.contains(out, "case alpha in set,\n\t\t\tbeta in set,\n\t\t\tgamma in set:"), out)
-    testing.expect(t, strings.contains(out, "switch {\n\t\tcase"), out) // no blank line after a tagless switch
+    testing.expect(t, strings.contains(out, "case alpha in set,\n\t\tbeta in set,\n\t\tgamma in set:"), out)
+    testing.expect(t, strings.contains(out, "switch {\n\tcase"), out) // no blank line after a tagless switch
+}
+
+// A case label sits at the level of its switch; indent_cases moves it one level in.
+@(test)
+test_case_indentation :: proc(t: ^testing.T) {
+    src := "package p\nf :: proc(x: int) {\n\tswitch x {\n\tcase 1:\n\t\tg()\n\t}\n}\n"
+    opts := default_options()
+    out, ok := format(src, opts)
+    defer delete(out)
+    testing.expect(t, ok)
+    testing.expect(t, strings.contains(out, "\tswitch x {\n\tcase 1:\n\t\tg()\n\t}"), out)
+    opts.indent_cases = true
+    out2, ok2 := format(src, opts)
+    defer delete(out2)
+    testing.expect(t, ok2)
+    testing.expect(t, strings.contains(out2, "\tswitch x {\n\t\tcase 1:\n\t\t\tg()\n\t}"), out2)
+    out3, ok3 := format(out2, opts)
+    defer delete(out3)
+    testing.expect(t, ok3 && out3 == out2, out3)
+}
+
+// inline_single_stmt_case keeps a body on its own line when a comment comes before it.
+@(test)
+test_inline_case_keeps_comments :: proc(t: ^testing.T) {
+    src := "package p\nf :: proc(x: int) {\n\tswitch x {\n\tcase 1: // a\n\t\treturn\n\tcase 2:\n\t\t// b\n\t\tg()\n\tcase 3:\n\t\tg() // c\n\t}\n}\n"
+    opts := default_options()
+    opts.inline_single_stmt_case = true
+    out, ok := format(src, opts)
+    defer delete(out)
+    testing.expect(t, ok)
+    testing.expect(t, strings.contains(out, "case 1:  // a\n\t\treturn\n"), out)
+    testing.expect(t, strings.contains(out, "case 2:\n\t\t// b\n\t\tg()\n"), out)
+    testing.expect(t, strings.contains(out, "case 3: g()  // c\n"), out)
+}
+
+// A for header without a post statement has one space before its body.
+@(test)
+test_for_without_post :: proc(t: ^testing.T) {
+    src := "package p\nf :: proc() {\n\tfor i := 0; i < 3; {\n\t\ti += 1\n\t}\n}\n"
+    out, ok := format(src, default_options())
+    defer delete(out)
+    testing.expect(t, ok)
+    testing.expect(t, strings.contains(out, "for i := 0; i < 3; {"), out)
 }
 
 @(test)
@@ -1194,7 +1237,7 @@ test_comment_column_case_and_decls :: proc(t: ^testing.T) {
     defer delete(out)
     testing.expect(t, ok)
     testing.expect(t, strings.contains(out, "A      :: 1  // one\nLONGER :: 2  // two\n"), out)
-    testing.expect(t, strings.contains(out, "case 1:      // a\n        case 22222:  // b\n"), out)
+    testing.expect(t, strings.contains(out, "case 1:      // a\n    case 22222:  // b\n"), out)
     out2, ok2 := format(out, opts)
     defer delete(out2)
     testing.expect(t, ok2 && out2 == out, out2)

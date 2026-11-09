@@ -9,8 +9,8 @@ import "core:strings"
 Item_Printer :: #type proc(pr: ^Printer, out: ^[dynamic]Doc, item: Node)
 
 // Prints "{ ...items... }", one item per line via `printer`, preserving
-// blank-line gaps and interleaved comments; `extra_indent` adds one more
-// indent level around each item (indent_cases, for switch case bodies).
+// blank-line gaps and interleaved comments. `indent_items` false keeps the
+// items at the level of the braces (switch cases without indent_cases).
 @(private)
 print_brace_body :: proc(
     pr: ^Printer,
@@ -18,7 +18,7 @@ print_brace_body :: proc(
     open_line, close_line: int,
     stmts: []Node,
     printer: Item_Printer,
-    extra_indent: bool,
+    indent_items: bool,
 ) {
     assign_decl_align_ids(pr, stmts)
     assign_comment_cols(pr, stmts)
@@ -28,15 +28,7 @@ print_brace_body :: proc(
     has_prev := true
     for stmt in stmts {
         separator(pr, &body, prev_line, has_prev, start_line(pr, stmt), true)
-        item: [dynamic]Doc
-        printer(pr, &item, stmt)
-        if extra_indent {
-            append(&body, indent(item[:]))
-        } else {
-            for d in item {
-                append(&body, d)
-            }
-        }
+        printer(pr, &body, stmt)
         prev_line = end_line(pr, stmt)
         has_prev = true
     }
@@ -45,7 +37,11 @@ print_brace_body :: proc(
         append(out, text("}"))
         return
     }
-    append(out, indent(body[:]))
+    if indent_items {
+        append(out, indent(body[:]))
+    } else {
+        append(out, ..body[:])
+    }
     append(out, hard_line(0))
     append(out, text("}"))
 }
@@ -83,7 +79,7 @@ print_block_braces :: proc(pr: ^Printer, out: ^[dynamic]Doc, block: Node) {
     if print_one_line_block(pr, out, open_line, close_line, stmts) {
         return
     }
-    print_brace_body(pr, out, open_line, close_line, stmts, print_stmt_item, false)
+    print_brace_body(pr, out, open_line, close_line, stmts, print_stmt_item, true)
 }
 
 // `{ stmt }` for a block the source already wrote on one line, under
@@ -144,7 +140,7 @@ print_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, body: Node, is_proc_body: b
         if print_one_line_block(pr, out, open_line, close_line, stmts) {
             return
         }
-        print_brace_body(pr, out, open_line, close_line, stmts, print_stmt_item, false)
+        print_brace_body(pr, out, open_line, close_line, stmts, print_stmt_item, true)
         return
     }
     append(out, text(" "))
@@ -426,7 +422,10 @@ print_case_clause :: proc(pr: ^Printer, out: ^[dynamic]Doc, cc: Node) {
     if len(body) == 0 {
         return
     }
-    if pr.opts.inline_single_stmt_case && len(body) == 1 && body[0].kind != .Block {
+    if pr.opts.inline_single_stmt_case &&
+       len(body) == 1 &&
+       body[0].kind != .Block &&
+       !comment_between(pr, ks[colon].end, body[0].end) {
         append(out, text(" "))
         print_stmt(pr, out, body[0])
         return
@@ -439,6 +438,20 @@ print_case_clause :: proc(pr: ^Printer, out: ^[dynamic]Doc, cc: Node) {
     head_line := start_line(pr, ks[colon])
     print_stmt_list(pr, &out_body, body, head_line, true)
     append(out, indent(out_body[:]))
+}
+
+// Reports a comment not yet printed that starts in [lo, hi).
+@(private)
+comment_between :: proc(pr: ^Printer, lo, hi: int) -> bool {
+    for cg in pr.comments[pr.comment_idx:] {
+        if cg.start >= hi {
+            break
+        }
+        if cg.start >= lo {
+            return true
+        }
+    }
+    return false
 }
 
 @(private)
@@ -706,8 +719,9 @@ print_for_stmt :: proc(pr: ^Printer, out: ^[dynamic]Doc, ks: []Node) {
         if is_node(cond) {
             print_expr(pr, out, cond)
         }
-        append(out, text("; "))
+        append(out, text(";"))
         if is_node(post) {
+            append(out, text(" "))
             print_stmt(pr, out, post)
         }
     }

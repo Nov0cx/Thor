@@ -22,7 +22,7 @@ print_asm_template :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: Node) {
     }
     bks := kids(body)
     open_line, close_line := brace_lines(pr, bks, body)
-    print_brace_body(pr, out, open_line, close_line, node_kids(bks), print_stmt_item, false)
+    print_brace_body(pr, out, open_line, close_line, node_kids(bks), print_stmt_item, true)
 }
 
 // `[spec, spec, #volatile, #clobber %rcx]`.
