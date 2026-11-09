@@ -8,7 +8,6 @@ package lang
 
 import "base:runtime"
 import "core:os"
-import "core:slice"
 import "core:strings"
 import "core:sync"
 import "core:thread"
@@ -558,6 +557,16 @@ Backend :: struct {
     // must not dispatch Format_On_Type without asking first, unlike the other
     // kinds where an unwanted dispatch just answers ok=false.
     on_type_trigger: proc(data: rawptr, ext: string, char: string) -> bool,
+    // The registry hooks. A backend that has settings of its own lists its gate ids
+    // (an in-client engine one, a subprocess client one per server), and the host
+    // pushes the admin gate of each through `set_gate`. All optional.
+    gate_ids:      proc(data: rawptr, allocator: runtime.Allocator) -> []string,
+    set_gate:      proc(data: rawptr, id: string, enabled: bool, features: bit_set[Request_Kind]) -> bool,
+    // The gate `id` starts at when the settings state nothing for it.
+    gate_defaults: proc(data: rawptr, id: string) -> (enabled: bool, features: bit_set[Request_Kind], ok: bool),
+    // The Settings row title of gate `id`. Set only by a backend whose rows the
+    // Language category lists itself; a server has its own category.
+    gate_label:    proc(data: rawptr, id: string) -> string,
 }
 
 // How long a debounced request waits for the input to settle. Hover is already

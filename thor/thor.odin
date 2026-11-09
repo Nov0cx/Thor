@@ -805,13 +805,7 @@ init :: proc() -> ^Thor {
     odin.engine_set_cache_dir(thor.odin_engine, thor_odin_cache_dir())
     odin.engine_prewarm(thor.odin_engine, thor.workspace_dir)
     thor.lsp_client = lsp.client_create(thor.workspace_dir, thor_lsp_workspace_trusted(thor))
-    if lsp.client_overrides(thor.lsp_client, ".odin") {
-        lang.manager_register(&thor.lang_manager, lsp.client_backend(thor.lsp_client))
-        lang.manager_register(&thor.lang_manager, odin.engine_backend(thor.odin_engine))
-    } else {
-        lang.manager_register(&thor.lang_manager, odin.engine_backend(thor.odin_engine))
-        lang.manager_register(&thor.lang_manager, lsp.client_backend(thor.lsp_client))
-    }
+    thor_register_backends(thor)
     lap(&phase, "lang init")
 
     log.infof("Loaded theme: %s", thor.theme.name)

@@ -119,13 +119,9 @@ thor_apply_language_settings :: proc(thor: ^Thor) {
     before := thor_language_gate(thor)
     lang.manager_set_enabled(&thor.lang_manager, enabled)
     lang.manager_set_features(&thor.lang_manager, features)
-    odin_on, odin_features := thor_backend_gate(thor, &thor.config, ODIN_BACKEND_ID)
-    odin.engine_set_enabled(thor.odin_engine, odin_on)
-    odin.engine_set_features(thor.odin_engine, odin_features)
-    for id in lsp.client_server_ids(thor.lsp_client) {
-        server_on, server_features := thor_backend_gate(thor, &thor.config, id)
-        lsp.client_set_server_enabled(thor.lsp_client, id, server_on)
-        lsp.client_set_server_features(thor.lsp_client, id, server_features)
+    for id in lang.manager_gate_ids(&thor.lang_manager) {
+        on, gate_features := thor_backend_gate(thor, &thor.config, id)
+        lang.manager_set_gate(&thor.lang_manager, id, on, gate_features)
     }
     after := thor_language_gate(thor)
     if after == before {
@@ -171,10 +167,7 @@ thor_apply_language_settings :: proc(thor: ^Thor) {
 // defaults to fully on. Shared by thor_apply_language_settings and the Settings
 // rows, so what the modal shows is what the seam enforces.
 thor_backend_gate :: proc(thor: ^Thor, config: ^setting.Settings, id: string) -> (enabled: bool, features: bit_set[lang.Request_Kind]) {
-    enabled, features = true, lang.FEATURES_ALL
-    if id != ODIN_BACKEND_ID {
-        enabled, features, _ = lsp.client_server_defaults(thor.lsp_client, id)
-    }
+    enabled, features = lang.manager_gate_defaults(&thor.lang_manager, id)
     state, found := setting.backend_state(config, id)
     if !found {
         return
@@ -206,6 +199,24 @@ thor_lang_key :: proc(thor: ^Thor, name: string) -> string {
     return thor_file_extension(name)
 }
 
+// Registers every backend, in precedence order: the in-client Odin engine first,
+// so it wins for .odin files and the LSP backend serves the languages it
+// configures; a server that sets "override" for .odin takes the front instead.
+// The one place a backend is added. `replace` swaps the set of a running manager.
+thor_register_backends :: proc(thor: ^Thor, replace := false) {
+    first := odin.engine_backend(thor.odin_engine)
+    second := lsp.client_backend(thor.lsp_client)
+    if lsp.client_overrides(thor.lsp_client, ".odin") {
+        first, second = second, first
+    }
+    if replace {
+        lang.manager_set_backends(&thor.lang_manager, first, second)
+        return
+    }
+    lang.manager_register(&thor.lang_manager, first)
+    lang.manager_register(&thor.lang_manager, second)
+}
+
 // Rebuilds the LSP client against the new workspace root on a folder switch.
 // Only the LSP side: lsp.client_create reads the server tables once, so a stale
 // Client would keep talking to the old root, while the Odin engine re-validates
@@ -225,16 +236,9 @@ thor_reload_lang :: proc(thor: ^Thor) {
     }
 
     thor.lsp_client = lsp.client_create(thor.workspace_dir, thor_lsp_workspace_trusted(thor))
-    lsp_backend := lsp.client_backend(thor.lsp_client)
-    odin_backend := odin.engine_backend(thor.odin_engine)
-    // Registration order is precedence (lang.manager_register's contract) —
-    // re-decided here exactly as thor_init decides it the first time, since
-    // the new workspace's .thor/lsp.lua can flip "override" for .odin.
-    if lsp.client_overrides(thor.lsp_client, ".odin") {
-        lang.manager_set_backends(&thor.lang_manager, lsp_backend, odin_backend)
-    } else {
-        lang.manager_set_backends(&thor.lang_manager, odin_backend, lsp_backend)
-    }
+    // The new workspace's .thor/lsp.lua can flip "override" for .odin, so the
+    // order is decided again.
+    thor_register_backends(thor, replace = true)
     // A freshly built Client's servers all start admin_enabled == true, so the
     // per-backend toggle is re-pushed here: the earlier push in this same
     // workspace switch went to the Client that was just replaced.

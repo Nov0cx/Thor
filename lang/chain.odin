@@ -62,6 +62,53 @@ job_resolve :: proc(job: ^Job) {
     }
 }
 
+// Every gate id the registered backends list, in registration order.
+manager_gate_ids :: proc(m: ^Manager, allocator := context.temp_allocator) -> []string {
+    out := make([dynamic]string, allocator)
+    for b in m.backends {
+        if b.gate_ids == nil {
+            continue
+        }
+        append(&out, ..b.gate_ids(b.data, allocator))
+    }
+    return out[:]
+}
+
+// Pushes one gate to the backend that lists `id`. False when none does.
+manager_set_gate :: proc(m: ^Manager, id: string, enabled: bool, features: bit_set[Request_Kind]) -> bool {
+    for b in m.backends {
+        if b.set_gate != nil && b.set_gate(b.data, id, enabled, features) {
+            return true
+        }
+    }
+    return false
+}
+
+// The gate `id` starts at. Fully on when no backend lists it.
+manager_gate_defaults :: proc(m: ^Manager, id: string) -> (enabled: bool, features: bit_set[Request_Kind]) {
+    for b in m.backends {
+        if b.gate_defaults == nil {
+            continue
+        }
+        if e, f, ok := b.gate_defaults(b.data, id); ok {
+            return e, f
+        }
+    }
+    return true, FEATURES_ALL
+}
+
+// The Settings row title of gate `id`, "" when no backend labels it.
+manager_gate_label :: proc(m: ^Manager, id: string) -> string {
+    for b in m.backends {
+        if b.gate_label != nil {
+            if label := b.gate_label(b.data, id); label != "" {
+                return label
+            }
+        }
+    }
+    return ""
+}
+
 // Sets `origin` on every offer of `res` that no backend named yet. Clones into the
 // Manager's allocator, which is the context here.
 @(private)

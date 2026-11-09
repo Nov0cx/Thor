@@ -134,20 +134,28 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     language_on := setting.language_enabled(config)
     thor_settings_add_choice(view, setting.LANGUAGE_SETTING, "Language Intelligence", thor_on_off_label(language_on))
     if language_on {
-        odin_on, odin_features := thor_backend_gate(thor, config, ODIN_BACKEND_ID)
-        thor_settings_add_choice(
-            view, thor_language_backend_id(ODIN_BACKEND_ID), "Odin Analyzer", thor_on_off_label(odin_on),
-        )
-        if odin_on {
+        for id in lang.manager_gate_ids(&thor.lang_manager) {
+            label := lang.manager_gate_label(&thor.lang_manager, id)
+            if label == "" {
+                continue
+            }
+            backend_on, backend_features := thor_backend_gate(thor, config, id)
+            thor_settings_add_choice(view, thor_language_backend_id(id), label, thor_on_off_label(backend_on))
+            if !backend_on {
+                continue
+            }
             thor_settings_begin_group(
-                view, thor_language_backend_feature_group(ODIN_BACKEND_ID), "Odin Analyzer Features", collapsed = true,
+                view,
+                thor_language_backend_feature_group(id),
+                strings.concatenate({label, " Features"}, context.temp_allocator),
+                collapsed = true,
             )
             for kind in lang.Request_Kind {
                 thor_settings_add_choice(
                     view,
-                    thor_language_backend_feature_id(ODIN_BACKEND_ID, kind),
+                    thor_language_backend_feature_id(id, kind),
                     LANGUAGE_FEATURE_LABELS[kind],
-                    thor_on_off_label(kind in odin_features),
+                    thor_on_off_label(kind in backend_features),
                 )
             }
             thor_settings_end_group(view)

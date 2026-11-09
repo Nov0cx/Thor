@@ -49,7 +49,30 @@ client_backend :: proc(c: ^Client) -> lang.Backend {
         poll = poll,
         notify = notify,
         on_type_trigger = on_type_trigger,
+        gate_ids = gate_ids,
+        set_gate = set_gate,
+        gate_defaults = gate_defaults,
     }
+}
+
+@(private)
+gate_ids :: proc(data: rawptr, allocator: runtime.Allocator) -> []string {
+    return client_server_ids(cast(^Client)data, allocator)
+}
+
+@(private)
+set_gate :: proc(data: rawptr, id: string, enabled: bool, features: bit_set[lang.Request_Kind]) -> bool {
+    c := cast(^Client)data
+    if !client_set_server_enabled(c, id, enabled) {
+        return false
+    }
+    client_set_server_features(c, id, features)
+    return true
+}
+
+@(private)
+gate_defaults :: proc(data: rawptr, id: string) -> (enabled: bool, features: bit_set[lang.Request_Kind], ok: bool) {
+    return client_server_defaults(cast(^Client)data, id)
 }
 
 // True when the config gives a server `ext` outright, ahead of an in-client

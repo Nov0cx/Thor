@@ -8,6 +8,7 @@
 package odin
 
 
+import "base:runtime"
 import "core:strings"
 import "core:thread"
 
@@ -117,13 +118,49 @@ engine_backend :: proc(e: ^Engine) -> lang.Backend {
     return lang.Backend {
         data            = e,
         name            = "odin (in-client)",
+        id              = ENGINE_ID,
         handles         = handles,
         resolve         = resolve,
         destroy         = engine_destroy,
         supports        = supports,
         notify          = notify,
         on_type_trigger = on_type_trigger,
+        gate_ids        = gate_ids,
+        set_gate        = set_gate,
+        gate_defaults   = gate_defaults,
+        gate_label      = gate_label,
     }
+}
+
+// The engine's id in the per-backend admin gate and in Request.backend.
+ENGINE_ID :: "odin"
+
+@(private)
+gate_ids :: proc(data: rawptr, allocator: runtime.Allocator) -> []string {
+    ids := make([]string, 1, allocator)
+    ids[0] = ENGINE_ID
+    return ids
+}
+
+@(private)
+set_gate :: proc(data: rawptr, id: string, enabled: bool, features: bit_set[lang.Request_Kind]) -> bool {
+    if id != ENGINE_ID {
+        return false
+    }
+    e := cast(^Engine)data
+    engine_set_enabled(e, enabled)
+    engine_set_features(e, features)
+    return true
+}
+
+@(private)
+gate_defaults :: proc(data: rawptr, id: string) -> (enabled: bool, features: bit_set[lang.Request_Kind], ok: bool) {
+    return true, lang.FEATURES_ALL, id == ENGINE_ID
+}
+
+@(private)
+gate_label :: proc(data: rawptr, id: string) -> string {
+    return id == ENGINE_ID ? "Odin Analyzer" : ""
 }
 
 // A saved buffer is read again at the next request, not after the workspace interval.
