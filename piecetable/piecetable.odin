@@ -291,6 +291,10 @@ piecetable_view :: proc(pt: ^Piece_Table) -> string {
     } else if len(pt.pending) > 0 {
         for op in pt.pending {
             if op.insert {
+                // inject_at grows to the exact length, so each insert would copy the whole snapshot.
+                if need := len(pt.snapshot) + op.length; need > cap(pt.snapshot) {
+                    reserve(&pt.snapshot, need + need / 8)
+                }
                 inject_at(&pt.snapshot, op.pos, ..pt.add[op.add_start:op.add_start + op.length])
             } else {
                 remove_range(&pt.snapshot, op.pos, op.pos + op.length)

@@ -1303,6 +1303,10 @@ patch_line_table :: proc(state: ^State, txt: string, change: Change) {
             append(&added, i + 1)
         }
     }
+    // inject_at grows to the exact length, so each new line would copy the whole table.
+    if need := len(lines) + len(added); need > cap(lines) {
+        reserve(lines, need + need / 8)
+    }
     inject_at(lines, first, ..added[:])
 }
 
