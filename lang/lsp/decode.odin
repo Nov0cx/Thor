@@ -403,6 +403,7 @@ append_completion :: proc(ask: ^Ask, object: json.Object, defaults: json.Object,
     }
 
     append(&res.completions, lang.Completion_Item {
+        documentation = strings.clone(documentation_text(object["documentation"])),
         label       = strings.clone(row),
         kind        = strings.clone(completion_kind_name(int(kind))),
         detail      = strings.clone(detail == "" ? row : string(detail)),
@@ -467,9 +468,23 @@ completion_range :: proc(ask: ^Ask, value: json.Value) -> (start, end: int, ok: 
     return lo, hi, true
 }
 
+// The text of a `documentation` field: a plain string, or a MarkupContent's
+// `value`. "" when absent or of another shape.
+@(private)
+documentation_text :: proc(value: json.Value) -> string {
+    #partial switch v in value {
+    case json.String:
+        return strings.trim_space(string(v))
+    case json.Object:
+        text, _ := v["value"].(json.String)
+        return strings.trim_space(string(text))
+    }
+    return ""
+}
+
 // `completionItem/resolve`. The reply is the same candidate with the parts the
-// server deferred filled in; only what the editor still needs is read, since the
-// text has already landed by the time this answers.
+// server deferred filled in; only what the editor still needs is read: the
+// follow-up edits and command, and the detail and documentation the popup shows.
 @(private)
 decode_resolve_completion :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
     object, is_object := value.(json.Object)
@@ -494,7 +509,10 @@ decode_resolve_completion :: proc(ask: ^Ask, value: json.Value, res: ^lang.Resul
     command, arguments := decode_action_command(object)
     item.command = strings.clone(command)
     item.arguments = strings.clone(arguments)
-    if len(item.extra_edits) == 0 && item.command == "" {
+    detail, _ := object["detail"].(json.String)
+    item.detail = strings.clone(string(detail))
+    item.documentation = strings.clone(documentation_text(object["documentation"]))
+    if len(item.extra_edits) == 0 && item.command == "" && item.detail == "" && item.documentation == "" {
         delete(item.extra_edits)
         return
     }

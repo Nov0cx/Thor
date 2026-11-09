@@ -1797,6 +1797,7 @@ thor_completion_clear :: proc(thor: ^Thor) {
         delete(item.kind)
         delete(item.detail)
         delete(item.note)
+        delete(item.documentation)
         delete(item.insert)
         delete(item.filter)
         delete(item.sort)
@@ -1812,6 +1813,9 @@ thor_completion_clear :: proc(thor: ^Thor) {
     }
     delete(thor.completion_items)
     thor.completion_items = nil
+    thor.completion_doc_owner = 0
+    thor.completion_doc_target = 0
+    thor.completion_doc_request_id = 0
     delete(thor.completion_path)
     thor.completion_path = ""
     thor.completion_revision = 0
@@ -1826,6 +1830,98 @@ thor_open_file_for_state :: proc(thor: ^Thor, state: ^textedit.State) -> ^Open_F
         }
     }
     return nil
+}
+
+// How long the selection rests on a row before its documentation is asked for.
+COMPLETION_DOC_DELAY :: 150 * time.Millisecond
+
+// The candidate under the popup's selection, or nil for a buffer word.
+@(private)
+thor_completion_selected_item :: proc(thor: ^Thor, editor: ^editview.Editor) -> ^lang.Completion_Item {
+    if editor.completion_selected < 0 || editor.completion_selected >= len(editor.completion_rows) {
+        return nil
+    }
+    index := editor.completion_rows[editor.completion_selected].owner_id - 1
+    if index < 0 || index >= len(thor.completion_items) {
+        return nil
+    }
+    return &thor.completion_items[index]
+}
+
+// Asks the server for the selected candidate's detail and documentation once the
+// selection has rested on it, and only for a candidate that carries the payload a
+// resolve needs and was not asked before. First pass only: input never reaches the
+// later passes of a frame.
+@(private)
+thor_completion_doc_update :: proc(thor: ^Thor, editor: ^editview.Editor) {
+    if thor.frame_pass != 0 || thor.completion_editor != editor {
+        return
+    }
+    item := thor_completion_selected_item(thor, editor)
+    if item == nil {
+        thor.completion_doc_owner = 0
+        return
+    }
+    owner := editor.completion_rows[editor.completion_selected].owner_id
+    if owner != thor.completion_doc_owner {
+        thor.completion_doc_owner = owner
+        thor.completion_doc_since = time.tick_now()
+        return
+    }
+    if item.resolved || item.raw == "" || thor.completion_doc_request_id != 0 {
+        return
+    }
+    if time.tick_since(thor.completion_doc_since) < COMPLETION_DOC_DELAY || editor.state == nil {
+        return
+    }
+    file := thor_open_file_for_state(thor, editor.state)
+    if file == nil || file.path != thor.completion_path {
+        return
+    }
+    id := lang.manager_request_latest(
+        &thor.lang_manager,
+        .Resolve_Completion,
+        file.path,
+        thor_lang_key(thor, file.name),
+        textedit.text(&file.state),
+        0,
+        file.state.revision,
+        thor.workspace_dir,
+        item = item.raw,
+        backend = item.origin,
+    )
+    if id == 0 {
+        item.resolved = true // nothing answers it; do not ask again
+        return
+    }
+    thor.completion_doc_request_id = id
+    thor.completion_doc_target = owner
+}
+
+// Keeps the detail and documentation a resolve answered with on the candidate it
+// was asked for. Nothing else of the reply is used: the edits and the command only
+// run when the row is accepted.
+@(private = "file")
+thor_merge_resolved_docs :: proc(thor: ^Thor, res: ^lang.Result) {
+    thor.completion_doc_request_id = 0
+    index := thor.completion_doc_target - 1
+    if index < 0 || index >= len(thor.completion_items) {
+        return
+    }
+    item := &thor.completion_items[index]
+    item.resolved = true
+    if !res.ok || len(res.completions) == 0 {
+        return
+    }
+    reply := res.completions[0]
+    if reply.detail != "" {
+        delete(item.detail)
+        item.detail = strings.clone(reply.detail)
+    }
+    if reply.documentation != "" {
+        delete(item.documentation)
+        item.documentation = strings.clone(reply.documentation)
+    }
 }
 
 // Finishes an accepted candidate: the text is already in the buffer, so what is
@@ -2121,7 +2217,11 @@ thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
     case .Completion:
         thor_update_completion(thor, res)
     case .Resolve_Completion:
-        thor_apply_resolved_completion(thor, res)
+        if res.id != 0 && res.id == thor.completion_doc_request_id {
+            thor_merge_resolved_docs(thor, res)
+        } else {
+            thor_apply_resolved_completion(thor, res)
+        }
     case .Package_Doc:
         thor_show_package_doc(thor, res)
     case .Rename:

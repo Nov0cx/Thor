@@ -185,6 +185,8 @@ Completion_Item :: struct {
     kind:        string, // owned; drives the row color, the vocabulary Symbol.kind uses
     detail:      string, // owned; the signature shown beside the row
     note:        string, // owned; the labelDetails text shown after the label, "" when none
+    documentation: string, // owned; plain text, "" until the list or a resolve reply carries it
+    resolved:    bool,   // a resolve for the docs has answered, so it is not asked again
     insert:      string, // owned; "" inserts the label
     filter:      string, // owned; what the editor's prefix filter matches, "" the label
     sort:        string, // owned; the backend's ordering key, "" the label
@@ -1483,6 +1485,7 @@ result_release :: proc(res: ^Result) {
         delete(item.kind)
         delete(item.detail)
         delete(item.note)
+        delete(item.documentation)
         delete(item.insert)
         delete(item.filter)
         delete(item.sort)

@@ -4,6 +4,7 @@
 // is retained here.
 package thor
 
+import "core:fmt"
 import "core:strings"
 
 import "../editview"
@@ -235,6 +236,7 @@ thor_paint_box :: proc(rect: ui.Rect, color: ui.Color) {
 @(private)
 thor_editor_overlays :: proc(thor: ^Thor, editor: ^editview.Editor) {
     thor_completion_card(thor, editor)
+    thor_completion_doc_card(thor, editor)
     thor_hover_card(thor, editor)
     thor_signature_card(thor, editor)
 }
@@ -320,6 +322,58 @@ thor_completion_card :: proc(thor: ^Thor, editor: ^editview.Editor) {
     }
 }
 
+// Widest the documentation card grows before its text wraps.
+@(private = "file")
+COMPLETION_DOC_WIDTH :: f32(360)
+
+// The selected candidate's signature and documentation, beside the list: to its
+// right, or to its left when the pane has no room. Asks the server for the text
+// of a candidate that came without it.
+@(private = "file")
+thor_completion_doc_card :: proc(thor: ^Thor, editor: ^editview.Editor) {
+    box, _, _, ok := editview.editor_completion_rects(editor)
+    if !ok {
+        return
+    }
+    thor_completion_doc_update(thor, editor)
+    item := thor_completion_selected_item(thor, editor)
+    if item == nil {
+        return
+    }
+    text := item.documentation
+    if item.detail != "" && item.detail != item.label {
+        text = item.documentation == "" ? item.detail : fmt.tprintf("%s\n\n%s", item.detail, item.documentation)
+    }
+    if text == "" {
+        return
+    }
+
+    budget := min(COMPLETION_DOC_WIDTH, editor.view.w * 0.5) - CARD_PAD_X * 2
+    wrapped := editview.editor_wrap_text(editor, text, budget)
+    line_h := f32(font.line_height(editor.font_size))
+    lines := 0
+    text_w: f32
+    rest := wrapped
+    for line in strings.split_lines_iterator(&rest) {
+        lines += 1
+        text_w = max(text_w, f32(font.measure(line, editor.font_size, "")))
+    }
+    if lines == 0 {
+        return
+    }
+    width := min(text_w + CARD_PAD_X * 2, editor.view.w * 0.5)
+    height := min(f32(lines) * line_h + CARD_PAD_Y * 2, editor.view.h)
+
+    x := box.x + box.w + CARD_GAP
+    if x + width > editor.view.x + editor.view.w {
+        x = box.x - width - CARD_GAP
+    }
+    x = max(x, editor.view.x)
+    y := min(box.y, editor.view.y + editor.view.h - height)
+    y = max(y, editor.view.y)
+    thor_card_draw(thor, editor, "completion_doc", wrapped, {x, y, width, height}, line_h, thor.theme.border)
+}
+
 // What a dwell resolved, over the symbol it describes. A diagnostic tints the
 // border with its severity.
 @(private = "file")
@@ -393,7 +447,20 @@ thor_editor_card :: proc(
         box_x = editor.view.x + editor.view.w - width - CARD_GAP
     }
     box_x = max(box_x, editor.view.x)
+    thor_card_draw(thor, editor, key, text, {box_x, box_y, width, height}, line_h, border)
+}
 
+// The card itself: `text` as one monospaced node per line inside `box`.
+@(private = "file")
+thor_card_draw :: proc(
+    thor: ^Thor,
+    editor: ^editview.Editor,
+    key, text: string,
+    box: ui.Rect,
+    line_h: f32,
+    border: ui.Color,
+) {
+    box_x, box_y, width, height := box.x, box.y, box.w, box.h
     ui.scope(
         {
             key = key,
@@ -414,7 +481,7 @@ thor_editor_card :: proc(
     )
 
     index := 0
-    rest = text
+    rest := text
     for line in strings.split_lines_iterator(&rest) {
         ui.push_id_int(i64(index))
         ui.leaf(

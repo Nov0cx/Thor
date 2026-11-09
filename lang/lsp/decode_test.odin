@@ -162,6 +162,7 @@ result_release :: proc(res: ^lang.Result) {
         delete(item.kind)
         delete(item.detail)
         delete(item.note)
+        delete(item.documentation)
         delete(item.insert)
         delete(item.filter)
         delete(item.sort)
@@ -929,11 +930,57 @@ test_decode_resolve_completion_without_edits :: proc(t: ^testing.T) {
     defer held_destroy(s)
     req := request_for(.Resolve_Completion, SOURCE, 0)
 
-    res := decode_reply(s, &req, `{"label":"alpha","detail":"int alpha(void)"}`)
+    res := decode_reply(s, &req, `{"label":"alpha"}`)
     defer result_release(&res)
 
     testing.expect(t, !res.ok)
     testing.expect_value(t, len(res.completions), 0)
+}
+
+// The detail and documentation a resolve fills in are the result, as a plain
+// string or as MarkupContent.
+@(test)
+test_decode_resolve_completion_docs :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Resolve_Completion, SOURCE, 0)
+
+    res := decode_reply(
+        s,
+        &req,
+        `{"label":"alpha","detail":"int alpha(void)",` +
+        `"documentation":{"kind":"markdown","value":"  Returns alpha.  "}}`,
+    )
+    defer result_release(&res)
+
+    testing.expect(t, res.ok)
+    testing.expect_value(t, len(res.completions), 1)
+    if len(res.completions) == 1 {
+        testing.expect_value(t, res.completions[0].detail, "int alpha(void)")
+        testing.expect_value(t, res.completions[0].documentation, "Returns alpha.")
+    }
+}
+
+// A list item that already carries its documentation keeps it.
+@(test)
+test_decode_completion_inline_documentation :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Completion, SOURCE, 5)
+
+    res := decode_reply(
+        s,
+        &req,
+        `[{"label":"alpha","documentation":"first"},` +
+        `{"label":"beta","documentation":{"kind":"plaintext","value":"second"}}]`,
+    )
+    defer result_release(&res)
+
+    testing.expect_value(t, len(res.completions), 2)
+    if len(res.completions) == 2 {
+        testing.expect_value(t, res.completions[0].documentation, "first")
+        testing.expect_value(t, res.completions[1].documentation, "second")
+    }
 }
 
 // The delta rule: a new line resets the character, the same line adds to it, and

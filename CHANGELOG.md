@@ -2,6 +2,7 @@
 
 - Language servers: LSP `Information` diagnostics show as their own level in the Problems panel; `Hint` stays faint.
 - Language servers: completion shows `labelDetails` after the label, and reads `itemDefaults` and `InsertReplaceEdit` ranges.
+- Language servers: a card beside the completion list shows the selected item's signature and documentation, asking the server for them when the item came without.
 - Language servers: a workspace edit applies its file operations in the order the server sent them.
 - Language servers: a server that misses three deadlines in a row gets no requests for 30 s, and Settings says so.
 - Language servers: every enabled server that claims a language answers for it, and Settings names the other servers of a language. Lists such as completion, code actions and symbols merge.

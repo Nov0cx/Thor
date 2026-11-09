@@ -533,6 +533,12 @@ Thor :: struct {
     completion_revision: u64,
     // In-flight Resolve_Completion.
     resolve_request_id: u64,
+    // The popup's documentation card: the row the selection rests on (owner id)
+    // and since when, the row a resolve was sent for, and its request id.
+    completion_doc_owner: int,
+    completion_doc_since: time.Tick,
+    completion_doc_target: int,
+    completion_doc_request_id: u64,
     // In-flight package-doc request: its request id, so a superseded result (a
     // newer F3 for another package) is dropped instead of overwriting the newer one.
     package_doc_request_id: u64,
