@@ -13,8 +13,9 @@ VERSION :: "2026.11.0"
 USAGE ::
 `Usage: thor [path...]
        thor [option]
+       thor fmt [-w|--check] path...   Format Odin files; see thor fmt --help.
 
-  path             Folder to open as the workspace, or file to open in a tab.
+  path            Folder to open as the workspace, or file to open in a tab.
                    Several files open as several tabs, the last one active. The
                    first folder given becomes the workspace and any later one is
                    ignored, since a window holds one workspace. Without a path

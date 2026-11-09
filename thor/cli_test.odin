@@ -3,6 +3,8 @@ package thor
 import "core:strings"
 import "core:testing"
 
+import "../lang/odin/format"
+
 // Every accepted flag spelling, and the arguments that must stay paths.
 // Run from the repository root: odin test thor
 @(test)
@@ -57,4 +59,59 @@ test_version_format :: proc(t: ^testing.T) {
             testing.expect(t, c >= '0' && c <= '9', "the version must hold digits only")
         }
     }
+}
+
+// `fmt` is a subcommand only as the first argument; the rest are its options.
+@(test)
+test_cli_fmt_args :: proc(t: ^testing.T) {
+    testing.expect(t, thor_cli_is_fmt({"thor", "fmt"}))
+    testing.expect(t, !thor_cli_is_fmt({"thor", "a.odin", "fmt"}))
+    testing.expect(t, !thor_cli_is_fmt({"thor"}))
+
+    parsed, problem := thor_cli_fmt_args({"thor", "fmt", "-w", "a.odin", "dir"})
+    testing.expect_value(t, problem, "")
+    testing.expect(t, parsed.write && !parsed.check)
+    testing.expect_value(t, len(parsed.paths), 2)
+
+    _, problem = thor_cli_fmt_args({"thor", "fmt", "--check", "dir"})
+    testing.expect_value(t, problem, "")
+    _, problem = thor_cli_fmt_args({"thor", "fmt", "a.odin"})
+    testing.expect_value(t, problem, "")
+    parsed, problem = thor_cli_fmt_args({"thor", "fmt", "-"})
+    testing.expect(t, problem == "" && parsed.stdin)
+
+    for bad in ([][]string{
+        {"thor", "fmt"},
+        {"thor", "fmt", "-w", "--check", "a.odin"},
+        {"thor", "fmt", "a.odin", "b.odin"},
+        {"thor", "fmt", "-", "a.odin"},
+        {"thor", "fmt", "--nope", "a.odin"},
+    }) {
+        _, problem = thor_cli_fmt_args(bad)
+        testing.expect(t, problem != "", "a bad command line must be refused")
+    }
+
+    parsed, problem = thor_cli_fmt_args({"thor", "fmt", "--help"})
+    testing.expect(t, problem == "" && parsed.help)
+}
+
+// The formatter keeps the line ending of the source and refuses a syntax error.
+@(test)
+test_fmt_source :: proc(t: ^testing.T) {
+    config := Fmt_Config{opts = format.default_options()}
+    out, ok := fmt_source("package p\r\n\r\nx :: 1\r\n", config)
+    testing.expect(t, ok)
+    testing.expect(t, strings.contains(out, "\r\n") && !strings.contains(out, "\n\n"), "CRLF must stay CRLF")
+
+    out, ok = fmt_source("package p\n\nx :: 1\n", config)
+    testing.expect(t, ok)
+    testing.expect(t, !strings.contains(out, "\r"), "LF must stay LF")
+
+    config.newline_present = true
+    config.opts.newline_style = .CRLF
+    out, ok = fmt_source("package p\n\nx :: 1\n", config)
+    testing.expect(t, ok && strings.contains(out, "\r\n"), "a named newline_style wins")
+
+    _, ok = fmt_source("package p\n\nx :: (\n", Fmt_Config{opts = format.default_options()})
+    testing.expect(t, !ok, "a syntax error must not format")
 }

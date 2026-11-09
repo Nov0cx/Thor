@@ -9,6 +9,7 @@
 - Odin: each file has its own build target. "Odin: Select Build Target..." or the target segment of the status bar picks it, and analysis and checks use it. The choice is kept per file in the `file_targets` setting.
 - A restart reopens each file with the caret on its line and the view on its top row.
 - A tab keeps its scroll position when you switch away from it and back.
+- `thor fmt [-w|--check] <file|folder>...` formats Odin files and packages, subfolders included, from the command line. `-` reads stdin.
 
 # 2026.11.0
 

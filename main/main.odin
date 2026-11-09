@@ -10,6 +10,9 @@ import "../thor"
 main :: proc() {
     // Answered before anything is allocated or the window is created, so a
     // version query works with no display.
+    if code, handled := thor.cli_fmt(os.args); handled {
+        os.exit(code)
+    }
     if thor.cli_handled(os.args) {
         return
     }

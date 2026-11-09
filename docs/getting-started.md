@@ -120,6 +120,28 @@ The same holds at launch. Starting Thor on a folder another window holds brings
 that window forward and the new process exits. With files on the command line,
 or when the window cannot be raised, Thor starts with no folder open.
 
+### Formatting from the command line
+
+`thor fmt` formats Odin source with no window, using the same formatter and the
+nearest `.thor/odin-formatter.lua` (see [configuration](configuration.md)) as
+the editor.
+
+```bash
+thor fmt main.odin             # print the result of one file
+thor fmt -w src                # write every .odin file in src and its subfolders
+thor fmt --check .             # list files that need formatting
+cat a.odin | thor fmt -        # stdin to stdout
+```
+
+A folder takes its subfolders too; hidden folders are skipped. A file with a
+syntax error is left as it is. A file keeps its line ending unless
+`newline_style` names one. Exit codes: `0` done, `1` `--check` found a
+difference, `2` an error, `64` a bad command line.
+
+On Windows the release build has no console of its own, so a shell does not wait
+for it: run it as `start /wait thor fmt ...` in `cmd`, or `Start-Process -Wait`
+in PowerShell, when a script needs the exit code. A debug build has no such limit.
+
 ## A first tour
 
 - **Title bar** — drag it to move the window, double-click it to maximize the

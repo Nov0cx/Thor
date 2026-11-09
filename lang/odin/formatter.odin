@@ -85,6 +85,19 @@ format_config_ensure :: proc(cache: ^Format_Config_Cache, workspace: string) {
     }
 }
 
+// The formatter options of `workspace`, read the way the editor reads them but
+// with no Engine, for the command line. `newline_present` is true when the file
+// names `newline_style`. Problems in the file go to context.logger.
+load_format_options :: proc(workspace: string) -> (opts: format.Options, newline_present: bool) {
+    cache := Format_Config_Cache {
+        alloc = context.allocator,
+        opts  = format.default_options(),
+    }
+    defer delete(cache.workspace, cache.alloc)
+    format_config_ensure(&cache, workspace)
+    return cache.opts, cache.newline_present
+}
+
 // Reads the file onto the defaults. A key it does not know, a value of the
 // wrong type and a value out of range are logged and keep the default.
 @(private)

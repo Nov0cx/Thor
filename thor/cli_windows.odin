@@ -24,4 +24,11 @@ cli_attach_console :: proc() {
         return
     }
     os.stdout = os.new_file(uintptr(handle), "<stdout>")
+    // The same attach gives stderr and stdin their handles; a redirection keeps its own.
+    if errh := win32.GetStdHandle(win32.STD_ERROR_HANDLE); errh != nil && errh != win32.INVALID_HANDLE_VALUE {
+        os.stderr = os.new_file(uintptr(errh), "<stderr>")
+    }
+    if inh := win32.GetStdHandle(win32.STD_INPUT_HANDLE); inh != nil && inh != win32.INVALID_HANDLE_VALUE {
+        os.stdin = os.new_file(uintptr(inh), "<stdin>")
+    }
 }
