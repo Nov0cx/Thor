@@ -13,13 +13,24 @@ import "core:strings"
 import rl "vendor:raylib"
 
 import "../atomicfile"
+import "../editview"
+import "../textedit"
 import ui "../vendor/loom/loom"
+
+// Where a file was left: caret and top row, as 0-based line and byte column.
+File_View :: struct {
+    line:     int,
+    col:      int,
+    top_line: int,
+}
 
 // On-disk shape of a session. Field names are the JSON keys.
 @(private = "file")
 Session :: struct {
     workspace:        string,
     open_files:       []string,
+    // One entry per open_files entry; absent in an older session.
+    file_views:       []File_View `json:",omitempty"`,
     active_file:      int,
     explorer_visible: bool,
     console_visible:  bool,
@@ -251,16 +262,19 @@ thor_save_session :: proc(thor: ^Thor) {
     }
 
     paths := make([dynamic]string, 0, len(thor.open_files), context.temp_allocator)
+    views := make([dynamic]File_View, 0, len(thor.open_files), context.temp_allocator)
     for file in thor.open_files {
         if os.is_dir(file.path) {
             continue // a folder has no buffer; it would come back as a blank tab
         }
         append(&paths, file.path)
+        append(&views, thor_file_view(thor, file))
     }
 
     session := Session {
         workspace        = thor.workspace_dir,
         open_files       = paths[:],
+        file_views       = views[:],
         active_file      = thor.pane_file[0],
         explorer_visible = signal_get(&thor.explorer_visible),
         console_visible  = signal_get(&thor.console_visible),
@@ -289,6 +303,64 @@ thor_save_session :: proc(thor: ^Thor) {
         return
     }
     thor_record_last_workspace(thor.workspace_dir)
+}
+
+// The open file whose buffer `state` is, or nil.
+thor_file_of_state :: proc(thor: ^Thor, state: ^textedit.State) -> ^Open_File {
+    if state == nil {
+        return nil
+    }
+    for file in thor.open_files {
+        if &file.state == state {
+            return file
+        }
+    }
+    return nil
+}
+
+// Where `file` is now. A file still loading keeps what its restore holds.
+@(private = "file")
+thor_file_view :: proc(thor: ^Thor, file: ^Open_File) -> File_View {
+    if !file.loaded {
+        return file.restore_pending ? file.restore : File_View{}
+    }
+    caret := textedit.primary_cursor(&file.state).caret
+    line := textedit.state_line_index(&file.state, caret)
+    top := file.view_top
+    for pane in 0 ..< thor_pane_count(thor) {
+        if editor := thor_pane_editor(thor, pane); editor.state == &file.state {
+            top = editview.editor_top_offset(editor)
+            break
+        }
+    }
+    return {
+        line = line,
+        col = max(caret - textedit.state_line_start(&file.state, line), 0),
+        top_line = textedit.state_line_index(&file.state, top),
+    }
+}
+
+// Applies the view a session restore left on a file whose text just landed.
+// Positions past the end of a file that shrank land on its last line.
+thor_apply_file_view :: proc(file: ^Open_File) {
+    if !file.restore_pending {
+        return
+    }
+    file.restore_pending = false
+    count := textedit.state_line_count(&file.state)
+    if count <= 0 {
+        return
+    }
+    text := textedit.text(&file.state)
+    line := clamp(file.restore.line, 0, count - 1)
+    start := textedit.state_line_start(&file.state, line)
+    end := len(text)
+    if line + 1 < count {
+        end = max(textedit.state_line_start(&file.state, line + 1) - 1, start)
+    }
+    textedit.set_single_cursor(&file.state, clamp(start + max(file.restore.col, 0), start, end))
+    top_line := clamp(file.restore.top_line, 0, count - 1)
+    file.view_top = textedit.state_line_start(&file.state, top_line)
 }
 
 // What the dock holds now, for the session file. A workspace whose dock was
@@ -414,6 +486,15 @@ thor_restore_session :: proc(thor: ^Thor) {
     // tab is applied last.
     for p in kept {
         thor_open_file(thor, p)
+    }
+    // Views are parallel to open_files; a missing or short list leaves a file at the top.
+    for p, i in session.open_files {
+        if i >= len(session.file_views) || remap[i] < 0 {
+            continue
+        }
+        if file, _ := thor_find_open_file(thor, p); file != nil {
+            file.restore, file.restore_pending = session.file_views[i], true
+        }
     }
     if active >= 0 && active < len(thor.open_files) {
         thor_set_active_file(thor, active)

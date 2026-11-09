@@ -6,6 +6,7 @@ import "core:strings"
 import "core:testing"
 
 import "../editview"
+import "../textedit"
 
 // A fixture name no other run of the tests can collide with. Windows keeps the
 // name of a removed directory unusable while a handle on it is still open, thus
@@ -219,4 +220,30 @@ n0.tabs = Explorer
     testing.expect_value(t, thor.dock_layout, "")
     testing.expect(t, !thor.dock_seeded, "a missing session still re-arranges the dock")
     thor.workspace_dir = workspace
+}
+
+// A restore puts the caret on its saved line and column and the view on its top
+// line, and a position past the end of a file that shrank lands on the last line.
+@(test)
+test_apply_file_view_clamps :: proc(t: ^testing.T) {
+    file := new(Open_File)
+    defer free(file)
+    textedit.init(&file.state)
+    defer textedit.destroy(&file.state)
+    textedit.set_text(&file.state, "alpha\nbeta\ngamma")
+
+    file.restore, file.restore_pending = File_View{line = 1, col = 2, top_line = 1}, true
+    thor_apply_file_view(file)
+    testing.expect(t, !file.restore_pending, "the restore must be spent")
+    testing.expect_value(t, textedit.primary_cursor(&file.state).caret, 8)
+    testing.expect_value(t, file.view_top, 6)
+
+    file.restore, file.restore_pending = File_View{line = 99, col = 99, top_line = 99}, true
+    thor_apply_file_view(file)
+    testing.expect_value(t, textedit.primary_cursor(&file.state).caret, 16)
+    testing.expect_value(t, file.view_top, 11)
+
+    file.restore, file.restore_pending = File_View{line = 0, col = 99, top_line = 0}, true
+    thor_apply_file_view(file)
+    testing.expect_value(t, textedit.primary_cursor(&file.state).caret, 5)
 }

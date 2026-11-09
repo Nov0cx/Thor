@@ -133,6 +133,9 @@ Editor :: struct {
     font_size:          i32,
     gutter_width:       f32,
     scroll_y:           f32,
+    // Byte offset the view scrolls to once laid out; see editor_set_top.
+    top_offset:         int,
+    top_pending:        bool,
     // Sideways scroll in pixels. Always 0 with wrap on.
     scroll_x:           f32,
     background_color:   ui.Color,
@@ -586,6 +589,7 @@ editor_set_state :: proc(editor: ^Editor, state: ^textedit.State) {
     editor.state = state
     editor.scroll_y = 0
     editor.scroll_x = 0
+    editor.top_pending = false
     editor.highlights = nil
     // Borrowed from the previous buffer, whose owner can be freed right after
     // this rebind (a tab close). The owner pushes the new file's spans back.
@@ -624,12 +628,36 @@ editor_reload_state :: proc(editor: ^Editor, state: ^textedit.State) {
 // Reads the rows as they stand: a reload asks what the view showed over the text
 // it is replacing, so this must not rebuild them against the new one.
 editor_top_offset :: proc(editor: ^Editor) -> int {
+    if editor.top_pending {
+        return editor.top_offset
+    }
     if len(editor.visual_rows) == 0 {
         return 0
     }
     line_height := cast(f32) font.line_height(editor.font_size)
     index := clamp(cast(int) (editor.scroll_y / line_height), 0, len(editor.visual_rows) - 1)
     return editor.visual_rows[index].start
+}
+
+// Scrolls so the row holding byte `offset` is on top. Waits for the first
+// layout, since the wrap width decides the rows.
+editor_set_top :: proc(editor: ^Editor, offset: int) {
+    if editor.state == nil || offset <= 0 {
+        return
+    }
+    editor.top_offset = offset
+    editor.top_pending = true
+}
+
+@(private = "file")
+editor_apply_top :: proc(editor: ^Editor) {
+    if !editor.top_pending || editor.view.w <= 0 || len(editor.visual_rows) == 0 {
+        return
+    }
+    editor.top_pending = false
+    index := editor_visual_row_index(editor, min(editor.top_offset, len(textedit.text(editor.state))))
+    editor.scroll_y = cast(f32) index * cast(f32) font.line_height(editor.font_size)
+    editor_clamp_scroll(editor)
 }
 
 // Scrolls by whole lines, for content that moved under the view (a reload from
@@ -1121,6 +1149,7 @@ editor_ensure_visual_rows :: proc(editor: ^Editor) -> bool {
     editor_remap_folds(editor)
     editor_remap_zone(editor)
     if editor_rows_fresh(editor) {
+        editor_apply_top(editor)
         return false
     }
     // A hidden line owns no row, so a caret left on one has no row to draw or
@@ -1132,6 +1161,7 @@ editor_ensure_visual_rows :: proc(editor: ^Editor) -> bool {
     if !editor_patch_visual_rows(editor) {
         editor_rebuild_visual_rows(editor)
     }
+    editor_apply_top(editor)
     return true
 }
 

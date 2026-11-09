@@ -7,6 +7,8 @@
 - Odin: `logic/const-condition` reads constant expressions in `if`, `else if` and `for` conditions.
 - Odin: `api/deprecated` also covers members of a procedure group and deprecated types in type positions.
 - Odin: each file has its own build target. "Odin: Select Build Target..." or the target segment of the status bar picks it, and analysis and checks use it. The choice is kept per file in the `file_targets` setting.
+- A restart reopens each file with the caret on its line and the view on its top row.
+- A tab keeps its scroll position when you switch away from it and back.
 
 # 2026.11.0
 

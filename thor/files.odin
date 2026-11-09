@@ -41,6 +41,11 @@ Open_File :: struct {
     tab_label:          string,
     state:              textedit.State,
     loaded:             bool,
+    // Byte offset of the top row when a pane last showed this file; the view comes back to it.
+    view_top:           int,
+    // Caret and top line a session restore applies once the load lands.
+    restore:            File_View,
+    restore_pending:    bool,
     load_failed:        bool,
     saving:             bool,
     // A disk-change reload is in flight; no second reload or save starts.
@@ -1388,6 +1393,7 @@ thor_process_io :: proc(thor: ^Thor) {
             thor_apply_indent(thor, file)
             thor_apply_lexical(thor, file)
             thor_restore_backup(thor, file)
+            thor_apply_file_view(file)
         } else {
             file.load_failed = true
             if job.binary {

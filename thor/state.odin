@@ -80,6 +80,9 @@ thor_bind_pane :: proc(thor: ^Thor, pane: int, keep_view := false) {
 // Binds a single editor widget to a file's buffer, or shows a placeholder while
 // there is nothing loaded to draw.
 thor_bind_editor :: proc(thor: ^Thor, editor: ^editview.Editor, file: ^Open_File, keep_view := false) {
+    if previous := thor_file_of_state(thor, editor.state); previous != nil {
+        previous.view_top = editview.editor_top_offset(editor)
+    }
     if file == nil || file.load_failed || !file.loaded {
         editor.placeholder = "No file open"
         if file != nil {
@@ -108,6 +111,7 @@ thor_bind_editor :: proc(thor: ^Thor, editor: ^editview.Editor, file: ^Open_File
         editview.editor_reload_state(editor, &file.state)
     } else {
         editview.editor_set_state(editor, &file.state)
+        editview.editor_set_top(editor, file.view_top)
     }
     editview.editor_set_highlights(editor, file.highlights[:])
     editview.editor_set_folds(editor, file.folds[:])
