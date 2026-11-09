@@ -907,6 +907,33 @@ Behaviour that is wrong, partial, or surprising today.
   `core:odin/parser` is laxer than the compiler (commas between lines, `do` bodies, `#no_copy`), so
   `odin check -file` is the oracle for syntax.
 
+### Large files
+
+A buffer of 8 MB or more (`thor_big_file`, `BIG_FILE_BYTES`) switches off what walks or copies the
+whole text per edit: semantic tokens, inlay hints, code lenses, folds, live syntax diagnostics,
+document highlight and the language-server mirror (`didOpen`/`didChange`, so no LSP features).
+Requests the user starts (completion, hover, go to definition, code actions) stay on and clone the
+buffer once. Grammar highlighting parses only the window (`LARGE_WINDOW_BYTES`, 32 KB) alone and
+uncached; a Lua lexer that reads the whole source is skipped (`LARGE_SOURCE_BYTES`).
+Measured on a generated 58 MB Odin buffer (release flags):
+
+- **Tree-sitter, whole buffer.** The first parse took 17.7 s and each edit about 5.7 s on the main
+  thread, so large buffers no longer reach it. A window parsed alone costs about 1 ms per KB. The
+  colours at a window edge can be wrong when it starts inside a construct. A real fix is an
+  off-thread parse or a line lexer.
+- **Keystroke in the first half.** 4 to 9 ms. `textedit.text` is one contiguous string, so each
+  edit moves the tail. Fix: a gap buffer in `piecetable` with a two-slice read (`text_parts`) for
+  the row patch, the line table and drawing, while `text` closes the gap. A rope would also remove
+  it but breaks every reader of the string. Not done: it is inside one frame.
+- **Load.** About 60 ms on the main thread for 58 MB (set_text 10 ms, first snapshot 11 ms, line
+  table 44 ms). Sizing the line table up front measured slower.
+- **Undo, redo and replace all** rebuild the whole snapshot (a stale piece table).
+- **Seam.** Tree cache and LSP `didChange` take a full source each time; edit spans would avoid the
+  clone and compare (estimated 10 ms per edit at 50 MB).
+- **Rows.** The row patch handles a collapsed fold when the edit misses it. Editing the longest line
+  rescans every line only when the edit shortens it. A zone or a lens still rebuilds all rows
+  (lenses are off in large files).
+
 ### LSP
 
 - **`workspace/symbol` and an empty query.** Servers such as clangd, gopls and pyright answer nothing

@@ -10,9 +10,12 @@
 - A restart reopens each file with the caret on its line and the view on its top row.
 - A tab keeps its scroll position when you switch away from it and back.
 - `thor fmt [-w|--check] <file|folder>...` formats Odin files and packages, subfolders included, from the command line. `-` reads stdin.
-- A file of 8 MB or more opens with semantic highlighting, inlay hints, reference counts and folding off, since they walk the whole buffer on every edit burst. A status message says so.
+- A file of 8 MB or more opens with semantic highlighting, inlay hints, reference counts, folding, live diagnostics, word highlight and language servers off, since they walk or copy the whole buffer on every edit burst. A status message says so.
 - Indentation detection reads only the first megabyte of a file.
 - Typing in a very large file is faster: a keystroke no longer copies the whole buffer (1M lines, 58 MB: 16 ms to 0.005 ms at the end, 20 ms to 4 ms in the middle).
+- Syntax colours in a file of 8 MB or more come from the visible part only. Parsing the whole file took seconds per key.
+- A collapsed fold no longer makes each key rebuild every row (7 MB: 33 ms to 0.7 ms).
+- Typing on the longest line of a file no longer rescans every line (7 MB: 32 ms to 0.5 ms).
 
 # 2026.11.0
 
