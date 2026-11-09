@@ -1552,3 +1552,73 @@ test_lens_rows :: proc(t: ^testing.T) {
     editor_ensure_visual_rows(&editor)
     testing.expect_value(t, len(editor.visual_rows), 3)
 }
+
+// With collapsed folds, rows patched through an edit equal rows built from
+// scratch. Edits keep the folds' lines in place, as the owner's re-fold would.
+@(test)
+test_patched_rows_match_rebuild_with_folds :: proc(t: ^testing.T) {
+    b := strings.builder_make()
+    defer strings.builder_destroy(&b)
+    for i in 0 ..< 60 {
+        strings.write_string(&b, "line number ")
+        strings.write_int(&b, i)
+        strings.write_string(&b, "\n")
+    }
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+    textedit.set_text(&state, strings.to_string(b))
+
+    editor: Editor
+    editor.state = &state
+    editor.font_size = 16
+    editor.foldable = make(map[int]int)
+    editor.folded = make(map[int]int)
+    defer delete(editor.foldable)
+    defer delete(editor.folded)
+    defer delete(editor.visual_rows)
+    editor_set_folds(&editor, []Fold_Range{{start_line = 3, end_line = 6}, {start_line = 10, end_line = 14}})
+    for start in ([?]int{3, 10}) {
+        editor.folded[start] = textedit.state_line_start(&state, start)
+    }
+    editor.folds_revision = state.revision
+    editor_ensure_visual_rows(&editor)
+
+    gen := rand.create_u64(9)
+    context.random_generator = rand.default_random_generator(&gen)
+    pieces := [?]string{"x", "\t", "a very long line of text"}
+    patched_rounds := 0
+    for round in 0 ..< 200 {
+        // A line start of line 20 or later, or a column inside any line.
+        line := rand.int_max(60)
+        pos := textedit.state_line_start(&state, line) + rand.int_max(5)
+        if rand.int_max(4) == 0 {
+            pos = textedit.state_line_start(&state, 20 + rand.int_max(40))
+            _ = textedit.insert_at(&state, pos, "new\n")
+        } else if rand.int_max(3) == 0 {
+            _ = textedit.delete_range(&state, pos, 1)
+        } else {
+            _ = textedit.insert_at(&state, pos, pieces[rand.int_max(len(pieces))])
+        }
+        before := editor.rows_revision
+        editor_ensure_visual_rows(&editor)
+        if editor.rows_revision != before && !editor.rows_stale {
+            patched_rounds += 1
+        }
+        patched := make([]Visual_Row, len(editor.visual_rows), context.temp_allocator)
+        copy(patched, editor.visual_rows[:])
+        editor_rebuild_visual_rows(&editor)
+        same := len(patched) == len(editor.visual_rows)
+        for row, i in patched {
+            if !same {
+                break
+            }
+            same = row == editor.visual_rows[i]
+        }
+        if !same {
+            testing.expectf(t, false, "round %d: rows drifted from a rebuild with folds", round)
+            return
+        }
+    }
+    testing.expect(t, patched_rounds > 0, "some edits are patched through the folds")
+}

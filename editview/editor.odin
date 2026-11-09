@@ -856,13 +856,18 @@ editor_remap_folds :: proc(editor: ^Editor) {
             }
         }
     }
+    before := len(editor.folded)
     clear(&editor.folded)
     for offset in offsets {
         line := textedit.state_line_index(state, offset)
         editor.folded[line] = textedit.state_line_start(state, line)
     }
     editor.folds_revision = state.revision
-    editor.rows_stale = true
+    // The rows stand while every fold survived: the row patch moves them, and
+    // sends an edit that touches a fold to a rebuild.
+    if len(editor.folded) != before {
+        editor.rows_stale = true
+    }
 }
 
 // Collapses the fold that starts on `line`.
@@ -1252,7 +1257,7 @@ editor_rebuild_visual_rows :: proc(editor: ^Editor) {
 @(private)
 editor_patch_visual_rows :: proc(editor: ^Editor) -> bool {
     state := editor.state
-    if editor.rows_stale || len(editor.folded) > 0 || editor.zone_rows > 0 || len(editor.lenses) > 0 || len(editor.visual_rows) == 0 || editor.rows_wrap != editor.wrap {
+    if editor.rows_stale || editor.zone_rows > 0 || len(editor.lenses) > 0 || len(editor.visual_rows) == 0 || editor.rows_wrap != editor.wrap {
         return false
     }
     if editor.rows_tab_width != textedit.tab_width(state) {
@@ -1275,6 +1280,18 @@ editor_patch_visual_rows :: proc(editor: ^Editor) -> bool {
 
     // The rows of the old lines first_line .. old_last, in old offsets.
     first_row := editor_first_row_of_line(rows[:], first_line)
+    // A hidden first line owns no row, and a fold that starts in the changed
+    // lines may change what it hides: both are rebuilt.
+    if len(editor.folded) > 0 {
+        if first_row >= len(rows) || rows[first_row].line != first_line {
+            return false
+        }
+        for line in first_line ..= new_last {
+            if line in editor.folded {
+                return false
+            }
+        }
+    }
     old_last := rows[editor_last_row_from(rows[:], change.old_hi)].line
     end_row := editor_first_row_of_line(rows[:], old_last + 1)
 
@@ -1300,7 +1317,21 @@ editor_patch_visual_rows :: proc(editor: ^Editor) -> bool {
 
     if !editor.wrap {
         if remeasure {
-            editor_remeasure_lines(editor, text)
+            // The longest line sat in the changed range. When a changed line is
+            // still at least as wide, it is the longest; only a shrink needs a
+            // scan of every line.
+            before := editor.rows_max_cols
+            editor.rows_max_cols = 0
+            editor.rows_max_line = -1
+            line_start = textedit.state_line_start(state, first_line)
+            for line in first_line ..= new_last {
+                line_end := textedit.line_end(text, line_start)
+                editor_measure_line(editor, text, line_start, line_end, line, tab_width)
+                line_start = line_end + 1
+            }
+            if editor.rows_max_line < 0 || editor.rows_max_cols < before {
+                editor_remeasure_lines(editor, text)
+            }
         } else {
             if editor.rows_max_line > old_last {
                 editor.rows_max_line += line_delta
