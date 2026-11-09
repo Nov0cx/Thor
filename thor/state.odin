@@ -403,6 +403,15 @@ thor_name_wants_tabs :: proc(name: string) -> bool {
     return false
 }
 
+// Size from which a buffer counts as large: the features that walk the whole
+// text on every edit burst (semantic tokens, inlay hints, reference counts,
+// folds) stay off for it.
+BIG_FILE_BYTES :: 8 << 20
+
+thor_big_file :: proc(file: ^Open_File) -> bool {
+    return file.loaded && textedit.length(&file.state) >= BIG_FILE_BYTES
+}
+
 // Gives a loaded buffer its indent style and width: from its text when
 // detect_indentation is on, else from the settings.
 thor_apply_indent :: proc(thor: ^Thor, file: ^Open_File) {

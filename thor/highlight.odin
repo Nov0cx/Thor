@@ -105,6 +105,11 @@ thor_update_folds :: proc(thor: ^Thor, file: ^Open_File) {
     if time.tick_since(file.last_edit) < FOLD_IDLE_DELAY {
         return
     }
+    if thor_big_file(file) {
+        file.folds_revision = file.state.revision
+        file.folds_ready = true
+        return
+    }
     key := thor_file_highlight_key(thor, file)
     if !plugin.supports(&thor.plugins, key) {
         // A plugin reload can leave folds behind that the new language did not

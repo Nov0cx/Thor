@@ -247,3 +247,24 @@ test_apply_file_view_clamps :: proc(t: ^testing.T) {
     thor_apply_file_view(file)
     testing.expect_value(t, textedit.primary_cursor(&file.state).caret, 5)
 }
+
+// A buffer from BIG_FILE_BYTES up is large; one under it, or one still loading, is not.
+@(test)
+test_big_file_threshold :: proc(t: ^testing.T) {
+    file := new(Open_File)
+    defer free(file)
+    textedit.init(&file.state)
+    defer textedit.destroy(&file.state)
+
+    file.loaded = true
+    textedit.set_text(&file.state, "small\n")
+    testing.expect(t, !thor_big_file(file))
+
+    big, _ := strings.repeat("0123456789abcdef\n", BIG_FILE_BYTES / 17 + 1)
+    defer delete(big)
+    textedit.set_text(&file.state, big)
+    testing.expect(t, thor_big_file(file))
+
+    file.loaded = false
+    testing.expect(t, !thor_big_file(file), "a file still loading has no size to judge")
+}

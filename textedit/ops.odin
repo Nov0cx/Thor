@@ -899,11 +899,21 @@ Indent_Info :: struct {
     tab_lines:   int,
 }
 
+// The most of a document detect_indent reads.
+INDENT_SAMPLE_BYTES :: 1 << 20
+
 // Reads how the document indents: the style the most lines use, and for spaces
 // the step between levels. Blank lines and continuation alignment are ignored;
 // a line that starts with a tab counts as a tab line, whatever follows.
 detect_indent :: proc(state: ^State) -> Indent_Info {
     txt := text(state)
+    if len(txt) > INDENT_SAMPLE_BYTES {
+        // The head tells the style; a scan of a 50 MB file every second would not add to it.
+        txt = txt[:INDENT_SAMPLE_BYTES]
+        if cut := strings.last_index_byte(txt, '\n'); cut >= 0 {
+            txt = txt[:cut + 1]
+        }
+    }
     info: Indent_Info
     steps: [MAX_TAB_WIDTH + 1]int
     smallest := 0

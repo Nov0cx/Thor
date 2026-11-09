@@ -1394,6 +1394,10 @@ thor_process_io :: proc(thor: ^Thor) {
             thor_apply_lexical(thor, file)
             thor_restore_backup(thor, file)
             thor_apply_file_view(file)
+            if thor_big_file(file) {
+                log.infof("Large file %q: semantic highlighting, inlay hints, reference counts and folding are off", job.path)
+                thor_flash_status(thor, fmt.tprintf("%s is large: semantic highlighting, hints and folding are off", file.name), false)
+            }
         } else {
             file.load_failed = true
             if job.binary {

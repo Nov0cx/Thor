@@ -260,7 +260,7 @@ thor_lens_view :: proc(thor: ^Thor, file: ^Open_File) -> []editview.Inlay {
 thor_request_lens :: proc(thor: ^Thor, file: ^Open_File) {
     nav := &thor.nav
     lens := &file.lens
-    if nav.lens_request_id != 0 || (lens.asked_valid && lens.asked == file.state.revision) {
+    if nav.lens_request_id != 0 || thor_big_file(file) || (lens.asked_valid && lens.asked == file.state.revision) {
         return
     }
     ext := thor_lang_key(thor, file.name)

@@ -1873,7 +1873,7 @@ thor_apply_resolved_completion :: proc(thor: ^Thor, res: ^lang.Result) {
 // this full-file walk to its own round trip, and the highlight pass re-asks on
 // the next frame, so a file left behind by fast typing catches up on its own.
 thor_request_semantic :: proc(thor: ^Thor, file: ^Open_File) {
-    if thor.semantic_request_id != 0 || !file.loaded {
+    if thor.semantic_request_id != 0 || !file.loaded || thor_big_file(file) {
         return
     }
     if file.semantic_ready && file.semantic_revision == file.state.revision {

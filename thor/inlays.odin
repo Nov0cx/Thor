@@ -32,7 +32,7 @@ thor_sync_pane_inlays :: proc(thor: ^Thor, pane: int) {
 // view left the window they cover. One request at a time, as for semantic tokens.
 @(private = "file")
 thor_request_inlays :: proc(thor: ^Thor, file: ^Open_File, editor: ^editview.Editor) {
-    if thor.inlay_request_id != 0 {
+    if thor.inlay_request_id != 0 || thor_big_file(file) {
         return
     }
     margin := max(editview.editor_visible_row_count(editor), 1)
