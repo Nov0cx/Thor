@@ -432,7 +432,7 @@ thor_lang_notify :: proc(thor: ^Thor, file: ^Open_File, event: lang.Doc_Event) {
     ext := thor_lang_key(thor, file.name)
     switch event {
     case .Opened:
-        if file.lang_open || !file.loaded {
+        if file.lang_open || !file.loaded || thor_big_file(file) {
             return
         }
         file.lang_open = true
@@ -448,7 +448,7 @@ thor_lang_notify :: proc(thor: ^Thor, file: ^Open_File, event: lang.Doc_Event) {
             file.state.revision,
         )
     case .Changed:
-        if !file.lang_open || file.lang_revision == file.state.revision {
+        if !file.lang_open || file.lang_revision == file.state.revision || thor_big_file(file) {
             return
         }
         file.lang_revision = file.state.revision

@@ -66,7 +66,7 @@ thor_occurrences_cover_cursors :: proc(occurrences: []editview.Occurrence, curso
 // Asks for the uses at `caret` once per caret, revision and file. A newer ask supersedes the older one.
 @(private = "file")
 thor_request_occurrences :: proc(thor: ^Thor, file: ^Open_File, caret: int) {
-    if thor.occurrence_ask_path == file.path && thor.occurrence_ask_revision == file.state.revision && thor.occurrence_ask_caret == caret {
+    if (thor.occurrence_ask_path == file.path && thor.occurrence_ask_revision == file.state.revision && thor.occurrence_ask_caret == caret) || thor_big_file(file) {
         return
     }
     ext := thor_lang_key(thor, file.name)

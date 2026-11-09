@@ -133,7 +133,7 @@ thor_request_pane_syntax_diagnostics :: proc(thor: ^Thor, pane: int) {
         return
     }
     file := thor.open_files[index]
-    if !file.loaded || (file.syntax_ready && file.syntax_revision == file.state.revision) {
+    if !file.loaded || (file.syntax_ready && file.syntax_revision == file.state.revision) || thor_big_file(file) {
         return
     }
     ext := thor_lang_key(thor, file.name)
