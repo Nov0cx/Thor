@@ -683,6 +683,85 @@ test_server_request_cancels :: proc(t: ^testing.T) {
     testing.expect(t, wait_sent(&f, `"method":"$/cancelRequest"`), "the server was never told to stop")
 }
 
+// LATCH_STREAK deadline misses in a row put the server on hold: the next request
+// ends at once without reaching the server, a restart lifts the hold, and a reply
+// resets the count.
+@(test)
+test_server_latches_after_repeated_misses :: proc(t: ^testing.T) {
+    f: Fake
+    s := fake_server(&f, CAPS_ALL)
+    defer fake_end(&f, s)
+    defer free_all(context.temp_allocator)
+
+    s.deadline_percent = 1 // 30 ms
+    f.silent = true
+    req := lang.Request {
+        kind     = .Completion,
+        path     = SOURCE,
+        ext      = ".fake",
+        source   = BUFFER,
+        revision = 1,
+    }
+    testing.expect(t, server_ensure_started(s, &req), "the server did not start")
+
+    for _ in 0 ..< LATCH_STREAK - 1 {
+        res := lang.Result{kind = .Completion}
+        request_answer(s, &req, &res)
+    }
+    testing.expect(t, !server_latched(s), "latched before the streak")
+
+    res := lang.Result{kind = .Completion}
+    request_answer(s, &req, &res)
+    testing.expect(t, server_latched(s), "not latched after the streak")
+
+    // While latched nothing is sent, so a silent server costs no wait.
+    f.silent = false
+    start := time.tick_now()
+    request_answer(s, &req, &res)
+    testing.expect(t, time.tick_since(start) < 20 * time.Millisecond, "a latched request waited")
+    testing.expect(t, !res.ok, "a latched request must find nothing")
+
+    server_restart(s)
+    testing.expect(t, !server_latched(s), "a restart did not lift the hold")
+}
+
+// A reply between misses resets the count; a cancel is not a miss.
+@(test)
+test_server_miss_streak_resets_on_reply :: proc(t: ^testing.T) {
+    f: Fake
+    s := fake_server(&f, CAPS_ALL)
+    defer fake_end(&f, s)
+    defer free_all(context.temp_allocator)
+
+    s.deadline_percent = 1
+    req := lang.Request {
+        kind     = .Completion,
+        path     = SOURCE,
+        ext      = ".fake",
+        source   = BUFFER,
+        revision = 1,
+    }
+    testing.expect(t, server_ensure_started(s, &req), "the server did not start")
+
+    for _ in 0 ..< LATCH_STREAK - 1 {
+        f.silent = true
+        res := lang.Result{kind = .Completion}
+        request_answer(s, &req, &res)
+    }
+    server_note_answered(s, .Completion)
+    f.silent = true
+    res := lang.Result{kind = .Completion}
+    request_answer(s, &req, &res)
+    testing.expect(t, !server_latched(s), "a reply did not reset the streak")
+
+    cancel := true
+    req.cancel = &cancel
+    for _ in 0 ..< LATCH_STREAK + 1 {
+        request_answer(s, &req, &res)
+    }
+    testing.expect(t, !server_latched(s), "a cancel counted as a miss")
+}
+
 // A kind that reaches this backend with no method behind it costs no round trip.
 @(test)
 test_server_request_without_a_method :: proc(t: ^testing.T) {

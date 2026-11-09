@@ -309,7 +309,8 @@ Server_Status :: struct {
     root:            string, // "" until the server started once
     restarts:        int,
     last_error:      string, // "" while it never failed
-    enabled:         bool,
+    latched:         bool,   // on hold after repeated deadline misses
+    enabled:        bool,
     features:        bit_set[lang.Request_Kind],
     install_command: string, // already chosen for this platform
     docs_url:        string,
@@ -340,7 +341,8 @@ client_server_status :: proc(
             root            = server_root_copy(s, allocator),
             restarts        = server_restarts(s),
             last_error      = server_last_error(s, allocator),
-            enabled         = server_admin_enabled(s),
+            latched         = server_latched(s),
+            enabled        = server_admin_enabled(s),
             features        = server_admin_features(s),
             install_command = strings.clone(s.config.install, allocator),
             docs_url        = strings.clone(s.config.docs_url, allocator),

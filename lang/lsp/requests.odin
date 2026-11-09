@@ -83,7 +83,7 @@ Ask :: struct {
 // leave res.ok false, which the seam reads as "found nothing".
 request_answer :: proc(s: ^Server, req: ^lang.Request, res: ^lang.Result) {
     method := METHODS[req.kind]
-    if method == "" {
+    if method == "" || server_latched(s) {
         return
     }
 
@@ -128,12 +128,20 @@ request_answer :: proc(s: ^Server, req: ^lang.Request, res: ^lang.Result) {
     }
 
     params := request_params(&ask)
-    value, err := conn_call(ask.conn, method, params, request_deadline(req.kind), req.cancel)
+    value, err := conn_call(ask.conn, method, params, request_deadline(req.kind, s.deadline_percent), req.cancel)
     defer conn_free_value(ask.conn, value)
-    if err != .None {
-        if err == .Server_Error || err == .Timeout {
-            log.debugf("lsp: %s answered %v to %s", s.config.id, err, method)
-        }
+    #partial switch err {
+    case .Timeout:
+        log.debugf("lsp: %s answered %v to %s", s.config.id, err, method)
+        server_note_missed(s, req.kind)
+        return
+    case .Server_Error:
+        log.debugf("lsp: %s answered %v to %s", s.config.id, err, method)
+        server_note_answered(s, req.kind)
+        return
+    case .None:
+        server_note_answered(s, req.kind)
+    case:
         return
     }
     request_decode(&ask, value, res)
@@ -332,13 +340,17 @@ trigger_character :: proc(ask: ^Ask) -> bool {
 }
 
 @(private)
-request_deadline :: proc(kind: lang.Request_Kind) -> time.Duration {
+request_deadline :: proc(kind: lang.Request_Kind, percent := 100) -> time.Duration {
+    deadline := DEADLINE_INTERACTIVE
     #partial switch kind {
     case .Document_Symbols, .Workspace_Symbols, .References, .Diagnostics, .Semantic_Tokens, .Rename, .Package_Doc,
          .Format, .Format_Range:
-        return DEADLINE_HEAVY
+        deadline = DEADLINE_HEAVY
     }
-    return DEADLINE_INTERACTIVE
+    if percent > 0 && percent != 100 {
+        deadline = deadline * time.Duration(percent) / 100
+    }
+    return deadline
 }
 
 // The LF-collapsed text of a file, read once per request. The request's own file

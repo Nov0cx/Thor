@@ -61,6 +61,11 @@ APPLY_EDIT_TIMEOUT :: 3 * time.Second
 RESTART_LIMIT :: 3
 RESTART_BACKOFF := [RESTART_LIMIT]time.Duration{1 * time.Second, 4 * time.Second, 16 * time.Second}
 
+// How many deadline misses in a row put a ready server on hold, and for how long
+// it then gets no request. A reply, a restart or the cooldown ending clears it.
+LATCH_STREAK :: 3
+LATCH_COOLDOWN :: 30 * time.Second
+
 // How often a waiting worker looks at the state again.
 @(private)
 READY_SLICE :: 5 * time.Millisecond
@@ -132,6 +137,11 @@ Server :: struct {
     status_mutex: sync.Mutex,
     restarts:    int,                  // guarded by status_mutex
     last_error:  string,               // owned; guarded by status_mutex; "" until one start failed
+    misses:      [2]int,               // deadline misses in a row, interactive then heavy; guarded by status_mutex
+    latched:     bool,                 // guarded by status_mutex
+    latched_at:  time.Tick,            // guarded by status_mutex
+    deadline_percent: int,             // test hook: scales every request deadline; 0 is 100
+    latch_cooldown: time.Duration,     // test hook: 0 is LATCH_COOLDOWN
     // How the process is opened, and what it is opened from. The default starts
     // the configured command; a test replaces it with a scripted server running
     // in this process, which is what makes the lifetime testable with no server
@@ -380,6 +390,8 @@ server_restart :: proc(s: ^Server) {
     s.restarts = 0
     delete(s.last_error, s.allocator)
     s.last_error = ""
+    s.misses = {}
+    s.latched = false
     sync.unlock(&s.status_mutex)
 
     // Both belong to the process that just went: queued events the new one gets
@@ -442,6 +454,7 @@ server_pump :: proc(s: ^Server) {
             return
         }
         if launched {
+            server_clear_latch(s)
             sync.atomic_store(&s.state, .Ready)
             log.debugf("lsp: %s started, answering %v", s.config.id, s.caps.kinds)
 
@@ -484,6 +497,64 @@ server_pump :: proc(s: ^Server) {
 server_restarts :: proc(s: ^Server) -> int {
     sync.guard(&s.status_mutex)
     return s.restarts
+}
+
+// Index into Server.misses: interactive requests 0, whole-file ones 1.
+@(private)
+miss_class :: proc(kind: lang.Request_Kind) -> int {
+    return request_deadline(kind, 100) == DEADLINE_HEAVY ? 1 : 0
+}
+
+// True while the server is on hold after repeated deadline misses. The hold ends
+// by itself once the cooldown has passed.
+server_latched :: proc(s: ^Server) -> bool {
+    sync.guard(&s.status_mutex)
+    if !s.latched {
+        return false
+    }
+    cooldown := s.latch_cooldown > 0 ? s.latch_cooldown : LATCH_COOLDOWN
+    if time.tick_since(s.latched_at) >= cooldown {
+        s.latched = false
+        s.misses = {}
+        return false
+    }
+    return true
+}
+
+@(private)
+server_clear_latch :: proc(s: ^Server) {
+    sync.guard(&s.status_mutex)
+    s.latched = false
+    s.misses = {}
+}
+
+// A reply of any kind, an error included, proves the server is alive.
+@(private)
+server_note_answered :: proc(s: ^Server, kind: lang.Request_Kind) {
+    sync.guard(&s.status_mutex)
+    s.misses[miss_class(kind)] = 0
+}
+
+// A request that ran out its deadline. LATCH_STREAK of them in a row, with no
+// reply of the same class between, put the server on hold.
+@(private)
+server_note_missed :: proc(s: ^Server, kind: lang.Request_Kind) {
+    if sync.atomic_load(&s.state) != .Ready {
+        return
+    }
+    sync.lock(&s.status_mutex)
+    class := miss_class(kind)
+    s.misses[class] += 1
+    tripped := s.misses[class] >= LATCH_STREAK && !s.latched
+    if tripped {
+        s.latched = true
+        s.latched_at = time.tick_now()
+    }
+    sync.unlock(&s.status_mutex)
+    if tripped {
+        log.warnf("lsp: %s is not answering in time; no requests for a while", s.config.id)
+        server_note_error(s, "not answering in time; paused")
+    }
 }
 
 // Records why a start or a connection ended, replacing what was there. The pump
@@ -1327,10 +1398,8 @@ initialize_params :: proc(s: ^Server) -> string {
 // removes the position conversion entirely. `resourceOperations` names the three
 // thor_apply_edits applies, so a rename that moves a file is not refused.
 //
-// Three completion capabilities are left out on purpose: insertReplaceSupport,
-// labelDetailsSupport and completionList.itemDefaults. Without them a server must
-// send one plain TextEdit per candidate and no shared defaults, which is the only
-// shape decode_completion reads.
+// A completion item may carry labelDetails, an InsertReplaceEdit (the `replace`
+// range is used) and a list may share itemDefaults; decode_completion reads all three.
 @(private)
 CLIENT_CAPABILITIES :: `{` +
 `"general":{"positionEncodings":["utf-8","utf-16"]},` +
@@ -1343,7 +1412,9 @@ CLIENT_CAPABILITIES :: `{` +
 `"synchronization":{"dynamicRegistration":false,"didSave":true,"willSave":false,"willSaveWaitUntil":false},` +
 `"completion":{"dynamicRegistration":false,"contextSupport":true,` +
 `"completionItem":{"snippetSupport":true,"documentationFormat":["plaintext"],"deprecatedSupport":false,"preselectSupport":true,` +
-`"resolveSupport":{"properties":["detail","documentation","additionalTextEdits","command"]}}},` +
+`"insertReplaceSupport":true,"labelDetailsSupport":true,` +
+`"resolveSupport":{"properties":["detail","documentation","additionalTextEdits","command"]}},` +
+`"completionList":{"itemDefaults":["editRange","insertTextFormat","data"]}},` +
 `"hover":{"dynamicRegistration":false,"contentFormat":["plaintext","markdown"]},` +
 `"signatureHelp":{"dynamicRegistration":false,` +
 `"signatureInformation":{"documentationFormat":["plaintext"],"parameterInformation":{"labelOffsetSupport":true}}},` +
