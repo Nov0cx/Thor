@@ -83,9 +83,11 @@ Backend :: struct {
 
 ### Manager
 
-- `manager_register(m, backend)` — **registration order is precedence.** `backend_for` returns the
-  first backend whose `handles` is true. Precedence is all-or-nothing per routing key: a backend that
-  declines one kind does not hand it to the next backend.
+- `manager_register(m, backend)` — **registration order is precedence.** `backend_chain` lists every
+  backend whose `handles` is true and whose `supports` answers the kind, up to `MAX_CHAIN`. A
+  `MERGE_KINDS` request merges every answer. Any other kind keeps the first backend that answers;
+  one that declines or answers `ok = false` hands the request on. `Request.backend` limits the chain
+  to the producer an offer came from.
 - `manager_set_backends(m, backends...)` — variadic. Replaces the whole list.
 - Routing key: `thor_lang_key`. It is a file's bare name when a backend claims that name
   (`lang.manager_claims`, outside the `enabled` gate so the key never moves), else its extension.
@@ -618,7 +620,9 @@ return {
   `sessions/lsp-grants.json` keys on (workspace path, SHA-256 of the file). Any edit asks again.
 - All three layers are watched (`thor/settings_watch.odin`). A change rebuilds the client at the head
   of the run loop. One server alone restarts through `server_restart`.
-- One enabled entry answers for an extension. A second claim is shown as `Server_Status.claimed_by`.
+- Every enabled entry that claims a key answers (`client_servers_for`, up to `lang.MAX_CHAIN`). The
+  client runs them through `lang.resolve_links`. Its offers carry `lsp:<server id>` in `origin`.
+  `Server_Status.shared_with` names the other servers of a language.
 - Windows: `which` does not read PATHEXT, so `lang/lsp/executable.odin` tries `name`, `name.exe`,
   `name.cmd`, `name.bat`, and runs a `.cmd` or `.bat` as `cmd.exe /c <path>`.
 
@@ -745,14 +749,14 @@ Rules for `resolve`:
 
 | Where | What |
 | --- | --- |
-| `thor/thor.odin` (init, near `manager_register`) | Create the engine and register its backend. Registration order is precedence. |
-| `thor/lang_host.odin` (`thor_reload_lang`) | Add the backend to the `manager_set_backends` call, in the same order. |
-| `thor/lang_host.odin` (`thor_apply_language_settings`) and `thor/settings_ui.odin` (`ODIN_BACKEND_ID`) | The "odin" id is hard-coded here. Push the settings gate to your engine (`engine_set_enabled`, `engine_set_features`) and add its row and feature group to the Settings panel. |
+| `thor/lang_host.odin` (`thor_register_backends`) | Create the engine and add its backend. Registration order is precedence. |
+
+Set `Backend.id` and the hooks `gate_ids`, `set_gate`, `gate_defaults` and `gate_label`
+(see `engine_backend`). The host pushes each gate and builds the Settings row and feature group from them.
 
 Shutdown needs nothing: `manager_destroy` calls each `Backend.destroy`.
 
-`manager_set_backends` is variadic, so a third backend needs no change in `lang/`. A generic
-registry would remove the three edits; it does not exist yet (section 10).
+A request visits every backend that claims the key and answers the kind, in registration order.
 
 **5. Features, in a useful order.**
 1. `Syntax_Diagnostics` (parse errors) and `Format`. Both need only the front end.
@@ -812,7 +816,11 @@ These are the answers that shaped the rebuild. They stay here so nobody reopens 
   a body edit leaves scopes and other files valid, and only that body is checked again.
 - **`odin check` stays authoritative on save.** The live checker is for speed while typing and for
   the lints the compiler lacks. Disagreements are logged, not hidden.
-- **Do not change the seam.** The `lang` interface survived the rewrite. The black-box tests drive
+- **A request visits every backend of its key.** List kinds (`lang.MERGE_KINDS`) merge, sorted and
+  deduplicated. Every other kind takes the first backend that answers. This replaced the earlier
+  all-or-nothing precedence, so a declining backend now hands the request on. A resolve is routed
+  back through `Request.backend`, set from the `origin` of the offer.
+- **Do not change the seam's shape.** The `lang` interface survived the rewrite. The black-box tests drive
   `Request` to `Result`, so they run unchanged against any engine.
 - **No two engines in a release.** The rebuild lives on its own branch. No `engine` switch ships. The
   merge of this branch is the switch.
@@ -849,11 +857,12 @@ Things that do not exist yet. Each is a candidate for future work.
 
 ### Seam and host
 
-- **A generic backend registry.** Adding an in-client backend needs four edits (section 8). Settings
-  and the shutdown path know the id `"odin"`.
-- **Multiple servers per language.** One enabled entry answers for an extension.
-- **Several backends per key.** Precedence is all-or-nothing, so a declining backend does not fall
-  through to the next.
+- **Diagnostics from several producers.** `Diagnostics` takes the first backend that answers. A
+  pushed report replaces the previous one of its scope whatever server sent it, so two servers on one
+  file overwrite each other. A `source` on `Diagnostic_Report` and per-source storage in the host are
+  not built.
+- **A deadline on merge kinds.** A merge visits backends in turn on one worker, so a slow server
+  delays a fast backend's completion list.
 
 ### LSP
 

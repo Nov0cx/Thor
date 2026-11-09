@@ -270,10 +270,11 @@ A server claims an extension all-or-nothing, so overriding `.odin` also gives up
 what only the built-in support has: `Package_Doc` (`f3`) has no LSP equivalent,
 and the `.thor/odin-analyzer.lua` collection mechanism goes with it.
 
-One enabled entry answers for an extension. A second one claiming the same
-language is not a fallback chain — it simply never starts, and its **File
-Types** row names the entry that took it. Switch the first one off to hand the
-language over.
+Every enabled entry that claims an extension answers for it, up to four. Lists
+(completion, code actions, symbols, references, inlay hints, code lens, word
+highlights) merge, and anything else comes from the first entry that answers,
+in file order. Each entry's **File Types** row names the others. Switch one off
+to drop it from the language.
 
 Editing any of the three `lsp.lua` layers reloads the servers where they
 stand: the files are watched, and the change takes effect without reopening the
