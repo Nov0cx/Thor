@@ -539,6 +539,7 @@ Thor :: struct {
     completion_doc_since: time.Tick,
     completion_doc_target: int,
     completion_doc_request_id: u64,
+    completion_doc_view: Markdown_View, // owned; the card's page
     // In-flight package-doc request: its request id, so a superseded result (a
     // newer F3 for another package) is dropped instead of overwriting the newer one.
     package_doc_request_id: u64,
@@ -1070,6 +1071,7 @@ shutdown :: proc(thor: ^Thor) {
         thor_model_view_destroy(thor, &view)
     }
     thor_markdown_view_destroy(thor, &thor.markdown_view)
+    thor_markdown_view_destroy(thor, &thor.completion_doc_view)
     thor_tutorial_destroy(thor)
     thor_whats_new_destroy(thor)
     strings.builder_destroy(&thor.console_backlog)

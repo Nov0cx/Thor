@@ -972,14 +972,17 @@ test_decode_completion_inline_documentation :: proc(t: ^testing.T) {
         s,
         &req,
         `[{"label":"alpha","documentation":"first"},` +
-        `{"label":"beta","documentation":{"kind":"plaintext","value":"second"}}]`,
+        `{"label":"beta","documentation":{"kind":"plaintext","value":"a_b *c*."}},` +
+        `{"label":"gamma","documentation":{"kind":"markdown","value":"a_b *c*."}}]`,
     )
     defer result_release(&res)
 
-    testing.expect_value(t, len(res.completions), 2)
-    if len(res.completions) == 2 {
+    // Plain text is escaped so the renderer shows it as written; markdown is not.
+    testing.expect_value(t, len(res.completions), 3)
+    if len(res.completions) == 3 {
         testing.expect_value(t, res.completions[0].documentation, "first")
-        testing.expect_value(t, res.completions[1].documentation, "second")
+        testing.expect_value(t, res.completions[1].documentation, `a\_b \*c\*\.`)
+        testing.expect_value(t, res.completions[2].documentation, "a_b *c*.")
     }
 }
 

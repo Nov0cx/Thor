@@ -949,8 +949,9 @@ Measured on a generated 58 MB Odin buffer (release flags):
   protocol property, not a dispatch bug.
 - **Completion.** An `InsertReplaceEdit` takes its `replace` range. `labelDetails` shows as a muted
   note after the label. The selected row's `detail` and `documentation` show in a card beside the
-  list; a row without them is resolved once, 150 ms after the selection rests on it. Documentation
-  is shown as plain text, so Markdown markup in it stays visible.
+  list; a row without them is resolved once, 150 ms after the selection rests on it. The card
+  renders the documentation as markdown (the preview's renderer); plain-text documentation is
+  escaped first, and the signature is a code block above it.
 - **Code actions.** A command-only action runs through `workspace/executeCommand`. The server must
   send its changes back as `applyEdit`. An action with neither edit nor command is dropped.
 - **Resource operations** run in the array order of `documentChanges` (`seq`). A set with no `seq`

@@ -9,6 +9,7 @@ import "core:strings"
 
 import "../editview"
 import "../font"
+import "../markdown"
 import "../render"
 import ui "../vendor/loom/loom"
 
@@ -322,13 +323,14 @@ thor_completion_card :: proc(thor: ^Thor, editor: ^editview.Editor) {
     }
 }
 
-// Widest the documentation card grows before its text wraps.
+// Widest the documentation card grows, and the share of the pane's height it may
+// take before it clips.
 @(private = "file")
 COMPLETION_DOC_WIDTH :: f32(360)
 
-// The selected candidate's signature and documentation, beside the list: to its
-// right, or to its left when the pane has no room. Asks the server for the text
-// of a candidate that came without it.
+// The selected candidate's signature and documentation, rendered as markdown
+// beside the list: to its right, or to its left when the pane has no room. Asks
+// the server for the text of a candidate that came without it.
 @(private = "file")
 thor_completion_doc_card :: proc(thor: ^Thor, editor: ^editview.Editor) {
     box, _, _, ok := editview.editor_completion_rects(editor)
@@ -340,38 +342,58 @@ thor_completion_doc_card :: proc(thor: ^Thor, editor: ^editview.Editor) {
     if item == nil {
         return
     }
-    text := item.documentation
+    source := item.documentation
     if item.detail != "" && item.detail != item.label {
-        text = item.documentation == "" ? item.detail : fmt.tprintf("%s\n\n%s", item.detail, item.documentation)
+        // The signature as a code block, so it keeps its spacing and its colours.
+        source = fmt.tprintf("```\n%s\n```\n\n%s", item.detail, item.documentation)
     }
-    if text == "" {
+    if source == "" {
         return
     }
 
-    budget := min(COMPLETION_DOC_WIDTH, editor.view.w * 0.5) - CARD_PAD_X * 2
-    wrapped := editview.editor_wrap_text(editor, text, budget)
-    line_h := f32(font.line_height(editor.font_size))
-    lines := 0
-    text_w: f32
-    rest := wrapped
-    for line in strings.split_lines_iterator(&rest) {
-        lines += 1
-        text_w = max(text_w, f32(font.measure(line, editor.font_size, "")))
-    }
-    if lines == 0 {
+    width := min(COMPLETION_DOC_WIDTH, editor.view.w * 0.5)
+    avail := width - CARD_PAD_X * 2
+    if avail < 80 {
         return
     }
-    width := min(text_w + CARD_PAD_X * 2, editor.view.w * 0.5)
-    height := min(f32(lines) * line_h + CARD_PAD_Y * 2, editor.view.h)
+    view := &thor.completion_doc_view
+    thor_markdown_set_source(view, source, 0, nil)
+    thor_markdown_ensure(thor, view, avail, thor_markdown_base(thor))
+    content := max(view.page.content_height - markdown.PAD_TOP - markdown.PAD_BOTTOM, 0)
+    height := min(content + CARD_PAD_Y * 2, editor.view.h)
 
     x := box.x + box.w + CARD_GAP
     if x + width > editor.view.x + editor.view.w {
         x = box.x - width - CARD_GAP
     }
     x = max(x, editor.view.x)
-    y := min(box.y, editor.view.y + editor.view.h - height)
-    y = max(y, editor.view.y)
-    thor_card_draw(thor, editor, "completion_doc", wrapped, {x, y, width, height}, line_h, thor.theme.border)
+    y := max(min(box.y, editor.view.y + editor.view.h - height), editor.view.y)
+
+    ui.scope(
+        {
+            key = "completion_doc",
+            flags = {.Floating, .Pass_Through, .Clip},
+            props = {
+                position = .Fixed,
+                inset = {l = x, t = y},
+                w = ui.Px(width),
+                h = ui.Px(height),
+                bg = thor.theme.second_background,
+                radius = ui.rad(6),
+                border = {width = ui.all(1), color = thor.theme.border},
+                shadow = {offset = {0, 4}, blur = 16, color = thor.theme.contrast},
+            },
+        },
+    )
+    view.hovered = -1
+    thor_markdown_draw(
+        thor,
+        view,
+        {x, y, width, height},
+        CARD_PAD_X,
+        CARD_PAD_Y - markdown.PAD_TOP,
+        false,
+    )
 }
 
 // What a dwell resolved, over the symbol it describes. A diagnostic tints the

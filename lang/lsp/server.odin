@@ -1411,7 +1411,7 @@ CLIENT_CAPABILITIES :: `{` +
 `"textDocument":{` +
 `"synchronization":{"dynamicRegistration":false,"didSave":true,"willSave":false,"willSaveWaitUntil":false},` +
 `"completion":{"dynamicRegistration":false,"contextSupport":true,` +
-`"completionItem":{"snippetSupport":true,"documentationFormat":["plaintext"],"deprecatedSupport":false,"preselectSupport":true,` +
+`"completionItem":{"snippetSupport":true,"documentationFormat":["markdown","plaintext"],"deprecatedSupport":false,"preselectSupport":true,` +
 `"insertReplaceSupport":true,"labelDetailsSupport":true,` +
 `"resolveSupport":{"properties":["detail","documentation","additionalTextEdits","command"]}},` +
 `"completionList":{"itemDefaults":["editRange","insertTextFormat","data"]}},` +

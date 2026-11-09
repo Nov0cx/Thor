@@ -468,18 +468,36 @@ completion_range :: proc(ask: ^Ask, value: json.Value) -> (start, end: int, ok: 
     return lo, hi, true
 }
 
-// The text of a `documentation` field: a plain string, or a MarkupContent's
-// `value`. "" when absent or of another shape.
+// A `documentation` field as markdown: a MarkupContent of kind markdown as it
+// is; a plain string or plaintext content with its punctuation escaped, so the
+// renderer shows it as written. "" when absent or of another shape. In the temp
+// allocator.
 @(private)
 documentation_text :: proc(value: json.Value) -> string {
+    text: string
+    markdown := false
     #partial switch v in value {
     case json.String:
-        return strings.trim_space(string(v))
+        text = string(v)
     case json.Object:
-        text, _ := v["value"].(json.String)
-        return strings.trim_space(string(text))
+        content, _ := v["value"].(json.String)
+        kind, _ := v["kind"].(json.String)
+        text = string(content)
+        markdown = kind == "markdown"
     }
-    return ""
+    text = strings.trim_space(text)
+    if markdown || text == "" {
+        return text
+    }
+    b := strings.builder_make(context.temp_allocator)
+    for i in 0 ..< len(text) {
+        c := text[i]
+        if (c >= '!' && c <= '/') || (c >= ':' && c <= '@') || (c >= '[' && c <= '`') || (c >= '{' && c <= '~') {
+            strings.write_byte(&b, '\\')
+        }
+        strings.write_byte(&b, c)
+    }
+    return strings.to_string(b)
 }
 
 // `completionItem/resolve`. The reply is the same candidate with the parts the

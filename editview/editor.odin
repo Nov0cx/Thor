@@ -2597,39 +2597,6 @@ hover_wrapped :: proc(editor: ^Editor, text: string) -> string {
     return strings.to_string(b)
 }
 
-// `text` with each line broken on spaces so none outgrows `budget` pixels; the
-// newlines it has stay. A word wider than the budget keeps its own line.
-// Temp-allocated.
-editor_wrap_text :: proc(editor: ^Editor, text: string, budget: f32) -> string {
-    b := strings.builder_make(context.temp_allocator)
-    rest := text
-    first := true
-    for paragraph in strings.split_lines_iterator(&rest) {
-        if !first {
-            strings.write_byte(&b, '\n')
-        }
-        first = false
-        line := ""
-        words := paragraph
-        for word in strings.split_iterator(&words, " ") {
-            if line == "" {
-                line = word
-                continue
-            }
-            joined := fmt.tprintf("%s %s", line, word)
-            if cast(f32) font.measure(joined, editor.font_size) > budget {
-                strings.write_string(&b, line)
-                strings.write_byte(&b, '\n')
-                line = word
-                continue
-            }
-            line = joined
-        }
-        strings.write_string(&b, line)
-    }
-    return strings.to_string(b)
-}
-
 // Screen x, top y, and line height of byte `offset` (clamped to its visual row).
 // ok=false when there is nothing to anchor to.
 editor_screen_at :: proc(editor: ^Editor, offset: int) -> (x, y, line_height: f32, ok: bool) {
