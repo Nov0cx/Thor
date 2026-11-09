@@ -258,6 +258,8 @@ BENCHES :: []struct {
     {"lang/odin/syntax", "odinsyntax.test_bench_parse,odinsyntax.test_bench_reparse"},
     {"lang/odin", "odin.test_bench_diagnostics,odin.test_bench_completion,odin.test_bench_cold_prewarm"},
     {"textedit", "textedit.test_bench_big_file"},
+    {"syntax", "syntax.test_bench_big_file_highlight"},
+    {"editview", "editview.test_bench_fold_rows"},
 }
 
 // Times parse, reparse, diagnostics and completion on Thor's own sources with the release flags, one
@@ -267,7 +269,7 @@ run_bench :: proc() -> bool {
     if !mkdir("bin/bench") {
         return false
     }
-    if !copy_lua_dll("bin/bench") {
+    if !copy_lua_dll("bin/bench") || !copy_raylib_dll("bin/bench") {
         return false
     }
     failed := make([dynamic]string, context.temp_allocator)
@@ -283,6 +285,11 @@ run_bench :: proc() -> bool {
             append(&args, "-define:THOR_BENCH_STRICT=true")
         }
         append_link_flags(&args)
+        when ODIN_OS == .Windows {
+            if slice.contains(RAYLIB_TEST_PACKAGES, b.package_dir) {
+                append(&args, "-define:RAYLIB_SHARED=true")
+            }
+        }
         if !exec_msvc(args[:]) {
             append(&failed, b.package_dir)
         }
