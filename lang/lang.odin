@@ -8,6 +8,7 @@ package lang
 
 import "base:runtime"
 import "core:os"
+import "core:slice"
 import "core:strings"
 import "core:sync"
 import "core:thread"
@@ -194,6 +195,7 @@ Completion_Item :: struct {
     command:     string, // owned; run after the edits, "" when none
     arguments:   string, // owned; the command's arguments as raw JSON array text
     raw:         string, // owned; the candidate verbatim as JSON text, echoed back on resolve
+    origin:      string, // owned; the backend that produced it, echoed in Request.backend on resolve
 }
 
 // A formatter's opinion on a file's line ending, read from its own config
@@ -246,6 +248,7 @@ Code_Action :: struct {
     // Resolve_Action with `command` and the answer. Its edits are empty.
     prompt:         string, // owned; "" when the action needs no input
     prompt_default: string, // owned
+    origin:         string, // owned; the backend that produced it, echoed in Request.backend
 }
 
 // What a classified identifier turned out to be — what the analyzer proved, not
@@ -432,6 +435,8 @@ Request :: struct {
     // the raw JSON text the offer carried — kept undecoded for the same reason
     // command_args is.
     item:      string,
+    // Owned; the `origin` of the offer being resolved or run. "" lets every backend of the key answer.
+    backend:   string,
     cancel:    ^bool,  // Job-owned cancellation flag; read via request_cancelled, nil when hand-built
 }
 
@@ -527,6 +532,9 @@ Doc_Event :: enum {
 Backend :: struct {
     data:    rawptr,
     name:    string,
+    // Stable key for routing an offer back to its producer; "" means `name`. A backend that
+    // hosts several producers writes `<id>:<producer>` into `origin`.
+    id:      string,
     handles: proc(data: rawptr, ext: string) -> bool,
     resolve: proc(data: rawptr, req: ^Request, res: ^Result),
     destroy: proc(data: rawptr),
@@ -579,7 +587,8 @@ POLL_MAX_PER_FRAME :: 64
 @(private)
 Job :: struct {
     manager:   ^Manager,
-    backend:   Backend, // copied so a later append to `backends` can't dangle
+    chain:     [MAX_CHAIN]Backend, // copied so a later append to `backends` can't dangle
+    chain_len: int,
     request:   Request,
     result:    Result,
     cancelled: bool, // written by the main thread, read atomically by the worker
@@ -714,20 +723,66 @@ backend_for :: proc(m: ^Manager, ext: string) -> (Backend, bool) {
     return {}, false
 }
 
-// The backend that claims `ext`, and whether it answers `kind`. Precedence stays
-// all-or-nothing per extension: the first claimant is the answer even when it
-// declines the kind, so a request never falls through to a second backend that
-// would resolve it against a different language model.
+// Most backends one request may visit.
+MAX_CHAIN :: 4
+
+// Kinds whose answers from several backends are combined into one result. Every
+// other kind takes the first backend that answers.
+MERGE_KINDS :: bit_set[Request_Kind] {
+    .Completion,
+    .Code_Actions,
+    .Document_Symbols,
+    .Workspace_Symbols,
+    .References,
+    .Implementations,
+    .Inlay_Hints,
+    .Code_Lens,
+    .Document_Highlight,
+}
+
+// The key a backend is routed back to by Request.backend.
+backend_id :: proc(b: Backend) -> string {
+    return b.id != "" ? b.id : b.name
+}
+
+// True when `origin` names backend `b`: its id, or `<id>:<producer>`.
 @(private)
-backend_for_kind :: proc(m: ^Manager, ext: string, kind: Request_Kind) -> (Backend, bool) {
-    b, ok := backend_for(m, ext)
-    if !ok {
-        return {}, false
+backend_matches :: proc(b: Backend, origin: string) -> bool {
+    if origin == "" {
+        return true
     }
-    if b.supports != nil && !b.supports(b.data, ext, kind) {
-        return {}, false
+    id := backend_id(b)
+    if origin == id {
+        return true
     }
-    return b, true
+    return len(origin) > len(id) && origin[len(id)] == ':' && origin[:len(id)] == id
+}
+
+// Every backend that claims `ext` and answers `kind`, in registration order. A
+// non-empty `only` keeps the backend `only` names (see Request.backend).
+@(private)
+backend_chain :: proc(m: ^Manager, ext: string, kind: Request_Kind, only := "") -> (chain: [MAX_CHAIN]Backend, n: int) {
+    for b in m.backends {
+        if n == MAX_CHAIN {
+            break
+        }
+        if !b.handles(b.data, ext) || !backend_matches(b, only) {
+            continue
+        }
+        if b.supports != nil && !b.supports(b.data, ext, kind) {
+            continue
+        }
+        chain[n] = b
+        n += 1
+    }
+    return
+}
+
+// True when some backend claims `ext` and answers `kind`.
+@(private)
+backend_answers :: proc(m: ^Manager, ext: string, kind: Request_Kind) -> bool {
+    _, n := backend_chain(m, ext, kind)
+    return n > 0
 }
 
 // True when some backend handles `ext` and language intelligence is on, so the
@@ -799,8 +854,7 @@ manager_allows :: proc(m: ^Manager, ext: string, kind: Request_Kind) -> bool {
     if !manager_feature_enabled(m, kind) {
         return false
     }
-    _, ok := backend_for_kind(m, ext, kind)
-    return ok
+    return backend_answers(m, ext, kind)
 }
 
 // True when typing `char` in a file of `ext` should trigger Format_On_Type: the
@@ -812,11 +866,13 @@ manager_on_type_trigger :: proc(m: ^Manager, ext, char: string) -> bool {
     if !manager_feature_enabled(m, .Format_On_Type) {
         return false
     }
-    b, ok := backend_for_kind(m, ext, .Format_On_Type)
-    if !ok || b.on_type_trigger == nil {
-        return false
+    chain, n := backend_chain(m, ext, .Format_On_Type)
+    for b in chain[:n] {
+        if b.on_type_trigger != nil && b.on_type_trigger(b.data, ext, char) {
+            return true
+        }
     }
-    return b.on_type_trigger(b.data, ext, char)
+    return false
 }
 
 // Dispatches a request on a worker thread, snapshotting the string inputs into
@@ -845,11 +901,12 @@ manager_request :: proc(
     command := "",
     command_args := "",
     item := "",
+    backend := "",
 ) -> u64 {
     if !manager_feature_enabled(m, kind) {
         return 0
     }
-    if _, ok := backend_for_kind(m, ext, kind); !ok {
+    if _, n := backend_chain(m, ext, kind, backend); n == 0 {
         return 0
     }
     context.allocator = m.allocator
@@ -875,23 +932,24 @@ manager_request :: proc(
         strings.clone(command),
         strings.clone(command_args),
         strings.clone(item),
+        strings.clone(backend),
     )
 }
 
-// Tells the backend that claims `ext` a buffer changed state, so a backend that
+// Tells every backend that claims `ext` a buffer changed state, so a backend that
 // mirrors the editor's documents (a subprocess LSP client) keeps them in step
 // without a request having to arrive first. Does nothing while the master switch
-// is off, when no backend claims the extension, or when that backend defines no
-// `notify`. Main thread; `source` is borrowed for the call only.
+// is off; a backend that defines no `notify` is skipped. Main thread; `source` is
+// borrowed for the call only.
 manager_notify :: proc(m: ^Manager, event: Doc_Event, path, ext, source: string, revision: u64) {
     if !m.enabled {
         return
     }
-    b, ok := backend_for(m, ext) // document sync is not a request kind
-    if !ok || b.notify == nil {
-        return
+    for b in m.backends { // document sync is not a request kind
+        if b.notify != nil && b.handles(b.data, ext) {
+            b.notify(b.data, event, path, ext, source, revision)
+        }
     }
-    b.notify(b.data, event, path, ext, source, revision)
 }
 
 // Starts the worker for a request whose strings are *already* owned by the
@@ -918,10 +976,12 @@ dispatch_owned :: proc(
     command: string = "",
     command_args: string = "",
     item: string = "",
+    only: string = "",
 ) -> u64 {
     context.allocator = m.allocator
-    backend, ok := backend_for_kind(m, ext, kind)
-    if !ok {
+    chain, chain_len := backend_chain(m, ext, kind, only)
+    if chain_len == 0 {
+        delete(only)
         delete(path)
         delete(ext)
         delete(source)
@@ -938,7 +998,8 @@ dispatch_owned :: proc(
 
     job := new(Job)
     job.manager = m
-    job.backend = backend
+    job.chain = chain
+    job.chain_len = chain_len
     job.request = Request {
         id          = id,
         kind        = kind,
@@ -958,6 +1019,7 @@ dispatch_owned :: proc(
         command      = command,
         command_args = command_args,
         item         = item,
+        backend      = only,
     }
     job.request.cancel = &job.cancelled // stable for the job's lifetime
     job.result.id = id
@@ -1083,6 +1145,7 @@ manager_request_latest :: proc(
     command := "",
     command_args := "",
     item := "",
+    backend := "",
 ) -> u64 {
     manager_cancel_kind(m, kind)
     return manager_request(
@@ -1104,6 +1167,7 @@ manager_request_latest :: proc(
         command,
         command_args,
         item,
+        backend,
     )
 }
 
@@ -1136,7 +1200,7 @@ manager_request_debounced :: proc(
     if !manager_feature_enabled(m, kind) {
         return 0
     }
-    if _, ok := backend_for_kind(m, ext, kind); !ok {
+    if !backend_answers(m, ext, kind) {
         return 0
     }
     manager_cancel_kind(m, kind) // also drops the slot this one is about to fill
@@ -1287,7 +1351,7 @@ job_run :: proc(job: ^Job) {
     // A job cancelled while it queued never reaches the backend: `resolve` would
     // poll the same flag at its head and return having done nothing.
     if !request_cancelled(&job.request) {
-        job.backend.resolve(job.backend.data, &job.request, &job.result)
+        job_resolve(job)
     }
     // Latch it here: a backend that bailed early may have left a partial result,
     // and the main thread must not hand that to the editor.
@@ -1364,6 +1428,7 @@ job_free :: proc(m: ^Manager, job: ^Job) {
     delete(job.request.item)
     delete(job.request.new_name)
     delete(job.request.query)
+    delete(job.request.backend)
     free_diagnostic_refs(job.request.diagnostics)
     delete(job.request.trigger)
     result_free(m, &job.result)
@@ -1405,6 +1470,7 @@ result_free :: proc(m: ^Manager, res: ^Result) {
         delete(item.command)
         delete(item.arguments)
         delete(item.raw)
+        delete(item.origin)
         for edit in item.extra_edits {
             delete(edit.path)
             delete(edit.old_text)
@@ -1431,6 +1497,7 @@ result_free :: proc(m: ^Manager, res: ^Result) {
         delete(action.arguments)
         delete(action.prompt)
         delete(action.prompt_default)
+        delete(action.origin)
         for edit in action.edits {
             delete(edit.path)
             delete(edit.old_text)

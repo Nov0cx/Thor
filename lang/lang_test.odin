@@ -877,3 +877,204 @@ record_undispatched :: proc(user: rawptr, res: ^Result) {
     g.ok = res.ok
     g.undispatched = res.undispatched
 }
+
+// A backend of the ".chain" key that answers what its fields say, for the tests
+// of a request that visits several backends.
+@(private = "file")
+Chain_Probe :: struct {
+    id:         string,
+    answers:    bool,
+    label:      string, // one completion and one hover text when set
+    highlights: []int,  // starts of the highlights it reports
+    events:     int,
+    resolved:   int,
+}
+
+@(private = "file")
+chain_handles :: proc(data: rawptr, ext: string) -> bool {
+    return ext == ".chain"
+}
+
+@(private = "file")
+chain_resolve :: proc(data: rawptr, req: ^Request, res: ^Result) {
+    p := cast(^Chain_Probe) data
+    p.resolved += 1
+    if !p.answers {
+        return
+    }
+    res.ok = true
+    res.hover.text = strings.clone(p.label)
+    append(&res.completions, Completion_Item{label = strings.clone(p.label), start = -1, end = -1})
+    for start in p.highlights {
+        append(&res.highlights, Document_Highlight{start = start, end = start + 1})
+    }
+}
+
+@(private = "file")
+chain_notify :: proc(data: rawptr, event: Doc_Event, path, ext, source: string, revision: u64) {
+    (cast(^Chain_Probe) data).events += 1
+}
+
+@(private = "file")
+chain_backend :: proc(p: ^Chain_Probe) -> Backend {
+    return Backend{data = p, name = p.id, handles = chain_handles, resolve = chain_resolve, notify = chain_notify}
+}
+
+@(private = "file")
+Chain_Seen :: struct {
+    seen:       int,
+    ok:         bool,
+    hover:      string,
+    labels:     [dynamic]string,
+    origins:    [dynamic]string,
+    highlights: [dynamic]int,
+}
+
+@(private = "file")
+record_chain :: proc(user: rawptr, res: ^Result) {
+    s := cast(^Chain_Seen) user
+    s.seen += 1
+    s.ok = res.ok
+    s.hover = strings.clone(res.hover.text)
+    for c in res.completions {
+        append(&s.labels, strings.clone(c.label))
+        append(&s.origins, strings.clone(c.origin))
+    }
+    for h in res.highlights {
+        append(&s.highlights, h.start)
+    }
+}
+
+@(private = "file")
+chain_seen_destroy :: proc(s: ^Chain_Seen) {
+    delete(s.hover)
+    for l in s.labels {delete(l)}
+    for o in s.origins {delete(o)}
+    delete(s.labels)
+    delete(s.origins)
+    delete(s.highlights)
+}
+
+@(private = "file")
+chain_run :: proc(m: ^Manager, kind: Request_Kind, backend := "") -> Chain_Seen {
+    seen: Chain_Seen
+    id := manager_request(m, kind, "a.chain", ".chain", "", 0, 0, "", backend = backend)
+    if id != 0 {
+        for manager_busy(m) {
+            manager_dispatch(m, &seen, record_chain)
+            time.sleep(time.Millisecond)
+        }
+        manager_dispatch(m, &seen, record_chain)
+    }
+    return seen
+}
+
+@(test)
+test_chain_falls_through_a_backend_that_finds_nothing :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+    first := Chain_Probe{id = "first"}
+    second := Chain_Probe{id = "second", answers = true, label = "from-second"}
+    manager_register(&m, chain_backend(&first))
+    manager_register(&m, chain_backend(&second))
+
+    seen := chain_run(&m, .Hover)
+    defer chain_seen_destroy(&seen)
+    testing.expect(t, seen.ok, "the second backend must answer when the first finds nothing")
+    testing.expect_value(t, seen.hover, "from-second")
+    testing.expect_value(t, first.resolved, 1)
+}
+
+@(test)
+test_chain_first_answer_stops_at_the_first_backend_that_answers :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+    first := Chain_Probe{id = "first", answers = true, label = "one"}
+    second := Chain_Probe{id = "second", answers = true, label = "two"}
+    manager_register(&m, chain_backend(&first))
+    manager_register(&m, chain_backend(&second))
+
+    seen := chain_run(&m, .Hover)
+    defer chain_seen_destroy(&seen)
+    testing.expect_value(t, seen.hover, "one")
+    testing.expect_value(t, second.resolved, 0)
+}
+
+@(test)
+test_chain_merges_completions_and_names_each_origin :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+    first := Chain_Probe{id = "first", answers = true, label = "alpha"}
+    second := Chain_Probe{id = "second", answers = true, label = "beta"}
+    manager_register(&m, chain_backend(&first))
+    manager_register(&m, chain_backend(&second))
+
+    seen := chain_run(&m, .Completion)
+    defer chain_seen_destroy(&seen)
+    testing.expect_value(t, len(seen.labels), 2)
+    if len(seen.labels) == 2 {
+        testing.expect_value(t, seen.labels[0], "alpha")
+        testing.expect_value(t, seen.labels[1], "beta")
+        testing.expect_value(t, seen.origins[0], "first")
+        testing.expect_value(t, seen.origins[1], "second")
+    }
+}
+
+@(test)
+test_chain_merge_sorts_and_dedups_interleaved_highlights :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+    first := Chain_Probe{id = "first", answers = true, label = "a", highlights = {1, 5, 9}}
+    second := Chain_Probe{id = "second", answers = true, label = "b", highlights = {2, 5, 7}}
+    manager_register(&m, chain_backend(&first))
+    manager_register(&m, chain_backend(&second))
+
+    seen := chain_run(&m, .Document_Highlight)
+    defer chain_seen_destroy(&seen)
+    want := []int{1, 2, 5, 7, 9}
+    testing.expect_value(t, len(seen.highlights), len(want))
+    for start, i in want {
+        if i < len(seen.highlights) {
+            testing.expect_value(t, seen.highlights[i], start)
+        }
+    }
+}
+
+@(test)
+test_chain_request_backend_routes_to_its_producer :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+    first := Chain_Probe{id = "first", answers = true, label = "one"}
+    second := Chain_Probe{id = "second", answers = true, label = "two"}
+    manager_register(&m, chain_backend(&first))
+    manager_register(&m, chain_backend(&second))
+
+    seen := chain_run(&m, .Hover, backend = "second")
+    defer chain_seen_destroy(&seen)
+    testing.expect_value(t, seen.hover, "two")
+    testing.expect_value(t, first.resolved, 0)
+
+    none := chain_run(&m, .Hover, backend = "absent")
+    defer chain_seen_destroy(&none)
+    testing.expect_value(t, none.seen, 0) // no backend, so nothing is dispatched
+}
+
+@(test)
+test_chain_notify_reaches_every_claimant :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+    first := Chain_Probe{id = "first"}
+    second := Chain_Probe{id = "second"}
+    manager_register(&m, chain_backend(&first))
+    manager_register(&m, chain_backend(&second))
+
+    manager_notify(&m, .Opened, "a.chain", ".chain", "", 1)
+    testing.expect_value(t, first.events, 1)
+    testing.expect_value(t, second.events, 1)
+}
