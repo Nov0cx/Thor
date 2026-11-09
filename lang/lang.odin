@@ -170,6 +170,7 @@ Text_Edit :: struct {
     end:      int,
     old_text: string, // owned; the bytes the backend matched at [start, end)
     new_text: string, // owned; what replaces them
+    seq:      int,    // position among a WorkspaceEdit's changes; see Resource_Op
 }
 
 // One completion candidate. `label` is the row text and `insert` what lands in
@@ -183,6 +184,7 @@ Completion_Item :: struct {
     label:       string, // owned; the row text
     kind:        string, // owned; drives the row color, the vocabulary Symbol.kind uses
     detail:      string, // owned; the signature shown beside the row
+    note:        string, // owned; the labelDetails text shown after the label, "" when none
     insert:      string, // owned; "" inserts the label
     filter:      string, // owned; what the editor's prefix filter matches, "" the label
     sort:        string, // owned; the backend's ordering key, "" the label
@@ -216,12 +218,13 @@ Resource_Op_Kind :: enum {
 
 // A file-level change a WorkspaceEdit named alongside its text edits: LSP's
 // CreateFile / RenameFile / DeleteFile. `path` is the file created or deleted,
-// or a rename's source; `new_path` is set for Rename only. An applier runs these
-// in a fixed phase order — Create, text edits, Rename, Delete — rather than
-// documentChanges' array position, which gets create-then-populate right and
-// does not preserve interleavings real emitters do not produce. A reversal walks
-// that order backwards.
+// or a rename's source; `new_path` is set for Rename only. `seq` is the change's
+// array position in `documentChanges`, shared with the Text_Edits of the same
+// WorkspaceEdit: an applier runs them in that order. When no `seq` is set (all
+// zero) it falls back to the phase order Create, edits, Rename, Delete. A reversal
+// walks the applied order backwards.
 Resource_Op :: struct {
+    seq:              int,
     kind:             Resource_Op_Kind,
     path:             string, // owned; absolute
     new_path:         string, // owned; absolute, Rename only, "" otherwise
@@ -331,11 +334,11 @@ Progress_Info :: struct {
     done:    bool,
 }
 
-// Severity of a diagnostic, worst first. Hint is a lint the editor shows faint;
-// LSP's Information and Hint both map to it.
+// Severity of a diagnostic, worst first. Hint is a lint the editor shows faint.
 Diagnostic_Severity :: enum {
     Error,
     Warning,
+    Information,
     Hint,
 }
 
@@ -1479,6 +1482,7 @@ result_release :: proc(res: ^Result) {
         delete(item.label)
         delete(item.kind)
         delete(item.detail)
+        delete(item.note)
         delete(item.insert)
         delete(item.filter)
         delete(item.sort)

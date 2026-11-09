@@ -161,6 +161,7 @@ result_release :: proc(res: ^lang.Result) {
         delete(item.label)
         delete(item.kind)
         delete(item.detail)
+        delete(item.note)
         delete(item.insert)
         delete(item.filter)
         delete(item.sort)
@@ -739,8 +740,59 @@ test_decode_completion_text_edit :: proc(t: ^testing.T) {
     testing.expect_value(t, res.completions[0].end, 5)
 }
 
-// An InsertReplaceEdit takes its `replace` range: insertReplaceSupport is never
-// advertised, so a server that sends one anyway means the wider of the two.
+// A list's itemDefaults fill the range and format a candidate leaves out; a
+// candidate's own textEditText is its text, else the label.
+@(test)
+test_decode_completion_item_defaults :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Completion, SOURCE, 5)
+
+    res := decode_reply(
+        s,
+        &req,
+        `{"isIncomplete":false,"itemDefaults":{"insertTextFormat":2,` +
+        `"editRange":{"start":{"line":0,"character":0},"end":{"line":0,"character":3}}},` +
+        `"items":[{"label":"alpha"},{"label":"beta","textEditText":"beta($1)"}]}`,
+    )
+    defer result_release(&res)
+
+    testing.expect_value(t, len(res.completions), 2)
+    if len(res.completions) != 2 {
+        return
+    }
+    testing.expect_value(t, res.completions[0].insert, "alpha")
+    testing.expect_value(t, res.completions[0].start, 0)
+    testing.expect_value(t, res.completions[0].end, 3)
+    testing.expect(t, res.completions[0].snippet)
+    testing.expect_value(t, res.completions[1].insert, "beta($1)")
+}
+
+// labelDetails becomes the muted note after the label.
+@(test)
+test_decode_completion_label_details :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Completion, SOURCE, 5)
+
+    res := decode_reply(
+        s,
+        &req,
+        `[{"label":"push","labelDetails":{"detail":"(x: int)","description":"core:slice"}},` +
+        `{"label":"pop","labelDetails":{"description":"core:slice"}}]`,
+    )
+    defer result_release(&res)
+
+    testing.expect_value(t, len(res.completions), 2)
+    if len(res.completions) != 2 {
+        return
+    }
+    // Sorted by label: pop, push.
+    testing.expect_value(t, res.completions[0].note, "core:slice")
+    testing.expect_value(t, res.completions[1].note, "(x: int) core:slice")
+}
+
+// An InsertReplaceEdit takes its `replace` range, the wider of the two.
 @(test)
 test_decode_completion_insert_replace_edit :: proc(t: ^testing.T) {
     s := held_server()
@@ -1137,7 +1189,7 @@ test_decode_diagnostic_severities :: proc(t: ^testing.T) {
     defer result_release(&res)
 
     testing.expect(t, decoded)
-    want := [5]lang.Diagnostic_Severity{.Error, .Warning, .Hint, .Hint, .Error}
+    want := [5]lang.Diagnostic_Severity{.Error, .Warning, .Information, .Hint, .Error}
     testing.expect_value(t, len(res.report.items), len(want))
     if len(res.report.items) != len(want) {
         return

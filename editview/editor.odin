@@ -53,6 +53,7 @@ Completion_Item :: struct {
     end:      int, // one past it
     snippet:  bool, // `insert` is a snippet template (see snippet.odin)
     color:    ui.Color,
+    note:     string, // muted text after the label; "" when none
 }
 
 // One on-screen row. A wrapped logical line spans several; `first` carries the
@@ -78,6 +79,7 @@ Highlight_Span :: struct {
 Diagnostic_Severity :: enum {
     Error,
     Warning,
+    Information,
     Hint,
 }
 
@@ -481,6 +483,7 @@ editor_completion_clone :: proc(it: Completion_Item) -> Completion_Item {
     row.text = strings.clone(it.text)
     row.insert = strings.clone(it.insert)
     row.filter = strings.clone(it.filter)
+    row.note = strings.clone(it.note)
     return row
 }
 
@@ -1857,6 +1860,7 @@ editor_completion_free :: proc(row: Completion_Item) {
     delete(row.text)
     delete(row.insert)
     delete(row.filter)
+    delete(row.note)
 }
 
 // Rebuilds the candidate list: distinct words elsewhere in the buffer sharing
@@ -2640,6 +2644,9 @@ editor_completion_rects :: proc(editor: ^Editor) -> (box: ui.Rect, row_height: f
     width: f32 = 140
     for row in editor.completion_rows {
         w := cast(f32) font.measure(row.text, editor.font_size) + 24
+        if row.note != "" {
+            w += cast(f32) font.measure(row.note, editor.font_size) + 12
+        }
         if w > width {
             width = w
         }
@@ -2947,12 +2954,12 @@ editor_inlay_lead :: proc(editor: ^Editor, text: string, row_start, row_end, at:
 }
 
 // Highest-severity diagnostic on logical line `line`, if any, for the gutter dot. A line with
-// only hints has none.
+// only information or hints has none.
 editor_line_diagnostic :: proc(editor: ^Editor, line: int) -> (Diagnostic_Severity, bool) {
     found := false
     worst := Diagnostic_Severity.Warning
     for d in editor.diagnostics {
-        if d.line != line || d.severity == .Hint {
+        if d.line != line || d.severity >= .Information {
             continue
         }
         found = true
@@ -2968,7 +2975,7 @@ editor_severity_color :: proc(editor: ^Editor, severity: Diagnostic_Severity) ->
     switch severity {
     case .Error:   return editor.diagnostic_error_color
     case .Warning: return editor.diagnostic_warn_color
-    case .Hint:    return editor.diagnostic_hint_color
+    case .Information, .Hint: return editor.diagnostic_hint_color
     }
     return editor.diagnostic_error_color
 }

@@ -480,6 +480,34 @@ test_undo_and_redo_resource_ops :: proc(t: ^testing.T) {
     testing.expect(t, !os.exists(GONE), "redo did not remove the file again")
 }
 
+// Resource operations with a `seq` run in that order: a delete followed by a
+// create of the same path leaves the new, empty file.
+@(test)
+test_resource_ops_run_in_sequence_order :: proc(t: ^testing.T) {
+    SAME :: "thor_resource_seq.tmp"
+
+    testing.expect(t, os.write_entire_file(SAME, "old") == nil, "could not create test file")
+    defer thor_remove_settled(SAME)
+
+    thor := new(Thor)
+    defer free(thor)
+    thor.open_files = make([dynamic]^Open_File)
+    defer delete(thor.open_files)
+    defer thor_clear_edit_undo(thor)
+    defer thor_clear_edit_redo(thor)
+    defer delete(thor.status_message)
+
+    ops := []lang.Resource_Op {
+        {seq = 0, kind = .Delete, path = SAME},
+        {seq = 1, kind = .Create, path = SAME},
+    }
+    _, _, ok, reason := thor_apply_edits(thor, nil, "", 0, ops)
+    testing.expectf(t, ok, "apply refused the resource ops: %s", reason)
+    data, rerr := os.read_entire_file(SAME, context.temp_allocator)
+    testing.expect(t, rerr == nil, "the created file is missing")
+    testing.expect_value(t, string(data), "")
+}
+
 // A delete whose target is a directory cannot be put back from a string, so the
 // set is applied with no record at all rather than one that half reverses.
 @(test)

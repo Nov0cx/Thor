@@ -854,12 +854,31 @@ Edit_Undo_File :: struct {
     existed:  bool,   // .Created: the target already held `before` and was overwritten
 }
 
-// Applies a backend's edits, all or none: every edit is checked before any is
-// written. Open files change through the buffer, closed ones on disk. `origin` is
-// the buffer the edits were made against, at revision `snapshot`. A false `ok` with
-// `applied > 0` means a write failed after others landed.
-// `resource_ops` run as Create, the edits, Rename, Delete, and join the Ctrl+Z
-// record; a target that cannot be restored (a directory) drops the record.
+// What one applied edit set has done so far.
+@(private = "file")
+Apply_Run :: struct {
+    record:     [dynamic]Edit_Undo_File, // owned until thor_commit_edit_undo takes it
+    reversible: bool,
+    applied:    int,
+    files:      int,
+}
+
+// One step of an edit set: a resource operation, or the text edits [lo, hi).
+@(private = "file")
+Apply_Step :: struct {
+    op:     ^lang.Resource_Op, // nil for a text batch
+    lo, hi: int,
+}
+
+// Applies a backend's edits and resource operations. The changes run in the order
+// their `seq` gives (a WorkspaceEdit's `documentChanges` array); a set with no
+// `seq` runs as Create, the edits, Rename, Delete. Each batch of text edits is
+// checked right before it is written, so a set with no resource operation is all
+// or none; a later failure keeps what already ran undoable. Open files change
+// through the buffer, closed ones on disk. `origin` is the buffer the edits were
+// made against, at revision `snapshot`. A false `ok` with `applied > 0` means a
+// write failed after others landed. A target that cannot be restored (a
+// directory) drops the Ctrl+Z record.
 @(private)
 thor_apply_edits :: proc(
     thor: ^Thor,
@@ -868,20 +887,94 @@ thor_apply_edits :: proc(
     snapshot: u64,
     resource_ops: []lang.Resource_Op = nil,
 ) -> (applied: int, files: int, ok: bool, reason: string) {
-    // What it takes to reverse each file, gathered as it is written; handed to
-    // thor_commit_edit_undo below so ctrl+z can take the whole set back.
-    record := make([dynamic]Edit_Undo_File)
-    committed := false
-    defer if !committed {
-        thor_free_edit_undo(record[:])
-        delete(record)
+    run := Apply_Run {
+        record     = make([dynamic]Edit_Undo_File),
+        reversible = true,
     }
-    reversible := true
+    steps := thor_edit_steps(edits, resource_ops)
 
-    for op in resource_ops {
-        if op.kind != .Create {
+    failed := false
+    for step in steps {
+        if step.op != nil {
+            ok, reason = thor_apply_resource_op(thor, &run, step.op)
+        } else {
+            ok, reason = thor_apply_text_batch(thor, &run, edits[step.lo:step.hi], origin, snapshot)
+        }
+        if !ok {
+            failed = true
+            break
+        }
+    }
+    if len(resource_ops) > 0 {
+        thor_refresh_after_resource_ops(thor)
+    }
+    if !thor_commit_edit_undo(thor, run.record, run.reversible) {
+        thor_free_edit_undo(run.record[:])
+        delete(run.record)
+    }
+    if failed {
+        return run.applied, run.files, false, reason
+    }
+    return run.applied, run.files, true, ""
+}
+
+// The order to apply `edits` and `ops` in, as steps. Edits of one `seq` are one
+// batch.
+@(private = "file")
+thor_edit_steps :: proc(edits: []lang.Text_Edit, ops: []lang.Resource_Op) -> []Apply_Step {
+    steps := make([dynamic]Apply_Step, context.temp_allocator)
+    ordered := false
+    for edit in edits {
+        ordered ||= edit.seq != 0
+    }
+    for op in ops {
+        ordered ||= op.seq != 0
+    }
+
+    if !ordered {
+        for &op in ops {
+            if op.kind == .Create {
+                append(&steps, Apply_Step{op = &op})
+            }
+        }
+        if len(edits) > 0 {
+            append(&steps, Apply_Step{lo = 0, hi = len(edits)})
+        }
+        for &op in ops {
+            if op.kind == .Rename {
+                append(&steps, Apply_Step{op = &op})
+            }
+        }
+        for &op in ops {
+            if op.kind == .Delete {
+                append(&steps, Apply_Step{op = &op})
+            }
+        }
+        return steps[:]
+    }
+
+    // Both lists are in `seq` order and no two changes share one.
+    ei, oi := 0, 0
+    for ei < len(edits) || oi < len(ops) {
+        take_op := ei >= len(edits) || (oi < len(ops) && ops[oi].seq < edits[ei].seq)
+        if take_op {
+            append(&steps, Apply_Step{op = &ops[oi]})
+            oi += 1
             continue
         }
+        lo := ei
+        for ei < len(edits) && edits[ei].seq == edits[lo].seq {
+            ei += 1
+        }
+        append(&steps, Apply_Step{lo = lo, hi = ei})
+    }
+    return steps[:]
+}
+
+@(private = "file")
+thor_apply_resource_op :: proc(thor: ^Thor, run: ^Apply_Run, op: ^lang.Resource_Op) -> (ok: bool, reason: string) {
+    switch op.kind {
+    case .Create:
         existed := os.exists(op.path)
         // The one case thor_create_resource leaves the file alone.
         untouched := existed && op.ignore_if_exists && !op.overwrite
@@ -890,40 +983,82 @@ thor_apply_edits :: proc(
             if data, rerr := os.read_entire_file(op.path, context.temp_allocator); rerr == nil && !os.is_dir(op.path) {
                 before = string(data)
             } else {
-                reversible = false
+                run.reversible = false
             }
         }
         if cok, creason := thor_create_resource(op.path, op.overwrite, op.ignore_if_exists); !cok {
-            committed = thor_commit_edit_undo(thor, record, reversible)
-            return 0, 0, false, creason
+            return false, creason
         }
         if untouched {
-            continue
+            return true, ""
         }
-        append(&record, Edit_Undo_File {
+        append(&run.record, Edit_Undo_File {
             kind    = .Created,
             path    = strings.clone(op.path),
             existed = existed,
             before  = strings.clone(before),
         })
+    case .Rename:
+        // An overwriting rename destroys what stood at the target, which no
+        // record here can put back.
+        if op.overwrite && os.exists(op.new_path) && !thor_same_path(op.path, op.new_path) {
+            run.reversible = false
+        }
+        if rok, rreason := thor_rename_resource(thor, op.path, op.new_path, op.overwrite); !rok {
+            return false, rreason
+        }
+        if thor_same_path(op.path, op.new_path) {
+            return true, "" // thor_rename_resource made this a no-op
+        }
+        append(&run.record, Edit_Undo_File {
+            kind     = .Renamed,
+            path     = strings.clone(op.path),
+            new_path = strings.clone(op.new_path),
+        })
+    case .Delete:
+        before: string
+        if data, rerr := os.read_entire_file(op.path, context.temp_allocator); rerr == nil && !os.is_dir(op.path) {
+            before = string(data)
+        } else if os.exists(op.path) {
+            run.reversible = false // a directory, or bytes that would not read
+        }
+        if dok, dreason := thor_delete_resource(thor, op.path); !dok {
+            return false, dreason
+        }
+        append(&run.record, Edit_Undo_File {
+            kind   = .Deleted,
+            path   = strings.clone(op.path),
+            before = strings.clone(before),
+        })
     }
+    return true, ""
+}
 
+// One batch of text edits: every edit is checked against the files as they are
+// now, then each file is written.
+@(private = "file")
+thor_apply_text_batch :: proc(
+    thor: ^Thor,
+    run: ^Apply_Run,
+    edits: []lang.Text_Edit,
+    origin: string,
+    snapshot: u64,
+) -> (ok: bool, reason: string) {
     targets := make([dynamic]Edit_Target, context.temp_allocator)
     for edit in edits {
         index, found := thor_edit_target(thor, &targets, edit.path, origin, snapshot)
         if !found {
-            committed = thor_commit_edit_undo(thor, record, reversible)
-            return 0, 0, false, "save the affected files first"
+            return false, "save the affected files first"
         }
         target := &targets[index]
         if edit.start < 0 || edit.end > len(target.text) || target.text[edit.start:edit.end] != edit.old_text {
-            committed = thor_commit_edit_undo(thor, record, reversible)
-            return 0, 0, false, "the files changed under it"
+            return false, "the files changed under it"
         }
         append(&target.edits, edit)
     }
 
     for &target in targets {
+        run.files += 1
         if len(target.edits) == 0 {
             continue
         }
@@ -934,8 +1069,8 @@ thor_apply_edits :: proc(
             }
             // No undo entry is pushed when nothing lands, so nothing to reverse.
             if n := textedit.replace_ranges(&target.file.state, ranges[:]); n > 0 {
-                applied += n
-                append(&record, Edit_Undo_File {
+                run.applied += n
+                append(&run.record, Edit_Undo_File {
                     path     = strings.clone(target.path),
                     open     = true,
                     revision = target.file.state.revision,
@@ -956,67 +1091,16 @@ thor_apply_edits :: proc(
         // The splice works in LF; the file goes back with the endings it had.
         written := thor_to_disk_text(strings.to_string(b), target.ending, context.temp_allocator)
         if werr := atomicfile.write(target.path, transmute([]byte) written); werr != nil {
-            // Whatever landed before this file stays undoable.
-            committed = thor_commit_edit_undo(thor, record, reversible)
-            return applied, len(targets), false, "a file could not be written"
+            return false, "a file could not be written"
         }
-        append(&record, Edit_Undo_File {
+        append(&run.record, Edit_Undo_File {
             path   = strings.clone(target.path),
             before = strings.clone(target.disk_text),
             after  = strings.clone(written),
         })
-        applied += len(target.edits)
+        run.applied += len(target.edits)
     }
-
-    for op in resource_ops {
-        if op.kind != .Rename {
-            continue
-        }
-        // An overwriting rename destroys what stood at the target, which no
-        // record here can put back.
-        if op.overwrite && os.exists(op.new_path) && !thor_same_path(op.path, op.new_path) {
-            reversible = false
-        }
-        if rok, rreason := thor_rename_resource(thor, op.path, op.new_path, op.overwrite); !rok {
-            committed = thor_commit_edit_undo(thor, record, reversible)
-            thor_refresh_after_resource_ops(thor)
-            return applied, len(targets), false, rreason
-        }
-        if thor_same_path(op.path, op.new_path) {
-            continue // thor_rename_resource made this a no-op
-        }
-        append(&record, Edit_Undo_File {
-            kind     = .Renamed,
-            path     = strings.clone(op.path),
-            new_path = strings.clone(op.new_path),
-        })
-    }
-    for op in resource_ops {
-        if op.kind != .Delete {
-            continue
-        }
-        before: string
-        if data, rerr := os.read_entire_file(op.path, context.temp_allocator); rerr == nil && !os.is_dir(op.path) {
-            before = string(data)
-        } else if os.exists(op.path) {
-            reversible = false // a directory, or bytes that would not read
-        }
-        if dok, dreason := thor_delete_resource(thor, op.path); !dok {
-            committed = thor_commit_edit_undo(thor, record, reversible)
-            thor_refresh_after_resource_ops(thor)
-            return applied, len(targets), false, dreason
-        }
-        append(&record, Edit_Undo_File {
-            kind   = .Deleted,
-            path   = strings.clone(op.path),
-            before = strings.clone(before),
-        })
-    }
-    if len(resource_ops) > 0 {
-        thor_refresh_after_resource_ops(thor)
-    }
-    committed = thor_commit_edit_undo(thor, record, reversible)
-    return applied, len(targets), true, ""
+    return true, ""
 }
 
 // What the explorer and the git status have to be told after a file appeared,
@@ -1688,6 +1772,7 @@ thor_update_completion :: proc(thor: ^Thor, res: ^lang.Result) {
             end      = item.end,
             snippet  = item.snippet,
             color    = thor_symbol_color(thor, item.kind),
+            note     = item.note,
         })
     }
     editview.editor_set_completions(editor, items[:], complete = !res.incomplete)
@@ -1711,6 +1796,7 @@ thor_completion_clear :: proc(thor: ^Thor) {
         delete(item.label)
         delete(item.kind)
         delete(item.detail)
+        delete(item.note)
         delete(item.insert)
         delete(item.filter)
         delete(item.sort)

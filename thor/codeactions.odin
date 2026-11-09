@@ -93,6 +93,7 @@ lang_severity :: proc(severity: editview.Diagnostic_Severity) -> lang.Diagnostic
     switch severity {
     case .Error:   return .Error
     case .Warning: return .Warning
+    case .Information: return .Information
     case .Hint:    return .Hint
     }
     return .Error

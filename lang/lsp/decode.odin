@@ -266,10 +266,10 @@ decode_signature_help :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
 
 // `CompletionList` or `CompletionItem[]`. Sorted by sortText before it is
 // answered: a server returns its candidates unordered and states the order it
-// wants in that key. `labelDetails` and `itemDefaults` are dropped — neither is
-// advertised, so a server must not send a candidate that needs them.
+// wants in that key. `itemDefaults` fills what a candidate leaves out.
 @(private)
 decode_completion :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
+    defaults: json.Object
     items, is_array := value.(json.Array)
     if !is_array {
         list, is_list := value.(json.Object)
@@ -279,6 +279,7 @@ decode_completion :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         if flag, fok := list["isIncomplete"].(json.Boolean); fok {
             res.incomplete = bool(flag)
         }
+        defaults, _ = list["itemDefaults"].(json.Object)
         items, is_array = list["items"].(json.Array)
         if !is_array {
             return
@@ -294,7 +295,7 @@ decode_completion :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         if !is_object {
             continue
         }
-        append_completion(ask, object, res)
+        append_completion(ask, object, defaults, res)
     }
     slice.sort_by(res.completions[:], proc(a, b: lang.Completion_Item) -> bool {
         a_key := a.sort != "" ? a.sort : a.label
@@ -310,9 +311,11 @@ decode_completion :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
 // One CompletionItem. The text to insert comes from textEdit, then insertText,
 // then the label; only textEdit also names the range it replaces, and a range
 // that does not resolve leaves the candidate with none, so the editor falls back
-// to the word being typed.
+// to the word being typed. `defaults` is the list's itemDefaults, nil when none:
+// it supplies the format, the data and, for a candidate with no textEdit, the
+// edit range (the text is then `textEditText`, else the label).
 @(private)
-append_completion :: proc(ask: ^Ask, object: json.Object, res: ^lang.Result) {
+append_completion :: proc(ask: ^Ask, object: json.Object, defaults: json.Object, res: ^lang.Result) {
     label, has_label := object["label"].(json.String)
     if !has_label {
         return
@@ -326,6 +329,9 @@ append_completion :: proc(ask: ^Ask, object: json.Object, res: ^lang.Result) {
 
     insert := row
     format, has_format := number(object["insertTextFormat"])
+    if !has_format {
+        format, has_format = number(defaults["insertTextFormat"])
+    }
     snippet := has_format && format == 2
     if text, has_text := object["insertText"].(json.String); has_text && text != "" {
         insert = string(text)
@@ -334,6 +340,15 @@ append_completion :: proc(ask: ^Ask, object: json.Object, res: ^lang.Result) {
     if text, lo, hi, ok := completion_edit(ask, object["textEdit"]); ok {
         insert = text
         start, end = lo, hi
+    } else if span, has_span := defaults["editRange"]; has_span && "textEdit" not_in object {
+        if range_lo, range_hi, rok := completion_range(ask, span); rok {
+            start, end = range_lo, range_hi
+            if edit_text, has_text := object["textEditText"].(json.String); has_text {
+                insert = string(edit_text)
+            } else {
+                insert = row
+            }
+        }
     }
 
     extra := make([dynamic]lang.Text_Edit)
@@ -365,14 +380,34 @@ append_completion :: proc(ask: ^Ask, object: json.Object, res: ^lang.Result) {
     // otherwise every row in the list would pay to be re-serialized for nothing.
     raw: string
     if ask.server.caps.resolve_items {
-        raw = strings.clone(json_text(object, context.temp_allocator))
+        shared, has_shared := defaults["data"]
+        if has_shared && "data" not_in object {
+            merged := make(json.Object, context.temp_allocator)
+            for key, member in object {
+                merged[key] = member
+            }
+            merged["data"] = shared
+            raw = strings.clone(json_text(merged, context.temp_allocator))
+        } else {
+            raw = strings.clone(json_text(object, context.temp_allocator))
+        }
+    }
+
+    // labelDetails: a signature tail and a qualifier, shown muted after the label.
+    note: string
+    if details, dok := object["labelDetails"].(json.Object); dok {
+        tail, _ := details["detail"].(json.String)
+        qualifier, _ := details["description"].(json.String)
+        parts := [2]string{string(tail), string(qualifier)}
+        note = strings.join(parts[:], parts[0] != "" && parts[1] != "" ? " " : "", context.temp_allocator)
     }
 
     append(&res.completions, lang.Completion_Item {
         label       = strings.clone(row),
         kind        = strings.clone(completion_kind_name(int(kind))),
         detail      = strings.clone(detail == "" ? row : string(detail)),
-        insert      = strings.clone(insert),
+        note        = strings.clone(note),
+        insert     = strings.clone(insert),
         filter      = strings.clone(string(filter)),
         sort        = strings.clone(string(sort)),
         start       = start,
@@ -387,9 +422,7 @@ append_completion :: proc(ask: ^Ask, object: json.Object, res: ^lang.Result) {
 }
 
 // A candidate's own textEdit: its replacement text and the byte range it covers
-// in the request's buffer. An InsertReplaceEdit takes its `replace` range —
-// insertReplaceSupport is not advertised, but a server that sends one anyway
-// means the wider of the two, which is what the popup does with the typed word.
+// in the request's buffer.
 @(private)
 completion_edit :: proc(ask: ^Ask, value: json.Value) -> (text: string, start, end: int, ok: bool) {
     object, is_object := value.(json.Object)
@@ -400,12 +433,27 @@ completion_edit :: proc(ask: ^Ask, value: json.Value) -> (text: string, start, e
     if !has_text {
         return
     }
-    span, has_span := object["range"]
-    if !has_span {
-        span, has_span = object["replace"]
+    lo, hi, has_range := completion_range(ask, object)
+    if !has_range {
+        return
     }
-    if !has_span {
-        span = object["insert"]
+    return string(new_text), lo, hi, true
+}
+
+// The byte range of a `Range`, or of an InsertReplaceEdit / editRange pair, which
+// takes `replace`, the wider of the two, as the popup does with the typed word.
+// `value` is the edit object itself or a bare range.
+@(private)
+completion_range :: proc(ask: ^Ask, value: json.Value) -> (start, end: int, ok: bool) {
+    span := value
+    if object, is_object := value.(json.Object); is_object {
+        if range, has := object["range"]; has {
+            span = range
+        } else if replace, has_replace := object["replace"]; has_replace {
+            span = replace
+        } else if insert, has_insert := object["insert"]; has_insert {
+            span = insert
+        }
     }
     start_line, start_char, end_line, end_char, has_range := range_of(span)
     if !has_range {
@@ -416,7 +464,7 @@ completion_edit :: proc(ask: ^Ask, value: json.Value) -> (text: string, start, e
     if lo > hi || lo < 0 || hi > len(ask.req.source) {
         return
     }
-    return string(new_text), lo, hi, true
+    return lo, hi, true
 }
 
 // `completionItem/resolve`. The reply is the same candidate with the parts the
@@ -599,8 +647,7 @@ decode_progress :: proc(params: json.Value) -> (lang.Result, bool) {
 }
 
 // One `Diagnostic`, as the 1-based line and byte column the seam reports. The
-// protocol's Information and Hint both become Hint, and a diagnostic that named
-// no severity is read as an error.
+// a diagnostic that named no severity is read as an error.
 @(private)
 decode_one_diagnostic :: proc(lines: ^Line_Index, path: string, value: json.Value) -> (lang.Diagnostic, bool) {
     object, is_object := value.(json.Object)
@@ -616,7 +663,8 @@ decode_one_diagnostic :: proc(lines: ^Line_Index, path: string, value: json.Valu
     if level, has_level := number(object["severity"]); has_level {
         switch level {
         case 2:    severity = .Warning
-        case 3, 4: severity = .Hint
+        case 3:    severity = .Information
+        case 4:    severity = .Hint
         }
     }
 
@@ -1172,9 +1220,9 @@ decode_workspace_edit :: proc(
 }
 
 // `documentChanges`: TextDocumentEdit items and CreateFile/RenameFile/
-// DeleteFile resource operations, interleaved in whatever order the server
-// sent them — see Resource_Op for why that order is not itself preserved. A
-// `kind` this package cannot model at all still refuses the whole set.
+// DeleteFile resource operations. Each result carries its array position in
+// `seq`, so the applier can run them in the order the server sent. A `kind` this
+// package cannot model at all refuses the whole set.
 @(private)
 decode_document_changes :: proc(
     ask: ^Ask,
@@ -1182,14 +1230,18 @@ decode_document_changes :: proc(
     out: ^[dynamic]lang.Text_Edit,
     ops: ^[dynamic]lang.Resource_Op,
 ) -> bool {
-    for item in items {
+    for item, index in items {
         object, is_object := item.(json.Object)
         if !is_object {
             return false
         }
         if _, is_resource_op := object["kind"]; is_resource_op {
+            first := len(ops^)
             if !decode_resource_op(object, ops) {
                 return false
+            }
+            for &op in ops[first:] {
+                op.seq = index
             }
             continue
         }
@@ -1199,8 +1251,12 @@ decode_document_changes :: proc(
         if !has_doc || !has_uri || !has_edits {
             return false
         }
+        first := len(out^)
         if !decode_text_edits(ask, string(uri), edits, out) {
             return false
+        }
+        for &edit in out[first:] {
+            edit.seq = index
         }
     }
     return true

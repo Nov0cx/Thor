@@ -17,6 +17,7 @@ editor_test_free_completions :: proc(editor: ^Editor) {
         delete(row.text)
         delete(row.insert)
         delete(row.filter)
+        delete(row.note)
     }
     clear(&editor.completion_rows)
     delete(editor.completion_word)

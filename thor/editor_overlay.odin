@@ -297,6 +297,25 @@ thor_completion_card :: proc(thor: ^Thor, editor: ^editview.Editor) {
                 },
             },
         )
+        if candidate.note != "" {
+            note_x := COMPLETION_TEXT_X + f32(font.measure(candidate.text, editor.font_size, "")) + 12
+            ui.leaf(
+                {
+                    key = "note",
+                    text = candidate.note,
+                    props = {
+                        position = .Absolute,
+                        inset = {note_x, y, 0, 0},
+                        w = ui.FIT,
+                        h = ui.Px(row_h),
+                        color = thor.theme.muted_color,
+                        font = thor.font_mono,
+                        font_size = f32(editor.font_size),
+                        text_wrap = .None,
+                    },
+                },
+            )
+        }
         ui.pop_id()
     }
 }

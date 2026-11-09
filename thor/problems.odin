@@ -229,7 +229,7 @@ problem_color :: proc(thor: ^Thor, severity: editview.Diagnostic_Severity) -> ui
     switch severity {
     case .Error:   return thor.theme.error_color
     case .Warning: return thor.theme.warning_color
-    case .Hint:    return thor.theme.info_color
+    case .Information, .Hint: return thor.theme.info_color
     }
     return thor.theme.muted_color
 }
@@ -239,6 +239,7 @@ problem_label :: proc(severity: editview.Diagnostic_Severity) -> string {
     switch severity {
     case .Error:   return "error"
     case .Warning: return "warning"
+    case .Information: return "info"
     case .Hint:    return "hint"
     }
     return ""
@@ -345,9 +346,10 @@ problems_header :: proc(thor: ^Thor, groups: []Problem_Group) {
     ui.label("Problems", {key = "title", props = {color = thor.theme.foreground, text_wrap = .None}})
     ui.label(
         fmt.tprintf(
-            "%d errors, %d warnings, %d hints",
+            "%d errors, %d warnings, %d infos, %d hints",
             problem_count(groups, .Error),
             problem_count(groups, .Warning),
+            problem_count(groups, .Information),
             problem_count(groups, .Hint),
         ),
         {key = "counts", props = {color = thor.theme.muted_color, text_wrap = .None}},
