@@ -1,3 +1,9 @@
+# 2026.11.2
+
+- Odin: the formatter keeps `case` labels at the level of their `switch`; `indent_cases` moves them one level in. Before, the labels were always indented and `indent_cases` indented the bodies two levels.
+- Odin: `inline_single_stmt_case` keeps a body on its own line when a comment comes before it. Before, the comment moved below the case or into the statement.
+- Odin: the formatter no longer writes two spaces before the `{` of a `for` without a post statement.
+
 # 2026.11.1
 
 - Language servers: LSP `Information` diagnostics show as their own level in the Problems panel; `Hint` stays faint.
