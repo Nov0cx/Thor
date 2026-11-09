@@ -983,3 +983,43 @@ test_language_key_by_name :: proc(t: ^testing.T) {
     }
     testing.expect(t, has_fasm, "FASM listed")
 }
+
+// A source past LARGE_SOURCE_BYTES is parsed one window at a time: the spans
+// stay inside the window, with offsets in the whole source, and a lexer that
+// reads the whole source is skipped.
+@(test)
+test_large_source_highlights_one_window :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+    manager_load(&m)
+    testing.expect(t, supports(&m, ".odin"), "odin language registered")
+
+    b := strings.builder_make()
+    defer strings.builder_destroy(&b)
+    for strings.builder_len(b) < LARGE_SOURCE_BYTES + 1024 {
+        strings.write_string(&b, "value :: proc(x: int) -> int { return x }\n")
+    }
+    source := strings.to_string(b)
+
+    mid := len(source) / 2
+    spans, lo, hi := highlight_range(&m, "big.odin", source, ".odin", mid, mid + 2000, context.allocator)
+    defer delete(spans)
+    testing.expect(t, len(spans) > 0, "the window has spans")
+    testing.expect(t, lo <= mid && hi >= mid + 2000 && hi - lo <= LARGE_WINDOW_BYTES + 100, "covered range holds the window")
+    for s in spans {
+        if s.start < lo || s.end > hi {
+            testing.expectf(t, false, "span %d..%d outside %d..%d", s.start, s.end, lo, hi)
+            break
+        }
+    }
+
+    script := `thor.register_language {
+        name = "whole", extensions = { ".whole" },
+        highlight = function(src) return { { 0, 3, thor.theme.keywords } } end,
+    }`
+    testing.expect(t, manager_load_source(&m, "whole", "plugins/whole", script, {}), "plugin script runs")
+    none, _, _ := highlight_range(&m, "", source, ".whole", 0, 100, context.allocator)
+    defer delete(none)
+    testing.expect_value(t, len(none), 0)
+}

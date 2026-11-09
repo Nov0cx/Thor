@@ -114,18 +114,21 @@ highlight_range :: proc(
         if !syntax.supports(&m.highlighter, lang.grammar) {
             return nil, 0, 0
         }
-        caps := syntax.highlight_range(
-            &m.highlighter,
-            path,
-            source,
-            lang.grammar,
-            range_start,
-            range_end,
-            context.temp_allocator,
-        )
+        // A parse of a large buffer costs seconds on the main thread, so only
+        // the window is parsed, alone and uncached.
+        base := 0
+        text, tree_path := source, path
+        range_lo, range_hi := range_start, range_end
+        if len(source) >= LARGE_SOURCE_BYTES {
+            hi = min(hi, lo + LARGE_WINDOW_BYTES)
+            lo, hi = line_window(source, lo, hi)
+            base, text, tree_path = lo, source[lo:hi], ""
+            range_lo, range_hi = 0, max(int)
+        }
+        caps := syntax.highlight_range(&m.highlighter, tree_path, text, lang.grammar, range_lo, range_hi, context.temp_allocator)
         out := make([dynamic]Span, allocator)
         for cap in caps {
-            append(&out, Span{cap.start, cap.end, role_for_capture(lang, cap.capture)})
+            append(&out, Span{cap.start + base, cap.end + base, role_for_capture(lang, cap.capture)})
         }
         return out[:], lo, hi
     }
@@ -138,10 +141,20 @@ highlight_range :: proc(
             lo, hi = line_window(source, lo, hi)
             return run_lexer(m, lang, source[lo:hi], lo, allocator), lo, hi
         }
+        if len(source) >= LARGE_SOURCE_BYTES {
+            return nil, 0, 0
+        }
         return run_lexer(m, lang, source, 0, allocator), 0, len(source)
     }
     return nil, 0, 0
 }
+
+// Size from which a grammar parses only the window and a lexer that reads the
+// whole source is not run.
+LARGE_SOURCE_BYTES :: 8 << 20
+
+// The most of a large source one highlight call parses.
+LARGE_WINDOW_BYTES :: 32 << 10
 
 // Widens [start, end) to whole lines. The caller's range comes from visual rows,
 // which under soft wrap begin mid-line.
