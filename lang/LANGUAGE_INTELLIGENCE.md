@@ -513,8 +513,8 @@ Thor advertises only what it can consume, so servers do not send shapes it drops
 
 - `positionEncodings`: `utf-8` first, then `utf-16`.
 - Completion: `snippetSupport`, `preselectSupport`, `resolveSupport` (`detail`, `documentation`,
-  `additionalTextEdits`, `command`). **Not** `insertReplaceSupport`, `labelDetailsSupport` or
-  `itemDefaults`.
+  `additionalTextEdits`, `command`), `insertReplaceSupport`, `labelDetailsSupport` and
+  `itemDefaults` (`editRange`, `insertTextFormat`, `data`).
 - `definition.linkSupport`, `publishDiagnostics.versionSupport`, `rename.prepareSupport`.
 - Semantic tokens: `requests.full` only (no range). Thor asks for `full/delta` when the server
   advertises it.
@@ -874,7 +874,6 @@ Things that do not exist yet. Each is a candidate for future work.
 - **`Package_Doc`** rides `textDocument/hover`. There is no richer LSP equivalent.
 - **`semanticTokens/range`.** Only full and delta.
 - **Pull `relatedDocuments`** in diagnostic reports are dropped.
-- **`labelDetails` and `completionList.itemDefaults`** are not advertised.
 
 ### Language coverage
 
@@ -948,16 +947,17 @@ Measured on a generated 58 MB Odin buffer (release flags):
 - **`workspace/symbol` and an empty query.** Servers such as clangd, gopls and pyright answer nothing
   for an empty query. The picker opens straight into a "type to search" hint for these. This is a
   protocol property, not a dispatch bug.
-- **Completion limits.** An `InsertReplaceEdit` takes its `replace` range. `labelDetails` and shared
-  `itemDefaults` are dropped.
+- **Completion.** An `InsertReplaceEdit` takes its `replace` range. `labelDetails` shows as a muted
+  note after the label; the resolve reply still reads only `additionalTextEdits` and `command`.
 - **Code actions.** A command-only action runs through `workspace/executeCommand`. The server must
   send its changes back as `applyEdit`. An action with neither edit nor command is dropped.
-- **Resource operations** are applied in a fixed phase order (create, edits, rename, delete), not in
-  the array order of `documentChanges`. An unknown `kind` refuses the whole set.
-- **`Diagnostic_Severity`** has three levels. LSP `Information` and `Hint` both become `Hint`.
+- **Resource operations** run in the array order of `documentChanges` (`seq`). A set with no `seq`
+  runs as create, edits, rename, delete. Each batch of text edits is checked just before it is
+  written, so a set with resource operations is not all or none. An unknown `kind` refuses the whole set.
 - **Slow or hung server.** Each blocked `resolve` holds one of 2 to 4 pool workers until its
-  deadline (3 s interactive, 15 s heavy). A wedged server can slow other requests for that long.
-  There is no per-server latch that stops sending after repeated deadline misses.
+  deadline (3 s interactive, 15 s heavy). Three misses in a row of one class (`LATCH_STREAK`) put the
+  server on hold for 30 s (`LATCH_COOLDOWN`): `request_answer` ends at once and Settings shows
+  "not answering in time". A reply, a restart or the cooldown ends the hold.
 - **Executable lookup on Windows** depends on PATHEXT emulation. A `.cmd` shim runs through
   `cmd.exe /c`.
 

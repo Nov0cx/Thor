@@ -1,5 +1,9 @@
 # 2026.11.1
 
+- Language servers: LSP `Information` diagnostics show as their own level in the Problems panel; `Hint` stays faint.
+- Language servers: completion shows `labelDetails` after the label, and reads `itemDefaults` and `InsertReplaceEdit` ranges.
+- Language servers: a workspace edit applies its file operations in the order the server sent them.
+- Language servers: a server that misses three deadlines in a row gets no requests for 30 s, and Settings says so.
 - Language servers: every enabled server that claims a language answers for it, and Settings names the other servers of a language. Lists such as completion, code actions and symbols merge.
 - Language intelligence: a backend that finds nothing hands the request to the next one for the same file type.
 - Odin: a quick fix declares an immutable `for` or `switch` variable as `&x` when the compiler rejects the assignment through it.
