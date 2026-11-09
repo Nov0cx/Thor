@@ -3,26 +3,41 @@ package lang
 import "core:slice"
 import "core:strings"
 
-// Runs a job's backend chain on a worker. A merge kind visits every backend and
-// combines the answers; any other kind keeps the first backend that answers.
-// Owned output uses the Manager's allocator (set by job_run).
+// One producer of answers for a request: a backend, or a server a backend hosts.
+Link :: struct {
+    id:      string, // written into `origin`; see Request.backend
+    data:    rawptr,
+    resolve: proc(data: rawptr, req: ^Request, res: ^Result),
+}
+
+// Runs a job's backend chain on a worker. Owned output uses the Manager's
+// allocator (set by job_run).
 @(private)
 job_resolve :: proc(job: ^Job) {
-    chain := job.chain[:job.chain_len]
-    if len(chain) == 1 {
-        b := chain[0]
-        b.resolve(b.data, &job.request, &job.result)
-        result_stamp_origin(&job.result, backend_id(b))
+    links := make([]Link, job.chain_len, context.temp_allocator)
+    for b, i in job.chain[:job.chain_len] {
+        links[i] = Link{id = backend_id(b), data = b.data, resolve = b.resolve}
+    }
+    resolve_links(links, &job.request, &job.result)
+}
+
+// Visits `links` in order. A merge kind combines every answer; any other kind keeps
+// the first link that answers. `res` carries the id, kind and revision to keep.
+// Call it with context.allocator set to the Manager's.
+resolve_links :: proc(links: []Link, req: ^Request, res: ^Result) {
+    if len(links) == 1 {
+        links[0].resolve(links[0].data, req, res)
+        result_stamp_origin(res, links[0].id)
         return
     }
 
-    head := job.result // id, kind and revision the Manager preset
-    merging := job.request.kind in MERGE_KINDS
+    head := res^
+    merging := req.kind in MERGE_KINDS
     fallback: Result
     have_fallback := false
     answered := false
-    for b in chain {
-        if request_cancelled(&job.request) {
+    for link in links {
+        if request_cancelled(req) {
             break
         }
         part := Result {
@@ -30,22 +45,22 @@ job_resolve :: proc(job: ^Job) {
             kind     = head.kind,
             revision = head.revision,
         }
-        b.resolve(b.data, &job.request, &part)
+        link.resolve(link.data, req, &part)
         if !part.ok {
             // Keeps the first refusal whole: a reason in `message` belongs to it.
             if have_fallback {
-                result_free(job.manager, &part)
+                result_release(&part)
             } else {
                 fallback, have_fallback = part, true
             }
             continue
         }
-        result_stamp_origin(&part, backend_id(b))
+        result_stamp_origin(&part, link.id)
         if merging && answered {
-            result_merge(job.manager, &job.result, &part, job.request.kind)
+            result_merge(res, &part, req.kind)
             continue
         }
-        job.result = part
+        res^ = part
         answered = true
         if !merging {
             break
@@ -53,12 +68,12 @@ job_resolve :: proc(job: ^Job) {
     }
     if answered {
         if have_fallback {
-            result_free(job.manager, &fallback)
+            result_release(&fallback)
         }
         return
     }
     if have_fallback {
-        job.result = fallback
+        res^ = fallback
     }
 }
 
@@ -111,7 +126,6 @@ manager_gate_label :: proc(m: ^Manager, id: string) -> string {
 
 // Sets `origin` on every offer of `res` that no backend named yet. Clones into the
 // Manager's allocator, which is the context here.
-@(private)
 result_stamp_origin :: proc(res: ^Result, id: string) {
     for &item in res.completions {
         if item.origin == "" {
@@ -127,8 +141,7 @@ result_stamp_origin :: proc(res: ^Result, id: string) {
 
 // Moves what `src` holds into `dst` and frees `src`. Lists the editor walks in one
 // forward pass are sorted again, and an item both backends report appears once.
-@(private)
-result_merge :: proc(m: ^Manager, dst, src: ^Result, kind: Request_Kind) {
+result_merge :: proc(dst, src: ^Result, kind: Request_Kind) {
     #partial switch kind {
     case .Completion:
         move_all(&dst.completions, &src.completions)
@@ -154,7 +167,7 @@ result_merge :: proc(m: ^Manager, dst, src: ^Result, kind: Request_Kind) {
         dedup_by(&dst.highlights, proc(a, b: Document_Highlight) -> bool {return a.start == b.start && a.end == b.end})
     }
     dst.ok = true
-    result_free(m, src)
+    result_release(src)
 }
 
 // Appends `src` to `dst` and empties `src`, so freeing it releases no moved item.

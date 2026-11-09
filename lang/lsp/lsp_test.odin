@@ -6,10 +6,10 @@ import lang ".."
 
 // Run from the repository root: odin test lang/lsp
 
-// A disabled server is client_server_for's "not found" — the same gate a
+// A disabled server is client_servers_for's "not found" — the same gate a
 // declined extension already answers through, so handles/supports/notify all
 // go quiet with no change to those procs themselves. poll is the one caller
-// that bypasses client_server_for (it walks c.servers itself), so it needs its
+// that bypasses client_servers_for (it walks c.servers itself), so it needs its
 // own admin_enabled check, covered below.
 @(test)
 test_client_set_server_enabled_gates_dispatch :: proc(t: ^testing.T) {
@@ -208,18 +208,16 @@ test_client_server_status :: proc(t: ^testing.T) {
     testing.expect_value(t, status.last_error, "")
     testing.expect(t, status.enabled)
     testing.expect_value(t, status.install_command, "pipx install basedpyright")
-    testing.expect(t, status.claimed_by == "", "the only claimant owns its own extension")
+    testing.expect(t, status.shared_with == "", "the only claimant shares its extension with nobody")
     testing.expect_value(t, len(status.extensions), 2)
 
     _, missing := client_server_status(&c, "nothing", context.temp_allocator)
     testing.expect(t, !missing)
 }
 
-// Two enabled entries on one language: the first owns it and the second is dead
-// config. The status names the owner, so the collision is visible instead of
-// silent.
+// Two enabled entries on one language both answer it. Each status names the other.
 @(test)
-test_client_extension_owner :: proc(t: ^testing.T) {
+test_client_servers_share_a_language :: proc(t: ^testing.T) {
     extensions := [1]string{".py"}
     command := [1]string{"x"}
 
@@ -239,14 +237,18 @@ test_client_extension_owner :: proc(t: ^testing.T) {
         delete(c.servers)
     }
 
-    owner, taken := client_extension_owner(&c, ".py")
-    testing.expect(t, taken)
-    testing.expect_value(t, owner, "basedpyright")
+    servers, n := client_servers_for(&c, ".py")
+    testing.expect_value(t, n, 2)
+    testing.expect(t, n == 2 && servers[0].config.id == "basedpyright" && servers[1].config.id == "ruff", "both answer, in config order")
 
     first, _ := client_server_status(&c, "basedpyright", context.temp_allocator)
-    testing.expect_value(t, first.claimed_by, "")
+    testing.expect_value(t, first.shared_with, "ruff")
     second, _ := client_server_status(&c, "ruff", context.temp_allocator)
-    testing.expect_value(t, second.claimed_by, "basedpyright")
+    testing.expect_value(t, second.shared_with, "basedpyright")
+
+    server_set_admin_enabled(c.servers[1], false)
+    _, n = client_servers_for(&c, ".py")
+    testing.expect_value(t, n, 1)
 }
 
 // server[0] must not starve server[1]: poll starts from poll_next, not always

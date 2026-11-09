@@ -97,7 +97,7 @@ Server :: struct {
     // The admin gate the settings own. config.enabled/config.features seed it in
     // server_create and state nothing after that, so a server turned off in
     // lsp.lua can be turned back on in Settings. Atomic: resolve (worker
-    // thread) reaches it through client_server_for.
+    // thread) reaches it through client_servers_for.
     admin_enabled: bool, // atomic
     // The per-kind half of that gate, seeded from config.features. Atomic:
     // server_supports runs main-thread only, but this is set from the same

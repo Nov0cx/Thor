@@ -1453,6 +1453,12 @@ job_free :: proc(m: ^Manager, job: ^Job) {
 @(private)
 result_free :: proc(m: ^Manager, res: ^Result) {
     context.allocator = m.allocator
+    result_release(res)
+}
+
+// Frees every owned field of a Result with the current allocator, which must be the
+// Manager's. For a backend that merges the answers of its own producers.
+result_release :: proc(res: ^Result) {
     delete(res.location.path)
     delete(res.hover.text)
     delete(res.doc.title)

@@ -214,8 +214,8 @@ thor_lsp_populate_server :: proc(thor: ^Thor, id: string) {
     append(&claimed, ..status.filenames)
     append(&claimed, ..status.extensions)
     extensions := strings.join(claimed[:], " ", context.temp_allocator)
-    if status.claimed_by != "" {
-        info(view, id, "ext", "File Types", fmt.tprintf("%s — answered by %s", extensions, status.claimed_by), .Warn)
+    if status.shared_with != "" {
+        info(view, id, "ext", "File Types", fmt.tprintf("%s — also answered by %s", extensions, status.shared_with))
     } else {
         info(view, id, "ext", "File Types", extensions)
     }
@@ -263,8 +263,6 @@ thor_lsp_summary :: proc(status: lsp.Server_Status, enabled: bool) -> (string, S
         return "Off", .Normal
     case !status.installed:
         return "Not installed", .Warn
-    case status.claimed_by != "":
-        return "Not used", .Warn
     }
     return lsp.server_state_name(status.state), thor_lsp_state_tone(status.state)
 }

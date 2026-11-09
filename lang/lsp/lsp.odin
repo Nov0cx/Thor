@@ -9,6 +9,7 @@
 package lsp
 
 import "base:runtime"
+import "core:slice"
 import "core:strings"
 
 import lang ".."
@@ -89,8 +90,13 @@ client_overrides :: proc(c: ^Client, ext: string) -> bool {
 @(private)
 handles :: proc(data: rawptr, ext: string) -> bool {
     c := cast(^Client)data
-    s, found := client_server_for(c, ext)
-    return found && server_state(s) != .Failed
+    servers, n := client_servers_for(c, ext)
+    for s in servers[:n] {
+        if server_state(s) != .Failed {
+            return true
+        }
+    }
+    return false
 }
 
 // Whether the claimed server answers `kind`. Three gates are AND-ed here: the
@@ -99,8 +105,13 @@ handles :: proc(data: rawptr, ext: string) -> bool {
 @(private)
 supports :: proc(data: rawptr, ext: string, kind: lang.Request_Kind) -> bool {
     c := cast(^Client)data
-    s, found := client_server_for(c, ext)
-    return found && server_supports(s, kind)
+    servers, n := client_servers_for(c, ext)
+    for s in servers[:n] {
+        if server_supports(s, kind) {
+            return true
+        }
+    }
+    return false
 }
 
 // Answers one request, starting the server if this is the first file to need it.
@@ -109,11 +120,40 @@ supports :: proc(data: rawptr, ext: string, kind: lang.Request_Kind) -> bool {
 @(private)
 resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
     c := cast(^Client)data
-    s, found := client_server_for(c, req.ext)
-    if !found || !server_ensure_started(s, req) {
-        return
+    servers, n := client_servers_for(c, req.ext)
+    links := make([dynamic]lang.Link, context.temp_allocator)
+    for s in servers[:n] {
+        id := link_id(s)
+        if !origin_names(req.backend, id) {
+            continue
+        }
+        append(&links, lang.Link{id = id, data = s, resolve = resolve_server})
     }
-    request_answer(s, req, res)
+    if len(links) > 0 {
+        lang.resolve_links(links[:], req, res)
+    }
+}
+
+// One server's share of a request: starts it when this is the first file to need it.
+@(private)
+resolve_server :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
+    s := cast(^Server)data
+    if server_ensure_started(s, req) {
+        request_answer(s, req, res)
+    }
+}
+
+// The origin a server's offers carry: "lsp:<server id>".
+@(private)
+link_id :: proc(s: ^Server) -> string {
+    return strings.concatenate({"lsp:", s.config.id}, context.temp_allocator)
+}
+
+// True when `origin` (Request.backend) lets the server `link` answer: no origin, the
+// backend as a whole, or that server.
+@(private)
+origin_names :: proc(origin, link: string) -> bool {
+    return origin == "" || origin == "lsp" || origin == link
 }
 
 // Takes the next result a server produced without being asked. Main thread,
@@ -148,13 +188,15 @@ poll :: proc(data: rawptr, res: ^lang.Result) -> bool {
 @(private)
 on_type_trigger :: proc(data: rawptr, ext: string, char: string) -> bool {
     c := cast(^Client)data
-    s, found := client_server_for(c, ext)
-    if !found || server_state(s) != .Ready || !server_supports(s, .Format_On_Type) {
-        return false
-    }
-    for trigger in s.caps.on_type_triggers {
-        if trigger == char {
-            return true
+    servers, n := client_servers_for(c, ext)
+    for s in servers[:n] {
+        if server_state(s) != .Ready || !server_supports(s, .Format_On_Type) {
+            continue
+        }
+        for trigger in s.caps.on_type_triggers {
+            if trigger == char {
+                return true
+            }
         }
     }
     return false
@@ -165,24 +207,24 @@ on_type_trigger :: proc(data: rawptr, ext: string, char: string) -> bool {
 @(private)
 notify :: proc(data: rawptr, event: lang.Doc_Event, path, ext, source: string, revision: u64) {
     c := cast(^Client)data
-    s, found := client_server_for(c, ext)
-    if found {
+    servers, n := client_servers_for(c, ext)
+    for s in servers[:n] {
         server_notify(s, event, path, source, revision)
     }
     if event == .Closed {
-        client_close_on_disabled(c, path, ext, s)
+        client_close_on_disabled(c, path, ext, servers[:n])
     }
 }
 
 // Sends a close to each started server that claims `ext` but is turned off. It
 // can hold the file from before it was turned off; `served` already got the event.
 @(private)
-client_close_on_disabled :: proc(c: ^Client, path, ext: string, served: ^Server) {
+client_close_on_disabled :: proc(c: ^Client, path, ext: string, served: []^Server) {
     if ext == "" {
         return
     }
     for s in c.servers {
-        if s == served || server_admin_enabled(s) || !server_claims(s.config, ext) {
+        if slice.contains(served, s) || server_admin_enabled(s) || !server_claims(s.config, ext) {
             continue
         }
         if strings.equal_fold(ext, ".odin") && !s.config.override {
@@ -210,31 +252,37 @@ client_destroy :: proc(data: rawptr) {
     free(c, c.allocator)
 }
 
-// The server configured for the routing key `ext` — an extension (".c") or a
+// Every enabled server configured for the routing key `ext`, in config order, up to
+// lang.MAX_CHAIN. They all mirror the document and answer together; see lang.MERGE_KINDS.
+// The routing key — an extension (".c") or a
 // bare file name ("Makefile"). `.odin` is served in-client, so a server is
 // given it only where the config says so outright — belt and braces, since
 // registration order already decides it, and a server started for a language it
 // will never be asked about costs memory for nothing.
 @(private)
-client_server_for :: proc(c: ^Client, ext: string) -> (^Server, bool) {
+client_servers_for :: proc(c: ^Client, ext: string) -> (found: [lang.MAX_CHAIN]^Server, n: int) {
     if ext == "" {
-        return nil, false
+        return
     }
     for s in c.servers {
+        if n == lang.MAX_CHAIN {
+            break
+        }
         if !server_claims(s.config, ext) {
             continue
         }
+        // A server takes .odin only by an explicit override.
         if strings.equal_fold(ext, ".odin") && !s.config.override {
-            return nil, false
+            continue
         }
-        // A disabled claimant does not consume the key: turning one off is how
-        // a later entry (a workspace file's own server) takes the language over.
+        // A disabled claimant stays out; the others still answer.
         if !server_admin_enabled(s) {
             continue
         }
-        return s, true
+        found[n] = s
+        n += 1
     }
-    return nil, false
+    return
 }
 
 // What the config files got wrong, for the settings UI to show. Read-only and
@@ -266,7 +314,7 @@ Server_Status :: struct {
     install_command: string, // already chosen for this platform
     docs_url:        string,
     setup_command:   string,
-    claimed_by:      string, // an earlier enabled entry that owns its first extension
+    shared_with:     string, // the other enabled entries that claim its first key, ", " apart
 }
 
 // One server's status by id. `probe` false leaves `exe`/`installed` unset, for a
@@ -307,26 +355,24 @@ client_server_status :: proc(
             first = s.config.extensions[0]
         }
         if first != "" {
-            if owner, taken := client_extension_owner(c, first); taken && owner != id {
-                status.claimed_by = strings.clone(owner, allocator)
-            }
+            status.shared_with = client_key_sharers(c, first, id, allocator)
         }
         return status, true
     }
     return {}, false
 }
 
-// The id of the entry that answers for `ext`, so a second entry claiming the
-// same language can say who took it. One enabled claimant per extension is the
-// rule everywhere else in this package; this is how it is made visible. The id
-// is **borrowed** from the Client's Config and dies with it — clone it to keep
-// it across a workspace change.
-client_extension_owner :: proc(c: ^Client, ext: string) -> (string, bool) {
-    s, found := client_server_for(c, ext)
-    if !found {
-        return "", false
+// The ids of the enabled servers other than `self` that answer for `key`, ", " apart,
+// so a language served by several says so. "" when none does.
+client_key_sharers :: proc(c: ^Client, key, self: string, allocator := context.temp_allocator) -> string {
+    servers, n := client_servers_for(c, key)
+    ids := make([dynamic]string, context.temp_allocator)
+    for s in servers[:n] {
+        if s.config.id != self {
+            append(&ids, s.config.id)
+        }
     }
-    return s.config.id, true
+    return strings.join(ids[:], ", ", allocator)
 }
 
 // The configured id of every server in the table, for a caller (the settings UI,
@@ -359,7 +405,7 @@ client_server_defaults :: proc(c: ^Client, id: string) -> (enabled: bool, featur
 }
 
 // Settings-driven on/off for one configured server, by id. False when no server
-// has that id. A disabled server answers nothing (client_server_for) and its
+// has that id. A disabled server answers nothing (client_servers_for) and its
 // pushes are skipped (poll) — the process itself is left running idle until the
 // workspace reloads or the app exits.
 client_set_server_enabled :: proc(c: ^Client, id: string, enabled: bool) -> bool {
