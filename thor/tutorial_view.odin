@@ -50,6 +50,7 @@ thor_tutorial_overlay_open :: proc(thor: ^Thor) -> bool {
         thor.settings_open ||
         thor.git_open ||
         thor.problems_open ||
+        thor.undo_open ||
         thor.theme_editor_open ||
         thor.permission_open ||
         thor_select_is_open(thor) ||

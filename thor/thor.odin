@@ -45,6 +45,8 @@ Thor :: struct {
     git_open: bool,
     problems_open: bool,
     problems: Problems_View, // see problems.odin
+    undo_open: bool,
+    undo_view: Undo_View, // see undo_history.odin
     package_problems: [dynamic]Package_Problem, // owned; diagnostics of files that are not open
     // The git modal's own lists, diff and commit box; see git_view.odin.
     git: Git_View,
@@ -592,10 +594,6 @@ Thor :: struct {
     code_action_lo: int, // the caret or selection the offer was made at
     code_action_hi: int,
     code_actions: [dynamic]Pending_Action,
-    // The buffer the open Undo History picker lists, its revision then, and the node of each row.
-    undo_history_path:     string,       // owned
-    undo_history_revision: u64,
-    undo_history_nodes:    [dynamic]int, // owned
     // The action whose prompt is open, by index into code_actions; -1 when none.
     // Its Resolve_Action in flight, and the title to report when it answers.
     code_action_prompted: int,
@@ -1128,8 +1126,7 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.jump_forward)
     delete(thor.rename_path)
     delete(thor.code_action_path)
-    thor_clear_undo_history(thor)
-    delete(thor.undo_history_nodes)
+    thor_undo_history_destroy(thor)
     delete(thor.execute_command_title)
     delete(thor.resolve_action_title)
     thor_completion_clear(thor)

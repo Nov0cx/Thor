@@ -1081,7 +1081,6 @@ git_view_diff :: proc(thor: ^Thor) {
     }
 }
 
-@(private = "file")
 git_diff_row_bg :: proc(thor: ^Thor, kind: Git_Diff_Row_Kind) -> ui.Paint {
     #partial switch kind {
     case .Added:
@@ -1094,7 +1093,6 @@ git_diff_row_bg :: proc(thor: ^Thor, kind: Git_Diff_Row_Kind) -> ui.Paint {
     return nil
 }
 
-@(private = "file")
 git_diff_row_color :: proc(thor: ^Thor, kind: Git_Diff_Row_Kind) -> ui.Color {
     #partial switch kind {
     case .Hunk:

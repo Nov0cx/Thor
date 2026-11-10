@@ -131,6 +131,7 @@ thor_frame :: proc(thor: ^Thor) {
 thor_overlays :: proc(thor: ^Thor) {
     thor_git_panel_view(thor)
     thor_problems_view(thor)
+    thor_undo_history_view(thor)
     thor_settings_view(thor)
     thor_theme_editor_view(thor)
     thor_color_picker_view(thor)
