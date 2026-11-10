@@ -688,7 +688,8 @@ console_mouse :: proc(
     reporting := term.mouse_track != .Off && .Shift not_in mods
 
     if grid.wheel.y != 0 {
-        console_wheel(console, grid, int(grid.wheel.y), cell_w, row_h, first, reporting, mods)
+        // Loom's wheel is positive for scroll down; console_wheel takes positive as up.
+        console_wheel(console, grid, -int(grid.wheel.y), cell_w, row_h, first, reporting, mods)
     }
     if grid.right_clicked {
         thor_console_context_menu(thor, ui.mouse_pos())
