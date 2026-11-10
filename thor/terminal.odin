@@ -23,7 +23,17 @@ Terminal :: struct {
     console:   Console,        // owned; declared by the console panel while this tab is active
     profile:   shell.Profile,  // borrowed from owner.shell_profiles
     task:      string,         // owned; the task this tab runs, "" for a user shell
-    pty:       ^shell.Pty,     // owned; nil once the shell is gone
+    // Owned; set by the reader once the shell runs, nil once it is gone. Guarded by out_mutex.
+    pty:       ^shell.Pty,
+    // The reader and writer threads run. Main thread only.
+    session:   bool,
+    // The directory the shell starts in; owned. Read by the reader before it starts the shell.
+    start_cwd: string,
+    // The shell could not start. Atomic; set before `ended`.
+    start_failed: bool,
+    // The grid size the shell must have. Guarded by out_mutex.
+    want_cols: int,
+    want_rows: int,
     reader:    ^thread.Thread, // owned
     allocator: runtime.Allocator,
     // Raw shell output the reader has not handed over. The reader writes, the main thread reads.
@@ -96,32 +106,37 @@ thor_terminal_create :: proc(thor: ^Thor, profile: shell.Profile) -> ^Terminal {
     return term
 }
 
-// Starts the shell and its reader thread, then types the profile's init
-// commands — the one a developer prompt loads its environment with.
+// Starts the reader thread, which starts the shell, and the writer thread, then
+// queues the profile's init commands — the one a developer prompt loads its
+// environment with. The shell starts off the frame: a pseudo-console and a
+// process cost tens of milliseconds. False when a thread does not start.
 @(private = "file")
 thor_terminal_open_session :: proc(term: ^Terminal) -> bool {
-    pty, ok := shell.pty_start(
-        term.profile,
-        term.owner.workspace_dir,
-        term.console.cols,
-        term.console.rows,
-    )
-    if !ok {
-        return false
-    }
-    term.pty = pty
     sync.atomic_store(&term.ended, false)
     sync.atomic_store(&term.closing, false)
+    sync.atomic_store(&term.start_failed, false)
     term.dead = false
     term.write_failed = false
     sync.atomic_store(&term.write_error, false)
+    delete(term.start_cwd)
+    term.start_cwd = strings.clone(term.owner.workspace_dir)
     sync.lock(&term.out_mutex)
     term.out_stop = false
+    term.want_cols = term.console.cols
+    term.want_rows = term.console.rows
     clear(&term.outbox)
     sync.unlock(&term.out_mutex)
 
     term.reader = thread.create_and_start_with_poly_data(term, thor_terminal_reader)
+    if term.reader == nil {
+        return false
+    }
+    term.session = true
     term.writer = thread.create_and_start_with_poly_data(term, thor_terminal_writer)
+    if term.writer == nil {
+        thor_terminal_close_session(term)
+        return false
+    }
     for command in term.profile.init {
         thor_terminal_send(term, command)
         thor_terminal_send(term, "\r")
@@ -135,7 +150,8 @@ thor_terminal_open_session :: proc(term: ^Terminal) -> bool {
 thor_terminal_writer :: proc(term: ^Terminal) {
     for {
         sync.lock(&term.out_mutex)
-        for len(term.outbox) == 0 && !term.out_stop {
+        // Bytes queued while the shell starts wait for it.
+        for (len(term.outbox) == 0 || term.pty == nil) && !term.out_stop {
             sync.wait(&term.out_cond, &term.out_mutex)
         }
         if term.out_stop {
@@ -143,9 +159,10 @@ thor_terminal_writer :: proc(term: ^Terminal) {
             return
         }
         term.outbox, term.sending = term.sending, term.outbox
+        pty := term.pty
         sync.unlock(&term.out_mutex)
 
-        if !shell.pty_write(term.pty, string(term.sending[:])) {
+        if !shell.pty_write(pty, string(term.sending[:])) {
             sync.atomic_store(&term.write_error, true)
         }
         clear(&term.sending)
@@ -157,9 +174,14 @@ thor_terminal_writer :: proc(term: ^Terminal) {
 @(private = "file")
 thor_terminal_reader :: proc(term: ^Terminal) {
     context.allocator = term.allocator
+    pty := thor_terminal_start_shell(term)
+    if pty == nil {
+        sync.atomic_store(&term.ended, true)
+        return
+    }
     buf: [READ_BUFFER]u8
     for {
-        read := shell.pty_read(term.pty, buf[:])
+        read := shell.pty_read(pty, buf[:])
         if read <= 0 {
             break
         }
@@ -177,11 +199,42 @@ thor_terminal_reader :: proc(term: ^Terminal) {
     sync.atomic_store(&term.ended, true)
 }
 
+// Starts the shell on the reader thread and publishes it, or nil when it does not
+// start or the session closed first. A close that comes first never sees the
+// shell, so the shell is ended here.
+@(private = "file")
+thor_terminal_start_shell :: proc(term: ^Terminal) -> ^shell.Pty {
+    sync.lock(&term.out_mutex)
+    cols, rows := term.want_cols, term.want_rows
+    sync.unlock(&term.out_mutex)
+    pty, ok := shell.pty_start(term.profile, term.start_cwd, cols, rows)
+    if !ok {
+        sync.atomic_store(&term.start_failed, true)
+        return nil
+    }
+
+    sync.lock(&term.out_mutex)
+    if term.out_stop {
+        sync.unlock(&term.out_mutex)
+        shell.pty_terminate(pty)
+        shell.pty_destroy(pty)
+        return nil
+    }
+    term.pty = pty
+    // The panel changed size while the shell started.
+    if (term.want_cols != cols || term.want_rows != rows) && !shell.pty_resize(pty, term.want_cols, term.want_rows) {
+        log.warnf("Could not resize the %s terminal to %dx%d", term.profile.name, term.want_cols, term.want_rows)
+    }
+    sync.unlock(&term.out_mutex)
+    sync.signal(&term.out_cond)
+    return pty
+}
+
 // Console_Write_Proc: everything the user types, and every answer the emulator
 // owes the shell.
 thor_terminal_write :: proc(data: rawptr, bytes: string) {
     term := cast(^Terminal) data
-    if term.pty == nil {
+    if !term.session {
         return
     }
     thor_terminal_send(term, bytes)
@@ -211,10 +264,14 @@ thor_terminal_send :: proc(term: ^Terminal, bytes: string) {
 // full-screen program redraws.
 thor_terminal_resize :: proc(data: rawptr, cols, rows: int) {
     term := cast(^Terminal) data
-    if term.pty == nil {
+    if !term.session {
         return
     }
-    if !shell.pty_resize(term.pty, cols, rows) {
+    // A shell that still starts takes the size when it is published.
+    sync.lock(&term.out_mutex)
+    defer sync.unlock(&term.out_mutex)
+    term.want_cols, term.want_rows = cols, rows
+    if term.pty != nil && !shell.pty_resize(term.pty, cols, rows) {
         log.warnf("Could not resize the %s terminal to %dx%d", term.profile.name, cols, rows)
     }
 }
@@ -237,17 +294,22 @@ thor_terminal_restart :: proc(term: ^Terminal) {
 // dropped: it belongs to a session that is gone.
 @(private = "file")
 thor_terminal_close_session :: proc(term: ^Terminal) {
-    if term.pty == nil {
+    if !term.session {
         return
     }
+    term.session = false
+    // After out_stop is set, a reader that still starts the shell ends it itself.
     sync.lock(&term.out_mutex)
     term.out_stop = true
+    pty := term.pty
     sync.unlock(&term.out_mutex)
     sync.signal(&term.out_cond)
     sync.atomic_store(&term.closing, true)
     lockfree.ring_wake(&term.output)
     // Also ends a write the writer blocks in.
-    shell.pty_terminate(term.pty)
+    if pty != nil {
+        shell.pty_terminate(pty)
+    }
     if term.reader != nil {
         thread.join(term.reader)
         thread.destroy(term.reader)
@@ -258,7 +320,9 @@ thor_terminal_close_session :: proc(term: ^Terminal) {
         thread.destroy(term.writer)
         term.writer = nil
     }
-    shell.pty_destroy(term.pty)
+    if pty != nil {
+        shell.pty_destroy(pty)
+    }
     term.pty = nil
     lockfree.ring_reset(&term.output)
     sync.atomic_store(&term.ended, false)
@@ -314,7 +378,11 @@ thor_terminal_pump :: proc(term: ^Terminal) -> bool {
 
     if ended && !term.dead {
         term.dead = true
-        thor_console_append(&term.console, "\n[the shell exited]\n")
+        if sync.atomic_load(&term.start_failed) {
+            thor_console_append(&term.console, fmt.tprintf("Could not start %s.\n", term.profile.name))
+        } else {
+            thor_console_append(&term.console, "\n[the shell exited]\n")
+        }
     }
     return finished
 }
@@ -328,7 +396,7 @@ thor_terminal_drain_replies :: proc(term: ^Terminal) {
         return
     }
     if pending := vt.term_take_reply(t); len(pending) > 0 {
-        if term.pty != nil {
+        if term.session {
             thor_terminal_send(term, string(pending))
         }
         vt.term_clear_reply(t)
@@ -349,6 +417,7 @@ thor_terminal_release :: proc(term: ^Terminal) {
     delete(term.outbox)
     delete(term.sending)
     delete(term.task)
+    delete(term.start_cwd)
     free(term)
 }
 
@@ -471,7 +540,7 @@ thor_terminal_run_task :: proc(thor: ^Thor, name, command: string) -> bool {
     thor_terminal_select(thor, index, focus = false)
 
     term := thor.terminals[index]
-    if term.dead || term.pty == nil {
+    if term.dead || !term.session {
         return false
     }
     return thor_console_run_command(&term.console, command)
