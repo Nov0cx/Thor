@@ -210,8 +210,10 @@ Package names: `odin`, `odinsema`, `odinsyntax`, `odinfmt`, `syntaxgen`.
   - Nesting and operator chains share a depth limit of 400 (`Too_Deep`).
 - **Tree.** A token holds no text. It is inline in an 8-byte child slot with kind, flags and length.
   A node is an 8-byte header with its children after it. The tree owns one copy of the source. About
-  5.6 bytes per source byte. A node is known by its position, not its green pointer. Read text
+  6 bytes per source byte. A node is known by its position, not its green pointer. Read text
   through the red layer (`syntax_token_text`, `node_text`).
+  The first node block is sized from the token count (`NODE_BYTES_PER_TOKEN`, 20; a tree takes 13 to
+  19.3 per token), so a whole tree fits one block and a small file does not cut a 64 KB block.
 - **Typed views.** `syntax.schema` lists every node kind, its categories and the children its view
   reads. `odin run build.odin -file -- gen_syntax` writes `kind.odin` and `views.odin`
   (`lang/odin/syntax/gen`). Edit the schema, never the generated files. A test fails when they are
@@ -224,8 +226,10 @@ Package names: `odin`, `odinsema`, `odinsyntax`, `odinfmt`, `syntaxgen`.
   3. Else the whole text is parsed.
 
   Untouched subtrees are shared. The new tree owns the old one as its `base`, so free only the
-  newest. After `MAX_GENERATIONS` (32) a full parse ends the chain. One keystroke in a 3,000-line
-  file takes about 0.12 ms.
+  newest. After `MAX_GENERATIONS` (32) a full parse ends the chain. A reparsed tree keeps its text
+  in pages of its own (`tree_take_text`) and takes over those of its base, which keeps no text: red
+  nodes read the newest tree only. The splice block is sized to the spine (`splice_bytes`). One
+  keystroke in a 3,000-line file takes about 0.05–0.09 ms.
 - **Checks.** `corpus_test.odin`: every file of Thor plus `base`/`core`/`vendor` parses losslessly.
   Each of about 1,900 files `core:odin/parser` accepts gives zero errors and the same declarations
   and expression nodes. 20,000 rounds of random edits and every prefix of a file parse with no stuck
@@ -251,6 +255,10 @@ Package names: `odin`, `odinsema`, `odinsyntax`, `odinfmt`, `syntaxgen`.
   `Db.type_mutex`.
 - Limits: disk parses 64 MB (`BODY_BUDGET`), 8 live parses (`LIVE_SLOTS`), 64 package memos, 64 loose
   files. A workspace walk stops at 4,000 files and 12 levels.
+- Memory: `db_memory` counts what the database holds; `odin.test_bench_memory` logs it with the
+  process working set. On Thor's own workspace after a prewarm, a completion and 50 edits: disk
+  parses 64 MB (853 files), item trees 9.8 MB (their arrays are built in temp memory and copied once
+  at their length), the live chain 1.1 MB, resident 130 MB, private 148 MB.
 
 **Layers.**
 
