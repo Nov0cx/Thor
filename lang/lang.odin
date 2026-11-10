@@ -8,12 +8,14 @@ package lang
 
 import "base:runtime"
 import "core:os"
+import "core:reflect"
 import "core:strings"
 import "core:sync"
 import "core:thread"
 import "core:time"
 
 import "../lockfree"
+import "../prof"
 
 Request_Kind :: enum {
     Definition,
@@ -1339,6 +1341,8 @@ pending_clear :: proc(m: ^Manager, kind: Request_Kind) -> bool {
 // empty queue can only be one of pool_destroy's posts — that is the exit.
 @(private)
 pool_worker :: proc(m: ^Manager) {
+    prof.thread_begin("lang worker")
+    defer prof.thread_end()
     for {
         sync.sema_wait(&m.work)
 
@@ -1365,6 +1369,7 @@ job_run :: proc(job: ^Job) {
     // A job cancelled while it queued never reaches the backend: `resolve` would
     // poll the same flag at its head and return having done nothing.
     if !request_cancelled(&job.request) {
+        prof.scope(reflect.enum_string(job.request.kind))
         job_resolve(job)
     }
     // Latch it here: a backend that bailed early may have left a partial result,

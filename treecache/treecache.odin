@@ -14,6 +14,7 @@ import "core:strings"
 import "core:sync"
 
 import ts "../vendor/odin-tree-sitter"
+import "../prof"
 
 // Buffers resident at once, retired least-recently-used — enough that
 // alternating between open tabs doesn't thrash.
@@ -73,6 +74,7 @@ destroy :: proc(c: ^Cache) {
 // the parse, so requests for two buffers run at once; concurrent requests on one
 // buffer still serialize, and the waiter gets the fresh tree.
 for_source :: proc(c: ^Cache, parser: ts.Parser, path, grammar, source: string) -> ts.Tree {
+    prof.proc_scope()
     entry := acquire(c, path)
     if entry == nil {
         return ts.parser_parse_string(parser, source) // no entry: parse whole, cache nothing

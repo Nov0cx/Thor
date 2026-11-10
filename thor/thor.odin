@@ -20,6 +20,7 @@ import "../font"
 import "../theme"
 import "../editview"
 import "../lockfree"
+import "../prof"
 import "../render"
 import ui "../vendor/loom/loom"
 // A window creation slower than this is a machine fault, not normal work, and
@@ -654,6 +655,7 @@ Thor :: struct {
 // Starts the editor. Returns nil when the launch only raised another window;
 // the caller must exit then.
 init :: proc() -> ^Thor {
+    prof.scope("init")
     start := time.tick_now()
     phase := start
     lap :: proc(phase: ^time.Tick, name: string) {
@@ -989,6 +991,8 @@ thor_read_git_branch :: proc(git_dir: string) -> string {
 
 run :: proc(thor: ^Thor) {
     for !rl.WindowShouldClose() && !thor.should_close {
+        prof.scope("frame")
+        poll_zone := prof.zone_begin("poll")
         thor_poll_dropped_files(thor)
         thor_poll_watcher(thor)
         thor_poll_outside_files(thor)
@@ -999,9 +1003,12 @@ run :: proc(thor: ^Thor) {
         thor_poll_file_targets(thor)
         thor_update_files(thor)
         thor_sync_lang_documents(thor)
+        prof.zone_end(poll_zone)
+        lang_zone := prof.zone_begin("lang dispatch")
         lang.manager_dispatch(&thor.lang_manager, thor, thor_on_lang_result)
         thor_poll_lang_busy(thor)
         thor_poll_lsp_health(thor)
+        prof.zone_end(lang_zone)
         // Asked here, not during init: the prompt takes focus, and init still
         // opens files and restores the session after the plugins load. The
         // rebuild an answer asks for is done here too, not in the dialog
@@ -1013,9 +1020,11 @@ run :: proc(thor: ^Thor) {
         // it can start replaces the files the frame below would draw from.
         thor_poll_update(thor)
         font.pump_async()
+        plugin_zone := prof.zone_begin("plugins")
         thor_dispatch_plugin_execs(thor)
         plugin.manager_dispatch_tick(&thor.plugins)
         thor_sync_plugin_commands(thor)
+        prof.zone_end(plugin_zone)
         thor_sync_active_pane(thor)
 
         // Loom builds the tree from the state above and hands back a draw list;
@@ -1024,11 +1033,13 @@ run :: proc(thor: ^Thor) {
         input := render.poll_input(&thor.backend)
         thor.frame_pass = 0
         for ui.frame(input) {
+            prof.scope("build")
             thor_frame(thor)
             thor.frame_pass += 1
         }
         list := ui.draw_list()
 
+        prof.scope("present")
         rl.BeginDrawing()
         rl.ClearBackground(render.raylib_color(thor.theme.contrast))
         // The 3D pass owns the whole GL state for its target, so it runs before
@@ -1042,6 +1053,7 @@ run :: proc(thor: ^Thor) {
 }
 
 shutdown :: proc(thor: ^Thor) {
+    prof.scope("shutdown")
     thor_unregister_window(thor.workspace_dir)
     // An update saved the session before it started the new build, which has
     // restored from that file; a second save here would write over it.

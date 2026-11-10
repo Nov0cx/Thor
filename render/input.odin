@@ -4,6 +4,7 @@ import "core:unicode/utf8"
 import rl "vendor:raylib"
 
 import ui "../vendor/loom/loom"
+import "../prof"
 
 // The layout-corrected key of a raylib key. `remap_key_to_layout` answers what
 // the user's layout prints, so a binding follows the cap and not the position.
@@ -188,6 +189,7 @@ hold_key :: proc(b: ^Backend, physical: rl.KeyboardKey, mapped: ui.Key) {
 }
 
 poll_input :: proc(b: ^Backend) -> ui.Input {
+    prof.proc_scope()
     scale := rl.GetWindowScaleDPI()
     b.dpi = b.opts.dpi > 0 ? b.opts.dpi : scale.x
 

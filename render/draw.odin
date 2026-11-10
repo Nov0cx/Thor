@@ -6,9 +6,11 @@ import rl "vendor:raylib"
 import "vendor:raylib/rlgl"
 import "../font"
 import ui "../vendor/loom/loom"
+import "../prof"
 
 // Turns a frame's draw list into raylib calls.
 draw :: proc(b: ^Backend, list: ui.Draw_List) {
+    prof.proc_scope()
     clear(&b.clip)
     rlgl.DisableBackfaceCulling()
 

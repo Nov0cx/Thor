@@ -16,6 +16,7 @@ import "../lang/odin"
 import "../setting"
 import "../textedit"
 import "../editview"
+import "../prof"
 
 // The directory of the Odin analyzer's tree cache: user/cache/odin beside the binary. Temp-allocated.
 thor_odin_cache_dir :: proc() -> string {
@@ -482,6 +483,7 @@ thor_lang_notify :: proc(thor: ^Thor, file: ^Open_File, event: lang.Doc_Event) {
 // One pass over the open buffers, once per frame: at most one change
 // notification per file, so a burst of keystrokes in one frame costs one.
 thor_sync_lang_documents :: proc(thor: ^Thor) {
+    prof.proc_scope()
     for file in thor.open_files {
         thor_lang_notify(thor, file, .Changed)
     }
@@ -2174,6 +2176,7 @@ thor_editor_hover :: proc(data: rawptr, editor: ^editview.Editor, state: ^texted
 // Reaped on the main thread once per frame (see the run loop). Applies whatever
 // the backend resolved; a failed go-to-definition flashes the statusline.
 thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
+    prof.proc_scope()
     thor := cast(^Thor) user
     #partial switch res.kind {
     case .Definition:

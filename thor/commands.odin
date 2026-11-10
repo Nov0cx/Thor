@@ -19,6 +19,7 @@ import "../font"
 import "../theme"
 import "../editview"
 import "../lockfree"
+import "../prof"
 // A global app chord: its keybinds.lua name, the live binding and the built-in default.
 App_Key :: struct {
     name:    string,
@@ -86,6 +87,7 @@ thor_app_keys :: proc(thor: ^Thor) -> []App_Key {
 // Applies the configurable settings to the live widgets. Called at startup and
 // on reload, so both paths stay in sync.
 thor_apply_settings :: proc(thor: ^Thor) {
+    prof.proc_scope()
     // The editing keys: the built-in chord unless a keybinds.lua names one. An
     // empty chord in a file takes the key away.
     editview.keymap_reset()
@@ -249,6 +251,7 @@ thor_active_config_path :: proc(thor: ^Thor, name: string) -> string {
 // then the workspace's .thor/ config when initialized (recorded in
 // workspace_initialized). Shared by startup and reload.
 thor_load_config :: proc(thor: ^Thor, workspace_dir: string) {
+    prof.proc_scope()
     thor.config = setting.load(setting.GLOBAL_DIR)
     setting.load_overlay(&thor.config, setting.USER_DIR)
     cfg_dir := thor_workspace_config_dir(workspace_dir)
@@ -994,6 +997,7 @@ thor_refresh_file_index :: proc(thor: ^Thor) {
 
 @(private = "file")
 file_index_worker :: proc(job: ^File_Index_Job) {
+    prof.thread_scope("file index")
     context.allocator = job.allocator
     defer free_all(context.temp_allocator)
 

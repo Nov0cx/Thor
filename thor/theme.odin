@@ -10,6 +10,7 @@ import "../setting"
 import "../font"
 import "../theme"
 import ui "../vendor/loom/loom"
+import "../prof"
 // Built-in theme used when none is configured or the configured one fails to load.
 DEFAULT_THEME :: "mjolnir"
 
@@ -40,6 +41,7 @@ thor_user_theme_path :: proc(name: string, allocator := context.temp_allocator) 
 // Loads the theme named in settings (falling back to the default) into
 // thor.theme. Called once at startup, before the widgets are built.
 thor_load_active_theme :: proc(thor: ^Thor) {
+    prof.proc_scope()
     name := setting.theme_name(&thor.config)
     if name == "" {
         name = DEFAULT_THEME

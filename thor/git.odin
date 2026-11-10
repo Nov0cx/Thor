@@ -13,6 +13,7 @@ import "../shell"
 import "../textedit"
 import "../editview"
 import "../lockfree"
+import "../prof"
 // Async `git status --porcelain`: a worker captures the output, the main thread
 // parses it into an absolute-path -> status map. Every ancestor directory of a
 // change is marked too, so folders containing changes get tinted.
@@ -104,6 +105,7 @@ git_diff_command :: proc(paths: []string, allocator := context.temp_allocator) -
 
 @(private = "file")
 git_status_worker :: proc(job: ^Git_Status_Job) {
+    prof.thread_scope("git status")
     context.allocator = job.allocator
     defer free_all(context.temp_allocator)
 

@@ -6,6 +6,7 @@ import rl "vendor:raylib"
 
 import "../lang/lsp"
 import "../setting"
+import "../prof"
 
 // Live settings reload. The config files live under settings/ and user/ (and,
 // for an initialized workspace, its .thor/ overlay) rather than the workspace tree the
@@ -106,6 +107,7 @@ thor_lsp_mark_clean :: proc(thor: ^Thor) {
 // thor_poll_lang_reload acts on it at the head of the loop, since a rebuild
 // destroys the backend a dispatch here could be standing on.
 thor_poll_settings :: proc(thor: ^Thor) {
+    prof.proc_scope()
     now := rl.GetTime()
     if now - thor.settings_poll_time < SETTINGS_POLL_INTERVAL {
         return

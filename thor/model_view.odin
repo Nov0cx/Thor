@@ -14,6 +14,7 @@ import rl "vendor:raylib"
 
 import "../render"
 import ui "../vendor/loom/loom"
+import "../prof"
 
 @(private = "file")
 MODEL_FOV :: f32(45)
@@ -322,6 +323,7 @@ thor_model_button :: proc(thor: ^Thor, view: ^Model_View) {
 // Renders each shown scene into its own target. Called once a frame from
 // Thor.run, after the tree is laid out and before the draw list is replayed.
 thor_render_models :: proc(thor: ^Thor) {
+    prof.proc_scope()
     for &view in thor.model_view {
         thor_render_model(thor, &view)
     }

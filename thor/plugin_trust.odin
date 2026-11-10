@@ -21,6 +21,7 @@ import "core:strings"
 
 import "../atomicfile"
 import "../plugin"
+import "../prof"
 
 @(private = "file")
 GRANTS_FILE :: "sessions/plugin-grants.json"
@@ -71,6 +72,7 @@ Plugin_Request :: struct {
 // runs at once; everything else runs only once allowed, either by a remembered
 // answer or by the prompt this opens on the first frame.
 thor_load_plugins :: proc(thor: ^Thor) {
+    prof.proc_scope()
     bundled, workspaces := thor_read_grant_file()
 
     // A workspace plugin still waiting on the prompt shadows nothing, so the

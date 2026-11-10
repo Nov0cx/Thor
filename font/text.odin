@@ -15,6 +15,8 @@ import "core:unicode/utf8"
 import rl "vendor:raylib"
 import stbtt "vendor:stb/truetype"
 
+import "../prof"
+
 // Fonts are rasterized per size: drawing a bitmap atlas at any size other
 // than the one it was baked for gets scaled and turns blurry.
 
@@ -171,6 +173,8 @@ free_glyphs :: proc(glyphs: [^]rl.GlyphInfo, count: int) {
 
 @(private = "file")
 font_load_worker :: proc(job: ^Font_Load_Job) {
+    prof.thread_scope("font load")
+    prof.scope("font bake")
     context.logger = job.logger
     font_bake_job(job)
     sync.atomic_store(&job.done, true)

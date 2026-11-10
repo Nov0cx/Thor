@@ -14,6 +14,7 @@ import "core:thread"
 
 import lang ".."
 import odinsema "sema"
+import "../../prof"
 
 Engine :: struct {
     config:        Config_Cache,
@@ -108,6 +109,7 @@ engine_prewarm_wait :: proc(e: ^Engine) {
 
 @(private = "file")
 prewarm_worker :: proc(t: ^thread.Thread) {
+    prof.thread_scope("odin prewarm")
     e := cast(^Engine)t.data
     known_packages(e, e.warm_workspace)
     free_all(context.temp_allocator)

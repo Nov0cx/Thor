@@ -8,6 +8,7 @@ import "core:slice"
 import "core:strings"
 
 import ui "../vendor/loom/loom"
+import "../prof"
 
 EXPLORER_ROW_H :: f32(26)
 EXPLORER_INDENT :: f32(16)
@@ -63,6 +64,7 @@ Explorer :: struct {
 }
 
 thor_explorer_init :: proc(thor: ^Thor, root_path: string) {
+    prof.proc_scope()
     e := &thor.explorer
     e.rows = make([dynamic]Explorer_Row)
     e.multi_selected = make(map[string]bool)

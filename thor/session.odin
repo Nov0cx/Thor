@@ -16,6 +16,7 @@ import "../atomicfile"
 import "../editview"
 import "../textedit"
 import ui "../vendor/loom/loom"
+import "../prof"
 
 // Where a file was left: caret and top row, as 0-based line and byte column.
 File_View :: struct {
@@ -254,6 +255,7 @@ thor_record_recent_workspace :: proc(workspace: string) {
 // file, and points the last-workspace record at it. Called on shutdown, before
 // any open-file state is torn down.
 thor_save_session :: proc(thor: ^Thor) {
+    prof.proc_scope()
     if !os.is_dir("sessions") {
         if err := os.make_directory("sessions"); err != nil {
             log.errorf("Could not create sessions dir: %v", err)
@@ -391,6 +393,7 @@ thor_session_index :: proc(remap: []int, saved: int) -> int {
 // tab. Missing or malformed is a no-op. Must run after the UI is built and
 // before thor_apply_layout_state.
 thor_restore_session :: proc(thor: ^Thor) {
+    prof.proc_scope()
     if thor.workspace_dir == "" {
         return
     }

@@ -21,6 +21,7 @@ import "../textedit"
 import ui "../vendor/loom/loom"
 import "../editview"
 import "../lockfree"
+import "../prof"
 // Line terminator a file uses on disk. The buffer holds LF, so a CRLF file is
 // collapsed on load and expanded again on save; the editing core and every byte
 // offset downstream never see a CR. A file that mixes the two is Mixed: its
@@ -308,6 +309,7 @@ thor_to_disk_text :: proc(text: string, ending: Line_Ending, allocator := contex
 
 @(private = "file")
 load_worker :: proc(job: ^Load_Job) {
+    prof.thread_scope("file load")
     defer {
         free_all(context.temp_allocator)
         lockfree.stack_push(&job.owner.finished_loads, job)
@@ -392,6 +394,7 @@ BINARY_PROBE_BYTES :: 8000
 
 @(private = "file")
 save_worker :: proc(job: ^Save_Job) {
+    prof.thread_scope("file save")
     // The write is one call with no cancel point inside it, so this is the last
     // moment a pending delete can stop the file from coming back.
     if sync.atomic_load(&job.file.save_cancel) {
@@ -1224,6 +1227,7 @@ thor_request_save :: proc(data: rawptr) {
 // Called once per frame from the run loop: reaps finished I/O threads and
 // kicks off autosaves for buffers that went quiet while dirty.
 thor_update_files :: proc(thor: ^Thor) {
+    prof.proc_scope()
     thor_process_io(thor)
     thor_apply_pending_goto(thor)
     

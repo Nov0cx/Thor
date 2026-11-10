@@ -4,6 +4,7 @@ import "core:strings"
 import "core:time"
 
 import "../watch"
+import "../prof"
 
 // Workspace file watcher wiring. The generic watcher (../watch) reports disk
 // changes under the workspace root; here two subscribers consume them — the
@@ -43,6 +44,7 @@ EXPLORER_REFRESH_INTERVAL :: 200 * time.Millisecond
 // action (a save, a menu refresh, a finished git op) calls
 // thor_refresh_git_status directly and is never delayed.
 thor_poll_watcher :: proc(thor: ^Thor) {
+    prof.proc_scope()
     watch.watcher_poll(&thor.watcher)
 
     if thor.watch_tree_dirty && time.tick_since(thor.explorer_refresh_at) >= EXPLORER_REFRESH_INTERVAL {

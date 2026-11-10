@@ -8,6 +8,7 @@ import "../textedit"
 import ui "../vendor/loom/loom"
 import "../theme"
 import "../editview"
+import "../prof"
 // Byte window to highlight `file` over: what the pane showing it displays, plus
 // a screen of margin on each side so a small scroll does not re-run the query.
 // ok is false when no pane shows the file, or its rows are not built yet.
@@ -37,6 +38,7 @@ thor_highlight_window :: proc(thor: ^Thor, file: ^Open_File) -> (start, end: int
 // the pane showing it displays. Only files shown in a pane are highlighted, so
 // this runs when their buffers change or their view scrolls off the window.
 thor_update_highlights :: proc(thor: ^Thor, file: ^Open_File) {
+    prof.proc_scope()
     key := thor_file_highlight_key(thor, file)
 
     win_start, win_end, windowed := thor_highlight_window(thor, file)

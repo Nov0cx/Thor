@@ -17,6 +17,7 @@ import "../search"
 import "../shell"
 import "../textedit"
 import "../lockfree"
+import "../prof"
 
 // Rows the picker takes; a scan stops when it has this many.
 @(private = "file")
@@ -135,6 +136,7 @@ thor_file_search_tick :: proc(thor: ^Thor) {
 
 @(private = "file")
 file_search_worker :: proc(job: ^File_Search_Job) {
+    prof.thread_scope("file search")
     context.allocator = job.allocator
     defer free_all(context.temp_allocator)
 

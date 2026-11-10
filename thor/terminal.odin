@@ -12,6 +12,7 @@ import "../setting"
 import "../shell"
 import "../vt"
 import "../lockfree"
+import "../prof"
 
 // One console bound to one shell on a pseudo-terminal. The shell outlives the
 // commands run in it, so a `cd` sticks and a developer environment loaded once
@@ -371,6 +372,7 @@ Shell_Detect_Job :: struct {
 // terminal it opens is a child of the console stack. The console panel stays
 // empty until the scan lands, so there is no console for the first frames.
 thor_terminals_init :: proc(thor: ^Thor) {
+    prof.proc_scope()
     thor.terminals = make([dynamic]^Terminal)
     thor.terminals_live = true
     thor.active_terminal = -1
