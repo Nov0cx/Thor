@@ -306,7 +306,7 @@ print_binary_comments :: proc(pr: ^Printer, out: ^[dynamic]Doc, right: Node) {
     }
     body: [dynamic]Doc
     for c, i in comments {
-        append(&body, i == 0 ? text("  ") : hard_line(0))
+        append(&body, i == 0 ? text(" ") : hard_line(0))
         append(&body, c)
     }
     append(&body, hard_line(0))
@@ -363,7 +363,7 @@ print_comp_lit_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, ks: []Node) {
     prev_line := open_line
     has_prev := true
     for el in elems {
-        separator(pr, &body, prev_line, has_prev, start_line(pr, el), true)
+        separator(pr, &body, prev_line, has_prev, start_line(pr, el), true, el.start)
         elem_doc: [dynamic]Doc
         print_expr(pr, &elem_doc, el)
         for d in elem_doc {

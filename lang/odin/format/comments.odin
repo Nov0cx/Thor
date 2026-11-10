@@ -56,6 +56,10 @@ align_cell :: proc(pr: ^Printer, n: Node) -> Align_Cell {
 // reached, and a comment before it is skipped by the first test.
 @(private)
 same_align_run :: proc(pr: ^Printer, prev_end_line, next_start_line: int) -> bool {
+    // Two items on one source line print on adjacent lines.
+    if next_start_line <= prev_end_line {
+        return true
+    }
     expect := prev_end_line + 1
     for i := pr.comment_idx; i < len(pr.comments); i += 1 {
         cg := pr.comments[i]
@@ -174,21 +178,21 @@ comment_group_text :: proc(pr: ^Printer, cg: Comment_Group, out: ^[dynamic]Doc) 
 }
 
 // Appends every pending comment group that starts on `line` (the line the
-// just-printed node ended on) as a trailing comment: a couple of spaces then
-// the comment text, no line break of its own. Returns the line the printer
+// just-printed node ended on) and before `next_start` as a trailing comment: one
+// space then the comment text, no line break of its own. Returns the line the printer
 // should now treat as "last printed" (the trailing comment's own last line).
 @(private)
-flush_trailing :: proc(pr: ^Printer, out: ^[dynamic]Doc, line: int) -> int {
+flush_trailing :: proc(pr: ^Printer, out: ^[dynamic]Doc, line: int, next_start := max(int)) -> int {
     last_line := line
     for pr.comment_idx < len(pr.comments) {
         cg := pr.comments[pr.comment_idx]
-        if cg.line != last_line {
+        if cg.line != last_line || cg.start >= next_start {
             break
         }
         if id := pr.comment_cols[last_line]; id != 0 && last_line == line {
             append(out, col(id))
         }
-        append(out, text("  "))
+        append(out, text(" "))
         comment_group_text(pr, cg, out)
         last_line = comment_end_line(cg.list[len(cg.list) - 1])
         pr.comment_idx += 1
@@ -205,11 +209,11 @@ flush_trailing :: proc(pr: ^Printer, out: ^[dynamic]Doc, line: int) -> int {
 // instead, or its own hard_line(0) would double up with the gap this leaves
 // behind.
 @(private)
-flush_before :: proc(pr: ^Printer, out: ^[dynamic]Doc, prev_line: int, has_prev: bool, next_line: int, has_next: bool) -> (last_line: int, had_content: bool) {
+flush_before :: proc(pr: ^Printer, out: ^[dynamic]Doc, prev_line: int, has_prev: bool, next_line: int, has_next: bool, next_start := max(int)) -> (last_line: int, had_content: bool) {
     last_line = prev_line
     had_content = has_prev
     if has_prev {
-        last_line = flush_trailing(pr, out, prev_line)
+        last_line = flush_trailing(pr, out, prev_line, next_start)
     }
 
     for pr.comment_idx < len(pr.comments) {
@@ -232,8 +236,8 @@ flush_before :: proc(pr: ^Printer, out: ^[dynamic]Doc, prev_line: int, has_prev:
 // flush_before, plus the gap up to `next` itself. Appends everything to
 // `out`; the caller still owns emitting `next`'s own content afterward.
 @(private)
-separator :: proc(pr: ^Printer, out: ^[dynamic]Doc, prev_line: int, has_prev: bool, next_line: int, has_next: bool) {
-    last_line, had_content := flush_before(pr, out, prev_line, has_prev, next_line, has_next)
+separator :: proc(pr: ^Printer, out: ^[dynamic]Doc, prev_line: int, has_prev: bool, next_line: int, has_next: bool, next_start := max(int)) {
+    last_line, had_content := flush_before(pr, out, prev_line, has_prev, next_line, has_next, next_start)
     if has_next {
         if had_content || len(out^) > 0 {
             append(out, hard_line(blanks_between(last_line, next_line)))

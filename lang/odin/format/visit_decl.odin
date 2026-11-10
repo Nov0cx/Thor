@@ -201,7 +201,8 @@ print_foreign_import_decl :: proc(pr: ^Printer, out: ^[dynamic]Doc, ks: []Node) 
             append(&paths, k)
         }
     }
-    if len(paths) == 1 {
+    // A lone path loses its braces only when it is a plain string.
+    if len(paths) == 1 && (is_tok(paths[0], .String) || is_string_lit(paths[0])) {
         append(out, text(node_text(pr, paths[0])))
         return
     }
@@ -217,4 +218,10 @@ print_foreign_import_decl :: proc(pr: ^Printer, out: ^[dynamic]Doc, ks: []Node) 
         }
     }
     append(out, text("}"))
+}
+
+// Whether `n` is a string literal.
+@(private)
+is_string_lit :: proc(n: Node) -> bool {
+    return n.kind == .Literal && tok_index(kids(n), .String) >= 0
 }

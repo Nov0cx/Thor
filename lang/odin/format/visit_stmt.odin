@@ -27,7 +27,7 @@ print_brace_body :: proc(
     prev_line := open_line
     has_prev := true
     for stmt in stmts {
-        separator(pr, &body, prev_line, has_prev, start_line(pr, stmt), true)
+        separator(pr, &body, prev_line, has_prev, start_line(pr, stmt), true, stmt.start)
         printer(pr, &body, stmt)
         prev_line = end_line(pr, stmt)
         has_prev = true
@@ -154,7 +154,9 @@ print_else :: proc(pr: ^Printer, out: ^[dynamic]Doc, ks: []Node) {
         return
     }
     else_stmt := ks[at + 1]
-    if else_own_line(pr) {
+    // An `else` after a kept `do` body must start its own line.
+    then_do := stmt_body(ks, at).kind == .Do_Body && !pr.opts.convert_do
+    if then_do || else_own_line(pr) {
         append(out, hard_line(0))
     } else {
         append(out, text(" "))
@@ -281,7 +283,7 @@ print_stmt_list :: proc(
                     run[n] = Sorted_Import{member, strings.trim(path, `"`), alias}
                 }
                 slice.sort_by(run, import_less)
-                separator(pr, out, last_line, had_prev, start_line(pr, stmt), true)
+                separator(pr, out, last_line, had_prev, start_line(pr, stmt), true, stmt.start)
                 for member, n in run {
                     if n > 0 {
                         append(out, hard_line(0))
@@ -297,7 +299,7 @@ print_stmt_list :: proc(
                 continue
             }
         }
-        separator(pr, out, last_line, had_prev, start_line(pr, stmt), true)
+        separator(pr, out, last_line, had_prev, start_line(pr, stmt), true, stmt.start)
         print_stmt(pr, out, stmt)
         last_line = end_line(pr, stmt)
         had_prev = true

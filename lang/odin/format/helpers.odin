@@ -57,7 +57,7 @@ append_list_group :: proc(pr: ^Printer, out: ^[dynamic]Doc, open, close: string,
             append(&body, it.doc)
             append(&body, text(","))
             for c in it.trailing {
-                append(&body, text("  "))
+                append(&body, text(" "))
                 append(&body, c)
             }
         }

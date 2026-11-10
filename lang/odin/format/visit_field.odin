@@ -247,7 +247,7 @@ print_field_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, open_line, clos
     append(&body, hard_line(0))
     for f, i in fields {
         if i > 0 {
-            separator(pr, &body, prev_line, has_prev, start_line(pr, f), true)
+            separator(pr, &body, prev_line, has_prev, start_line(pr, f), true, f.start)
         }
         field_doc: [dynamic]Doc
         print_field(pr, &field_doc, f)
@@ -324,7 +324,7 @@ print_expr_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, close_line: int,
     append(&body, hard_line(0))
     for ex, i in exprs {
         if i > 0 {
-            separator(pr, &body, prev_line, has_prev, start_line(pr, ex), true)
+            separator(pr, &body, prev_line, has_prev, start_line(pr, ex), true, ex.start)
         }
         elem_doc: [dynamic]Doc
         print_expr(pr, &elem_doc, ex)
@@ -434,7 +434,7 @@ print_bit_field_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, close_line:
     append(&body, hard_line(0))
     for f, i in fields {
         if i > 0 {
-            separator(pr, &body, prev_line, has_prev, start_line(pr, f), true)
+            separator(pr, &body, prev_line, has_prev, start_line(pr, f), true, f.start)
         }
         field_doc: [dynamic]Doc
         print_bit_field_field(pr, &field_doc, f)

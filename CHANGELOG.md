@@ -1,3 +1,11 @@
+# 2026.11.3
+
+- Odin: the formatter keeps the braces of a `foreign import` whose path is an expression. Before, the result did not parse.
+- Odin: the formatter keeps an `else` on its own line after a `do` body. Before, it joined the two lines into code that did not parse.
+- Odin: a composite literal that the formatter expands to one field per line is aligned in the first pass, so `thor fmt --check` passes after `thor fmt -w`.
+- Odin: the formatter writes one space before a trailing comment, not two.
+- Odin: a trailing comment stays after the item it follows when several items share its line. Before, the formatter moved it up to the opening `{`.
+
 # 2026.11.2
 
 - Odin: the formatter keeps `case` labels at the level of their `switch`; `indent_cases` moves them one level in. Before, the labels were always indented and `indent_cases` indented the bodies two levels.
