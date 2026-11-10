@@ -104,6 +104,7 @@ uses the release flags, keeps the console for the log, and lands in
 ```bash
 odin run build.odin -file -- run -profile               # named zones
 odin run build.odin -file -- run -profile -profile-all  # every procedure too
+odin run build.odin -file -- run -profile-min:5         # every procedure, less short leaf calls
 ```
 
 The trace is `user/thor.spall` beside the binary, written over at each start
@@ -113,9 +114,21 @@ and complete once the editor closes normally. Open it at
 `-profile` records the frame phases (poll, language dispatch, plugins, build,
 present), the startup and shutdown steps, highlighting, tree-sitter parses and
 one zone per language request, file load and save, git status and font bake
-on their own threads. `-profile-all` records each procedure call as well: it
-is several times slower, and a few seconds make a trace of hundreds of MB.
-Other builds contain no profiler code.
+on their own threads. Each worker thread has one zone for its whole job, and a
+language request shows its wait in the queue, its revision and its file.
+`-profile-all` records each procedure call as well: it is several times slower,
+and a few seconds make a trace of hundreds of MB. `-profile-min:<µs>` is
+`-profile-all` less the calls shorter than that which call no recorded
+procedure; at 5 µs the trace is about 20 times smaller. Other builds contain no
+profiler code.
+
+`tools/profreport` prints a summary of a trace: count, total, self, mean and
+maximum time of each zone on each thread, or each instance of one zone.
+
+```bash
+odin run tools/profreport -- bin/profile/user/thor.spall -min:2   # zones with a max of 2 ms or more
+odin run tools/profreport -- bin/profile/user/thor.spall -list:frame -min:17
+```
 
 ## Testing
 

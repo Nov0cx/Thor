@@ -84,6 +84,39 @@ highlight :: proc(m: ^Manager, path, source, ext: string, allocator := context.a
     return spans
 }
 
+// True when highlight_range can answer for the buffer at `path` without compiling a query or parsing the
+// whole buffer on the calling thread. Else that work starts on a worker thread, and a later call returns
+// true. A pure-Lua language is always ready.
+highlight_ready :: proc(m: ^Manager, path, source, ext: string) -> bool {
+    syntax.query_poll(&m.highlighter)
+    idx, ok := m.by_ext[ext]
+    if !ok {
+        return true
+    }
+    grammar := m.languages[idx].grammar
+    if grammar == "" {
+        return true
+    }
+    query := syntax.query_ready(&m.highlighter, grammar)
+    return tree_ready(m, path, source, grammar) && query
+}
+
+// True when fold_ranges can answer for the buffer at `path` without parsing it whole on the calling
+// thread. Else the parse starts on a worker thread.
+folds_ready :: proc(m: ^Manager, path, source, ext: string) -> bool {
+    idx, ok := m.by_ext[ext]
+    if !ok || m.languages[idx].grammar == "" {
+        return true
+    }
+    return tree_ready(m, path, source, m.languages[idx].grammar)
+}
+
+// A buffer past LARGE_SOURCE_BYTES parses only a window and keeps no tree, so it waits for none.
+@(private = "file")
+tree_ready :: proc(m: ^Manager, path, source, grammar: string) -> bool {
+    return len(source) >= LARGE_SOURCE_BYTES || syntax.tree_ready(&m.highlighter, path, source, grammar)
+}
+
 // Highlights only the captures intersecting [range_start, range_end), so a
 // caller showing one screen of a large buffer pays for that screen.
 //

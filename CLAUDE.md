@@ -116,10 +116,12 @@ be tested headlessly.
   crash mid-write leaves the old file whole. Every write that overwrites user or session data goes
   through it. A leaf: imports only `core:`.
 - `prof` — the spall profiler of a profile build (`-profile` sets `THOR_PROFILE`, `-profile-all`
-  also `THOR_PROFILE_ALL`, which declares the `@(instrumentation_enter/exit)` hooks). Every call
-  is a no-op in other builds. `prof.scope(name)` / `prof.proc_scope()` time the enclosing scope,
+  also `THOR_PROFILE_ALL`, which declares the `@(instrumentation_enter/exit)` hooks;
+  `-profile-min:<µs>` sets `THOR_PROFILE_MIN_US`, which drops short leaf calls). Every call
+  is a no-op in other builds. `prof.scope(name, args)` / `prof.proc_scope()` time the enclosing scope,
   `zone_begin`/`zone_end` a span that is not one scope; a worker records only after
-  `prof.thread_scope(name)` at its top. The trace is `user/thor.spall`. A leaf: imports only
+  `prof.thread_scope(name)` at its top, which is also a zone for the whole job. The trace is
+  `user/thor.spall`; `tools/profreport` summarises it. A leaf: imports only
   `core:` and `base:`; any package may import it except `lang/odin/sema` and `lang/lsp`.
 - `lockfree` — the lock-free hand-offs between threads: `Stack` (intrusive multi-producer stack, the
   consumer takes every node at once, oldest first; `T` holds `queue_next: ^T`), `Byte_Ring`

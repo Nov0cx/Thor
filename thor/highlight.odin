@@ -51,6 +51,10 @@ thor_update_highlights :: proc(thor: ^Thor, file: ^Open_File) {
         return
     }
 
+    // A query that still compiles, or a first parse that still runs, keeps the old colors; the next frame asks again.
+    if !plugin.highlight_ready(&thor.plugins, file.path, textedit.text(&file.state), key) {
+        return
+    }
     clear(&file.highlights)
     if plugin.supports(&thor.plugins, key) {
         source := textedit.text(&file.state)
@@ -127,6 +131,10 @@ thor_update_folds :: proc(thor: ^Thor, file: ^Open_File) {
     }
 
     source := textedit.text(&file.state)
+    // The first parse of a large buffer runs on a thread; the next frame asks again.
+    if !plugin.folds_ready(&thor.plugins, file.path, source, key) {
+        return
+    }
     clear(&file.folds)
     for r in plugin.fold_ranges(&thor.plugins, file.path, source, key, context.temp_allocator) {
         append(&file.folds, editview.Fold_Range{r.start_line, r.end_line})

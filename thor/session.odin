@@ -184,7 +184,8 @@ thor_last_workspace :: proc() -> string {
 // Written on every session save and right after a folder switch, so an unclean
 // exit still comes back to the folder that was open.
 thor_record_last_workspace :: proc(workspace: string) {
-    if err := atomicfile.write(LAST_WORKSPACE_FILE, transmute([]u8) workspace); err != nil {
+    // A pointer that a power loss damages only costs the reopen, so it skips the disk flush.
+    if err := atomicfile.write(LAST_WORKSPACE_FILE, transmute([]u8) workspace, durable = false); err != nil {
         log.errorf("Could not write %q: %v", LAST_WORKSPACE_FILE, err)
     }
 }
@@ -219,6 +220,7 @@ thor_recent_workspaces :: proc(allocator := context.allocator) -> []string {
 // entry for the same folder and capping the list at RECENT_WORKSPACES_MAX.
 // Called whenever a workspace becomes active.
 thor_record_recent_workspace :: proc(workspace: string) {
+    prof.proc_scope()
     if workspace == "" {
         return
     }
@@ -246,7 +248,8 @@ thor_record_recent_workspace :: proc(workspace: string) {
         log.errorf("Could not marshal recent workspaces: %v", err)
         return
     }
-    if werr := atomicfile.write(RECENT_WORKSPACES_FILE, data); werr != nil {
+    // Written before the first frame; a list that a power loss damages reads as empty.
+    if werr := atomicfile.write(RECENT_WORKSPACES_FILE, data, durable = false); werr != nil {
         log.errorf("Could not write %q: %v", RECENT_WORKSPACES_FILE, werr)
     }
 }

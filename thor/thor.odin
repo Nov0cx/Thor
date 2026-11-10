@@ -83,6 +83,11 @@ Thor :: struct {
     // The build pass of the frame, 0 first. Loom runs the build up to `max_passes`
     // times; work that advances with time runs only in pass 0.
     frame_pass: int,
+    // A texture changed its pixels, so the next frame is drawn even when its draw list did not change.
+    redraw: bool,
+    // The signature of the last draw list drawn, and when it was drawn (rl.GetTime).
+    frame_sig: u64,
+    frame_drawn: f64,
     config: setting.Settings,
     plugins: plugin.Manager,
     // Where a plugin's own data directory lives: user/plugins beside the binary,
@@ -656,9 +661,13 @@ init :: proc() -> ^Thor {
     prof.scope("init")
     start := time.tick_now()
     phase := start
-    lap :: proc(phase: ^time.Tick, name: string) {
+    // The profile zone of the phase that runs, opened by the lap before it.
+    phase_zone: bool
+    lap :: proc(phase: ^time.Tick, zone: ^bool, name: string, next: string) {
+        prof.zone_end(zone^)
         log.infof("[startup] %-24s %.1f ms", name, time.duration_milliseconds(time.tick_since(phase^)))
         phase^ = time.tick_now()
+        zone^ = next != "" ? prof.zone_begin(next) : false
     }
 
     // Resolve the launch path (owned, absolute) BEFORE moving the CWD: a path
@@ -701,6 +710,7 @@ init :: proc() -> ^Thor {
         delete(workspace_dir)
         workspace_dir = ""
     }
+    phase_zone = prof.zone_begin("load config")
 
     // Settle an interrupted update before anything reads assets/ or plugins/:
     // a swap that died leaves the old copy under its .old name, and this is
@@ -714,7 +724,7 @@ init :: proc() -> ^Thor {
     thor_whats_new_check(thor)
     thor_migrate_startup(thor, workspace_dir)
     thor_load_config(thor, workspace_dir)
-    lap(&phase, "load config")
+    lap(&phase, &phase_zone, "load config", "text_begin_async_load")
 
     // Rasterize fonts on worker threads while the main thread creates the
     // window and builds the widget tree. Only the families in use bake now;
@@ -739,7 +749,7 @@ init :: proc() -> ^Thor {
         extra_sizes = extra_sizes[:],
         user_manifest = USER_FONTS_PATH,
     })
-    lap(&phase, "text_begin_async_load")
+    lap(&phase, &phase_zone, "text_begin_async_load", "InitWindow")
 
     when !ODIN_DEBUG {
         rl.SetTraceLogLevel(.WARNING)
@@ -758,7 +768,7 @@ init :: proc() -> ^Thor {
             secs,
         )
     }
-    lap(&phase, "InitWindow")
+    lap(&phase, &phase_zone, "InitWindow", "lang init")
 
     // Window/taskbar icon; freed once raylib has copied it.
     icon := rl.LoadImage("assets/branding/thor.png")
@@ -817,7 +827,7 @@ init :: proc() -> ^Thor {
     odin.engine_prewarm(thor.odin_engine, thor.workspace_dir)
     thor.lsp_client = lsp.client_create(thor.workspace_dir, thor_lsp_workspace_trusted(thor))
     thor_register_backends(thor)
-    lap(&phase, "lang init")
+    lap(&phase, &phase_zone, "lang init", "view state")
 
     log.infof("Loaded theme: %s", thor.theme.name)
 
@@ -832,7 +842,7 @@ init :: proc() -> ^Thor {
     thor_find_init(thor)
     thor_git_view_init(thor)
     thor_explorer_init(thor, workspace_dir)
-    lap(&phase, "view state")
+    lap(&phase, &phase_zone, "view state", "terminals + settings")
     thor_register_commands(thor)
     thor_wire_menus(thor)
     thor_wire_editors(thor)
@@ -841,13 +851,13 @@ init :: proc() -> ^Thor {
     thor_apply_settings(thor)
     thor_settings_mark_clean(thor)
     thor_lsp_mark_clean(thor)
-    lap(&phase, "terminals + settings")
+    lap(&phase, &phase_zone, "terminals + settings", "load plugins")
 
     // Now that the console and keybinds exist, expose the host services and load
     // plugins (their load body may print or query keybinds).
     thor_set_plugin_host(thor)
     thor_load_plugins(thor)
-    lap(&phase, "load plugins")
+    lap(&phase, &phase_zone, "load plugins", "restore session")
     thor_set_active_file(thor, -1)
     thor_restore_session(thor)
     // Files passed on the command line open last and in order, so the final one
@@ -859,14 +869,14 @@ init :: proc() -> ^Thor {
     }
     thor_apply_layout_state(thor)
     thor_bind_extra_panes(thor)
-    lap(&phase, "restore session")
+    lap(&phase, &phase_zone, "restore session", "watcher + git + index")
     thor_refresh_git_status(thor)
     thor_refresh_file_index(thor)
     thor_init_watcher(thor)
     // Claim the workspace now that the window handle exists, so another window
     // opening this folder raises us instead of starting a duplicate.
     thor_register_window(thor)
-    lap(&phase, "watcher + git + index")
+    lap(&phase, &phase_zone, "watcher + git + index", "text_finish_async_load")
 
     // Texture upload needs the GL context, so it happens here on the main
     // thread once the rasterizer threads are done.
@@ -888,7 +898,7 @@ init :: proc() -> ^Thor {
     thor.font_ui = render.register_family(&thor.backend, "")
     thor.font_mono = render.register_family(&thor.backend, "")
     thor.font_icons = render.register_family(&thor.backend, font.ICON_FAMILY)
-    lap(&phase, "text_finish_async_load")
+    lap(&phase, &phase_zone, "text_finish_async_load", "")
 
     // After the session: the card measures its own text, and the fonts it
     // measures with are only loaded above.
@@ -990,6 +1000,7 @@ thor_read_git_branch :: proc(git_dir: string) -> string {
 run :: proc(thor: ^Thor) {
     for !rl.WindowShouldClose() && !thor.should_close {
         prof.scope("frame")
+        frame_start := rl.GetTime()
         poll_zone := prof.zone_begin("poll")
         thor_poll_dropped_files(thor)
         thor_poll_watcher(thor)
@@ -1002,11 +1013,9 @@ run :: proc(thor: ^Thor) {
         thor_update_files(thor)
         thor_sync_lang_documents(thor)
         prof.zone_end(poll_zone)
-        lang_zone := prof.zone_begin("lang dispatch")
         lang.manager_dispatch(&thor.lang_manager, thor, thor_on_lang_result)
         thor_poll_lang_busy(thor)
         thor_poll_lsp_health(thor)
-        prof.zone_end(lang_zone)
         // Asked here, not during init: the prompt takes focus, and init still
         // opens files and restores the session after the plugins load. The
         // rebuild an answer asks for is done here too, not in the dialog
@@ -1017,7 +1026,9 @@ run :: proc(thor: ^Thor) {
         // Here for the same reason: the update prompt takes focus, and the swap
         // it can start replaces the files the frame below would draw from.
         thor_poll_update(thor)
-        font.pump_async()
+        if font.pump_async() > 0 {
+            thor.redraw = true
+        }
         plugin_zone := prof.zone_begin("plugins")
         thor_dispatch_plugin_execs(thor)
         plugin.manager_dispatch_tick(&thor.plugins)
@@ -1037,17 +1048,60 @@ run :: proc(thor: ^Thor) {
         }
         list := ui.draw_list()
 
+        if thor_frame_unchanged(thor, list) {
+            // The window keeps the last frame. raylib polls the input in EndDrawing, so poll it here.
+            prof.scope("idle")
+            rl.PollInputEvents()
+            if wait := FRAME_TIME - (rl.GetTime() - frame_start); wait > 0 {
+                time.sleep(time.Duration(wait * f64(time.Second)))
+            }
+            free_all(context.temp_allocator)
+            continue
+        }
+
         prof.scope("present")
         rl.BeginDrawing()
         rl.ClearBackground(render.raylib_color(thor.theme.contrast))
         // The 3D pass owns the whole GL state for its target, so it runs before
         // the draw list rather than from inside it.
+        models_zone := prof.zone_begin("models")
         thor_render_models(thor)
+        prof.zone_end(models_zone)
+        draw_zone := prof.zone_begin("draw list")
         render.draw(&thor.backend, list)
+        prof.zone_end(draw_zone)
+        // The swap, the vsync wait and the frame-rate wait.
+        swap_zone := prof.zone_begin("swap")
         rl.EndDrawing()
+        prof.zone_end(swap_zone)
 
         free_all(context.temp_allocator)
     }
+}
+
+// The frame time at the 60 FPS target.
+FRAME_TIME :: 1.0 / 60.0
+
+// The longest a frame is left undrawn when nothing changes.
+REDRAW_INTERVAL :: 1.0
+
+// True when `list` draws what the window shows, so the frame needs no draw and no swap. Records the
+// signature of a frame that is drawn.
+thor_frame_unchanged :: proc(thor: ^Thor, list: ui.Draw_List) -> bool {
+    sig, stable := render.list_signature(list)
+    now := rl.GetTime()
+    unchanged :=
+        stable &&
+        !thor.redraw &&
+        sig == thor.frame_sig &&
+        now - thor.frame_drawn < REDRAW_INTERVAL &&
+        !thor_models_showing(thor)
+    if !unchanged {
+        thor.frame_sig = stable ? sig : 0
+        thor.frame_drawn = now
+        thor.redraw = false
+    }
+    return unchanged
 }
 
 shutdown :: proc(thor: ^Thor) {

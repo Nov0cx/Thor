@@ -1100,6 +1100,8 @@ thor_apply_image :: proc(thor: ^Thor, job: ^Load_Job) {
         log.warnf("Failed to load image %q", job.path)
         return
     }
+    // A texture id can be reused, so the draw list alone may not show the new image.
+    thor.redraw = true
     texture := rl.LoadTextureFromImage(job.decoded)
     if texture.id == 0 {
         if !job.reload {
@@ -1590,6 +1592,7 @@ thor_reap_file :: proc(thor: ^Thor, file: ^Open_File) {
 // Blocks until every load/save thread has finished; called from shutdown so
 // worker threads never outlive the Thor instance they point into.
 thor_drain_io :: proc(thor: ^Thor) {
+    prof.proc_scope()
     for thor.inflight_jobs > 0 {
         thor_process_io(thor)
         if thor.inflight_jobs > 0 {
@@ -2206,6 +2209,8 @@ thor_apply_md_image :: proc(thor: ^Thor, job: ^Md_Image_Job) {
         log.warnf("Failed to load image %q", job.path)
         return
     }
+    // A texture id can be reused, so the draw list alone may not show the new image.
+    thor.redraw = true
     texture := rl.LoadTextureFromImage(job.decoded)
     if texture.id == 0 {
         log.warnf("Failed to upload image %q", job.path)

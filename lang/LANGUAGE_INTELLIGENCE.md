@@ -851,6 +851,13 @@ Things that do not exist yet. Each is a candidate for future work.
   slot) and the `TYPE_STATE_SLOTS` (4) type caches churn. The result is correct but slower.
 - **Workspace disk cache.** Only the stdlib item trees persist. Item trees of workspace files keyed
   by content hash are not cached.
+- **Per-declaration body diagnostics.** `body_diagnostics` types every body of the buffer on each
+  live check (about 28 of 45 ms on `editview/editor.odin`). Plan: keep the items of each top-level
+  declaration keyed by a hash of its body text and a hash of the file's top-level declarations
+  (signatures, types, constants, imports) and the configuration and package state the checker read.
+  A request then types only the declarations whose body or inputs changed. Any change outside a
+  body clears the file's entries, since a body can read every top-level name. `undeclared_names`
+  (about 10 ms) can be cached the same way. Measure with `build.odin -- bench`.
 - **Custom lints from Lua plugins.** The sema API is not exposed to plugins.
 - **Other compiler messages as quick fixes.** `compiler_fixes.odin` handles a few; more remain. The
   indented `Suggestion:` lines of the compiler output are not read.
@@ -901,7 +908,11 @@ Behaviour that is wrong, partial, or surprising today.
   check such bodies, so real errors in them are listed apart in the oracle (9 in the Odin sources).
 - **Block-local type cache.** An entry that reads the request buffer is never frozen, so a request
   in a big file that declares the central type (`thor/thor.odin`) types it again (about 3.8 ms).
-- **Cold start.** The first request takes about 110 ms. Warm live diagnostics take about 32 ms.
+- **Cold start.** The first request takes about 110 ms; the first live check of `thor/view.odin`
+  about 440 ms. The prewarm thread reads the item trees of the workspace, so the first workspace
+  symbols query costs what a warm one does (85 ms on this repository, 480 ms without). Warm live
+  diagnostics take about 30 ms (median under edits, p90 36 ms); two thirds of it is
+  `body_diagnostics`, which types every body of the file on each request.
   Warm references on a widely used field take about 0.7 s in a debug build; most of it is the
   importer walk.
 - **References without a checker.** With no memory left for a checker, a member falls back to a name

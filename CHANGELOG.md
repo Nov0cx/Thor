@@ -8,6 +8,13 @@
 - **Edit > Undo History** (`undo_history`, also in the palette) shows the undo tree as a branch graph, newest first. Each row says what the step did (`Typed "count += 1"`, `Deleted 3 lines`, `Replaced "a" → "b"`), with its line, its age and a `saved` badge. Typing on one line shows as one row.
 - Undo History previews: the buffer follows the selection, a diff pane shows the step with context lines, `enter` keeps the state and `escape` goes back. `←` / `→` step through the single steps of a row.
 - `build.odin -- run -profile` builds an optimized editor into `bin/profile` that writes a spall trace to `user/thor.spall`; `-profile-all` also times every procedure. See `docs/building.md`.
+- Quitting during an update check no longer waits for it; the check is stopped.
+- A terminal shows its shell when Thor's own output is redirected. Before, the shell wrote to that file or pipe.
+- Startup is about 130 ms faster: highlight queries compile and large files parse on a thread, and the window and recent-folder records skip the disk flush.
+- Opening the console no longer stalls a frame while the shell starts.
+- An idle window no longer redraws 60 times a second: a frame that would look the same is not drawn.
+- The first workspace symbol search is as fast as later ones; the workspace is read in the background at startup.
+- `build.odin -- -profile-min:<µs>` drops short calls from a `-profile-all` trace, and `tools/profreport` summarises a trace.
 
 # 2026.11.1
 

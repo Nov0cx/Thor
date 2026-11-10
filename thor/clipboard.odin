@@ -10,6 +10,7 @@ import "core:strings"
 
 import "../atomicfile"
 import "../editview"
+import "../prof"
 import "../setting"
 import ui "../vendor/loom/loom"
 
@@ -167,6 +168,7 @@ thor_clipboard_history_load :: proc(thor: ^Thor) {
 
 // Writes the entries that are not private, encrypted. With the setting off, wipes the file instead.
 thor_clipboard_history_save :: proc(thor: ^Thor) {
+    prof.proc_scope()
     // The old bytes are zeroed first: the replace only unlinks them.
     clipboard_file_wipe(CLIPBOARD_FILE)
     if !setting.clipboard_history_save(&thor.config) {

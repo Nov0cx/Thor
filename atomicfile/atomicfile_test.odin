@@ -56,6 +56,8 @@ test_write_replaces_and_creates :: proc(t: ^testing.T) {
     testing.expect(t, holds(path, "second\x00tail"), "the file must hold the new data")
     testing.expect_value(t, write(path, nil), nil)
     testing.expect(t, holds(path, ""), "an empty write must empty the file")
+    testing.expect_value(t, write(path, transmute([]byte) string("fast"), durable = false), nil)
+    testing.expect(t, holds(path, "fast"), "a write with no flush must replace the file too")
     no_temp_left(t, dir)
 }
 

@@ -10,6 +10,7 @@ package odin
 
 import "base:runtime"
 import "core:strings"
+import "core:sync"
 import "core:thread"
 
 import lang ".."
@@ -27,6 +28,7 @@ Engine :: struct {
     warm:          ^thread.Thread, // the prewarm thread; joined by engine_destroy
     warm_joined:   bool,
     warm_workspace: string,        // owned; read by the prewarm thread
+    warm_stop:     bool,           // atomic; set by engine_destroy, so the workspace walk stops early
     // One compiler run at a time (see check_package). Atomic.
     checking:      bool,
     // Settings-driven admin gate; main thread only.
@@ -78,8 +80,9 @@ engine_create :: proc() -> ^Engine {
     return e
 }
 
-// Starts finding the Odin root and listing the importable packages on a thread, so the first
-// request after a file opens finds them ready. Call once, after engine_create.
+// Starts finding the Odin root, listing the importable packages and reading the item trees of the
+// workspace on a thread, so the first request after a file opens, and the first workspace symbols
+// query, find them ready. Call once, after engine_create.
 engine_prewarm :: proc(e: ^Engine, workspace: string) {
     if e.warm != nil {
         return
@@ -88,7 +91,7 @@ engine_prewarm :: proc(e: ^Engine, workspace: string) {
     if err != nil {
         return
     }
-    t := thread.create(prewarm_worker)
+    t := thread.create(prewarm_worker, .Low)
     if t == nil {
         delete(cloned)
         return
@@ -113,6 +116,36 @@ prewarm_worker :: proc(t: ^thread.Thread) {
     e := cast(^Engine)t.data
     known_packages(e, e.warm_workspace)
     free_all(context.temp_allocator)
+    prewarm_workspace(e, e.warm_workspace)
+    free_all(context.temp_allocator)
+}
+
+// Reads every file of `workspace` in the build into the database, as a workspace symbols query does.
+@(private = "file")
+prewarm_workspace :: proc(e: ^Engine, workspace: string) {
+    if workspace == "" {
+        return
+    }
+    collections := workspace_collections(e, workspace)
+    tree_cache_ensure(e)
+    input := odinsema.Snapshot_Input {
+        target      = config_target(e, workspace),
+        collections = &collections,
+        cancel      = &e.warm_stop,
+    }
+    snap: odinsema.Snapshot
+    defer odinsema.snapshot_end(&snap)
+    if !odinsema.snapshot_begin(&e.db, &snap, input) {
+        return
+    }
+    for id in odinsema.db_workspace(&snap, workspace) {
+        if sync.atomic_load(&e.warm_stop) {
+            return
+        }
+        if odinsema.db_in_build(&snap, id) {
+            _ = odinsema.db_file(&snap, id)
+        }
+    }
 }
 
 // Wraps the engine as a lang.Backend for lang.manager_register.
@@ -284,6 +317,7 @@ resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
 engine_destroy :: proc(data: rawptr) {
     e := cast(^Engine)data
     if e.warm != nil {
+        sync.atomic_store(&e.warm_stop, true)
         engine_prewarm_wait(e)
         thread.destroy(e.warm)
         delete(e.warm_workspace)
