@@ -1100,6 +1100,8 @@ thor_apply_image :: proc(thor: ^Thor, job: ^Load_Job) {
         log.warnf("Failed to load image %q", job.path)
         return
     }
+    // A texture id can be reused, so the draw list alone may not show the new image.
+    thor.redraw = true
     texture := rl.LoadTextureFromImage(job.decoded)
     if texture.id == 0 {
         if !job.reload {
@@ -2207,6 +2209,8 @@ thor_apply_md_image :: proc(thor: ^Thor, job: ^Md_Image_Job) {
         log.warnf("Failed to load image %q", job.path)
         return
     }
+    // A texture id can be reused, so the draw list alone may not show the new image.
+    thor.redraw = true
     texture := rl.LoadTextureFromImage(job.decoded)
     if texture.id == 0 {
         log.warnf("Failed to upload image %q", job.path)

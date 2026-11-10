@@ -81,6 +81,11 @@ Thor :: struct {
     // The build pass of the frame, 0 first. Loom runs the build up to `max_passes`
     // times; work that advances with time runs only in pass 0.
     frame_pass: int,
+    // A texture changed its pixels, so the next frame is drawn even when its draw list did not change.
+    redraw: bool,
+    // The signature of the last draw list drawn, and when it was drawn (rl.GetTime).
+    frame_sig: u64,
+    frame_drawn: f64,
     config: setting.Settings,
     plugins: plugin.Manager,
     // Where a plugin's own data directory lives: user/plugins beside the binary,
@@ -997,6 +1002,7 @@ thor_read_git_branch :: proc(git_dir: string) -> string {
 run :: proc(thor: ^Thor) {
     for !rl.WindowShouldClose() && !thor.should_close {
         prof.scope("frame")
+        frame_start := rl.GetTime()
         poll_zone := prof.zone_begin("poll")
         thor_poll_dropped_files(thor)
         thor_poll_watcher(thor)
@@ -1022,7 +1028,9 @@ run :: proc(thor: ^Thor) {
         // Here for the same reason: the update prompt takes focus, and the swap
         // it can start replaces the files the frame below would draw from.
         thor_poll_update(thor)
-        font.pump_async()
+        if font.pump_async() > 0 {
+            thor.redraw = true
+        }
         plugin_zone := prof.zone_begin("plugins")
         thor_dispatch_plugin_execs(thor)
         plugin.manager_dispatch_tick(&thor.plugins)
@@ -1042,6 +1050,17 @@ run :: proc(thor: ^Thor) {
         }
         list := ui.draw_list()
 
+        if thor_frame_unchanged(thor, list) {
+            // The window keeps the last frame. raylib polls the input in EndDrawing, so poll it here.
+            prof.scope("idle")
+            rl.PollInputEvents()
+            if wait := FRAME_TIME - (rl.GetTime() - frame_start); wait > 0 {
+                time.sleep(time.Duration(wait * f64(time.Second)))
+            }
+            free_all(context.temp_allocator)
+            continue
+        }
+
         prof.scope("present")
         rl.BeginDrawing()
         rl.ClearBackground(render.raylib_color(thor.theme.contrast))
@@ -1060,6 +1079,31 @@ run :: proc(thor: ^Thor) {
 
         free_all(context.temp_allocator)
     }
+}
+
+// The frame time at the 60 FPS target.
+FRAME_TIME :: 1.0 / 60.0
+
+// The longest a frame is left undrawn when nothing changes.
+REDRAW_INTERVAL :: 1.0
+
+// True when `list` draws what the window shows, so the frame needs no draw and no swap. Records the
+// signature of a frame that is drawn.
+thor_frame_unchanged :: proc(thor: ^Thor, list: ui.Draw_List) -> bool {
+    sig, stable := render.list_signature(list)
+    now := rl.GetTime()
+    unchanged :=
+        stable &&
+        !thor.redraw &&
+        sig == thor.frame_sig &&
+        now - thor.frame_drawn < REDRAW_INTERVAL &&
+        !thor_models_showing(thor)
+    if !unchanged {
+        thor.frame_sig = stable ? sig : 0
+        thor.frame_drawn = now
+        thor.redraw = false
+    }
+    return unchanged
 }
 
 shutdown :: proc(thor: ^Thor) {

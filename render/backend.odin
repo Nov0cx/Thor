@@ -44,6 +44,8 @@ Backend :: struct {
     text_len: int,
     dpi:      f32,
     cursor:   ui.Cursor,
+    // When poll_input last ran; 0 before the first call.
+    last_poll: f64,
 }
 
 init :: proc(b: ^Backend, opts: Options = {}) -> ui.Backend {

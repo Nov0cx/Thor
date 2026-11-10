@@ -193,9 +193,14 @@ poll_input :: proc(b: ^Backend) -> ui.Input {
     scale := rl.GetWindowScaleDPI()
     b.dpi = b.opts.dpi > 0 ? b.opts.dpi : scale.x
 
+    // Measured here, not by raylib, which counts a frame only when it is drawn.
+    now := rl.GetTime()
+    dt := b.last_poll > 0 ? f32(now - b.last_poll) : rl.GetFrameTime()
+    b.last_poll = now
+
     pos := rl.GetWindowPosition()
     out := ui.Input {
-        dt         = rl.GetFrameTime(),
+        dt         = dt,
         viewport   = {f32(rl.GetScreenWidth()), f32(rl.GetScreenHeight())},
         window_pos = {pos.x, pos.y},
         dpi        = b.dpi,

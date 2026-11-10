@@ -320,6 +320,16 @@ thor_model_button :: proc(thor: ^Thor, view: ^Model_View) {
     thor_tip(thor, it.id, "Spin the model")
 }
 
+// True when a model view was declared this frame: its scene is drawn every frame.
+thor_models_showing :: proc(thor: ^Thor) -> bool {
+    for view in thor.model_view {
+        if view.showing {
+            return true
+        }
+    }
+    return false
+}
+
 // Renders each shown scene into its own target. Called once a frame from
 // Thor.run, after the tree is laid out and before the draw list is replayed.
 thor_render_models :: proc(thor: ^Thor) {
