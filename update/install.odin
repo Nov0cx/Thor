@@ -140,7 +140,11 @@ install_apply :: proc(plan: Install_Plan, agent: string, cancel: ^bool, phase: ^
         return result
     }
 
-    tools, has_tools := tools_detect(target_archive(plan.target))
+    tools, has_tools := tools_detect(target_archive(plan.target), cancel)
+    if cancelled(cancel) {
+        result.status = .Cancelled
+        return result
+    }
     if !has_tools {
         result.status = .No_Tools
         return result
@@ -223,8 +227,8 @@ install_apply :: proc(plan: Install_Plan, agent: string, cancel: ^bool, phase: ^
         return result
     }
     phase_set(phase, .Extracting)
-    if !extract_archive(tools, archive_path, unpacked) {
-        result.status = .Extract_Failed
+    if !extract_archive(tools, archive_path, unpacked, cancel) {
+        result.status = cancelled(cancel) ? .Cancelled : .Extract_Failed
         return result
     }
 

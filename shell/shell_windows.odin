@@ -8,18 +8,19 @@ import "core:time"
 
 // Runs `command` via cmd.exe in `cwd` with stdout+stderr piped; blocks until it
 // exits. A `timeout` above zero ends the command and everything it started when
-// that time passes, and marks the output. `ok` is false when the command never
-// ran to completion — a pipe or start failure, or a timeout — and only then is
-// `code` meaningless. The returned output is owned by context.allocator.
-run_status :: proc(command: string, cwd: string, timeout: time.Duration = 0) -> (output: string, code: int, ok: bool) {
-    return run_command_line(fmt.tprintf("cmd.exe /d /c %s", command), cwd, timeout)
+// that time passes, and marks the output; a set `cancel` does the same. `ok` is
+// false when the command never ran to completion — a pipe or start failure, a
+// timeout or a cancel — and only then is `code` meaningless. The returned output
+// is owned by context.allocator.
+run_status :: proc(command: string, cwd: string, timeout: time.Duration = 0, cancel: ^bool = nil) -> (output: string, code: int, ok: bool) {
+    return run_command_line(fmt.tprintf("cmd.exe /d /c %s", command), cwd, timeout, cancel)
 }
 
 // Runs `exe` with `args` in `cwd`, with no shell between: each argument reaches
 // the program as written. `exe` is searched on PATH when it names no directory.
 // The rest is the contract of `run_status`.
-exec_status :: proc(exe: string, args: []string, cwd: string, timeout: time.Duration = 0) -> (output: string, code: int, ok: bool) {
-    return run_command_line(command_line_join(exe, args), cwd, timeout)
+exec_status :: proc(exe: string, args: []string, cwd: string, timeout: time.Duration = 0, cancel: ^bool = nil) -> (output: string, code: int, ok: bool) {
+    return run_command_line(command_line_join(exe, args), cwd, timeout, cancel)
 }
 
 // The command line CreateProcessW parses, in the temp allocator. Quoting follows
@@ -71,7 +72,9 @@ append_argument :: proc(builder: ^strings.Builder, arg: string) {
 // Starts the command line `full` and collects its output. The body of both
 // `run_status` and `exec_status`.
 @(private = "file")
-run_command_line :: proc(full: string, cwd: string, timeout: time.Duration) -> (output: string, code: int, ok: bool) {
+run_command_line :: proc(full: string, cwd: string, timeout: time.Duration, cancel: ^bool) -> (output: string, code: int, ok: bool) {
+    // A polled command reads only what the pipe holds, so it can stop at its deadline or its cancel.
+    polled := timeout > 0 || cancel != nil
     // Neither end is inheritable; the child gets the write end by the handle list alone.
     read_pipe, write_pipe: win32.HANDLE
     if !win32.CreatePipe(&read_pipe, &write_pipe, nil, 0) {
@@ -105,11 +108,11 @@ run_command_line :: proc(full: string, cwd: string, timeout: time.Duration) -> (
         wdir = win32.utf8_to_wstring(cwd, context.temp_allocator)
     }
 
-    // A timed command starts suspended, so the job holds it before it can start
+    // A polled command starts suspended, so the job holds it before it can start
     // a child of its own that the kill would miss.
     job: win32.HANDLE
     flags := win32.DWORD(win32.CREATE_NO_WINDOW | win32.EXTENDED_STARTUPINFO_PRESENT)
-    if timeout > 0 {
+    if polled {
         job = create_kill_on_close_job()
         if job != nil {
             flags |= win32.CREATE_SUSPENDED
@@ -149,15 +152,15 @@ run_command_line :: proc(full: string, cwd: string, timeout: time.Duration) -> (
     }
 
     start := time.tick_now()
-    timed_out := false
+    stopped := false
     builder := strings.builder_make()
     buf: [4096]u8
     for {
-        // ReadFile cannot be cut short, so a timed command reads only what the
+        // ReadFile cannot be cut short, so a polled command reads only what the
         // pipe already holds and sleeps between polls.
-        if timeout > 0 {
-            if time.tick_since(start) >= timeout {
-                timed_out = true
+        if polled {
+            if stop_due(start, timeout, cancel) {
+                stopped = true
                 break
             }
             avail: u32
@@ -169,10 +172,8 @@ run_command_line :: proc(full: string, cwd: string, timeout: time.Duration) -> (
                 // full one: the wait itself doubles as the sleep between polls,
                 // woken early the moment the process exits instead of noticing
                 // up to one slice late.
-                // The peek above can push past the deadline, and a negative
-                // duration converts to a DWORD of 0xFFFFFFFF, which is INFINITE.
-                remaining := time.duration_milliseconds(timeout - time.tick_since(start))
-                wait_ms := win32.DWORD(clamp(remaining, 0, 50))
+                // poll_wait is never negative, which as a DWORD would be INFINITE.
+                wait_ms := win32.DWORD(time.duration_milliseconds(poll_wait(start, timeout)))
                 if win32.WaitForSingleObject(pi.hProcess, wait_ms) != win32.WAIT_OBJECT_0 {
                     continue
                 }
@@ -189,29 +190,28 @@ run_command_line :: proc(full: string, cwd: string, timeout: time.Duration) -> (
         strings.write_bytes(&builder, buf[:read])
     }
 
-    if timeout <= 0 {
+    if !polled {
         win32.WaitForSingleObject(pi.hProcess, win32.INFINITE)
         status, got := exit_code(pi.hProcess)
         return strings.to_string(builder), status, got
     }
     // The end of the stream does not prove the command exited: it can close its
     // output and keep running. Give it only the time it has left.
-    if !timed_out {
-        left := timeout - time.tick_since(start)
-        wait_ms := win32.DWORD(0)
-        if left > 0 {
-            wait_ms = win32.DWORD(time.duration_milliseconds(left))
+    for !stopped {
+        wait_ms := win32.DWORD(time.duration_milliseconds(poll_wait(start, timeout)))
+        if win32.WaitForSingleObject(pi.hProcess, wait_ms) == win32.WAIT_OBJECT_0 {
+            break
         }
-        timed_out = win32.WaitForSingleObject(pi.hProcess, wait_ms) != win32.WAIT_OBJECT_0
+        stopped = stop_due(start, timeout, cancel)
     }
-    if timed_out {
+    if stopped {
         // The job kill also reaches the grandchildren it holds; a process
         // kill alone does not, but it is the best that is left when the job
         // itself refuses to die.
         if job == nil || !TerminateJobObject(job, 1) {
             win32.TerminateProcess(pi.hProcess, 1)
         }
-        fmt.sbprintf(&builder, "[shell] command stopped after %v\n", timeout)
+        strings.write_string(&builder, stop_note(timeout, cancel))
         return strings.to_string(builder), -1, false
     }
     status, got := exit_code(pi.hProcess)

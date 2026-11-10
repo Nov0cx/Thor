@@ -2,7 +2,6 @@
 package shell
 
 import "core:c"
-import "core:fmt"
 import "core:strings"
 import "core:sys/posix"
 import "core:time"
@@ -14,32 +13,34 @@ REAP_INTERVAL :: 2 * time.Millisecond
 // Runs `command` under /bin/sh in `cwd` with stdout+stderr piped; blocks until it
 // exits. The shell leads its own process group, so a timeout ends everything it
 // started instead of leaving a backgrounded child running. A `timeout` above zero
-// kills the command when that time passes and marks the output. `ok` is false
-// when the command never ran to completion — a pipe or start failure, a failed
-// wait, or a timeout — and only then is `code` meaningless. The returned output
-// is owned by context.allocator.
-run_status :: proc(command: string, cwd: string, timeout: time.Duration = 0) -> (output: string, code: int, ok: bool) {
+// kills the command when that time passes and marks the output; a set `cancel`
+// does the same. `ok` is false when the command never ran to completion — a pipe
+// or start failure, a failed wait, a timeout or a cancel — and only then is
+// `code` meaningless. The returned output is owned by context.allocator.
+run_status :: proc(command: string, cwd: string, timeout: time.Duration = 0, cancel: ^bool = nil) -> (output: string, code: int, ok: bool) {
     command_c := strings.clone_to_cstring(command, context.temp_allocator)
     argv := [?]cstring {"/bin/sh", "-c", command_c, nil}
-    return run_argv(argv[:], false, cwd, timeout)
+    return run_argv(argv[:], false, cwd, timeout, cancel)
 }
 
 // Runs `exe` with `args` in `cwd`, with no shell between: each argument reaches
 // the program as written. `exe` is searched on PATH when it names no directory.
 // The rest is the contract of `run_status`.
-exec_status :: proc(exe: string, args: []string, cwd: string, timeout: time.Duration = 0) -> (output: string, code: int, ok: bool) {
+exec_status :: proc(exe: string, args: []string, cwd: string, timeout: time.Duration = 0, cancel: ^bool = nil) -> (output: string, code: int, ok: bool) {
     argv := make([]cstring, len(args) + 2, context.temp_allocator)
     argv[0] = strings.clone_to_cstring(exe, context.temp_allocator)
     for arg, index in args {
         argv[index + 1] = strings.clone_to_cstring(arg, context.temp_allocator)
     }
-    return run_argv(argv, true, cwd, timeout)
+    return run_argv(argv, true, cwd, timeout, cancel)
 }
 
 // Forks, executes the nil-terminated `argv` and collects its output. The body of
 // both `run_status` and `exec_status`. `search_path` looks argv[0] up on PATH.
 @(private = "file")
-run_argv :: proc(argv: []cstring, search_path: bool, cwd: string, timeout: time.Duration) -> (output: string, code: int, ok: bool) {
+run_argv :: proc(argv: []cstring, search_path: bool, cwd: string, timeout: time.Duration, cancel: ^bool) -> (output: string, code: int, ok: bool) {
+    // A polled command waits on its pipe in slices, so it can stop at its deadline or its cancel.
+    polled := timeout > 0 || cancel != nil
     // Everything the child reads must exist before the fork: only
     // async-signal-safe calls are legal between fork and exec.
     cwd_c: cstring
@@ -117,20 +118,19 @@ run_argv :: proc(argv: []cstring, search_path: bool, cwd: string, timeout: time.
     defer posix.close(out_fds[0])
 
     start := time.tick_now()
-    timed_out := false
+    stopped := false
     builder := strings.builder_make()
     buf: [4096]u8
     for {
-        // A read cannot be cut short, so a timed command waits on the pipe with
-        // the time it has left instead.
-        if timeout > 0 {
-            left := timeout - time.tick_since(start)
-            if left <= 0 {
-                timed_out = true
+        // A read cannot be cut short, so a polled command waits on the pipe one
+        // slice at a time instead.
+        if polled {
+            if stop_due(start, timeout, cancel) {
+                stopped = true
                 break
             }
             fds := [1]posix.pollfd{{fd = out_fds[0], events = {.IN}}}
-            ready := posix.poll(raw_data(fds[:]), 1, c.int(time.duration_milliseconds(left)))
+            ready := posix.poll(raw_data(fds[:]), 1, c.int(time.duration_milliseconds(poll_wait(start, timeout))))
             if ready < 0 {
                 if posix.errno() == .EINTR {
                     continue
@@ -138,8 +138,7 @@ run_argv :: proc(argv: []cstring, search_path: bool, cwd: string, timeout: time.
                 break
             }
             if ready == 0 {
-                timed_out = true
-                break
+                continue
             }
         }
         read := read_fd(out_fds[0], buf[:])
@@ -149,7 +148,7 @@ run_argv :: proc(argv: []cstring, search_path: bool, cwd: string, timeout: time.
         strings.write_bytes(&builder, buf[:read])
     }
 
-    if timeout <= 0 {
+    if !polled {
         // The wait also reaps the child; a failure leaves it to init.
         status, waited := wait_for(pid)
         if !waited {
@@ -161,9 +160,8 @@ run_argv :: proc(argv: []cstring, search_path: bool, cwd: string, timeout: time.
 
     // The end of the stream does not prove the command exited: it can close its
     // output and keep running. Give it only the time it has left.
-    if !timed_out {
-        left := max(timeout - time.tick_since(start), time.Duration(1))
-        if status, waited := wait_until(pid, left); waited {
+    if !stopped {
+        if status, waited := wait_until(pid, start, timeout, cancel); waited {
             return strings.to_string(builder), exit_status(status), true
         }
     }
@@ -177,7 +175,7 @@ run_argv :: proc(argv: []cstring, search_path: bool, cwd: string, timeout: time.
     if _, waited := wait_for(pid); !waited {
         strings.write_string(&builder, "[shell] could not wait for the command\n")
     }
-    fmt.sbprintf(&builder, "[shell] command stopped after %v\n", timeout)
+    strings.write_string(&builder, stop_note(timeout, cancel))
     return strings.to_string(builder), -1, false
 }
 
@@ -196,11 +194,11 @@ wait_for :: proc(pid: posix.pid_t) -> (status: c.int, ok: bool) {
     }
 }
 
-// Waits up to `left` for `pid` and reaps it. False also covers a failed wait,
-// which the caller treats as a timeout — both end in the kill.
+// Reaps `pid` unless `timeout` since `start` passes or `cancel` is set first.
+// False also covers a failed wait, which the caller treats as a timeout — both
+// end in the kill.
 @(private = "file")
-wait_until :: proc(pid: posix.pid_t, left: time.Duration) -> (status: c.int, ok: bool) {
-    start := time.tick_now()
+wait_until :: proc(pid: posix.pid_t, start: time.Tick, timeout: time.Duration, cancel: ^bool) -> (status: c.int, ok: bool) {
     for {
         reaped := posix.waitpid(pid, &status, {.NOHANG})
         if reaped == pid {
@@ -209,7 +207,7 @@ wait_until :: proc(pid: posix.pid_t, left: time.Duration) -> (status: c.int, ok:
         if reaped < 0 && posix.errno() != .EINTR {
             return 0, false
         }
-        if time.tick_since(start) >= left {
+        if stop_due(start, timeout, cancel) {
             return 0, false
         }
         time.sleep(REAP_INTERVAL)

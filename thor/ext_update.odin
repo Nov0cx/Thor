@@ -413,7 +413,7 @@ ext_worker :: proc(job: ^Ext_Job) {
         }
         switch job.kind {
         case .Check:
-            item.result = update.ext_check(item.target, agent, job.allocator)
+            item.result = update.ext_check(item.target, agent, &job.cancel, job.allocator)
         case .Install:
             item.status = update.ext_install(item.target, item.result, agent, &job.cancel)
         }

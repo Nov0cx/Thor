@@ -1,7 +1,9 @@
 package shell
 
 import "core:strings"
+import "core:sync"
 import "core:testing"
+import "core:thread"
 import "core:time"
 
 // Run from the repository root: odin test shell
@@ -22,6 +24,39 @@ test_run_timeout_stops_a_slow_command :: proc(t: ^testing.T) {
     elapsed := time.tick_since(start)
     testing.expectf(t, elapsed < 10 * time.Second, "the call took %v", elapsed)
     testing.expect(t, strings.contains(output, "[shell] command stopped"), "the output has no stop note")
+}
+
+// A cancel set from another thread kills a command long before its timeout:
+// this is what lets a quit leave an update check behind.
+@(test)
+test_run_cancel_stops_a_slow_command :: proc(t: ^testing.T) {
+    cancel: bool
+    setter := thread.create_and_start_with_poly_data(&cancel, proc(flag: ^bool) {
+        time.sleep(300 * time.Millisecond)
+        sync.atomic_store(flag, true)
+    })
+    defer thread.destroy(setter)
+
+    start := time.tick_now()
+    output, _, ran := run_status(SLOW_COMMAND, ".", 60 * time.Second, &cancel)
+    defer delete(output)
+    elapsed := time.tick_since(start)
+    thread.join(setter)
+
+    testing.expect(t, !ran, "a cancelled command reported a completed run")
+    testing.expectf(t, elapsed < 10 * time.Second, "the call took %v", elapsed)
+    testing.expect(t, strings.contains(output, "[shell] command cancelled"), "the output has no cancel note")
+}
+
+// A cancel flag with no timeout still lets a fast command finish with its own status.
+@(test)
+test_run_cancel_keeps_a_fast_command :: proc(t: ^testing.T) {
+    cancel: bool
+    output, code, ran := run_status("exit 3", ".", 0, &cancel)
+    defer delete(output)
+
+    testing.expect(t, ran, "the command did not run to completion")
+    testing.expect_value(t, code, 3)
 }
 
 // A command that finishes inside its timeout is not touched by it: the output

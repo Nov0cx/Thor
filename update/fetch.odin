@@ -1,12 +1,12 @@
 package update
 
 // The shell-outs. Every call runs one external command with a timeout, so it
-// belongs on a worker thread — the same rule the shell package states.
+// belongs on a worker thread — the same rule the shell package states. A set
+// `cancel` kills the command that runs and fails the call.
 
 import "core:log"
 import "core:os"
 import "core:strings"
-import "core:sync"
 
 import "../shell"
 
@@ -24,7 +24,7 @@ Tools :: struct {
 // Probes for a downloader and an extractor for `archive`. Windows keeps the
 // PowerShell fallbacks, since curl and bsdtar are only there from Windows 10
 // 1803; elsewhere curl and tar are the only candidates.
-tools_detect :: proc(archive: Archive) -> (tools: Tools, ok: bool) {
+tools_detect :: proc(archive: Archive, cancel: ^bool = nil) -> (tools: Tools, ok: bool) {
     downloaders := [?]Downloader{.Curl, .Powershell}
     found_downloader := false
     for candidate in downloaders {
@@ -33,7 +33,7 @@ tools_detect :: proc(archive: Archive) -> (tools: Tools, ok: bool) {
                 continue
             }
         }
-        if probe(probe_download_command(candidate)) {
+        if probe(probe_download_command(candidate), cancel) {
             tools.downloader = candidate
             found_downloader = true
             break
@@ -49,7 +49,7 @@ tools_detect :: proc(archive: Archive) -> (tools: Tools, ok: bool) {
                 continue
             }
         }
-        if probe(probe_extract_command(candidate)) {
+        if probe(probe_extract_command(candidate), cancel) {
             tools.extractor = candidate
             return tools, true
         }
@@ -60,8 +60,11 @@ tools_detect :: proc(archive: Archive) -> (tools: Tools, ok: bool) {
 // Whether a tool is there. `run_status` owns the output it returns, and a probe
 // wants none of it.
 @(private = "file")
-probe :: proc(command: string) -> bool {
-    output, code, ok := shell.run_status(command, "", PROBE_TIMEOUT)
+probe :: proc(command: string, cancel: ^bool) -> bool {
+    if cancelled(cancel) {
+        return false
+    }
+    output, code, ok := shell.run_status(command, "", PROBE_TIMEOUT, cancel)
     defer delete(output)
     if !ok || code != 0 {
         log.debugf("Update tool probe %q stopped with %d: %s", command, code, strings.trim_space(output))
@@ -72,9 +75,9 @@ probe :: proc(command: string) -> bool {
 
 // Reads a URL into `dest` and answers the HTTP status code. Used for the API
 // reply and for SHA256SUMS, both small enough for one request.
-fetch_text :: proc(tools: Tools, url: string, dest: string, agent: string) -> (code: int, ok: bool) {
+fetch_text :: proc(tools: Tools, url: string, dest: string, agent: string, cancel: ^bool = nil) -> (code: int, ok: bool) {
     command := api_command(tools.downloader, url, dest, agent, context.temp_allocator)
-    output, _, run_ok := shell.run_status(command, "", API_TIMEOUT)
+    output, _, run_ok := shell.run_status(command, "", API_TIMEOUT, cancel)
     defer delete(output)
     if !run_ok {
         return 0, false
@@ -83,18 +86,20 @@ fetch_text :: proc(tools: Tools, url: string, dest: string, agent: string) -> (c
 }
 
 // Downloads a file one slice at a time, resuming where the last slice stopped.
-// The loop is what keeps a shutdown from waiting out a whole download: `cancel`
-// is read between slices, so the worst case is one slice.
+// `cancel` stops the slice that runs and the loop.
 fetch_file :: proc(tools: Tools, url: string, dest: string, agent: string, cancel: ^bool) -> bool {
     command := download_command(tools.downloader, url, dest, agent, context.temp_allocator)
     for slice in 0 ..< MAX_SLICES {
-        if cancel != nil && sync.atomic_load(cancel) {
+        if cancelled(cancel) {
             return false
         }
-        output, code, run_ok := shell.run_status(command, "", SLICE_TIMEOUT)
+        output, code, run_ok := shell.run_status(command, "", SLICE_TIMEOUT, cancel)
         defer delete(output)
         if run_ok && code == 0 {
             return true
+        }
+        if cancelled(cancel) {
+            return false
         }
         if !downloader_resumes(tools.downloader) {
             log.warnf("Update download failed: %s", strings.trim_space(output))
@@ -114,9 +119,9 @@ fetch_file :: proc(tools: Tools, url: string, dest: string, agent: string, cance
 }
 
 // Unpacks `archive` into the existing directory `dir`.
-extract_archive :: proc(tools: Tools, archive: string, dir: string) -> bool {
+extract_archive :: proc(tools: Tools, archive: string, dir: string, cancel: ^bool = nil) -> bool {
     command := extract_command(tools.extractor, archive, dir, context.temp_allocator)
-    output, code, ok := shell.run_status(command, "", EXTRACT_TIMEOUT)
+    output, code, ok := shell.run_status(command, "", EXTRACT_TIMEOUT, cancel)
     defer delete(output)
     if !ok || code != 0 {
         log.warnf("Update archive did not unpack: %s", strings.trim_space(output))

@@ -107,18 +107,18 @@ ext_parse_count :: proc(output: string) -> (count: int, ok: bool) {
 
 // Asks whether `target` has an update. Runs on a worker thread. The strings of
 // the result are owned by `allocator`.
-ext_check :: proc(target: Ext_Target, agent: string, allocator := context.allocator) -> (result: Ext_Result) {
+ext_check :: proc(target: Ext_Target, agent: string, cancel: ^bool = nil, allocator := context.allocator) -> (result: Ext_Result) {
     switch target.kind {
     case .Release:
-        return ext_check_release(target, agent, allocator)
+        return ext_check_release(target, agent, cancel, allocator)
     case .Git:
-        return ext_check_git(target)
+        return ext_check_git(target, cancel)
     }
     return result
 }
 
 @(private = "file")
-ext_check_release :: proc(target: Ext_Target, agent: string, allocator := context.allocator) -> (result: Ext_Result) {
+ext_check_release :: proc(target: Ext_Target, agent: string, cancel: ^bool, allocator := context.allocator) -> (result: Ext_Result) {
     if !source_valid(target.source) {
         result.status = .Bad_Source
         return result
@@ -133,12 +133,16 @@ ext_check_release :: proc(target: Ext_Target, agent: string, allocator := contex
         result.status = .No_Asset
         return result
     }
-    tools, has_tools := tools_detect(target_archive(host))
+    tools, has_tools := tools_detect(target_archive(host), cancel)
+    if cancelled(cancel) {
+        result.status = .Cancelled
+        return result
+    }
     if !has_tools {
         result.status = .No_Tools
         return result
     }
-    release, status := fetch_latest_release(tools, ext_api_url(target.source, context.temp_allocator), agent, context.temp_allocator)
+    release, status := fetch_latest_release(tools, ext_api_url(target.source, context.temp_allocator), agent, cancel, context.temp_allocator)
     if status != .Ok {
         result.status = status
         return result
@@ -163,13 +167,13 @@ ext_check_release :: proc(target: Ext_Target, agent: string, allocator := contex
     return result
 }
 
-// Runs git in `repo`. The output is owned by the caller.
+// Runs git in `repo`; a set `cancel` kills it. The output is owned by the caller.
 @(private = "file")
-git :: proc(repo: string, args: ..string) -> (output: string, ok: bool) {
+git :: proc(repo: string, cancel: ^bool, args: ..string) -> (output: string, ok: bool) {
     full := make([dynamic]string, 0, len(args) + 2, context.temp_allocator)
     append(&full, "-C", repo)
     append(&full, ..args)
-    out, code, ran := shell.exec_status("git", full[:], "", API_TIMEOUT)
+    out, code, ran := shell.exec_status("git", full[:], "", API_TIMEOUT, cancel)
     if !ran || code != 0 {
         log.debugf("git %v in %q stopped with %d: %s", args, repo, code, strings.trim_space(out))
         delete(out)
@@ -179,17 +183,20 @@ git :: proc(repo: string, args: ..string) -> (output: string, ok: bool) {
 }
 
 @(private = "file")
-ext_check_git :: proc(target: Ext_Target) -> (result: Ext_Result) {
-    if fetched, ok := git(target.repo, "fetch", "--quiet"); ok {
+ext_check_git :: proc(target: Ext_Target, cancel: ^bool) -> (result: Ext_Result) {
+    if fetched, ok := git(target.repo, cancel, "fetch", "--quiet"); ok {
         delete(fetched)
+    } else if cancelled(cancel) {
+        result.status = .Cancelled
+        return result
     } else {
         result.status = .No_Network
         return result
     }
-    counted, has_upstream := git(target.repo, "rev-list", "--count", "HEAD..@{u}")
+    counted, has_upstream := git(target.repo, cancel, "rev-list", "--count", "HEAD..@{u}")
     defer delete(counted)
     if !has_upstream {
-        result.status = .No_Upstream
+        result.status = cancelled(cancel) ? .Cancelled : .No_Upstream
         return result
     }
     behind, parsed := ext_parse_count(counted)
@@ -197,7 +204,7 @@ ext_check_git :: proc(target: Ext_Target) -> (result: Ext_Result) {
         result.status = .Bad_Response
         return result
     }
-    if porcelain, ok := git(target.repo, "status", "--porcelain"); ok {
+    if porcelain, ok := git(target.repo, cancel, "status", "--porcelain"); ok {
         result.dirty = strings.trim_space(porcelain) != ""
         delete(porcelain)
     }
@@ -207,8 +214,8 @@ ext_check_git :: proc(target: Ext_Target) -> (result: Ext_Result) {
 }
 
 // Installs the update a check found. Runs on a worker thread. A plugin folder
-// is swapped whole; a theme file is replaced through atomicfile. `cancel` is
-// read between download slices.
+// is swapped whole; a theme file is replaced through atomicfile. A set `cancel`
+// stops the download and the unpack; a git pull runs to its end.
 ext_install :: proc(target: Ext_Target, found: Ext_Result, agent: string, cancel: ^bool) -> Status {
     switch target.kind {
     case .Release:
@@ -221,7 +228,7 @@ ext_install :: proc(target: Ext_Target, found: Ext_Result, agent: string, cancel
 
 @(private = "file")
 ext_install_git :: proc(target: Ext_Target) -> Status {
-    porcelain, ok := git(target.repo, "status", "--porcelain")
+    porcelain, ok := git(target.repo, nil, "status", "--porcelain")
     if !ok {
         return .Install_Failed
     }
@@ -230,7 +237,7 @@ ext_install_git :: proc(target: Ext_Target) -> Status {
     if dirty {
         return .Local_Changes
     }
-    pulled, pull_ok := git(target.repo, "pull", "--ff-only", "--quiet")
+    pulled, pull_ok := git(target.repo, nil, "pull", "--ff-only", "--quiet")
     delete(pulled)
     return pull_ok ? .Ok : .Install_Failed
 }
@@ -248,7 +255,10 @@ ext_install_release :: proc(target: Ext_Target, found: Ext_Result, agent: string
         return .No_Asset
     }
     archive := target_archive(host)
-    tools, has_tools := tools_detect(archive)
+    tools, has_tools := tools_detect(archive, cancel)
+    if cancelled(cancel) {
+        return .Cancelled
+    }
     if !has_tools {
         return .No_Tools
     }
@@ -277,8 +287,8 @@ ext_install_release :: proc(target: Ext_Target, found: Ext_Result, agent: string
     if !fetch_file(tools, url, archive_path, agent, cancel) {
         return cancelled(cancel) ? .Cancelled : .Download_Failed
     }
-    if !extract_archive(tools, archive_path, unpacked) {
-        return .Extract_Failed
+    if !extract_archive(tools, archive_path, unpacked, cancel) {
+        return cancelled(cancel) ? .Cancelled : .Extract_Failed
     }
     entries, rerr := os.read_all_directory_by_path(unpacked, context.temp_allocator)
     if rerr != nil || len(entries) != 1 || entries[0].type != .Directory {

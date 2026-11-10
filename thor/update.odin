@@ -82,8 +82,7 @@ Update_Job :: struct {
     in_asset:     string, // owned
     in_size:      i64,
     in_target:    update.Target,
-    // Set by the main thread at shutdown, read by the worker between download
-    // slices so a quit does not wait out a whole download.
+    // Set by the main thread at shutdown; kills the command the worker runs, so a quit does not wait for it.
     cancel:       bool,
     // The install step, stored by the worker and read by the title bar.
     phase:        update.Install_Phase,
@@ -149,6 +148,7 @@ thor_check_for_updates :: proc(thor: ^Thor, manual: bool) {
     job.kind = .Check
     job.manual = manual
 
+    thor.update_job = job
     thor.inflight_jobs += 1
     job.worker = thread.create_and_start_with_poly_data(job, update_check_worker)
 }
@@ -193,7 +193,7 @@ update_check_worker :: proc(job: ^Update_Job) {
     context.allocator = job.allocator
     defer free_all(context.temp_allocator)
 
-    result := update.check(VERSION, job.allocator)
+    result := update.check(VERSION, &job.cancel, job.allocator)
     job.status = result.status
     job.out_version = result.version
     job.out_notes = result.notes
@@ -284,7 +284,7 @@ thor_apply_update_check :: proc(thor: ^Thor, job: ^Update_Job) {
         thor.update_state = .Idle
         // A transient failure must not eat the day's slot, so only a real
         // answer from GitHub moves the throttle forward.
-        if job.status != .No_Network && job.status != .Rate_Limited {
+        if job.status != .No_Network && job.status != .Rate_Limited && job.status != .Cancelled {
             record.last_check = time.to_unix_seconds(time.now())
             thor_write_update_record(record)
         }
@@ -352,8 +352,7 @@ thor_clear_update :: proc(thor: ^Thor) {
     thor_ext_clear(thor)
 }
 
-// Asks an in-flight download to stop between slices, so quitting mid-update
-// waits out one slice instead of the whole archive.
+// Asks an in-flight check or install to stop. The command it runs is killed, so a quit does not wait for it.
 thor_cancel_update :: proc(thor: ^Thor) {
     if thor.update_job != nil {
         sync.atomic_store(&thor.update_job.cancel, true)

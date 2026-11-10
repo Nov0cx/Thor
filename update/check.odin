@@ -19,7 +19,7 @@ API_FILE_FORMAT :: "thor-update-api-%d.json"
 
 // Asks GitHub what the latest release is and whether it is newer than
 // `current`. Every string of the result is owned by `allocator`.
-check :: proc(current: string, allocator := context.allocator) -> (result: Check_Result) {
+check :: proc(current: string, cancel: ^bool = nil, allocator := context.allocator) -> (result: Check_Result) {
     running, parsed := version_parse(current)
     if !parsed {
         // A binary whose version is not a release version cannot be compared
@@ -34,14 +34,18 @@ check :: proc(current: string, allocator := context.allocator) -> (result: Check
         return result
     }
 
-    tools, has_tools := tools_detect(target_archive(target))
+    tools, has_tools := tools_detect(target_archive(target), cancel)
+    if cancelled(cancel) {
+        result.status = .Cancelled
+        return result
+    }
     if !has_tools {
         result.status = .No_Tools
         return result
     }
 
     agent := user_agent(current, context.temp_allocator)
-    release, status := fetch_latest_release(tools, API_URL, agent, context.temp_allocator)
+    release, status := fetch_latest_release(tools, API_URL, agent, cancel, context.temp_allocator)
     if status != .Ok {
         result.status = status
         return result
@@ -99,7 +103,7 @@ check :: proc(current: string, allocator := context.allocator) -> (result: Check
 
 // Reads the latest release of `url`, a releases API address. Up_To_Date is a
 // repository that has published nothing yet.
-fetch_latest_release :: proc(tools: Tools, url: string, agent: string, allocator := context.allocator) -> (release: Api_Release, status: Status) {
+fetch_latest_release :: proc(tools: Tools, url: string, agent: string, cancel: ^bool = nil, allocator := context.allocator) -> (release: Api_Release, status: Status) {
     scratch, has_scratch := scratch_dir(context.temp_allocator)
     if !has_scratch {
         return {}, .Not_Installable
@@ -113,7 +117,10 @@ fetch_latest_release :: proc(tools: Tools, url: string, agent: string, allocator
         log.warnf("Could not remove %q: %v", api_path, err)
     }
 
-    code, fetched := fetch_text(tools, url, api_path, agent)
+    code, fetched := fetch_text(tools, url, api_path, agent, cancel)
+    if cancelled(cancel) {
+        return {}, .Cancelled
+    }
     if !fetched {
         return {}, .No_Network
     }
