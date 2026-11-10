@@ -15,6 +15,7 @@ import "../setting"
 // Beside the binary, in the one directory Thor owns and writes to. Truncated at
 // every start: what matters is the session that just went wrong.
 LOG_FILE :: "thor.log"
+PROFILE_FILE :: "thor.spall"
 
 // The loggers a run holds. `to_file` is false when the file could not be opened,
 // which leaves the console logger alone rather than failing the start.
@@ -32,15 +33,26 @@ Log_State :: struct {
 // the move to the exe directory happens inside `init`, and the logger is made
 // before that.
 log_file_path :: proc(allocator := context.allocator) -> string {
+    return user_file_path(LOG_FILE, allocator)
+}
+
+// The trace path of a profile build, beside the log.
+profile_file_path :: proc(allocator := context.allocator) -> string {
+    return user_file_path(PROFILE_FILE, allocator)
+}
+
+// `name` in user/ beside the executable.
+@(private = "file")
+user_file_path :: proc(name: string, allocator := context.allocator) -> string {
     dir := setting.USER_DIR
     if exe, err := os.get_executable_path(context.temp_allocator); err == nil {
         if joined, jerr := filepath.join({os.dir(exe), setting.USER_DIR}, context.temp_allocator); jerr == nil {
             dir = joined
         }
     }
-    path, jerr := filepath.join({dir, LOG_FILE}, allocator)
+    path, jerr := filepath.join({dir, name}, allocator)
     if jerr != nil {
-        return strings.clone(LOG_FILE, allocator)
+        return strings.clone(name, allocator)
     }
     return path
 }

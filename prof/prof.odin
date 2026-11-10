@@ -1,0 +1,178 @@
+// Spall trace zones, compiled in only by a profile build (`build.odin -- -profile`).
+// Each thread that records calls thread_begin first; a thread without a buffer records nothing.
+package prof
+
+// Used by the profile build only.
+@(require) import "base:runtime"
+@(require) import "core:log"
+import "core:prof/spall"
+@(require) import "core:sync"
+
+// Set by `-profile`: the zones record.
+ENABLED :: #config(THOR_PROFILE, false)
+// Set by `-profile-all`: every procedure records too.
+ALL :: #config(THOR_PROFILE_ALL, false)
+
+@(private)
+ctx: spall.Context
+// True between init and destroy. A detached worker reads it before it flushes.
+@(private)
+live: bool
+@(private, thread_local)
+buffer: spall.Buffer
+@(private, thread_local)
+backing: []u8
+// Open procedure events of this thread, so an exit of a frame entered before thread_begin is skipped.
+@(private, thread_local)
+depth: int
+
+// Opens the trace at `path` and starts the buffer of the calling thread.
+@(no_instrumentation)
+init :: proc(path: string) -> bool {
+    when ENABLED {
+        // The overload without a scale sleeps two seconds to measure the TSC; tick_now is in nanoseconds.
+        c, ok := spall.context_create_with_scale(path, false, 1)
+        if !ok {
+            log.errorf("prof: could not open the trace %s", path)
+            return false
+        }
+        ctx = c
+        sync.atomic_store(&live, true)
+        thread_begin("main")
+        log.infof("prof: trace at %s", path)
+        return true
+    } else {
+        return false
+    }
+}
+
+// Flushes the buffer of the calling thread and closes the trace.
+@(no_instrumentation)
+destroy :: proc() {
+    when ENABLED {
+        if !sync.atomic_load(&live) {
+            return
+        }
+        thread_end()
+        sync.atomic_store(&live, false)
+        spall.context_destroy(&ctx)
+    }
+}
+
+// Starts the buffer of the calling thread, shown as `name` in the trace.
+@(no_instrumentation)
+thread_begin :: proc(name: string) {
+    when ENABLED {
+        if len(buffer.data) > 0 || !sync.atomic_load(&live) {
+            return
+        }
+        data := make([]u8, spall.BUFFER_DEFAULT_SIZE, runtime.heap_allocator())
+        if data == nil {
+            return
+        }
+        b, ok := spall.buffer_create(data, u32(sync.current_thread_id()))
+        if !ok {
+            delete(data, runtime.heap_allocator())
+            return
+        }
+        backing = data
+        depth = 0
+        buffer = b
+        spall._buffer_name_thread(&ctx, &buffer, name)
+    }
+}
+
+// Flushes and frees the buffer of the calling thread.
+@(no_instrumentation)
+thread_end :: proc() {
+    when ENABLED {
+        if len(buffer.data) == 0 {
+            return
+        }
+        if sync.atomic_load(&live) {
+            spall.buffer_destroy(&ctx, &buffer)
+        }
+        buffer = {}
+        depth = 0
+        delete(backing, runtime.heap_allocator())
+        backing = nil
+    }
+}
+
+// Starts the buffer of the calling thread until the end of the enclosing scope.
+@(no_instrumentation, deferred_none = thread_end)
+thread_scope :: proc(name: string) {
+    thread_begin(name)
+}
+
+// Records a zone named `name` until the end of the enclosing scope.
+@(no_instrumentation, deferred_out = zone_end)
+scope :: proc(name: string, loc := #caller_location) -> bool {
+    when ENABLED {
+        if len(buffer.data) == 0 {
+            return false
+        }
+        spall._buffer_begin(&ctx, &buffer, name, "", loc)
+        return true
+    } else {
+        return false
+    }
+}
+
+// Records a zone named after the calling procedure until the end of the enclosing scope.
+@(no_instrumentation, deferred_out = zone_end)
+proc_scope :: proc(loc := #caller_location) -> bool {
+    when ENABLED {
+        if len(buffer.data) == 0 {
+            return false
+        }
+        spall._buffer_begin(&ctx, &buffer, loc.procedure, "", loc)
+        return true
+    } else {
+        return false
+    }
+}
+
+// Starts a zone that zone_end closes, for a span that is not one Odin scope.
+@(no_instrumentation)
+zone_begin :: proc(name: string, loc := #caller_location) -> bool {
+    when ENABLED {
+        if len(buffer.data) == 0 {
+            return false
+        }
+        spall._buffer_begin(&ctx, &buffer, name, "", loc)
+        return true
+    } else {
+        return false
+    }
+}
+
+// Closes the zone that zone_begin started when it returned true.
+@(no_instrumentation)
+zone_end :: proc(began: bool) {
+    when ENABLED {
+        if began && len(buffer.data) > 0 {
+            spall._buffer_end(&ctx, &buffer)
+        }
+    }
+}
+
+when ENABLED && ALL {
+    @(instrumentation_enter)
+    enter :: proc "contextless" (proc_address, call_site_return_address: rawptr, loc: runtime.Source_Code_Location) {
+        if len(buffer.data) == 0 {
+            return
+        }
+        depth += 1
+        spall._buffer_begin(&ctx, &buffer, "", "", loc)
+    }
+
+    @(instrumentation_exit)
+    exit :: proc "contextless" (proc_address, call_site_return_address: rawptr, loc: runtime.Source_Code_Location) {
+        if depth == 0 || len(buffer.data) == 0 {
+            return
+        }
+        depth -= 1
+        spall._buffer_end(&ctx, &buffer)
+    }
+}

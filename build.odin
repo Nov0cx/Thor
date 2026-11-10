@@ -5,6 +5,8 @@
 //    odin run build.odin -file                   # build the editor, debug
 //    odin run build.odin -file -- run            # build and start it
 //    odin run build.odin -file -- run -release   # build and start an optimized one
+//    odin run build.odin -file -- run -profile   # optimized with spall zones, into bin/profile
+//    odin run build.odin -file -- run -profile -profile-all # time every procedure too
 //    odin run build.odin -file -- check          # type-check, no binary
 //    odin run build.odin -file -- test           # run the package tests
 //    odin run build.odin -file -- test -release  # run them with the release flags
@@ -56,7 +58,7 @@ STAMP :: "thor.stamp"
 // Add a package here when it is new.
 VET_PACKAGES ::
     "main,thor,atomicfile,lockfree,editview,font,input,lang,lsp,luaconf,odin,odinfmt,odinsema,odinsyntax,syntaxgen,markdown,msvc,piecetable," +
-    "plugin,render,search,setting,shell,snippet,syntax,textedit,theme,treecache," +
+    "plugin,prof,render,search,setting,shell,snippet,syntax,textedit,theme,treecache," +
     "update,vt,watch"
 
 ICON_FILE :: "assets/branding/thor.ico"
@@ -84,6 +86,8 @@ Options :: struct {
     vet:     bool `usage:"Add -vet for the packages of this repository."`,
     verbose: bool `usage:"Print each command before it runs."`,
     strict:  bool `usage:"With bench: fail when a measure is over its budget."`,
+    profile: bool `usage:"Build optimized with spall zones, into bin/profile. The trace is user/thor.spall."`,
+    profile_all: bool `usage:"With -profile: time every procedure too. Slow, and the trace is large."`,
 }
 
 opt: Options
@@ -92,7 +96,14 @@ out_dir: string
 main :: proc() {
     flags.parse_or_exit(&opt, os.args, .Odin)
 
-    out_dir = opt.release ? "bin/release" : "bin/debug"
+    if opt.profile_all {
+        opt.profile = true
+    }
+    switch {
+    case opt.profile: out_dir = "bin/profile"
+    case opt.release: out_dir = "bin/release"
+    case:             out_dir = "bin/debug"
+    }
 
     ok: bool
     switch opt.command {
@@ -129,7 +140,7 @@ build_thor :: proc() -> bool {
     // the console subsystem for the logger and the tracking-allocator report.
     // A test binary always keeps it, for the report of the test runner.
     when ODIN_OS == .Windows {
-        if opt.release {
+        if opt.release && !opt.profile {
             append(&args, "-subsystem:windows")
         }
     }
@@ -204,6 +215,7 @@ run_tests :: proc() -> bool {
         "msvc",
         "piecetable",
         "plugin",
+        "prof",
         "render",
         "search",
         "setting",
@@ -237,6 +249,10 @@ run_tests :: proc() -> bool {
             if slice.contains(RAYLIB_TEST_PACKAGES, pkg) {
                 append(&args, "-define:RAYLIB_SHARED=true")
             }
+        }
+        // The trace test needs the recording path; the other packages test the build users get.
+        if pkg == "prof" && !opt.profile {
+            append(&args, "-define:THOR_PROFILE=true")
         }
         if !exec_msvc(args[:]) {
             append(&failed, pkg)
@@ -353,12 +369,18 @@ append_common_flags :: proc(args: ^[dynamic]string) {
     if opt.vet {
         append(args, "-vet", "-vet-packages:" + VET_PACKAGES)
     }
+    if opt.profile {
+        append(args, "-define:THOR_PROFILE=true")
+    }
+    if opt.profile_all {
+        append(args, "-define:THOR_PROFILE_ALL=true")
+    }
 }
 
 // The command `odin check` refuses the flags -o and -debug. Thus only the
 // commands that make a binary add these flags.
 append_codegen_flags :: proc(args: ^[dynamic]string) {
-    if opt.release {
+    if opt.release || opt.profile {
         append(args, "-o:speed", "-no-bounds-check", "-disable-assert")
     } else {
         append(args, "-debug", "-o:none")

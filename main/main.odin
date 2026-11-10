@@ -5,6 +5,7 @@ package main
 @(require) import "core:mem"
 import "core:os"
 
+import "../prof"
 import "../thor"
 
 main :: proc() {
@@ -22,6 +23,12 @@ main :: proc() {
     logging := thor.log_init(.Debug when ODIN_DEBUG else .Info)
     defer thor.log_destroy(logging)
     context.logger = logging.logger
+
+    // A profile build only; user/ exists once log_init ran.
+    when prof.ENABLED {
+        prof.init(thor.profile_file_path(context.temp_allocator))
+    }
+    defer prof.destroy()
 
     when ODIN_DEBUG {
         track: mem.Tracking_Allocator
