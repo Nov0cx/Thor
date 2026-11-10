@@ -10,6 +10,7 @@ import "core:os"
 import "core:strings"
 
 import "../atomicfile"
+import "../prof"
 import "../textedit"
 
 BACKUP_DIR :: "sessions/backups"
@@ -76,6 +77,7 @@ thor_restore_backup :: proc(thor: ^Thor, file: ^Open_File) {
 // refuses is kept as a backup. For the points where the buffers go away: a
 // folder switch and the exit.
 thor_flush_dirty_files :: proc(thor: ^Thor) {
+    prof.proc_scope()
     // The second pass takes a buffer that was edited while its save ran.
     for _ in 0 ..< 2 {
         any := false

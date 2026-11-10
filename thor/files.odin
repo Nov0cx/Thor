@@ -1590,6 +1590,7 @@ thor_reap_file :: proc(thor: ^Thor, file: ^Open_File) {
 // Blocks until every load/save thread has finished; called from shutdown so
 // worker threads never outlive the Thor instance they point into.
 thor_drain_io :: proc(thor: ^Thor) {
+    prof.proc_scope()
     for thor.inflight_jobs > 0 {
         thor_process_io(thor)
         if thor.inflight_jobs > 0 {

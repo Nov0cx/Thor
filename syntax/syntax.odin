@@ -12,6 +12,7 @@ import "core:strings"
 import text_match "core:text/match"
 import "core:text/regex"
 
+import "../prof"
 import "../treecache"
 import ts "../vendor/odin-tree-sitter"
 import ts_c "../vendor/odin-tree-sitter/parsers/c"
@@ -224,16 +225,21 @@ highlight_range :: proc(
         return nil
     }
 
+    query_zone := prof.zone_begin("highlight query")
     query := highlighter_query(h, lang_id, entry)
+    prof.zone_end(query_zone)
     if query == nil {
         return nil
     }
 
+    parse_zone := prof.zone_begin("highlight parse")
     tree := parse_tree(h, path, source, lang_id, entry)
+    prof.zone_end(parse_zone)
     if tree == nil {
         return nil
     }
     defer ts.tree_delete(tree)
+    prof.scope("highlight captures")
 
     root := ts.tree_root_node(tree)
     packages := package_names(root, source, lang_id)

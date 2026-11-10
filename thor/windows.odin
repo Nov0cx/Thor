@@ -18,6 +18,7 @@ import "core:path/filepath"
 import "core:strings"
 
 import "../atomicfile"
+import "../prof"
 import "../shell"
 
 // Directory of window records, next to the session files and likewise relative
@@ -71,6 +72,7 @@ thor_window_file :: proc(workspace: string, allocator := context.temp_allocator)
 // (thor_open_folder_request rules it out first) and a launch drops it
 // (thor_launch_held), so this guard only covers a claim made in between.
 thor_register_window :: proc(thor: ^Thor) {
+    prof.proc_scope()
     if thor.workspace_dir == "" {
         return
     }
@@ -130,6 +132,7 @@ thor_launch_held :: proc(workspace: string, file_count: int) -> Launch_Held {
 // Releases this process's claim on `workspace`. Called before a switch and at
 // shutdown; a missed call (a crash) only leaves a record the next reader prunes.
 thor_unregister_window :: proc(workspace: string) {
+    prof.proc_scope()
     if workspace == "" {
         return
     }

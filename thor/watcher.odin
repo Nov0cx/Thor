@@ -69,6 +69,7 @@ thor_poll_watcher :: proc(thor: ^Thor) {
 }
 
 thor_shutdown_watcher :: proc(thor: ^Thor) {
+    prof.proc_scope()
     watch.watcher_destroy(&thor.watcher)
 }
 

@@ -219,6 +219,7 @@ thor_recent_workspaces :: proc(allocator := context.allocator) -> []string {
 // entry for the same folder and capping the list at RECENT_WORKSPACES_MAX.
 // Called whenever a workspace becomes active.
 thor_record_recent_workspace :: proc(workspace: string) {
+    prof.proc_scope()
     if workspace == "" {
         return
     }

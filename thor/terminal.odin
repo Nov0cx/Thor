@@ -575,6 +575,7 @@ thor_terminals_close_all :: proc(thor: ^Thor) {
 // Ends every shell. A terminal owns its console, so releasing it frees the
 // scrollback with it.
 thor_terminals_shutdown :: proc(thor: ^Thor) {
+    prof.proc_scope()
     for term in thor.terminals {
         thor_terminal_release(term)
     }
