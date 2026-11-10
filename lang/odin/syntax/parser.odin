@@ -44,7 +44,7 @@ parse :: proc(src: string, allocator := context.allocator) -> (result: Parse, er
     tree := tree_create(src, allocator) or_return
     toks := lex_all(src, context.temp_allocator)
     p: Parser
-    parser_init(&p, src, toks, tree)
+    parser_init(&p, src, toks, tree, len(toks) * NODE_BYTES_PER_TOKEN)
     defer parser_destroy(&p)
     parse_file(&p)
     if p.alloc_err == nil {
@@ -142,10 +142,10 @@ Parser :: struct {
 }
 
 @(private)
-parser_init :: proc(p: ^Parser, src: string, toks: []Token, tree: ^Green_Tree) {
+parser_init :: proc(p: ^Parser, src: string, toks: []Token, tree: ^Green_Tree, first_block := NODE_BLOCK) {
     p.src = src
     p.toks = toks
-    builder_init(&p.b, tree)
+    builder_init(&p.b, tree, first = first_block)
     p.errors = make([dynamic]Syntax_Error, 0, 16)
     p.cur = -1
     p.fuel = FUEL

@@ -55,8 +55,11 @@ reparse :: proc(old: ^Parse, src: string, allocator := context.allocator) -> (re
         starts := make([dynamic]u32, 0, 32, context.temp_allocator)
         descend(old.tree.root, edit.start, edit.old_end, &path, &starts)
         if patched, ok := patch_token(old, src, edit, path[:], starts[:], allocator); ok {
-            old^ = {}
-            return patched, .Token, nil
+            if tree_take_text(patched.tree, src) == nil {
+                old^ = {}
+                return patched, .Token, nil
+            }
+            discard_tree(patched.tree, allocator)
         }
         #reverse for step, i in path {
             child, is_node := element_node(green_children(step.node)[step.index])
@@ -64,8 +67,12 @@ reparse :: proc(old: ^Parse, src: string, allocator := context.allocator) -> (re
                 continue
             }
             if reparsed, ok := reparse_block(old, src, edit, path[:i + 1], starts[i], allocator); ok {
-                old^ = {}
-                return reparsed, .Block, nil
+                if tree_take_text(reparsed.tree, src) == nil {
+                    old^ = {}
+                    return reparsed, .Block, nil
+                }
+                discard_tree(reparsed.tree, allocator)
+                break
             }
         }
     }
@@ -139,12 +146,12 @@ patch_token :: proc(old: ^Parse, src: string, edit: Text_Edit_Span, path: []Spin
         return
     }
 
-    tree, err := tree_create_on(old.tree, src, allocator)
+    tree, err := tree_create_on(old.tree, allocator)
     if err != nil {
         return
     }
     b: Green_Builder
-    builder_init(&b, tree, context.temp_allocator)
+    builder_init(&b, tree, context.temp_allocator, splice_bytes(path))
     defer builder_destroy(&b)
     root: ^Green_Node
     if root, err = builder_splice(&b, path, token_element(tok.kind, tok.flags, new_len)); err != nil {
@@ -222,12 +229,12 @@ reparse_block :: proc(old: ^Parse, src: string, edit: Text_Edit_Span, path: []Sp
         }
     }
 
-    tree, err := tree_create_on(old.tree, src, allocator)
+    tree, err := tree_create_on(old.tree, allocator)
     if err != nil {
         return
     }
     p: Parser
-    parser_init(&p, src[:new_end], toks, tree)
+    parser_init(&p, src[:new_end], toks, tree, len(toks) * NODE_BYTES_PER_TOKEN + splice_bytes(path))
     defer parser_destroy(&p)
     elem, parsed := parse_block_only(&p, in_proc)
     node, is_node := element_node(elem)

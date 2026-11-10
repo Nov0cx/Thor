@@ -729,7 +729,7 @@ file_body_new :: proc(db: ^Db, parsed: odinsyntax.Parse) -> ^File_Body {
     b.refs = 1
     b.parse = parsed
     for t := parsed.tree; t != nil; t = t.base {
-        b.bytes += int(t.arena.total_used)
+        b.bytes += int(t.arena.total_used) + len(t.pages)
     }
     return b
 }

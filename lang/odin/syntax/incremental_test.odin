@@ -359,12 +359,15 @@ test_splice_shares_siblings :: proc(t: ^testing.T) {
         }
     }
     new_src := "package p\nf :: proc() {\n\tx := 12\n}\ng :: 2\n"
-    tree, terr := tree_create_on(old.tree, new_src)
+    tree, terr := tree_create_on(old.tree)
     if !testing.expect_value(t, terr, nil) {
         parse_destroy(&old)
         return
     }
     defer tree_destroy(tree)
+    if !testing.expect_value(t, tree_take_text(tree, new_src), nil) {
+        return
+    }
     b: Green_Builder
     builder_init(&b, tree)
     defer builder_destroy(&b)

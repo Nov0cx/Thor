@@ -28,7 +28,8 @@ Green_Element :: distinct u64
 Green_Tree :: struct {
     arena:      virtual.Arena,
     root:       ^Green_Node,
-    text:       string,       // in the arena
+    text:       string,       // in the arena or in `pages`; "" once a newer tree took the pages
+    pages:      []byte,       // owned; the pages a reparsed tree keeps its text in, nil when none
     base:       ^Green_Tree, // owned; the older tree whose nodes this one shares, nil when none
     generation: u16,         // length of the base chain
 }
@@ -39,10 +40,26 @@ Green_Builder :: struct {
     stack:    [dynamic]Builder_Frame, // owned
     children: [dynamic]Green_Element, // owned
     block:    []byte,                 // the rest of the arena block nodes are cut from
+    next:     int,                    // bytes of the next block; NODE_BLOCK after the first
 }
 
 @(private)
 NODE_BLOCK :: 64 * mem.Kilobyte
+
+// Most node bytes a parse makes per token: 13 to 19.3 over Thor's sources.
+@(private)
+NODE_BYTES_PER_TOKEN :: 20
+
+// Bytes of the nodes a splice along `path` makes.
+@(private)
+splice_bytes :: proc "contextless" (path: []Spine_Step) -> int {
+    n := 0
+    for step in path {
+        kids := len(green_children(step.node))
+        n += size_of(Green_Node) + (kids + (1 if kids >= int(BIG_COUNT) else 0)) * size_of(Green_Element)
+    }
+    return n
+}
 
 @(private)
 BIG_COUNT :: max(u16)
@@ -54,6 +71,35 @@ Builder_Frame :: struct {
 }
 
 #assert(size_of(Green_Node) == 8 && size_of(Green_Element) == 8)
+
+// Gives `tree` a copy of `text` in the pages of its base when they fit, else in new pages.
+// The base keeps no text: red nodes read the text of the newest tree only.
+tree_take_text :: proc(tree: ^Green_Tree, text: string) -> mem.Allocator_Error {
+    base := tree.base
+    pages: []byte
+    if base != nil && len(base.pages) >= len(text) {
+        pages = base.pages
+        base.pages = nil
+    } else {
+        size := mem.align_forward_int(len(text) + TEXT_SLACK, mem.PAGE_SIZE)
+        pages = virtual.reserve_and_commit(uint(size)) or_return
+        if base != nil && base.pages != nil {
+            virtual.release(raw_data(base.pages), uint(len(base.pages)))
+            base.pages = nil
+        }
+    }
+    copy(pages, text)
+    tree.pages = pages
+    tree.text = string(pages[:len(text)])
+    if base != nil {
+        base.text = ""
+    }
+    return nil
+}
+
+// Bytes a reparsed tree's text can grow by before it needs new pages.
+@(private)
+TEXT_SLACK :: 4 * mem.Kilobyte
 
 // Makes an empty tree that holds a copy of `text`.
 tree_create :: proc(text := "", allocator := context.allocator) -> (tree: ^Green_Tree, err: mem.Allocator_Error) {
@@ -73,15 +119,18 @@ tree_create :: proc(text := "", allocator := context.allocator) -> (tree: ^Green
 tree_destroy :: proc(tree: ^Green_Tree, allocator := context.allocator) {
     for cur := tree; cur != nil; {
         next := cur.base
+        if cur.pages != nil {
+            virtual.release(raw_data(cur.pages), uint(len(cur.pages)))
+        }
         virtual.arena_destroy(&cur.arena)
         free(cur, allocator)
         cur = next
     }
 }
 
-// Makes a tree for `text` that shares the nodes of `base` and owns it.
-tree_create_on :: proc(base: ^Green_Tree, text: string, allocator := context.allocator) -> (tree: ^Green_Tree, err: mem.Allocator_Error) {
-    tree = tree_create(text, allocator) or_return
+// Makes a tree that shares the nodes of `base` and owns it. tree_take_text gives it its text.
+tree_create_on :: proc(base: ^Green_Tree, allocator := context.allocator) -> (tree: ^Green_Tree, err: mem.Allocator_Error) {
+    tree = tree_create("", allocator) or_return
     tree.base = base
     tree.generation = base.generation + 1
     return tree, nil
@@ -129,8 +178,10 @@ green_children :: #force_inline proc "contextless" (node: ^Green_Node) -> []Gree
     return data[:node.count]
 }
 
-builder_init :: proc(b: ^Green_Builder, tree: ^Green_Tree, scratch := context.allocator) {
+// `first` is the size of the first node block: what the tree needs, so no block tail is left unused.
+builder_init :: proc(b: ^Green_Builder, tree: ^Green_Tree, scratch := context.allocator, first := NODE_BLOCK) {
     b.tree = tree
+    b.next = max(mem.align_forward_int(first, 64), 64)
     b.stack = make([dynamic]Builder_Frame, 0, 32, scratch)
     b.children = make([dynamic]Green_Element, 0, 256, scratch)
 }
@@ -183,7 +234,8 @@ make_node :: proc(b: ^Green_Builder, kind: Syntax_Kind, children: []Green_Elemen
     slots := len(children) + (1 if big else 0)
     size := size_of(Green_Node) + slots * size_of(Green_Element)
     if size > len(b.block) {
-        b.block = virtual.arena_alloc(&b.tree.arena, uint(max(size, NODE_BLOCK)), align_of(Green_Element)) or_return
+        b.block = virtual.arena_alloc(&b.tree.arena, uint(max(size, b.next)), align_of(Green_Element)) or_return
+        b.next = NODE_BLOCK
     }
     data := b.block[:size]
     b.block = b.block[size:]
