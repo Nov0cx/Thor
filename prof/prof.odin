@@ -25,6 +25,9 @@ backing: []u8
 // Open procedure events of this thread, so an exit of a frame entered before thread_begin is skipped.
 @(private, thread_local)
 depth: int
+// True while thread_scope holds a zone named after the thread open.
+@(private, thread_local)
+thread_zone: bool
 
 // Opens the trace at `path` and starts the buffer of the calling thread.
 @(no_instrumentation)
@@ -89,6 +92,10 @@ thread_end :: proc() {
         if len(buffer.data) == 0 {
             return
         }
+        if thread_zone {
+            spall._buffer_end(&ctx, &buffer)
+            thread_zone = false
+        }
         if sync.atomic_load(&live) {
             spall.buffer_destroy(&ctx, &buffer)
         }
@@ -99,20 +106,26 @@ thread_end :: proc() {
     }
 }
 
-// Starts the buffer of the calling thread until the end of the enclosing scope.
+// Starts the buffer of the calling thread and a zone named `name`, both until the end of the enclosing scope.
 @(no_instrumentation, deferred_none = thread_end)
-thread_scope :: proc(name: string) {
-    thread_begin(name)
+thread_scope :: proc(name: string, loc := #caller_location) {
+    when ENABLED {
+        thread_begin(name)
+        if len(buffer.data) > 0 && !thread_zone {
+            spall._buffer_begin(&ctx, &buffer, name, "", loc)
+            thread_zone = true
+        }
+    }
 }
 
-// Records a zone named `name` until the end of the enclosing scope.
+// Records a zone named `name` until the end of the enclosing scope. `args` shows as the zone's detail.
 @(no_instrumentation, deferred_out = zone_end)
-scope :: proc(name: string, loc := #caller_location) -> bool {
+scope :: proc(name: string, args := "", loc := #caller_location) -> bool {
     when ENABLED {
         if len(buffer.data) == 0 {
             return false
         }
-        spall._buffer_begin(&ctx, &buffer, name, "", loc)
+        spall._buffer_begin(&ctx, &buffer, name, args, loc)
         return true
     } else {
         return false

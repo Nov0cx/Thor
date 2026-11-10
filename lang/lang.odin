@@ -7,6 +7,7 @@
 package lang
 
 import "base:runtime"
+@(require) import "core:fmt"
 import "core:os"
 import "core:reflect"
 import "core:strings"
@@ -609,6 +610,7 @@ Job :: struct {
     result:    Result,
     cancelled: bool, // written by the main thread, read atomically by the worker
     queue_next: ^Job, // link in Manager.finished
+    queued:    time.Tick, // when the job entered the queue
 }
 
 // Most jobs that wait for a worker. A request past it is answered as found nothing.
@@ -1044,6 +1046,7 @@ dispatch_owned :: proc(
 
     m.inflight += 1
     m.active[id] = job
+    job.queued = time.tick_now()
     if !lockfree.mpmc_push(&m.queue, job) {
         // Every slot waits for a worker. The caller keys a result slot on the
         // id, so it is answered as found nothing.
@@ -1369,7 +1372,12 @@ job_run :: proc(job: ^Job) {
     // A job cancelled while it queued never reaches the backend: `resolve` would
     // poll the same flag at its head and return having done nothing.
     if !request_cancelled(&job.request) {
-        prof.scope(reflect.enum_string(job.request.kind))
+        when prof.ENABLED {
+            args := fmt.tprintf("wait=%.2fms rev=%d %s", time.duration_milliseconds(time.tick_since(job.queued)), job.request.revision, job.request.path)
+        } else {
+            args := ""
+        }
+        prof.scope(reflect.enum_string(job.request.kind), args)
         job_resolve(job)
     }
     // Latch it here: a backend that bailed early may have left a partial result,
@@ -1582,6 +1590,7 @@ manager_busy_kinds :: proc(m: ^Manager) -> (kinds: bit_set[Request_Kind]) {
 // at its next check; that also empties the debounce slots, so the drain loop
 // cannot keep dispatching new work.
 manager_destroy :: proc(m: ^Manager) {
+    prof.proc_scope()
     manager_cancel_all(m)
     for manager_busy(m) {
         manager_dispatch(m, nil, nil)
