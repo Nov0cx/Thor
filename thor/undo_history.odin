@@ -167,10 +167,10 @@ undo_view_select :: proc(thor: ^Thor, file: ^Open_File, index: int) {
     if len(v.rows) == 0 {
         return
     }
-    index := clamp(index, 0, len(v.rows) - 1)
-    v.selected = index
+    row := clamp(index, 0, len(v.rows) - 1)
+    v.selected = row
     v.scroll_pending = true
-    node := v.rows[index].node
+    node := v.rows[row].node
     if textedit.history_current(&file.state) == node {
         return
     }
