@@ -1,6 +1,7 @@
 // Static analysis of Odin source on the lossless tree of package odinsyntax.
 package odinsema
 
+import "base:runtime"
 import "core:mem"
 import "core:mem/virtual"
 import "core:strings"
@@ -127,9 +128,10 @@ item_tree :: proc(parsed: odinsyntax.Parse, allocator := context.allocator) -> (
         alloc = virtual.arena_allocator(&tree.arena),
         text  = parsed.tree.text,
     }
-    b.guards = make([dynamic]When_Guard, b.alloc)
-    b.conds = make([dynamic]Cond_Expr, b.alloc)
-    items := make([dynamic]Item, b.alloc)
+    runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
+    b.guards = make([dynamic]When_Guard, context.temp_allocator)
+    b.conds = make([dynamic]Cond_Expr, context.temp_allocator)
+    items := make([dynamic]Item, context.temp_allocator)
 
     root_node := odinsyntax.node_root(parsed.tree)
     root, _ := odinsyntax.as_root(root_node)
@@ -139,9 +141,9 @@ item_tree :: proc(parsed: odinsyntax.Parse, allocator := context.allocator) -> (
     for n in odinsyntax.child_iter_next(&decls) {
         walk_decl(&b, n, ctx, &items)
     }
-    tree.items = items[:]
-    tree.guards = b.guards[:]
-    tree.conds = b.conds[:]
+    tree.items = exact(&b, items)
+    tree.guards = exact(&b, b.guards)
+    tree.conds = exact(&b, b.conds)
     if b.err != nil {
         item_tree_destroy(tree, allocator)
         return nil, b.err
@@ -160,7 +162,7 @@ item_tree_destroy :: proc(tree: ^Item_Tree, allocator := context.allocator) {
 // Reads the package clause and the file tags, legacy `//+` comment tags before the package included.
 @(private = "file")
 read_header :: proc(b: ^Builder, root: ^odinsyntax.Root) {
-    tags := make([dynamic]string, b.alloc)
+    tags := make([dynamic]string, context.temp_allocator)
     if pkg, ok := odinsyntax.root_package(root); ok {
         if name, nok := odinsyntax.package_decl_name(&pkg); nok {
             start, _ := odinsyntax.node_range(odinsyntax.Syntax_Node(name))
@@ -190,7 +192,7 @@ read_header :: proc(b: ^Builder, root: ^odinsyntax.Root) {
             }
         }
     }
-    b.tree.tags = tags[:]
+    b.tree.tags = exact(b, tags)
     for tag in b.tree.tags {
         name, rest := tag_split(tag)
         if name != "private" {
@@ -315,7 +317,7 @@ add_value_decl :: proc(b: ^Builder, n: ^odinsyntax.Syntax_Node, ctx: Decl_Contex
     doc := doc_above(b, n.parent, n.offset)
 
     vis := ctx.visibility
-    attrs := make([dynamic]Item_Attribute, b.alloc)
+    attrs := make([dynamic]Item_Attribute, context.temp_allocator)
     attr_iter := odinsyntax.value_decl_attributes(&v)
     for attr in odinsyntax.child_iter_next(&attr_iter) {
         attr := attr
@@ -346,6 +348,7 @@ add_value_decl :: proc(b: ^Builder, n: ^odinsyntax.Syntax_Node, ctx: Decl_Contex
         }
     }
 
+    attributes := exact(b, attrs)
     for &name in names {
         if name.green.kind != .Ident {
             continue
@@ -359,7 +362,7 @@ add_value_decl :: proc(b: ^Builder, n: ^odinsyntax.Syntax_Node, ctx: Decl_Contex
             start        = int(start),
             end          = int(end),
             doc          = doc,
-            attributes   = attrs[:],
+            attributes   = attributes,
             guard        = ctx.guard,
             in_foreign   = ctx.in_foreign,
             type_offset  = type_offset,
@@ -418,13 +421,13 @@ add_import :: proc(b: ^Builder, n: ^odinsyntax.Syntax_Node, ctx: Decl_Context, o
     if item.name == "" {
         return
     }
-    attrs := make([dynamic]Item_Attribute, b.alloc)
+    attrs := make([dynamic]Item_Attribute, context.temp_allocator)
     attr_iter := odinsyntax.child_iter(n, {kinds = {.Attribute}})
     for attr in odinsyntax.child_iter_next(&attr_iter) {
         attr := attr
         read_attributes(b, &attr, &attrs)
     }
-    item.attributes = attrs[:]
+    item.attributes = exact(b, attrs)
     if _, err := append(out, item); err != nil && b.err == nil {
         b.err = err
     }
@@ -648,7 +651,7 @@ direct_token_offset :: proc(n: odinsyntax.Syntax_Node, kind: odinsyntax.Token_Ki
 @(private = "file")
 read_children :: proc(b: ^Builder, value: odinsyntax.Syntax_Node) -> []Item {
     value := value
-    out := make([dynamic]Item, b.alloc)
+    out := make([dynamic]Item, context.temp_allocator)
     #partial switch value.green.kind {
     case .Distinct_Type:
         d, _ := odinsyntax.as_distinct_type(value)
@@ -719,16 +722,16 @@ read_children :: proc(b: ^Builder, value: odinsyntax.Syntax_Node) -> []Item {
             }
         }
     }
-    return out[:]
+    return exact(b, out)
 }
 
 // The members of a procedure group that are a name or `operand.name`; other expressions are skipped.
 @(private = "file")
 read_members :: proc(b: ^Builder, value: odinsyntax.Syntax_Node) -> []Group_Member {
-    out := make([dynamic]Group_Member, b.alloc)
+    out := make([dynamic]Group_Member, context.temp_allocator)
     group, ok := odinsyntax.as_proc_group(value)
     if !ok {
-        return out[:]
+        return nil
     }
     it := odinsyntax.proc_group_members(&group)
     for member in odinsyntax.child_iter_next(&it) {
@@ -753,7 +756,7 @@ read_members :: proc(b: ^Builder, value: odinsyntax.Syntax_Node) -> []Group_Memb
             b.err = err
         }
     }
-    return out[:]
+    return exact(b, out)
 }
 
 // Appends the field or member `name` of `decl`. Its signature starts at `using_offset` when that is not -1.
@@ -996,6 +999,23 @@ unquote :: proc(s: string) -> string {
         return s[1:len(s) - 1]
     }
     return s
+}
+
+// A copy of `d` in the tree arena, at its length; nil when empty.
+@(private = "file")
+exact :: proc(b: ^Builder, d: [dynamic]$T) -> []T {
+    if len(d) == 0 {
+        return nil
+    }
+    out, err := make([]T, len(d), b.alloc)
+    if err != nil {
+        if b.err == nil {
+            b.err = err
+        }
+        return nil
+    }
+    copy(out, d[:])
+    return out
 }
 
 @(private = "file")
