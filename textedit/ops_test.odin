@@ -649,7 +649,7 @@ test_checked_edits_reject_out_of_range :: proc(t: ^testing.T) {
     testing.expect_value(t, replace_range(&state, 3, 1, "x"), Error.Out_Of_Range)
     testing.expect_value(t, text(&state), "abc")
     testing.expect_value(t, state.revision, revision)
-    testing.expect_value(t, state.undo_stack.count, 0)
+    testing.expect_value(t, undo_depth(&state), 0)
 
     testing.expect(t, valid_offset(&state, 3), "the end is a valid insert offset")
     testing.expect(t, !valid_offset(&state, 4), "past the end is not")

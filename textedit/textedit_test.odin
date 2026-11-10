@@ -601,7 +601,7 @@ test_quote_delimiters :: proc(t: ^testing.T) {
 }
 
 // Typing a quote over the closing one only moves the caret: no undo step, and
-// the redo stack stays.
+// the redo step stays.
 @(test)
 test_quote_step_over_is_no_edit :: proc(t: ^testing.T) {
     state: State
@@ -612,14 +612,14 @@ test_quote_step_over_is_no_edit :: proc(t: ^testing.T) {
     testing.expect_value(t, text(&state), "\"\"")
     insert_text(&state, "x")
     undo(&state)
-    depth := state.undo_stack.count
+    depth := undo_depth(&state)
     revision := state.revision
 
     insert_quote(&state, '"')
     testing.expect_value(t, text(&state), "\"\"")
     testing.expect_value(t, primary_cursor(&state).caret, 2)
-    testing.expect_value(t, state.undo_stack.count, depth)
-    testing.expect_value(t, len(state.redo_stack), 1)
+    testing.expect_value(t, undo_depth(&state), depth)
+    testing.expect(t, can_redo(&state))
     testing.expect_value(t, state.revision, revision)
 }
 
@@ -708,7 +708,7 @@ test_typing_coalesces_into_one_entry :: proc(t: ^testing.T) {
 
     type_runes(&state, "hello")
     testing.expect_value(t, text(&state), "hello")
-    testing.expect_value(t, state.undo_stack.count, 1)
+    testing.expect_value(t, undo_depth(&state), 1)
 
     undo(&state)
     testing.expect_value(t, text(&state), "")
@@ -727,7 +727,7 @@ test_typing_run_breaks_on_class_change :: proc(t: ^testing.T) {
     defer destroy(&state)
 
     type_runes(&state, "two words")
-    testing.expect_value(t, state.undo_stack.count, 3)
+    testing.expect_value(t, undo_depth(&state), 3)
 
     undo(&state)
     testing.expect_value(t, text(&state), "two ")
@@ -749,7 +749,7 @@ test_paste_is_its_own_entry :: proc(t: ^testing.T) {
     insert_text(&state, "cd")
     type_runes(&state, "ef")
     testing.expect_value(t, text(&state), "abcdef")
-    testing.expect_value(t, state.undo_stack.count, 3)
+    testing.expect_value(t, undo_depth(&state), 3)
 
     undo(&state)
     testing.expect_value(t, text(&state), "abcd")
@@ -894,13 +894,13 @@ test_undo_history_is_capped :: proc(t: ^testing.T) {
     for i := 0; i < MAX_UNDO_ENTRIES + 50; i += 1 {
         insert_text(&state, "ab")
     }
-    testing.expect_value(t, state.undo_stack.count, MAX_UNDO_ENTRIES)
+    testing.expect_value(t, undo_depth(&state), MAX_UNDO_ENTRIES)
 
     for i := 0; i < MAX_UNDO_ENTRIES + 50; i += 1 {
         undo(&state)
     }
-    testing.expect_value(t, state.undo_stack.count, 0)
-    testing.expect_value(t, state.undo_bytes, 0)
+    testing.expect_value(t, undo_depth(&state), 0)
+    testing.expect_value(t, state.history.count, MAX_UNDO_ENTRIES)
     // The 50 dropped entries can no longer be undone.
     testing.expect_value(t, length(&state), 100)
 }
@@ -1090,7 +1090,7 @@ test_replace_text_can_be_undone :: proc(t: ^testing.T) {
     testing.expect(t, !replace_text(&state, "one\ntwo\nthree"), "the same text is no edit")
     testing.expect(t, replace_text(&state, "one\n2\nthree"), "a new text is an edit")
     testing.expect_value(t, text(&state), "one\n2\nthree")
-    testing.expect_value(t, state.undo_stack.count, 1)
+    testing.expect_value(t, undo_depth(&state), 1)
     testing.expect_value(t, primary_cursor(&state).caret, 11)
 
     undo(&state)
