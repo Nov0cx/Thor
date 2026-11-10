@@ -51,6 +51,10 @@ thor_update_highlights :: proc(thor: ^Thor, file: ^Open_File) {
         return
     }
 
+    // A query that still compiles keeps the old colors; the next frame asks again.
+    if !plugin.highlight_ready(&thor.plugins, key) {
+        return
+    }
     clear(&file.highlights)
     if plugin.supports(&thor.plugins, key) {
         source := textedit.text(&file.state)

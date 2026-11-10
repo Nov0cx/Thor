@@ -107,6 +107,10 @@ Highlighter :: struct {
     // the same buffer back to back, and the second call re-parses nothing at
     // all — the source is unchanged.
     trees:     treecache.Cache,
+    // Highlights queries that compile on a worker thread (query_ready). Owned.
+    compiling:    [dynamic]^Query_Job,
+    // Languages whose query failed on the worker; keys are owned.
+    async_failed: map[string]bool,
 }
 
 // A compiled #match? pattern. `ok` is false for a pattern that does not compile,
@@ -127,6 +131,8 @@ highlighter_create :: proc() -> Highlighter {
     h.regexes = make(map[string]Compiled_Regex)
     h.captures = regex.preallocate_capture()
     h.reported = make(map[string]bool)
+    h.compiling = make([dynamic]^Query_Job)
+    h.async_failed = make(map[string]bool)
     treecache.init(&h.trees)
     h.languages["odin"] = Language_Entry{ts_odin.tree_sitter_odin(), ts_odin.HIGHLIGHTS + "\n" + ODIN_ALIASES}
     h.languages["lua"] = Language_Entry{ts_lua.tree_sitter_lua(), ts_lua.HIGHLIGHTS}
@@ -164,6 +170,7 @@ highlighter_create :: proc() -> Highlighter {
 }
 
 highlighter_destroy :: proc(h: ^Highlighter) {
+    query_jobs_destroy(h)
     for key, query in h.queries {
         ts.query_delete(query)
         delete(key.lang_id)
@@ -833,11 +840,7 @@ highlighter_query :: proc(h: ^Highlighter, lang_id: string, entry: Language_Entr
     if cached, ok := h.resolved[lang_id]; ok {
         return cached
     }
-    source := entry.highlights
-    if override, ok := h.overrides[lang_id]; ok {
-        source = override
-    }
-    query, _, err := query_for(h, lang_id, source)
+    query, _, err := query_for(h, lang_id, highlights_source(h, lang_id, entry))
     if err != .None {
         return nil
     }

@@ -84,6 +84,18 @@ highlight :: proc(m: ^Manager, path, source, ext: string, allocator := context.a
     return spans
 }
 
+// True when highlight_range can answer for `ext` without compiling a query on the calling thread. Else the
+// compile starts on a worker thread, and a later call returns true. A pure-Lua language is always ready.
+highlight_ready :: proc(m: ^Manager, ext: string) -> bool {
+    syntax.query_poll(&m.highlighter)
+    idx, ok := m.by_ext[ext]
+    if !ok {
+        return true
+    }
+    grammar := m.languages[idx].grammar
+    return grammar == "" || syntax.query_ready(&m.highlighter, grammar)
+}
+
 // Highlights only the captures intersecting [range_start, range_end), so a
 // caller showing one screen of a large buffer pays for that screen.
 //
