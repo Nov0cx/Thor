@@ -170,7 +170,21 @@ zone_end :: proc(began: bool) {
     }
 }
 
+// Set by `-profile-min`: a procedure call shorter than this many microseconds that calls no recorded
+// procedure is dropped from a `-profile-all` trace, which is what keeps a long run's trace small.
+MIN_US :: #config(THOR_PROFILE_MIN_US, 0)
+
 when ENABLED && ALL {
+    // Nesting that the drop of short calls tracks; deeper calls are always kept.
+    @(private)
+    MAX_TRACKED :: 512
+
+    // For each open call: where its begin event starts in `buffer`, and where the buffer ended after it.
+    @(private, thread_local)
+    begin_at: [MAX_TRACKED]int
+    @(private, thread_local)
+    begin_end: [MAX_TRACKED]int
+
     @(instrumentation_enter)
     enter :: proc "contextless" (proc_address, call_site_return_address: rawptr, loc: runtime.Source_Code_Location) {
         if len(buffer.data) == 0 {
@@ -178,6 +192,13 @@ when ENABLED && ALL {
         }
         depth += 1
         spall._buffer_begin(&ctx, &buffer, "", "", loc)
+        when MIN_US > 0 {
+            if depth <= MAX_TRACKED {
+                // A flush inside _buffer_begin moves the event to the front, so it is found back from the end.
+                begin_end[depth - 1] = buffer.head
+                begin_at[depth - 1] = buffer.head - size_of(spall.Begin_Event) - min(len(loc.procedure), 255)
+            }
+        }
     }
 
     @(instrumentation_exit)
@@ -186,6 +207,29 @@ when ENABLED && ALL {
             return
         }
         depth -= 1
+        when MIN_US > 0 {
+            if depth < MAX_TRACKED && drop_short(begin_at[depth], begin_end[depth]) {
+                return
+            }
+        }
         spall._buffer_end(&ctx, &buffer)
+    }
+
+    // Rewinds the buffer over a begin event that nothing followed, when the call took less than MIN_US.
+    @(private, no_instrumentation)
+    drop_short :: proc "contextless" (at, end: int) -> bool {
+        if buffer.head != end || at < size_of(spall.Manual_Buffer_Header) {
+            return false
+        }
+        ev := (^spall.Begin_Event)(&buffer.data[at])
+        if ev.type != .Begin {
+            return false
+        }
+        elapsed := spall._trace_now(&ctx) - u64(ev.ts)
+        if f64(elapsed) * ctx.timestamp_scale >= f64(MIN_US) * 1000 {
+            return false
+        }
+        buffer.head = at
+        return true
     }
 }

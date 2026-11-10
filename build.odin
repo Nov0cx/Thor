@@ -7,6 +7,7 @@
 //    odin run build.odin -file -- run -release   # build and start an optimized one
 //    odin run build.odin -file -- run -profile   # optimized with spall zones, into bin/profile
 //    odin run build.odin -file -- run -profile -profile-all # time every procedure too
+//    odin run build.odin -file -- run -profile-min:5          # every procedure, less the leaf calls under 5 us
 //    odin run build.odin -file -- check          # type-check, no binary
 //    odin run build.odin -file -- test           # run the package tests
 //    odin run build.odin -file -- test -release  # run them with the release flags
@@ -88,6 +89,7 @@ Options :: struct {
     strict:  bool `usage:"With bench: fail when a measure is over its budget."`,
     profile: bool `usage:"Build optimized with spall zones, into bin/profile. The trace is user/thor.spall."`,
     profile_all: bool `usage:"With -profile: time every procedure too. Slow, and the trace is large."`,
+    profile_min: int `usage:"With -profile-all: drop the calls shorter than this many microseconds that call no recorded procedure."`,
 }
 
 opt: Options
@@ -96,6 +98,9 @@ out_dir: string
 main :: proc() {
     flags.parse_or_exit(&opt, os.args, .Odin)
 
+    if opt.profile_min > 0 {
+        opt.profile_all = true
+    }
     if opt.profile_all {
         opt.profile = true
     }
@@ -374,6 +379,9 @@ append_common_flags :: proc(args: ^[dynamic]string) {
     }
     if opt.profile_all {
         append(args, "-define:THOR_PROFILE_ALL=true")
+    }
+    if opt.profile_min > 0 {
+        append(args, fmt.tprintf("-define:THOR_PROFILE_MIN_US=%d", opt.profile_min))
     }
 }
 
