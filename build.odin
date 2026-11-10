@@ -300,7 +300,7 @@ run_bench :: proc() -> bool {
         append(&args, "odin", "test", b.package_dir)
         append(&args, fmt.tprintf("-out:bin/bench/%s%s", out, EXE_EXT))
         append(&args, "-o:speed", "-no-bounds-check", "-disable-assert")
-        append(&args, "-define:THOR_BENCH=true", "-define:ODIN_TEST_THREADS=1")
+        append(&args, "-define:THOR_BENCH=true", "-define:ODIN_TEST_THREADS=1", "-define:ODIN_TEST_TRACK_MEMORY=false")
         append(&args, fmt.tprintf("-define:ODIN_TEST_NAMES=%s", b.tests))
         if opt.strict {
             append(&args, "-define:THOR_BENCH_STRICT=true")

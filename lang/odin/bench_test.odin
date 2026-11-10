@@ -1,5 +1,6 @@
 package odin
 
+import "base:runtime"
 import "core:log"
 import "core:os"
 import "core:slice"
@@ -67,6 +68,8 @@ test_bench_diagnostics :: proc(t: ^testing.T) {
     when !BENCH {
         return
     }
+    // The runner's allocator is not thread-safe when the bench turns tracking off.
+    context.allocator = runtime.heap_allocator()
     src, ok := bench_source()
     if !testing.expect(t, ok, "the benchmark file could not be read") {
         return
@@ -98,6 +101,7 @@ test_bench_completion :: proc(t: ^testing.T) {
     when !BENCH {
         return
     }
+    context.allocator = runtime.heap_allocator()
     src, ok := bench_source()
     if !testing.expect(t, ok, "the benchmark file could not be read") {
         return
@@ -153,6 +157,7 @@ test_bench_cold_prewarm :: proc(t: ^testing.T) {
     when !BENCH {
         return
     }
+    context.allocator = runtime.heap_allocator()
     src, ok := bench_source()
     if !testing.expect(t, ok, "the benchmark file could not be read") {
         return
@@ -209,6 +214,7 @@ test_bench_memory :: proc(t: ^testing.T) {
     when !BENCH {
         return
     }
+    context.allocator = runtime.heap_allocator()
     src, ok := bench_source()
     if !testing.expect(t, ok, "the benchmark file could not be read") {
         return
