@@ -15,6 +15,7 @@ odin run build.odin -file -- deps          # fetch submodules, build HarfBuzz + 
 odin run build.odin -file                  # build into bin/debug
 odin run build.odin -file -- run           # build and start
 odin run build.odin -file -- run -release  # optimized, into bin/release
+odin run build.odin -file -- run -profile  # release flags + spall zones, into bin/profile; -profile-all times every proc
 odin run build.odin -file -- check         # type-check only (main reaches every package)
 odin run build.odin -file -- check -vet    # the same with -vet, which CI gates on
 odin run build.odin -file -- test          # every package with tests, into bin/test
@@ -114,6 +115,12 @@ be tested headlessly.
 - `atomicfile` — `atomicfile.write` replaces a file through a temp file beside it and a rename, so a
   crash mid-write leaves the old file whole. Every write that overwrites user or session data goes
   through it. A leaf: imports only `core:`.
+- `prof` — the spall profiler of a profile build (`-profile` sets `THOR_PROFILE`, `-profile-all`
+  also `THOR_PROFILE_ALL`, which declares the `@(instrumentation_enter/exit)` hooks). Every call
+  is a no-op in other builds. `prof.scope(name)` / `prof.proc_scope()` time the enclosing scope,
+  `zone_begin`/`zone_end` a span that is not one scope; a worker records only after
+  `prof.thread_scope(name)` at its top. The trace is `user/thor.spall`. A leaf: imports only
+  `core:` and `base:`; any package may import it except `lang/odin/sema` and `lang/lsp`.
 - `lockfree` — the lock-free hand-offs between threads: `Stack` (intrusive multi-producer stack, the
   consumer takes every node at once, oldest first; `T` holds `queue_next: ^T`), `Byte_Ring`
   (single-producer byte ring, a full producer waits on `ring_wait_space`) and `Mpmc` (bounded

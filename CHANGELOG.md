@@ -6,6 +6,7 @@
 - Undo history is a tree: an edit after an undo starts a new branch and keeps the undone steps. `ctrl+z`, `ctrl+shift+z` and `ctrl+y` work as before.
 - `ctrl+alt+z` / `ctrl+alt+shift+z` (`undo_earlier` / `undo_later`) step through every saved state in time order, across branches.
 - **Edit > Undo History** (`undo_history`, also in the palette) lists the undo tree and moves the buffer to the picked state.
+- `build.odin -- run -profile` builds an optimized editor into `bin/profile` that writes a spall trace to `user/thor.spall`; `-profile-all` also times every procedure. See `docs/building.md`.
 
 # 2026.11.1
 

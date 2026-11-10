@@ -79,6 +79,7 @@ odin run build.odin -file -- deps           # get and build HarfBuzz + tree-sitt
 odin run build.odin -file                   # build, debug
 odin run build.odin -file -- run            # build and start
 odin run build.odin -file -- run -release   # build and start an optimized one
+odin run build.odin -file -- run -profile   # optimized, with profiler zones, into bin/profile
 odin run build.odin -file -- check          # type-check, no binary
 odin run build.odin -file -- check -vet     # the same with -vet, as CI runs it
 odin run build.odin -file -- bench          # time parse, diagnostics and completion
@@ -93,6 +94,28 @@ Linking needs MSVC on PATH (Thor links `harfbuzz.lib` and `libtree-sitter.lib`).
 `odin run build.odin` finds `VsDevCmd.bat` itself via `vswhere`, so a plain
 shell works for it; a bare `odin build main` needs a developer shell.
 `odin check` needs neither.
+
+## Profiling
+
+A profile build records a [spall](https://gravitymoth.com/spall/) trace. It
+uses the release flags, keeps the console for the log, and lands in
+`bin/profile`.
+
+```bash
+odin run build.odin -file -- run -profile               # named zones
+odin run build.odin -file -- run -profile -profile-all  # every procedure too
+```
+
+The trace is `user/thor.spall` beside the binary, written over at each start
+and complete once the editor closes normally. Open it at
+<https://gravitymoth.com/spall/spall-web.html>.
+
+`-profile` records the frame phases (poll, language dispatch, plugins, build,
+present), the startup and shutdown steps, highlighting, tree-sitter parses and
+one zone per language request, file load and save, git status and font bake
+on their own threads. `-profile-all` records each procedure call as well: it
+is several times slower, and a few seconds make a trace of hundreds of MB.
+Other builds contain no profiler code.
 
 ## Testing
 
