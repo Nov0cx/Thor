@@ -35,6 +35,9 @@ return {
         toggle_line_comment = "ctrl+k",
         trim_trailing_whitespace = "ctrl+shift+w",
         undo = "ctrl+z",
+        undo_earlier = "ctrl+alt+z",
+        undo_history = "",
+        undo_later = "ctrl+alt+shift+z",
         uppercase = "alt+u",
     },
     files_app = {

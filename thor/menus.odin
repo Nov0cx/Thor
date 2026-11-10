@@ -411,6 +411,7 @@ thor_open_edit_menu :: proc(data: rawptr) {
     thor_menu_clear(thor)
     thor_menu_add(thor, "Undo", thor_cmd_undo, thor, thor_can_undo(thor), action = "undo")
     thor_menu_add(thor, "Redo", thor_cmd_redo, thor, thor_can_redo(thor), action = "redo")
+    thor_menu_add(thor, "Undo History", thor_cmd_undo_history, thor, thor_active_open_file(thor) != nil, action = "undo_history")
     thor_menu_add_separator(thor)
     thor_menu_add(thor, "Select All", thor_cmd_select_all, thor, action = "select_all")
     thor_menu_add(thor, "Toggle Line Comment", thor_cmd_toggle_comment, thor, action = "toggle_line_comment")

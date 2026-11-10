@@ -345,6 +345,19 @@ thor_palette_set_unfiltered :: proc(thor: ^Thor) {
     }
 }
 
+// Selects the row of item `index` in the open picker and scrolls it into view.
+thor_palette_select_item :: proc(thor: ^Thor, index: int) {
+    p := &thor.palette
+    for match, row in p.matches {
+        if match.index == index {
+            p.selected = 0
+            p.scroll = 0
+            palette_move(thor, row)
+            return
+        }
+    }
+}
+
 // Types `text` into the open palette, as if the user did.
 thor_palette_set_query :: proc(thor: ^Thor, text: string) {
     p := &thor.palette

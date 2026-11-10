@@ -17,6 +17,8 @@ Action :: enum {
     Undo,
     Redo,
     Redo_Alt,
+    Undo_Earlier,
+    Undo_Later,
     Delete_Word_Left,
     Delete_Word_Right,
     Delete_To_Line_End,
@@ -81,6 +83,8 @@ ACTIONS := [Action]Action_Info {
     .Undo                       = {"undo", {.Z, {.Ctrl}}, false},
     .Redo                       = {"redo", {.Z, {.Ctrl, .Shift}}, false},
     .Redo_Alt                   = {"redo_alt", {.Y, {.Ctrl}}, false},
+    .Undo_Earlier               = {"undo_earlier", {.Z, {.Ctrl, .Alt}}, false},
+    .Undo_Later                 = {"undo_later", {.Z, {.Ctrl, .Alt, .Shift}}, false},
     .Delete_Word_Left           = {"delete_word_left", {.Backspace, {.Ctrl}}, false},
     .Delete_Word_Right          = {"delete_word_right", {.Delete, {.Ctrl}}, false},
     .Delete_To_Line_End         = {"delete_to_line_end", {.Delete, {.Ctrl, .Shift}}, false},
@@ -199,6 +203,12 @@ editor_run_action :: proc(editor: ^Editor, action: Action, extend: bool) -> bool
     case .Redo, .Redo_Alt:
         editor_end_snippet(editor)
         textedit.redo(state)
+    case .Undo_Earlier:
+        editor_end_snippet(editor)
+        textedit.undo_earlier(state)
+    case .Undo_Later:
+        editor_end_snippet(editor)
+        textedit.undo_later(state)
     case .Delete_Word_Left:
         textedit.delete_word_backward(state)
         editor_dismiss_completion(editor)
