@@ -152,6 +152,8 @@ Add `shift` to any movement to extend the selection.
 | --- | --- |
 | ctrl + z / ctrl + shift + z | undo / redo |
 | ctrl + y | redo |
+| ctrl + alt + z / ctrl + alt + shift + z | undo earlier / undo later: step through every saved state in the order it was made, across undo branches |
+| (unbound) | `undo_history`: list the undo tree in the palette and move the buffer to the picked state |
 | ctrl + backspace / delete | delete word left / right |
 | ctrl + shift + k | delete line |
 | ctrl + shift + delete | delete from the caret to the line end; at the line end, join the next line |
@@ -197,6 +199,14 @@ items in the editor's right-click menu, greyed out when there is nothing to move
 action that changed several files moves as one step, files that were never open
 included; once any of them has moved on, undo and redo fall back to the focused
 buffer alone.
+
+Undo history is a tree. An edit after an undo starts a new branch, and the
+undone steps stay. Redo follows the branch you were last on. **Undo History**
+(Edit menu or palette) lists every state: the newest branch continues at the
+same indent, older branches are indented below their parent, and the current
+state is marked `●`. Each row shows the bytes the step inserted and deleted,
+its age and the start of its text. The history keeps 1024 steps or 16 MB of
+text; past that, branches off the current path are dropped first.
 
 ## View
 

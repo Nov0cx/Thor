@@ -3,6 +3,9 @@
 - Odin: the formatter keeps `case` labels at the level of their `switch`; `indent_cases` moves them one level in. Before, the labels were always indented and `indent_cases` indented the bodies two levels.
 - Odin: `inline_single_stmt_case` keeps a body on its own line when a comment comes before it. Before, the comment moved below the case or into the statement.
 - Odin: the formatter no longer writes two spaces before the `{` of a `for` without a post statement.
+- Undo history is a tree: an edit after an undo starts a new branch and keeps the undone steps. `ctrl+z`, `ctrl+shift+z` and `ctrl+y` work as before.
+- `ctrl+alt+z` / `ctrl+alt+shift+z` (`undo_earlier` / `undo_later`) step through every saved state in time order, across branches.
+- **Edit > Undo History** (`undo_history`, also in the palette) lists the undo tree and moves the buffer to the picked state.
 
 # 2026.11.1
 
