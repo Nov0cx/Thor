@@ -98,7 +98,8 @@ thor_register_window :: proc(thor: ^Thor) {
         return
     }
     path := thor_window_file(thor.workspace_dir)
-    if werr := atomicfile.write(path, data); werr != nil {
+    // A record names a live process, so it is worthless after a power loss: no disk flush.
+    if werr := atomicfile.write(path, data, durable = false); werr != nil {
         log.errorf("Could not write window record %q: %v", path, werr)
     }
 }

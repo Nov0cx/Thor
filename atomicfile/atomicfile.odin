@@ -15,10 +15,12 @@ MAX_LINK_HOPS :: 16
 
 // Writes `data` to `path`. A symlink is followed, so its target is replaced and
 // the link stays. When no temp file can be made beside the target, or the rename
-// is refused, it writes the target in place.
-write :: proc(path: string, data: []byte) -> os.Error {
+// is refused, it writes the target in place. `durable` flushes the data to disk
+// before the rename, so a power loss also leaves the old or the new file. Without
+// it only a crash of the process is safe, and the write costs no disk flush.
+write :: proc(path: string, data: []byte, durable := true) -> os.Error {
     target := resolve_links(path)
-    if err := write_replace(target, data); err == nil {
+    if err := write_replace(target, data, durable); err == nil {
         return nil
     } else {
         log.warnf("Cannot replace %q in one step, writing it in place: %v", target, err)
@@ -61,7 +63,7 @@ parent_dir :: proc(path: string) -> string {
 }
 
 @(private)
-write_replace :: proc(target: string, data: []byte) -> os.Error {
+write_replace :: proc(target: string, data: []byte, durable: bool) -> os.Error {
     _, base := os.split_path(target)
     pattern := strings.concatenate({".", base, ".*.tmp"}, context.temp_allocator)
     f, create_err := os.create_temp_file(parent_dir(target), pattern)
@@ -70,7 +72,7 @@ write_replace :: proc(target: string, data: []byte) -> os.Error {
     }
     temp := strings.clone(os.name(f), context.temp_allocator)
 
-    err := fill(f, target, data)
+    err := fill(f, target, data, durable)
     if close_err := os.close(f); err == nil {
         err = close_err
     }
@@ -116,10 +118,9 @@ retry_remove :: proc(path: string) -> (err: os.Error) {
     return
 }
 
-// Writes and flushes `data` into the temp file, giving it the mode of the file
-// it replaces.
+// Writes `data` into the temp file, giving it the mode of the file it replaces. `durable` flushes it.
 @(private)
-fill :: proc(f: ^os.File, target: string, data: []byte) -> os.Error {
+fill :: proc(f: ^os.File, target: string, data: []byte, durable: bool) -> os.Error {
     when ODIN_OS != .Windows {
         if info, err := os.stat(target, context.temp_allocator); err == nil {
             if merr := os.fchange_mode(f, info.mode); merr != nil {
@@ -138,5 +139,5 @@ fill :: proc(f: ^os.File, target: string, data: []byte) -> os.Error {
         }
         written += n
     }
-    return os.sync(f)
+    return durable ? os.sync(f) : nil
 }
