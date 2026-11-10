@@ -111,6 +111,8 @@ Highlighter :: struct {
     compiling:    [dynamic]^Query_Job,
     // Languages whose query failed on the worker; keys are owned.
     async_failed: map[string]bool,
+    // First parses of large buffers on worker threads (tree_ready). Owned.
+    parsing:      [dynamic]^Parse_Job,
 }
 
 // A compiled #match? pattern. `ok` is false for a pattern that does not compile,
@@ -133,6 +135,7 @@ highlighter_create :: proc() -> Highlighter {
     h.reported = make(map[string]bool)
     h.compiling = make([dynamic]^Query_Job)
     h.async_failed = make(map[string]bool)
+    h.parsing = make([dynamic]^Parse_Job)
     treecache.init(&h.trees)
     h.languages["odin"] = Language_Entry{ts_odin.tree_sitter_odin(), ts_odin.HIGHLIGHTS + "\n" + ODIN_ALIASES}
     h.languages["lua"] = Language_Entry{ts_lua.tree_sitter_lua(), ts_lua.HIGHLIGHTS}
@@ -171,6 +174,7 @@ highlighter_create :: proc() -> Highlighter {
 
 highlighter_destroy :: proc(h: ^Highlighter) {
     query_jobs_destroy(h)
+    parse_jobs_destroy(h)
     for key, query in h.queries {
         ts.query_delete(query)
         delete(key.lang_id)
