@@ -5,7 +5,8 @@
 - Odin: the formatter no longer writes two spaces before the `{` of a `for` without a post statement.
 - Undo history is a tree: an edit after an undo starts a new branch and keeps the undone steps. `ctrl+z`, `ctrl+shift+z` and `ctrl+y` work as before.
 - `ctrl+alt+z` / `ctrl+alt+shift+z` (`undo_earlier` / `undo_later`) step through every saved state in time order, across branches.
-- **Edit > Undo History** (`undo_history`, also in the palette) lists the undo tree and moves the buffer to the picked state.
+- **Edit > Undo History** (`undo_history`, also in the palette) shows the undo tree as a branch graph, newest first. Each row says what the step did (`Typed "count += 1"`, `Deleted 3 lines`, `Replaced "a" → "b"`), with its line, its age and a `saved` badge. Typing on one line shows as one row.
+- Undo History previews: the buffer follows the selection, a diff pane shows the step with context lines, `enter` keeps the state and `escape` goes back. `←` / `→` step through the single steps of a row.
 - `build.odin -- run -profile` builds an optimized editor into `bin/profile` that writes a spall trace to `user/thor.spall`; `-profile-all` also times every procedure. See `docs/building.md`.
 
 # 2026.11.1

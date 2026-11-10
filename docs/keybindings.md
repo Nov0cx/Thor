@@ -153,7 +153,7 @@ Add `shift` to any movement to extend the selection.
 | ctrl + z / ctrl + shift + z | undo / redo |
 | ctrl + y | redo |
 | ctrl + alt + z / ctrl + alt + shift + z | undo earlier / undo later: step through every saved state in the order it was made, across undo branches |
-| (unbound) | `undo_history`: list the undo tree in the palette and move the buffer to the picked state |
+| (unbound) | `undo_history`: open Undo History, a graph of the undo tree with a live preview of each state |
 | ctrl + backspace / delete | delete word left / right |
 | ctrl + shift + k | delete line |
 | ctrl + shift + delete | delete from the caret to the line end; at the line end, join the next line |
@@ -201,12 +201,28 @@ included; once any of them has moved on, undo and redo fall back to the focused
 buffer alone.
 
 Undo history is a tree. An edit after an undo starts a new branch, and the
-undone steps stay. Redo follows the branch you were last on. **Undo History**
-(Edit menu or palette) lists every state: the newest branch continues at the
-same indent, older branches are indented below their parent, and the current
-state is marked `●`. Each row shows the bytes the step inserted and deleted,
-its age and the start of its text. The history keeps 1024 steps or 16 MB of
-text; past that, branches off the current path are dropped first.
+undone steps stay. Redo follows the branch you were last on. The history keeps
+1024 steps or 16 MB of text; past that, branches off the current path are
+dropped first.
+
+**Undo History** (Edit menu or palette) opens a panel on the right that shows
+the tree as a graph, newest state at the top. Each branch has its own lane, and
+a branch joins its lane at the state it started from. Each row says what the
+step did (`Typed "count += 1"`, `Deleted 3 lines`, `Replaced "a" → "b"`,
+`Edited 4 places`), the line of the change and its age. A `saved` badge marks
+the state on disk, and a `start` badge marks the state the panel opened on. A
+run of typing or deleting on one line shows as one row.
+
+The buffer follows the selection, so the editor shows each state as you browse.
+The pane on the right shows the diff of the selected step, with two lines of
+context.
+
+| Key | Action |
+|---|---|
+| `↑` / `↓`, `page up` / `page down`, `home` / `end` | select a row |
+| `←` / `→` | one single step back or forward, also inside a row |
+| `enter`, double-click | keep the selected state and close |
+| `escape`, click outside | go back to the start state and close |
 
 ## View
 
