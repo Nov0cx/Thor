@@ -73,8 +73,11 @@ pty_start :: proc(profile: Profile, cwd: string, cols, rows: int) -> (^Pty, bool
         return nil, false
     }
 
+    // Null standard handles: without STARTF_USESTDHANDLES the child takes the
+    // editor's own, which write to a file or pipe instead of the pseudo-console
+    // when the editor's output is redirected.
     si := STARTUPINFOEXW {
-        StartupInfo = {cb = size_of(STARTUPINFOEXW)},
+        StartupInfo = {cb = size_of(STARTUPINFOEXW), dwFlags = win32.STARTF_USESTDHANDLES},
         lpAttributeList = raw_data(attribute),
     }
     pi: win32.PROCESS_INFORMATION
