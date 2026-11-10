@@ -277,7 +277,7 @@ BENCHES :: []struct {
     tests:       string,
 } {
     {"lang/odin/syntax", "odinsyntax.test_bench_parse,odinsyntax.test_bench_reparse"},
-    {"lang/odin", "odin.test_bench_diagnostics,odin.test_bench_completion,odin.test_bench_cold_prewarm"},
+    {"lang/odin", "odin.test_bench_diagnostics,odin.test_bench_completion,odin.test_bench_cold_prewarm,odin.test_bench_memory"},
     {"textedit", "textedit.test_bench_big_file"},
     {"syntax", "syntax.test_bench_big_file_highlight"},
     {"editview", "editview.test_bench_fold_rows"},
