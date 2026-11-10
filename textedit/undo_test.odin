@@ -164,3 +164,70 @@ test_undo_set_text_clears_tree :: proc(t: ^testing.T) {
     testing.expect_value(t, history_current(&state), NO_NODE)
     testing.expect_value(t, state.undo_bytes, 0)
 }
+
+@(test)
+test_undo_node_line :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+    set_text(&state, "a\nb\nc\n")
+
+    set_single_cursor(&state, 4)
+    insert_text(&state, "x")
+    insert_text(&state, "y")
+    testing.expect_value(t, history_node(&state, history_current(&state)).line, 2)
+
+    set_single_cursor(&state, 0)
+    insert_text(&state, "z\n")
+    testing.expect_value(t, history_node(&state, history_current(&state)).line, 1)
+}
+
+@(test)
+test_undo_node_hunks :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+    set_text(&state, "one two three")
+
+    // A replace is one hunk.
+    select_range(&state, 4, 7)
+    insert_text(&state, "2")
+    hunks := node_hunks(history_node(&state, history_current(&state)), context.temp_allocator)
+    testing.expect_value(t, len(hunks), 1)
+    testing.expect_value(t, hunks[0], Node_Hunk{pos = 4, inserted = 1, removed = "two"})
+
+    // Two cursors: each hunk at its place in the final text.
+    set_cursors(&state, {Cursor{caret = 0, anchor = 0}, Cursor{caret = 6, anchor = 6}})
+    insert_text(&state, "ab")
+    testing.expect_value(t, text(&state), "abone 2 abthree")
+    hunks = node_hunks(history_node(&state, history_current(&state)), context.temp_allocator)
+    testing.expect_value(t, len(hunks), 2)
+    testing.expect_value(t, hunks[0], Node_Hunk{pos = 0, inserted = 2})
+    testing.expect_value(t, hunks[1], Node_Hunk{pos = 8, inserted = 2})
+}
+
+@(test)
+test_undo_node_hunks_delete_before_insert :: proc(t: ^testing.T) {
+    node: Undo_Node
+    append(&node.ops, Edit_Op{kind = .Insert, pos = 6, text = "xy"})
+    append(&node.ops, Edit_Op{kind = .Delete, pos = 1, text = "abc"})
+    defer delete(node.ops)
+    hunks := node_hunks(&node, context.temp_allocator)
+    testing.expect_value(t, len(hunks), 2)
+    testing.expect_value(t, hunks[0], Node_Hunk{pos = 3, inserted = 2})
+    testing.expect_value(t, hunks[1], Node_Hunk{pos = 1, removed = "abc"})
+}
+
+@(test)
+test_undo_node_content_id :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    opened := content_id(&state)
+    insert_text(&state, "aa")
+    aa := content_id(&state)
+    testing.expect_value(t, node_content_id(&state, history_root(&state)), opened)
+    testing.expect_value(t, node_content_id(&state, history_current(&state)), aa)
+    testing.expect_value(t, node_content_id(&state, 99), 0)
+}

@@ -42,7 +42,17 @@ Undo_Node :: struct {
     seq:         int,
     // When the node was made or last grew by coalescing.
     stamp:       time.Time,
+    // Zero-based line of the primary caret after the edit, in the node's own content.
+    line:        int,
     live:        bool,
+}
+
+// One changed place of a node, in the node's own content: `inserted` bytes at
+// `pos` took the place of `removed`.
+Node_Hunk :: struct {
+    pos:      int,
+    inserted: int,
+    removed:  string, // borrowed from the node's op
 }
 
 // The undo history as a tree: an edit after an undo starts a new branch, and the
@@ -109,6 +119,81 @@ node_summary :: proc(node: ^Undo_Node) -> (inserted, deleted: int) {
         }
     }
     return
+}
+
+// The content id of the state node `index` stands for. 0 when no live node is there.
+node_content_id :: proc(state: ^State, index: int) -> u64 {
+    node := history_node(state, index)
+    if node == nil {
+        return 0
+    }
+    if node.parent != NO_NODE {
+        return node.id_after
+    }
+    for child in node.children {
+        if c := history_node(state, child); c != nil {
+            return c.id_before
+        }
+    }
+    return state.content_id
+}
+
+// The changed places of `node`, in the order of its ops, at their positions in the node's content.
+node_hunks :: proc(node: ^Undo_Node, allocator := context.allocator) -> []Node_Hunk {
+    Span :: struct {
+        lo, hi:  int,
+        removed: string,
+    }
+    spans := make([dynamic]Span, 0, len(node.ops), context.temp_allocator)
+    for op, i in node.ops {
+        n := len(op.text)
+        // Every span made so far moves through this op.
+        for &s in spans {
+            switch op.kind {
+            case .Insert:
+                s.lo = s.lo < op.pos ? s.lo : s.lo + n
+                s.hi = s.hi <= op.pos ? s.hi : s.hi + n
+            case .Delete:
+                s.lo = hunk_map_delete(s.lo, op.pos, n)
+                s.hi = hunk_map_delete(s.hi, op.pos, n)
+            }
+            s.hi = max(s.hi, s.lo)
+        }
+        switch op.kind {
+        case .Insert:
+            // An insert where the op before it deleted is one replace.
+            if i > 0 && node.ops[i - 1].kind == .Delete && node.ops[i - 1].pos == op.pos && len(spans) > 0 {
+                last := &spans[len(spans) - 1]
+                if last.lo == op.pos + n && last.hi == last.lo && last.removed != "" {
+                    last.lo = op.pos
+                    continue
+                }
+            }
+            append(&spans, Span{lo = op.pos, hi = op.pos + n})
+        case .Delete:
+            append(&spans, Span{lo = op.pos, hi = op.pos, removed = op.text})
+        }
+    }
+    out := make([]Node_Hunk, len(spans), allocator)
+    for s, i in spans {
+        out[i] = Node_Hunk {
+            pos      = s.lo,
+            inserted = s.hi - s.lo,
+            removed  = s.removed,
+        }
+    }
+    return out
+}
+
+@(private)
+hunk_map_delete :: proc(x, pos, n: int) -> int {
+    if x <= pos {
+        return x
+    }
+    if x >= pos + n {
+        return x - n
+    }
+    return pos
 }
 
 undo :: proc(state: ^State) {
@@ -210,6 +295,7 @@ join_last_undo :: proc(state: ^State) {
     prev.id_after = top.id_after
     prev.coalesce = .None
     prev.stamp = top.stamp
+    prev.line = top.line
     for child in top.children {
         tree.nodes[child].parent = parent_index
     }
@@ -386,6 +472,10 @@ finish_edit :: proc(state: ^State, entry: ^Undo_Entry, coalesce := Coalesce.None
     state.coalescing = coalesce != .None
     state.revision += 1
     state.content_id = state.revision
+    tree := &state.history
+    if tree.current != tree.root {
+        tree.nodes[tree.current].line = state_line_index(state, primary_cursor(state).caret)
+    }
 }
 
 @(private)
