@@ -84,6 +84,9 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     thor_settings_add_choice(view, "detect_indentation", "Detect Indentation", thor_on_off_label(setting.detect_indentation(config)))
     thor_settings_add_choice(view, "indent_guides", "Indent Guides", thor_on_off_label(setting.indent_guides(config)))
     thor_settings_add_choice(view, "relative_line_numbers", "Relative Line Numbers", thor_on_off_label(setting.relative_line_numbers(config)))
+    thor_settings_add_choice(view, "format_on_save", "Format on Save", thor_on_off_label(setting.format_on_save(config)))
+    thor_settings_add_choice(view, "format_on_type", "Format on Type", thor_on_off_label(setting.format_on_type(config)))
+    thor_settings_add_choice(view, "right_alt", "Right Alt Key", thor_right_alt_label(config))
 
     thor_settings_begin_category(view, "appearance", "Appearance", "palette")
     theme := setting.theme_name(config)
@@ -91,7 +94,7 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
         theme = DEFAULT_THEME
     }
     thor_settings_add_choice(view, "theme", "Theme", theme)
-    thor_settings_add_choice(view, THEME_EDITOR_SETTING, "Theme Colors", "Edit...")
+    thor_settings_add_action(view, THEME_EDITOR_SETTING, "Theme Colors", "Edit...")
     thor_settings_add_choice(view, "font", "Font", font.default_family())
     icon_pack := setting.icon_pack_name(config)
     if icon_pack == "" {
@@ -105,15 +108,12 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     thor_settings_add_choice(view, "file_icon_pack", "File Icon Pack", file_icon_pack)
     thor_settings_add_choice(view, "ligatures", "Ligatures", thor_ligatures_label(config))
     thor_settings_add_choice(view, "tooltips", "Tooltips", thor_on_off_label(setting.tooltips(config)))
-    thor_settings_add_choice(view, "tip_of_the_day", "Tip of the Day", thor_on_off_label(setting.tip_of_the_day(config)))
-    thor_settings_add_choice(view, "format_on_save", "Format on Save", thor_on_off_label(setting.format_on_save(config)))
-    thor_settings_add_choice(view, "format_on_type", "Format on Type", thor_on_off_label(setting.format_on_type(config)))
-    thor_settings_add_choice(view, "right_alt", "Right Alt", thor_right_alt_label(config))
 
     thor_settings_begin_category(view, "windows", "Windows", "window")
     thor_settings_add_choice(view, "open_folder_in", "Open Folder In", thor_open_folder_in_label(config))
     thor_settings_add_choice(view, "pane_layout", "Editor Pane Layout", thor_pane_layout_label(config))
     thor_settings_add_choice(view, "clipboard_history_save", "Save Clipboard History", thor_on_off_label(setting.clipboard_history_save(config)))
+    thor_settings_add_choice(view, "tip_of_the_day", "Tip of the Day", thor_on_off_label(setting.tip_of_the_day(config)))
     if thor_shell_menu_supported() {
         thor_settings_add_choice(view, "shell_menu", "Explorer Menu Entry", thor_on_off_label(thor_shell_menu_registered()))
     }
@@ -176,6 +176,7 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
         states := thor_plugin_permission_states(thor)
         if len(states) > 0 {
             thor_settings_begin_category(view, "plugins", "Plugins", "puzzle")
+            thor_settings_add_info(view, "plugins_help", "Plugins that ask for a permission. The others always load.", "")
             for state in states {
                 names := plugin.permission_names(state.perms, context.temp_allocator)
                 wants := len(names) > 0 ? strings.join(names, ", ", context.temp_allocator) : "no permissions"
@@ -245,10 +246,6 @@ thor_on_setting_choice :: proc(data: rawptr, id: string) {
         return
     }
     if thor_ext_on_setting_choice(thor, id) {
-        return
-    }
-    if id == THEME_EDITOR_SETTING {
-        thor_open_theme_editor(thor)
         return
     }
     if id == setting.LANGUAGE_SETTING {

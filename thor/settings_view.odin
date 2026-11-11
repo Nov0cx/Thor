@@ -11,7 +11,7 @@ import ui "../vendor/loom/loom"
 
 SETTINGS_WIDTH        :: f32(940)
 SETTINGS_HEIGHT       :: f32(620)
-SETTINGS_SIDEBAR_W    :: f32(210)
+SETTINGS_SIDEBAR_W    :: f32(240)
 SETTINGS_CHORD_W      :: f32(170)
 // Corner radius of the box, and the radius its edge children take: the same
 // curve one border width in.

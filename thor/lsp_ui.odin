@@ -287,7 +287,15 @@ thor_lsp_probes_destroy :: proc(thor: ^Thor) {
 // An action row was pressed. Every verb here either changes nothing or defers
 // its work: a reload destroys the widget tree this call stands on.
 thor_on_setting_action :: proc(data: rawptr, id: string) {
-    thor                 := cast(^Thor)data
+    thor := cast(^Thor)data
+    switch id {
+    case THEME_EDITOR_SETTING:
+        thor_open_theme_editor(thor)
+        return
+    case EXT_CHECK_NOW_ROW:
+        thor_check_ext_updates(thor, manual = true)
+        return
+    }
     action, argument, ok := thor_lsp_action_name(id)
     if !ok {
         return

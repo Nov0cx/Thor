@@ -33,7 +33,6 @@ EXT_SETTINGS_CATEGORY :: "extensions"
 @(private = "file")
 EXT_ROW_PREFIX :: "ext:"
 
-@(private = "file")
 EXT_CHECK_NOW_ROW :: "ext_check_now"
 
 @(private = "file")
@@ -608,8 +607,8 @@ thor_populate_ext_category :: proc(thor: ^Thor, config: ^setting.Settings) {
     thor_settings_begin_category(view, EXT_SETTINGS_CATEGORY, "Plugin & Theme Updates", "refresh")
     thor_settings_add_choice(view, "check_for_plugin_updates", "Check Automatically", thor_on_off_label(setting.check_for_plugin_updates(config)))
     pending   := thor_ext_pending_count(thor)
-    now_value := thor.ext_inflight ? "Checking..." : pending > 0 ? fmt.tprintf("%d available", pending) : "Check"
-    thor_settings_add_choice(view, EXT_CHECK_NOW_ROW, "Check Now", now_value)
+    now_label := thor.ext_inflight ? "Checking..." : pending > 0 ? fmt.tprintf("Check Now (%d available)", pending) : "Check Now"
+    thor_settings_add_action(view, EXT_CHECK_NOW_ROW, now_label, "Check")
 
     for item in thor.ext_updates {
         if item.updatable {
@@ -643,10 +642,6 @@ thor_populate_ext_category :: proc(thor: ^Thor, config: ^setting.Settings) {
 
 // Handles a click on an update row. False when `id` is not one.
 thor_ext_on_setting_choice :: proc(thor: ^Thor, id: string) -> bool {
-    if id == EXT_CHECK_NOW_ROW {
-        thor_check_ext_updates(thor, manual = true)
-        return true
-    }
     if id == "check_for_plugin_updates" {
         thor_select_open(
             thor,
