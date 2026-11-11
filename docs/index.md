@@ -26,7 +26,7 @@ manual: how to get it running and how to use it. For the codebase itself, see
 The pages above are plain Markdown, read directly on GitHub, or in Thor's own
 Markdown preview through **Help > Documentation**. `docs/generate_html.py`
 renders them to static HTML under `docs/html/` for offline browsing, which is
-what **Help > Documentation in Browser** opens when it is present:
+what **Help > Open Documentation in Browser** opens when it is present:
 
 ```bash
 pip install -r docs/requirements.txt

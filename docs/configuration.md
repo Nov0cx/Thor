@@ -16,9 +16,11 @@ on the first change and needs no `settings/` counterpart.
 Most of it is reachable without editing a file by hand, through the in-editor
 **Settings** view and the command palette (`ctrl + .`). The Settings view's
 **General** tab writes `user/`, its **Workspace** tab writes `.thor/`. The
-palette's "Settings: Open General Settings" and its keybinds and comments
+palette's "Settings: Open Settings File" and its keybinds and comments
 counterparts open whichever of the two a change would go to, creating the file
-when it is not there yet.
+when it is not there yet. The same view and files are in the **File** menu. In
+the view, an on/off setting is a switch, and each setting has a line that says
+what it does; the search box matches that line too.
 
 ## Lua config files
 
@@ -137,7 +139,7 @@ watched.
 
 Maps an action name to a key chord. See [Keybindings](keybindings.md) for the
 shipped bindings; rebind in Settings > Keybindings or by editing this file, or
-open it with "Settings: Open Keybinds". Every palette command has an action name
+open it with "Settings: Open Keybinds File". Every palette command has an action name
 here, and most ship with an empty chord, so any command can take a key:
 
 ```lua
@@ -180,9 +182,10 @@ is stopped when Thor exits.
 ## Settings > Language Servers
 
 Everything about a server is in one place: **Settings** (`ctrl + ,`) →
-**Language Servers**, also reachable from **Help > Language Servers** or the
+**Language Servers**, also reachable from **File > Language Servers** or the
 `open_language_servers` action. Every configured server has a foldable group
-showing what it is doing and what to do about it:
+showing what it is doing, what to do about it and, while it is on, a switch per
+feature:
 
 | Row | What it says |
 | --- | --- |
@@ -194,7 +197,7 @@ showing what it is doing and what to do about it:
 | Last Error | Why the last start or connection ended, with the server's own error output |
 | Enabled | Switches the server on and off; takes effect on the next request |
 | Restart This Server | Stops just this server and starts it again on the next file that needs it. Clears a `Failed` it gave up with |
-| Install It | Runs the entry's install command in the console. Needs a terminal open |
+| Install It | Runs the entry's install command in the terminal. Needs a terminal open |
 | Set Up This Project | For clangd, the `compile_commands.json` helper below |
 | Documentation | Opens the server's own install page in a browser |
 
@@ -360,7 +363,7 @@ its root, layered on top of the global settings above. This repository's own
   }
   ```
 
-  Each task runs in its own console tab, named after the task, on the default
+  Each task runs in its own terminal tab, named after the task, on the default
   shell; the shell you type in is left alone. Running a task again restarts its
   tab, which stops a run that is still going. The dropdown next to the run button lists them, and can add, remove
   or open this file for editing.
@@ -571,7 +574,7 @@ its root, layered on top of the global settings above. This repository's own
   names plugins read through `thor.theme`. A hand edit of the active theme file
   applies at once.
 
-- **Settings > Appearance > Theme Colors**, or "Theme: Edit Colors", opens the
+- **Settings > Appearance > Theme Colors > Edit...**, or "Theme: Edit Colors", opens the
   theme window. On the left is a preview of code, tabs, the file tree, status
   colors and buttons in the theme's colors; a click on a part selects its color.
   On the right is every color role under a foldable group (Surfaces, Text,

@@ -24,10 +24,10 @@ Every binding below is a default and can be changed in `keybinds.lua`
 | ctrl + w | close tab; an unsaved buffer is written first |
 | ctrl + page down / page up | next / previous tab |
 | ctrl + b | toggle explorer panel |
-| ctrl + t | toggle the console panel (a real shell — see Terminal below) |
+| ctrl + t | toggle the terminal panel (a real shell — see Terminal below) |
 | ctrl + shift + e | focus the editor |
 | ctrl + shift + b | focus the explorer (opens it if collapsed) |
-| ctrl + shift + t | focus the terminal / console (opens it if collapsed) |
+| ctrl + shift + t | focus the terminal (opens it if collapsed) |
 | ctrl + . | open the command palette |
 | ctrl + tab | quick open (jump straight to file search) |
 | ctrl + e | flip to the previously active file (press again to flip back) |
@@ -71,9 +71,12 @@ driven from the keyboard:
 | enter / shift + enter | next / previous match |
 | tab | switch between the find and replace fields |
 | alt + c | match case (the `Aa` button) |
-| alt + w | whole word only (the `W` button) |
+| alt + w | whole word only (the `ab` button) |
 | alt + r | read the query as a regular expression (the `.*` button) |
 | escape | close |
+
+Every match in view is marked, and the current one has an outline. A switched-on
+option button has an accent border.
 
 The three toggles also work as buttons on the bottom row of the box, and each
 lights up while it is on. They stay set until Thor restarts. With `.*` on, a
@@ -359,7 +362,7 @@ palette actions "View: Open Active File to the Side" (`open_to_side`),
 
 ## Terminal
 
-The console panel is a terminal emulator, one shell per tab on a pseudo-terminal
+The terminal panel is a terminal emulator, one shell per tab on a pseudo-terminal
 of its own, so a full-screen program, colours and a shell's own line editing all
 work as they do in any other terminal. **+** on the tab strip lists the shells
 found on this machine and opens a terminal on the one you pick; a tab turns red
@@ -370,7 +373,7 @@ up / down, tab completion and ctrl + r are the shell's, not the editor's.
 
 | Binding | Action |
 | --- | --- |
-| ctrl + t | toggle the console panel |
+| ctrl + t | toggle the terminal panel |
 | ctrl + shift + t | focus the terminal (opens the panel if collapsed, and raises its tab when another panel is in front) |
 | ctrl + c | interrupt the running command, or copy when text is selected |
 | ctrl + shift + c | copy the selection, or the whole scrollback with nothing selected |
@@ -381,7 +384,7 @@ up / down, tab completion and ctrl + r are the shell's, not the editor's.
 | click on a path | open the file an error line points at |
 | click on a link | open a hyperlink the program marked |
 
-Right-click the console for the same actions as a menu: "Copy" (the
+Right-click the terminal for the same actions as a menu: "Copy" (the
 selection, when there is one), "Copy All", "Paste", plus Clear and the
 terminal-tab actions.
 
@@ -472,7 +475,7 @@ The variables: `TM_SELECTED_TEXT`, `TM_CURRENT_LINE`, `TM_LINE_NUMBER`,
 
 Left of the window controls sit three task buttons: **+** adds a task, the
 **selector** names the active one, and **▶** runs it. Tasks are named shell
-commands (build, test, run, ...). Each runs in its own console tab, named
+commands (build, test, run, ...). Each runs in its own terminal tab, named
 after the task; running it again restarts that tab and stops a run that is
 still going. Keyboard focus stays in the editor.
 
@@ -517,7 +520,7 @@ layered from.
 
 ## Theme window
 
-"Theme: Edit Colors" (or Settings > Appearance > Theme Colors) opens the theme
+"Theme: Edit Colors" (or Settings > Appearance > Theme Colors > Edit...) opens the theme
 window. Inside it:
 
 | Key | Action |
@@ -542,8 +545,8 @@ The **Help** menu opens this manual without leaving the editor:
 | entry | what it does |
 | --- | --- |
 | Documentation | opens `docs/index.md` in the rendered Markdown preview |
-| Documentation Page... | picks one page of the manual and opens it the same way |
-| Documentation in Browser | opens `docs/html/` in the system browser, or the pages on GitHub when that HTML has not been generated |
+| Go to Documentation Page... | picks one page of the manual and opens it the same way |
+| Open Documentation in Browser | opens `docs/html/` in the system browser, or the pages on GitHub when that HTML has not been generated |
 
 The pages ship beside the binary, so they are readable offline. The same three
 actions are in the command palette under "Help:" and take chords in

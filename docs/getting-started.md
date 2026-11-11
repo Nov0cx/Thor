@@ -150,17 +150,20 @@ in PowerShell, when a script needs the exit code. A debug build has no such limi
   changed file shows its git status letter at the right edge of its row.
 - **Editor** — tabs across the top; `ctrl + tab` for fuzzy file search,
   `ctrl + w` to close a tab.
-- **Console** (`ctrl + t` to toggle) — a real shell, one per tab; **+** on its
+- **Terminal** (`ctrl + t` to toggle) — a real shell, one per tab; **+** on its
   tab strip lists the shells found on the machine.
-- **Status bar** — while the explorer or the console is closed, a button at its
+- **Status bar** — while the explorer or the terminal is closed, a button at its
   left end brings the panel back.
+
+A window narrower than 800 pixels hides the explorer; it comes back when the
+window is wide again.
 - **Command palette** (`ctrl + .`) — fuzzy-search and run any action Thor
   exposes; every keybinding below is also a command here.
 
 Not every file is text. An image opens in a view that fits it to the pane, with
 a checkerboard behind its transparent pixels; a 3D model opens on a ground grid,
 orbited and zoomed with the mouse; any other binary file opens in a read-only hex
-view; and `f4` renders a markdown file beside its source.
+view, marked **Read-only** in the status bar; and `f4` renders a markdown file beside its source.
 Each is an ordinary tab, so the explorer and the terminal stay where they are.
 See [Previews](keybindings.md#previews).
 
@@ -285,9 +288,9 @@ menu), to check that file for another `-target:`; "Workspace Default" removes th
 choice. It is kept in `file_targets`, see [Configuration](configuration.md).
 
 Every other language gets these features from a language server.
-**Settings > Language Servers** (or **Help > Language Servers**) lists the ones
+**Settings > Language Servers** (or **File > Language Servers**) lists the ones
 Thor knows: whether each is installed, what state it is in, and a button that
-installs a missing one in the console. `clangd`, `rust-analyzer`, `gopls`,
+installs a missing one in the terminal. `clangd`, `rust-analyzer`, `gopls`,
 `basedpyright`, `typescript-language-server`, `lua-language-server` and `zls`
 are on out of the box; another two dozen — `slangd`, `ruff`, `jdtls`,
 `intelephense`, `taplo` and more — are one switch away. Thor starts a server the
@@ -312,7 +315,7 @@ analyzer's message on it. An edited playground is reset only after you
 confirm.
 
 **Help > Documentation** opens this manual in Thor's
-Markdown preview, and **Help > Documentation in Browser** opens it outside the
+Markdown preview, and **Help > Open Documentation in Browser** opens it outside the
 editor.
 
 ## Next steps
