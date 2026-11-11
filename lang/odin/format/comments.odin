@@ -23,7 +23,7 @@ Printer :: struct {
     next_align_id: int,
     align_ids:     map[u64]Align_Cell,
     comment_cols:  map[int]int, // source line of an item -> column stop of its trailing comment
-    depth:        int,
+    depth:         int,
     too_deep:      bool, // the printer went past MAX_DEPTH; the output is not used
 }
 
@@ -133,9 +133,7 @@ assign_comment_cols :: proc(pr: ^Printer, items: []Node) {
             continue
         }
         end := i + 1
-        for end < len(items) &&
-            comment_alignable(pr, items[end]) &&
-            same_align_run(pr, end_line(pr, items[end - 1]), start_line(pr, items[end])) {
+        for end < len(items) && comment_alignable(pr, items[end]) && same_align_run(pr, end_line(pr, items[end - 1]), start_line(pr, items[end])) {
             end += 1
         }
         if end - i >= 2 {
@@ -209,7 +207,10 @@ flush_trailing :: proc(pr: ^Printer, out: ^[dynamic]Doc, line: int, next_start :
 // instead, or its own hard_line(0) would double up with the gap this leaves
 // behind.
 @(private)
-flush_before :: proc(pr: ^Printer, out: ^[dynamic]Doc, prev_line: int, has_prev: bool, next_line: int, has_next: bool, next_start := max(int)) -> (last_line: int, had_content: bool) {
+flush_before :: proc(pr: ^Printer, out: ^[dynamic]Doc, prev_line: int, has_prev: bool, next_line: int, has_next: bool, next_start := max(int)) -> (
+    last_line: int,
+    had_content: bool,
+) {
     last_line = prev_line
     had_content = has_prev
     if has_prev {

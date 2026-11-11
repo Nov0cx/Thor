@@ -7,22 +7,22 @@ package thor
 import "core:fmt"
 import "core:strings"
 
-import ui "../vendor/loom/loom"
+import "../editview"
 import "../lang"
 import "../textedit"
-import "../editview"
+import ui "../vendor/loom/loom"
 // A fix held between the offer and the pick. The Result its edits came from is
 // freed as soon as the handler returns (see manager_dispatch), so both the title
 // and the edits are cloned into Thor-owned storage the pick callback reads on a
 // later frame — the same reason the symbol picker clones its jump targets.
 Pending_Action :: struct {
-    title:        string, // owned
-    edits:        [dynamic]lang.Text_Edit, // owned
-    resource_ops: [dynamic]lang.Resource_Op, // owned
-    command:      string, // owned; "" unless the server runs this fix itself
-    arguments:    string, // owned; the command's arguments as raw JSON array text
-    prompt:         string, // owned; the label of the value the action asks for, "" when none
-    prompt_default: string, // owned
+    title:          string,                    // owned
+    edits:          [dynamic]lang.Text_Edit,   // owned
+    resource_ops:   [dynamic]lang.Resource_Op, // owned
+    command:        string,                    // owned; "" unless the server runs this fix itself
+    arguments:      string,                    // owned; the command's arguments as raw JSON array text
+    prompt:         string,                    // owned; the label of the value the action asks for, "" when none
+    prompt_default: string,                    // owned
 }
 
 // ctrl+shift+u: ask the engine what it can fix at the caret. Async; thor_show_code_actions
@@ -41,7 +41,7 @@ thor_code_actions :: proc(thor: ^Thor) {
     }
     source := textedit.text(&file.state)
     lo, hi := textedit.selection_range(textedit.primary_cursor(&file.state))
-    id := lang.manager_request_latest(
+    id     := lang.manager_request_latest(
         &thor.lang_manager,
         .Code_Actions,
         file.path,
@@ -76,12 +76,7 @@ overlapping_diagnostics :: proc(file: ^Open_File, lo, hi: int) -> []lang.Diagnos
         if d.start > hi || d.end < lo {
             continue
         }
-        append(&out, lang.Diagnostic_Ref{
-            start    = d.start,
-            end      = d.end,
-            severity = lang_severity(d.severity),
-            message  = d.message,
-        })
+        append(&out, lang.Diagnostic_Ref{start = d.start, end = d.end, severity = lang_severity(d.severity), message = d.message})
     }
     return out[:]
 }
@@ -91,10 +86,14 @@ overlapping_diagnostics :: proc(file: ^Open_File, lo, hi: int) -> []lang.Diagnos
 @(private = "file")
 lang_severity :: proc(severity: editview.Diagnostic_Severity) -> lang.Diagnostic_Severity {
     switch severity {
-    case .Error:   return .Error
-    case .Warning: return .Warning
-    case .Information: return .Information
-    case .Hint:    return .Hint
+    case .Error:
+        return .Error
+    case .Warning:
+        return .Warning
+    case .Information:
+        return .Information
+    case .Hint:
+        return .Hint
     }
     return .Error
 }
@@ -115,46 +114,44 @@ thor_show_code_actions :: proc(thor: ^Thor, res: ^lang.Result) {
     thor_clear_code_actions(thor)
     items := make([dynamic]Pick_Item, context.temp_allocator)
     for action in res.actions {
-        pending := Pending_Action {
-            title     = strings.clone(action.title),
-            command   = strings.clone(action.command),
+        pending := Pending_Action{
+            title = strings.clone(action.title),
+            command = strings.clone(action.command),
             arguments = strings.clone(action.arguments),
-            prompt         = strings.clone(action.prompt),
+            prompt = strings.clone(action.prompt),
             prompt_default = strings.clone(action.prompt_default),
         }
         for edit in action.edits {
-            append(&pending.edits, lang.Text_Edit {
-                path     = strings.clone(edit.path),
-                start    = edit.start,
-                end      = edit.end,
-                old_text = strings.clone(edit.old_text),
-                new_text = strings.clone(edit.new_text),
-            })
+            append(
+                &pending.edits,
+                lang.Text_Edit{
+                    path = strings.clone(edit.path),
+                    start = edit.start,
+                    end = edit.end,
+                    old_text = strings.clone(edit.old_text),
+                    new_text = strings.clone(edit.new_text),
+                },
+            )
         }
         for op in action.resource_ops {
-            append(&pending.resource_ops, lang.Resource_Op {
-                kind             = op.kind,
-                path             = strings.clone(op.path),
-                new_path         = strings.clone(op.new_path),
-                overwrite        = op.overwrite,
-                ignore_if_exists = op.ignore_if_exists,
-            })
+            append(
+                &pending.resource_ops,
+                lang.Resource_Op{
+                    kind = op.kind,
+                    path = strings.clone(op.path),
+                    new_path = strings.clone(op.new_path),
+                    overwrite = op.overwrite,
+                    ignore_if_exists = op.ignore_if_exists,
+                },
+            )
         }
         append(&thor.code_actions, pending)
-        append(&items, Pick_Item {
-            text     = action.title,
-            name_len = len(action.title),
-            color    = thor_action_color(thor, action.kind),
-            detail   = thor_action_detail(action),
-        })
+        append(
+            &items,
+            Pick_Item{text = action.title, name_len = len(action.title), color = thor_action_color(thor, action.kind), detail = thor_action_detail(action)},
+        )
     }
-    thor_palette_pick_rich(
-        thor,
-        "Code actions...",
-        items[:],
-        thor_pick_code_action,
-        thor,
-    )
+    thor_palette_pick_rich(thor, "Code actions...", items[:], thor_pick_code_action, thor)
 }
 
 // Applies the chosen fix. The buffer may have moved since the offer — the user
@@ -167,7 +164,7 @@ thor_show_code_actions :: proc(thor: ^Thor, res: ^lang.Result) {
 // there.
 @(private = "file")
 thor_pick_code_action :: proc(data: rawptr, index: int) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if index < 0 || index >= len(thor.code_actions) {
         return
     }
@@ -178,13 +175,7 @@ thor_pick_code_action :: proc(data: rawptr, index: int) {
         return
     }
     if len(action.edits) > 0 || len(action.resource_ops) > 0 {
-        applied, _, ok, reason := thor_apply_edits(
-            thor,
-            action.edits[:],
-            thor.code_action_path,
-            thor.code_action_revision,
-            action.resource_ops[:],
-        )
+        applied, _, ok, reason := thor_apply_edits(thor, action.edits[:], thor.code_action_path, thor.code_action_revision, action.resource_ops[:])
         if !ok {
             verb := applied > 0 ? "incomplete" : "aborted"
             thor_flash_status(thor, fmt.tprintf("%s %s: %s", action.title, verb, reason), is_error = true)
@@ -201,7 +192,7 @@ thor_pick_code_action :: proc(data: rawptr, index: int) {
 // The buffer must still be at the revision the offer was made at.
 @(private = "file")
 thor_confirm_action_prompt :: proc(data: rawptr, input: string) {
-    thor := cast(^Thor) data
+    thor  := cast(^Thor)data
     index := thor.code_action_prompted
     thor.code_action_prompted = -1
     answer := strings.trim_space(input)
@@ -209,7 +200,7 @@ thor_confirm_action_prompt :: proc(data: rawptr, input: string) {
         return
     }
     action := thor.code_actions[index]
-    file := thor_active_open_file(thor)
+    file   := thor_active_open_file(thor)
     if file == nil || !file.loaded || !thor_same_path(file.path, thor.code_action_path) {
         return
     }

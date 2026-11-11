@@ -58,7 +58,7 @@ layout_seq :: proc(fields: ..Layout) -> (l: Layout, ok: bool) {
 
 // The layout of a basic type for `target`; false when not known.
 basic_layout :: proc(kind: Basic_Kind, target: Target) -> (Layout, bool) {
-    ptr := type_size("rawptr", target)
+    ptr  := type_size("rawptr", target)
     word := type_size("int", target)
     if ptr <= 0 || word <= 0 {
         return {}, false
@@ -116,8 +116,8 @@ layout_of :: proc(c: ^Checker, t: Type_Id) -> (Layout, bool) {
 @(private = "file")
 layout_uncached :: proc(c: ^Checker, base: Type_Id) -> (l: Layout, ok: bool) {
     target := c.snap.target
-    ptr := type_size("rawptr", target)
-    word := type_size("int", target)
+    ptr    := type_size("rawptr", target)
+    word   := type_size("int", target)
     if ptr <= 0 || word <= 0 {
         return {}, false
     }
@@ -141,7 +141,7 @@ layout_uncached :: proc(c: ^Checker, base: Type_Id) -> (l: Layout, ok: bool) {
         return {v.len * elem.size, elem.align}, true
     case Enumerated_Array_Type:
         lo, hi := enum_range(c, v.index) or_return
-        elem := layout_of(c, v.elem) or_return
+        elem   := layout_of(c, v.elem) or_return
         return {(hi - lo + 1) * elem.size, elem.align}, true
     case Enum_Type:
         if v.backing == INVALID_TYPE {
@@ -163,7 +163,7 @@ layout_uncached :: proc(c: ^Checker, base: Type_Id) -> (l: Layout, ok: bool) {
         if v.len < 0 {
             return {}, false
         }
-        size := v.len * elem.size
+        size  := v.len * elem.size
         align := max(size, 1)
         if limit := max_simd_align(target); limit > 0 {
             align = min(align, limit)
@@ -221,12 +221,18 @@ bit_set_layout :: proc(c: ^Checker, b: Bit_Set_Type) -> (l: Layout, ok: bool) {
     }
     bits := hi - lo + 1
     switch {
-    case bits <= 0:   return {}, false
-    case bits <= 8:   return {1, 1}, true
-    case bits <= 16:  return {2, 2}, true
-    case bits <= 32:  return {4, 4}, true
-    case bits <= 64:  return {8, 8}, true
-    case bits <= 128: return {16, 16}, true
+    case bits <= 0:
+        return {}, false
+    case bits <= 8:
+        return {1, 1}, true
+    case bits <= 16:
+        return {2, 2}, true
+    case bits <= 32:
+        return {4, 4}, true
+    case bits <= 64:
+        return {8, 8}, true
+    case bits <= 128:
+        return {16, 16}, true
     }
     return {}, false
 }
@@ -262,7 +268,7 @@ soa_layout :: proc(c: ^Checker, s: Soa_Type, word: i64, allocator: Layout) -> (l
         }
         types = elems
     }
-    ptr := type_size("rawptr", c.snap.target)
+    ptr    := type_size("rawptr", c.snap.target)
     fields := make([dynamic]Layout, 0, len(types) + 4, c.tmp)
     for type in types {
         l := layout_of(c, type) or_return
@@ -302,7 +308,7 @@ struct_layout :: proc(c: ^Checker, s: Struct_Type, offsets: []i64) -> (layout: L
     }
     end, align := i64(0), i64(1)
     for f, i in s.fields {
-        l := layout_of(c, f.type) or_return
+        l           := layout_of(c, f.type) or_return
         field_align := l.align
         if .Packed in s.flags {
             field_align = 1
@@ -365,8 +371,10 @@ union_layout :: proc(c: ^Checker, u: Union_Type) -> (layout: Layout, ok: bool) {
     }
     count_bytes := i64(1)
     switch {
-    case len(u.variants) >= 1 << 16: count_bytes = 4
-    case len(u.variants) >= 1 << 8:  count_bytes = 2
+    case len(u.variants) >= 1 << 16:
+        count_bytes = 4
+    case len(u.variants) >= 1 << 8:
+        count_bytes = 2
     }
     tag := min(max(count_bytes, align), 8)
     if u.align > 0 {

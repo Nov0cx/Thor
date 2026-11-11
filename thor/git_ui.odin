@@ -28,7 +28,7 @@ thor_cmd_open_git_branches :: proc(data: rawptr) {
 
 // Opens the git Settings view and runs `git lfs pull` there.
 thor_cmd_git_lfs_pull :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if thor_cmd_open_git_kind(data, .Settings) {
         thor_on_git_lfs(thor, .Pull)
     }
@@ -36,7 +36,7 @@ thor_cmd_git_lfs_pull :: proc(data: rawptr) {
 
 // Opens the git Settings view and asks for a pattern to `git lfs track`.
 thor_cmd_git_lfs_track :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if thor_cmd_open_git_kind(data, .Settings) {
         thor_on_git_lfs(thor, .Track)
     }
@@ -44,7 +44,7 @@ thor_cmd_git_lfs_track :: proc(data: rawptr) {
 
 @(private = "file")
 thor_cmd_open_git_kind :: proc(data: rawptr, kind: Git_View_Kind) -> bool {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if thor.git_prefix == "" {
         thor_flash_status(thor, "Not a git repository", is_error = true)
         return false
@@ -109,49 +109,53 @@ thor_git_view_reset :: proc(thor: ^Thor) {
 }
 
 thor_on_git_view_changed :: proc(data: rawptr, kind: Git_View_Kind) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_git_populate_view(thor, kind)
 }
 
 thor_on_git_select_commit :: proc(data: rawptr, hash: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor.git_diff_serial += 1 // handled inside thor_git_op, but a Commit_Show may race a Diff_File
     thor_git_op(thor, .Commit_Show, hash)
 }
 
 thor_on_git_load_more :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor.git_log_count += GIT_LOG_PAGE
     thor_git_request_log(thor)
 }
 
 thor_on_git_checkout :: proc(data: rawptr, kind: Git_Ref_Kind, name: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     // A dirty-tree checkout is left to git: it refuses rather than losing
     // work, and the refusal lands in the status line.
-    op := kind == .Remote ? Git_Op.Checkout_Remote : Git_Op.Checkout
+    op   := kind == .Remote ? Git_Op.Checkout_Remote : Git_Op.Checkout
     thor_git_start_mutation(thor, op, name)
 }
 
 thor_on_git_stash :: proc(data: rawptr, op: Git_Stash_Op, name: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     git_op: Git_Op
     switch op {
-    case .Save:  git_op = .Stash_Save
-    case .Apply: git_op = .Stash_Apply
-    case .Pop:   git_op = .Stash_Pop
-    case .Drop:  git_op = .Stash_Drop
+    case .Save:
+        git_op = .Stash_Save
+    case .Apply:
+        git_op = .Stash_Apply
+    case .Pop:
+        git_op = .Stash_Pop
+    case .Drop:
+        git_op = .Stash_Drop
     }
     thor_git_start_mutation(thor, git_op, name)
 }
 
 thor_on_git_config_set :: proc(data: rawptr, global: bool, key, value: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_git_start_mutation(thor, .Config_Set, key, value, global)
 }
 
 thor_on_git_hosting :: proc(data: rawptr, action: Git_Hosting_Action, arg, arg2: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     switch action {
     case .Open_Repo:
         thor_git_open_host_page(thor, git_host_repo_url(thor.git_host))
@@ -212,22 +216,17 @@ thor_git_host_cli :: proc(thor: ^Thor) -> string {
 // Discard is the one destructive action, so it goes through the palette's
 // yes/no confirm; the path and prompt live on Thor until the answer.
 thor_on_git_discard :: proc(data: rawptr, path: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     delete(thor.git_discard_path)
     thor.git_discard_path = strings.clone(path)
     delete(thor.git_discard_prompt)
     thor.git_discard_prompt = strings.clone(fmt.tprintf("Discard changes in %s?", path))
-    thor_palette_confirm(
-        thor,
-        thor.git_discard_prompt,
-        thor_git_discard_confirmed,
-        thor,
-    )
+    thor_palette_confirm(thor, thor.git_discard_prompt, thor_git_discard_confirmed, thor)
 }
 
 @(private = "file")
 thor_git_discard_confirmed :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if thor.git_discard_path == "" {
         return
     }
@@ -248,23 +247,18 @@ thor_git_discard_confirmed :: proc(data: rawptr) {
 }
 
 thor_on_git_lfs :: proc(data: rawptr, op: Git_Lfs_Op) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     switch op {
     case .Pull:
         thor_git_start_mutation(thor, .Lfs_Pull)
     case .Track:
-        thor_palette_prompt(
-        thor,
-        "Pattern to track (e.g. *.png)",
-        thor_git_lfs_track_submitted,
-        thor,
-    )
+        thor_palette_prompt(thor, "Pattern to track (e.g. *.png)", thor_git_lfs_track_submitted, thor)
     }
 }
 
 @(private = "file")
 thor_git_lfs_track_submitted :: proc(data: rawptr, text: string) {
-    thor := cast(^Thor) data
+    thor    := cast(^Thor)data
     pattern := strings.trim_space(text)
     if pattern == "" {
         return
@@ -273,7 +267,7 @@ thor_git_lfs_track_submitted :: proc(data: rawptr, text: string) {
 }
 
 thor_on_git_stage :: proc(data: rawptr, path: string, stage: bool) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     op: Git_Op
     if path == "" {
         op = stage ? Git_Op.Stage_All : Git_Op.Unstage_All
@@ -284,22 +278,25 @@ thor_on_git_stage :: proc(data: rawptr, path: string, stage: bool) {
 }
 
 thor_on_git_select_file :: proc(data: rawptr, path: string, staged: bool) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_git_request_diff(thor, path, staged)
 }
 
 thor_on_git_commit :: proc(data: rawptr, subject, description: string, amend: bool) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_git_start_mutation(thor, .Commit, subject, description, amend)
 }
 
 thor_on_git_sync :: proc(data: rawptr, op: Git_Sync_Op) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     git_op: Git_Op
     switch op {
-    case .Fetch: git_op = .Fetch
-    case .Pull:  git_op = .Pull
-    case .Push:  git_op = .Push
+    case .Fetch:
+        git_op = .Fetch
+    case .Pull:
+        git_op = .Pull
+    case .Push:
+        git_op = .Push
     }
     thor_git_start_mutation(thor, git_op)
 }
@@ -332,8 +329,8 @@ thor_git_request_diff :: proc(thor: ^Thor, path: string, staged: bool) {
 
 @(private = "file")
 thor_git_show_untracked :: proc(thor: ^Thor, path: string) {
-    view := &thor.git
-    abs := git_path(thor, path)
+    view           := &thor.git
+    abs            := git_path(thor, path)
     data, read_err := os.read_entire_file(abs, context.temp_allocator)
     if read_err != nil || len(data) > GIT_UNTRACKED_PREVIEW_MAX {
         thor_git_view_set_diff(view, path, make([dynamic]Git_Diff_Row))
@@ -348,13 +345,13 @@ thor_git_show_untracked :: proc(thor: ^Thor, path: string) {
         return
     }
     line_number := 1
-    it := string(data)
+    it          := string(data)
     for raw in strings.split_lines_iterator(&it) {
         if len(rows) >= GIT_DIFF_MAX_ROWS {
             append(&rows, Git_Diff_Row{.Meta, 0, 0, strings.clone("diff truncated")})
             break
         }
-        line := strings.trim_suffix(raw, "\r")
+        line                     := strings.trim_suffix(raw, "\r")
         expanded, was_allocation := strings.replace_all(line, "\t", "    ")
         if !was_allocation {
             expanded = strings.clone(line)
@@ -373,13 +370,13 @@ thor_git_push_snapshot :: proc(thor: ^Thor, job: ^Git_Op_Job) {
         return
     }
 
-    branch := git_snapshot_branch(job, context.temp_allocator)
+    branch  := git_snapshot_branch(job, context.temp_allocator)
     display := branch
     if display == "" {
         display = "(no commits yet)"
     }
     ahead, behind, upstream_ok := git_parse_upstream_counts(job.aux[2])
-    has_upstream := job.aux_codes[2] == 0 && upstream_ok
+    has_upstream               := job.aux_codes[2] == 0 && upstream_ok
     thor_git_view_set_header(view, display, ahead, behind, has_upstream)
 
     entries := make([dynamic]Git_File_Entry)
@@ -452,7 +449,7 @@ thor_git_push_refs :: proc(thor: ^Thor, job: ^Git_Op_Job) {
         thor_git_view_add_ref(view, .Tag, name, "", false)
     }
 
-    ids := make([dynamic]string)
+    ids      := make([dynamic]string)
     subjects := make([dynamic]string)
     defer {
         for id in ids {
@@ -481,9 +478,15 @@ clear_names :: proc(names: ^[dynamic]string) {
 // The keys the settings view always lists, set or not; the rest of the
 // config follows in git's own order.
 @(private = "file")
-GIT_CURATED_CONFIG := [?]string {
-    "user.name", "user.email", "pull.rebase", "fetch.prune",
-    "push.autoSetupRemote", "core.autocrlf", "commit.gpgsign", "init.defaultBranch",
+GIT_CURATED_CONFIG := [?]string{
+    "user.name",
+    "user.email",
+    "pull.rebase",
+    "fetch.prune",
+    "push.autoSetupRemote",
+    "core.autocrlf",
+    "commit.gpgsign",
+    "init.defaultBranch",
 }
 
 thor_git_push_config :: proc(thor: ^Thor, job: ^Git_Op_Job) {
@@ -493,13 +496,13 @@ thor_git_push_config :: proc(thor: ^Thor, job: ^Git_Op_Job) {
     }
     thor_git_view_clear_config(view)
 
-    for global in ([2]bool {false, true}) {
+    for global in ([2]bool{false, true}) {
         entries := make([dynamic]Git_Config_Entry)
         defer git_config_entries_destroy(&entries)
         git_parse_config_z(global ? job.aux[0] : job.output, &entries)
 
         for curated in GIT_CURATED_CONFIG {
-            value := ""
+            value  := ""
             is_set := false
             for entry in entries {
                 if entry.key == curated {
@@ -544,7 +547,7 @@ thor_git_apply_lfs_probe :: proc(thor: ^Thor, job: ^Git_Op_Job) {
         return
     }
     available := job.ok && job.code == 0
-    version := ""
+    version   := ""
     if available {
         version = git_first_line(job.output)
         if space := strings.index_byte(version, ' '); space > 0 {
@@ -553,7 +556,7 @@ thor_git_apply_lfs_probe :: proc(thor: ^Thor, job: ^Git_Op_Job) {
     }
 
     patterns := make([dynamic]string)
-    files := make([dynamic]string)
+    files    := make([dynamic]string)
     defer {
         for pattern in patterns {
             delete(pattern)
@@ -587,7 +590,7 @@ thor_git_update_hosting_card :: proc(thor: ^Thor) {
         return
     }
     label := ""
-    icon := "world-www"
+    icon  := "world-www"
     switch thor.git_host.kind {
     case .None:
     case .GitHub:
@@ -692,23 +695,40 @@ thor_git_finish_mutation :: proc(thor: ^Thor, job: ^Git_Op_Job) {
 @(private = "file")
 git_op_done_label :: proc(op: Git_Op) -> string {
     switch op {
-    case .Stage, .Stage_All:     return "Staged"
-    case .Unstage, .Unstage_All: return "Unstaged"
-    case .Discard:               return "Discarded"
-    case .Commit:                return "Committed"
-    case .Fetch:                 return "Fetched"
-    case .Pull:                  return "Pulled"
-    case .Push:                  return "Pushed"
-    case .Checkout, .Checkout_Remote: return "Checked out"
-    case .Stash_Save:            return "Stashed"
-    case .Stash_Apply:           return "Stash applied"
-    case .Stash_Pop:             return "Stash popped"
-    case .Stash_Drop:            return "Stash dropped"
-    case .Config_Set:            return "Saved"
-    case .PR_Create:             return "Pull request created"
-    case .Clone:                 return "Cloned"
-    case .Lfs_Pull:              return "LFS objects pulled"
-    case .Lfs_Track:             return "Pattern tracked"
+    case .Stage, .Stage_All:
+        return "Staged"
+    case .Unstage, .Unstage_All:
+        return "Unstaged"
+    case .Discard:
+        return "Discarded"
+    case .Commit:
+        return "Committed"
+    case .Fetch:
+        return "Fetched"
+    case .Pull:
+        return "Pulled"
+    case .Push:
+        return "Pushed"
+    case .Checkout, .Checkout_Remote:
+        return "Checked out"
+    case .Stash_Save:
+        return "Stashed"
+    case .Stash_Apply:
+        return "Stash applied"
+    case .Stash_Pop:
+        return "Stash popped"
+    case .Stash_Drop:
+        return "Stash dropped"
+    case .Config_Set:
+        return "Saved"
+    case .PR_Create:
+        return "Pull request created"
+    case .Clone:
+        return "Cloned"
+    case .Lfs_Pull:
+        return "LFS objects pulled"
+    case .Lfs_Track:
+        return "Pattern tracked"
     case .Snapshot, .Diff_File, .Log, .Commit_Show, .Refs, .Config_List, .Remote_Url, .CLI_Probe, .PR_List, .Lfs_Probe:
         return ""
     }

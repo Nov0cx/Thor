@@ -9,14 +9,7 @@ import lang ".."
 // Runs a Hover request at the first occurrence of `needle` in `source`, plus `skip` bytes.
 @(private = "file")
 hover_at :: proc(e: ^Engine, source, needle: string, skip := 0, workspace := "", path := "buffer.odin") -> lang.Result {
-    req := lang.Request {
-        kind      = .Hover,
-        path      = path,
-        ext       = ".odin",
-        source    = source,
-        offset    = strings.index(source, needle) + skip,
-        workspace = workspace,
-    }
+    req := lang.Request{kind = .Hover, path = path, ext = ".odin", source = source, offset = strings.index(source, needle) + skip, workspace = workspace}
     res := lang.Result{kind = .Hover}
     resolve(e, &req, &res)
     return res
@@ -33,8 +26,17 @@ expect_hover :: proc(t: ^testing.T, e: ^Engine, src, needle, want: string, skip 
     testing.expectf(t, res.hover.text == want, "%q: got %q, want %q", needle, res.hover.text, want, loc = loc)
     if name != "" {
         start := strings.index(src, needle) + skip
-        testing.expectf(t, res.hover.start == start && res.hover.end == start + len(name),
-            "%q: range got [%d, %d), want [%d, %d)", needle, res.hover.start, res.hover.end, start, start + len(name), loc = loc)
+        testing.expectf(
+            t,
+            res.hover.start == start && res.hover.end == start + len(name),
+            "%q: range got [%d, %d), want [%d, %d)",
+            needle,
+            res.hover.start,
+            res.hover.end,
+            start,
+            start + len(name),
+            loc = loc,
+        )
     }
 }
 
@@ -107,7 +109,14 @@ test_hover_types :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    expect_hover(t, e, HOVER_SRC, "Point :: struct", "@(private)\nPoint :: struct {\n    x, y: int,\n    label: string,\n}\n// size 32, align 8", name = "Point")
+    expect_hover(
+        t,
+        e,
+        HOVER_SRC,
+        "Point :: struct",
+        "@(private)\nPoint :: struct {\n    x, y: int,\n    label: string,\n}\n// size 32, align 8",
+        name = "Point",
+    )
     expect_hover(t, e, HOVER_SRC, "Shape ::", "Shape :: union {\n    Point,\n    int,\n}\n// size 40, align 8", name = "Shape")
     expect_hover(t, e, HOVER_SRC, "Color ::", "Color :: enum {\n    Red,\n    Green = 5,\n    Blue,\n}\n// size 8, align 8", name = "Color")
 }
@@ -157,9 +166,9 @@ test_hover_packages :: proc(t: ^testing.T) {
     defer engine_destroy(e)
 
     lib_src := "package lib\n\n// Adds two numbers.\nadd :: proc(a, b: int) -> int {\n\treturn a + b\n}\n"
-    root := fixture(t, "hover_packages", {{"lib/lib.odin", lib_src}})
+    root    := fixture(t, "hover_packages", {{"lib/lib.odin", lib_src}})
     defer os.remove_all(root)
-    main_src := "package app\n\nimport mylib \"lib\"\n\nmain :: proc() {\n\t_ = mylib.add(1, 2)\n}\n"
+    main_src  := "package app\n\nimport mylib \"lib\"\n\nmain :: proc() {\n\t_ = mylib.add(1, 2)\n}\n"
     main_path := fixture_path(root, "main.odin")
 
     res := hover_at(e, main_src, "mylib.add", workspace = root, path = main_path)
@@ -203,7 +212,7 @@ test_hover_disabled :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    src := "package app\n\nN :: 3\n"
+    src  := "package app\n\nN :: 3\n"
     root := fixture(t, "hover_disabled", {{".thor/odin-analyzer.lua", `return { enable_hover = false }`}})
     defer os.remove_all(root)
     res := hover_at(e, src, "N ::", workspace = root, path = fixture_path(root, "main.odin"))
@@ -233,7 +242,10 @@ test_hover_big_and_local :: proc(t: ^testing.T) {
         }
     }
     strings.write_string(&want, "    ...\n}\n// size 160, align 8")
-    strings.write_string(&sb, "}\n\nmain :: proc() {\n\tLocal :: struct { a: int }\n\thelp :: proc(n: int) -> bool { return n > 0 }\n\tl: Local\n\t_ = help(l.a)\n}\n")
+    strings.write_string(
+        &sb,
+        "}\n\nmain :: proc() {\n\tLocal :: struct { a: int }\n\thelp :: proc(n: int) -> bool { return n > 0 }\n\tl: Local\n\t_ = help(l.a)\n}\n",
+    )
     src := strings.to_string(sb)
 
     expect_hover(t, e, src, "Big ::", strings.to_string(want), name = "Big")

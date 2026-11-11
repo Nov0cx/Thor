@@ -254,7 +254,7 @@ ext_install_release :: proc(target: Ext_Target, found: Ext_Result, agent: string
     if !has_host {
         return .No_Asset
     }
-    archive := target_archive(host)
+    archive          := target_archive(host)
     tools, has_tools := tools_detect(archive, cancel)
     if cancelled(cancel) {
         return .Cancelled
@@ -299,7 +299,7 @@ ext_install_release :: proc(target: Ext_Target, found: Ext_Result, agent: string
         return .Install_Failed
     }
 
-    name := filepath.base(target.path)
+    name   := filepath.base(target.path)
     parent := filepath.dir(target.path)
     if !os.is_dir(target.path) {
         return ext_replace_file(root, name, target.path)
@@ -363,7 +363,7 @@ ext_replace_file :: proc(root: string, name: string, live: string) -> Status {
 // names could not be carried.
 carry_held :: proc(install: string, staged: string, names: []string) -> (failed: int) {
     for name in names {
-        live, lerr := filepath.join({install, name}, context.temp_allocator)
+        live, lerr  := filepath.join({install, name}, context.temp_allocator)
         fresh, ferr := filepath.join({staged, name}, context.temp_allocator)
         if lerr != nil || ferr != nil {
             failed += 1
@@ -408,7 +408,7 @@ copy_tree :: proc(dst: string, src: string) -> os.Error {
     entries := os.read_all_directory_by_path(src, context.temp_allocator) or_return
     for entry in entries {
         from := filepath.join({src, entry.name}, context.temp_allocator) or_return
-        to := filepath.join({dst, entry.name}, context.temp_allocator) or_return
+        to   := filepath.join({dst, entry.name}, context.temp_allocator) or_return
         if entry.type == .Directory {
             copy_tree(to, from) or_return
         } else {

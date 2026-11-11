@@ -30,8 +30,7 @@ watch_stop :: proc(w: ^Watcher) {
 }
 
 @(private)
-watch_release :: proc(w: ^Watcher) {
-}
+watch_release :: proc(w: ^Watcher) {}
 
 @(private)
 watch_worker :: proc(w: ^Watcher) {

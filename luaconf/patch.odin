@@ -80,7 +80,7 @@ long_bracket_end :: proc(src: string, i, level: int) -> int {
 @(private)
 tokenize :: proc(src: string) -> [dynamic]Token {
     tokens := make([dynamic]Token, context.temp_allocator)
-    i := 0
+    i      := 0
     for i < len(src) {
         c := src[i]
         switch {
@@ -200,15 +200,15 @@ Field :: struct {
     key:         string, // "" for a list entry or a computed key
     first:       int,    // first token of the field
     value_start: int,
-    value_end:   int,    // last token of the value, inclusive
-    sep:         int,    // the ',' or ';' after it, -1 when none
+    value_end:   int, // last token of the value, inclusive
+    sep:         int, // the ',' or ';' after it, -1 when none
 }
 
 // The fields of the constructor between tokens[open] ("{") and tokens[close] ("}").
 @(private)
 fields_of :: proc(src: string, tokens: []Token, open, close: int) -> [dynamic]Field {
     fields := make([dynamic]Field, context.temp_allocator)
-    i := open + 1
+    i      := open + 1
     for i < close {
         f := Field{first = i, sep = -1}
         t := tokens[i]
@@ -255,7 +255,7 @@ unquote :: proc(lit: string) -> string {
     }
     if lit[0] == '[' {
         level, _ := long_bracket(lit, 0)
-        body := lit[level + 2:max(level + 2, len(lit) - level - 2)]
+        body     := lit[level + 2:max(level + 2, len(lit) - level - 2)]
         return strings.trim_prefix(body, "\n")
     }
     body := lit[1:len(lit) - 1]
@@ -319,7 +319,7 @@ line_indent :: proc(src: string, at: int) -> string {
 @(private)
 insertion :: proc(src: string, tokens: []Token, fields: []Field, close: int, entry: string) -> (at: int, text: string) {
     closing_indent := line_indent(src, tokens[close].start)
-    b := strings.builder_make(context.temp_allocator)
+    b              := strings.builder_make(context.temp_allocator)
     if len(fields) == 0 {
         // The constructor is empty: "{}" or "{\n}".
         at = tokens[close - 1].end
@@ -335,7 +335,7 @@ insertion :: proc(src: string, tokens: []Token, fields: []Field, close: int, ent
         }
         return at, strings.to_string(b)
     }
-    last := fields[len(fields) - 1]
+    last   := fields[len(fields) - 1]
     indent := line_indent(src, tokens[last.first].start)
     if line_indent_is_shared(src, tokens[last.first].start, tokens[close].start) {
         // One-line table: "{ a = 1 }".
@@ -431,7 +431,7 @@ edit_file :: proc(path: string, keys: []string, value: json.Value, mode: Edit_Mo
     if !make_parent(path) {
         return .Write_Failed
     }
-    if werr := atomicfile.write(path, transmute([]byte) out); werr != nil {
+    if werr := atomicfile.write(path, transmute([]byte)out); werr != nil {
         log.errorf("Cannot write config %q: %v", path, werr)
         return .Write_Failed
     }
@@ -446,7 +446,7 @@ ensure_file :: proc(path: string) -> bool {
     if !make_parent(path) {
         return false
     }
-    if err := atomicfile.write(path, transmute([]byte) string(EMPTY_FILE)); err != nil {
+    if err := atomicfile.write(path, transmute([]byte)string(EMPTY_FILE)); err != nil {
         log.errorf("Cannot write config %q: %v", path, err)
         return false
     }
@@ -458,7 +458,7 @@ write_file :: proc(path, text: string) -> bool {
     if !make_parent(path) {
         return false
     }
-    if err := atomicfile.write(path, transmute([]byte) text); err != nil {
+    if err := atomicfile.write(path, transmute([]byte)text); err != nil {
         log.errorf("Cannot write config %q: %v", path, err)
         return false
     }
@@ -491,7 +491,7 @@ edit_text :: proc(src: string, keys: []string, value: json.Value, mode: Edit_Mod
     }
 
     tokens := tokenize(src)
-    open := root_table(src, tokens[:])
+    open   := root_table(src, tokens[:])
     if open < 0 {
         return "", .Computed
     }
@@ -502,7 +502,7 @@ edit_text :: proc(src: string, keys: []string, value: json.Value, mode: Edit_Mod
     replace_start, replace_end := -1, -1
     for level < len(keys) {
         fields := fields_of(src, tokens[:], open, close)
-        found := -1
+        found  := -1
         for f, i in fields {
             if f.key == keys[level] {
                 found = i
@@ -511,7 +511,7 @@ edit_text :: proc(src: string, keys: []string, value: json.Value, mode: Edit_Mod
         if found < 0 {
             break
         }
-        f := fields[found]
+        f        := fields[found]
         is_table := token_text(src, tokens[f.value_start]) == "{" && matching(src, tokens[:], f.value_start) == f.value_end
         if level == len(keys) - 1 && mode == .Set {
             replace_start, replace_end = f.value_start, f.value_end
@@ -540,7 +540,7 @@ edit_text :: proc(src: string, keys: []string, value: json.Value, mode: Edit_Mod
         // Build what is missing from keys[level:] inward, then insert it into
         // the constructor at open/close.
         fields := fields_of(src, tokens[:], open, close)
-        depth := indent_level(src, tokens[close].start) + 1
+        depth  := indent_level(src, tokens[close].start) + 1
         if len(fields) > 0 {
             depth = indent_level(src, tokens[fields[len(fields) - 1].first].start)
         }
@@ -588,7 +588,7 @@ edit_text :: proc(src: string, keys: []string, value: json.Value, mode: Edit_Mod
         }
     } else {
         arr, is_arr := want.(json.Array)
-        prev_len := 0
+        prev_len    := 0
         if prev, prev_ok := lookup(before, keys).(json.Array); prev_ok {
             prev_len = len(prev)
         }

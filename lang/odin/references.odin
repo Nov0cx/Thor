@@ -18,18 +18,18 @@ import odinsyntax "syntax"
 // One search for the identifiers that name a target.
 @(private = "file")
 Ref_Scan :: struct {
-    ctx:       ^Request_Context,
-    target:    Ref_Target,
-    with_decl: bool,
-    dir_key:   string, // path_key of target.dir
-    decl_key:  string, // path_key of target.path; "" for a buffer with no file
-    checker:   ^odinsema.Checker,    // borrowed from the request; nil when it does not start
-    hits:      [dynamic]lang.Symbol, // owned; strings in context.allocator
-    bound:     map[string]bool,      // owned; Builtin: whether the package of a directory key binds the name
-    visit:     Ref_Visit,            // nil when no caller reads the files
+    ctx:        ^Request_Context,
+    target:     Ref_Target,
+    with_decl:  bool,
+    dir_key:    string,               // path_key of target.dir
+    decl_key:   string,               // path_key of target.path; "" for a buffer with no file
+    checker:    ^odinsema.Checker,    // borrowed from the request; nil when it does not start
+    hits:       [dynamic]lang.Symbol, // owned; strings in context.allocator
+    bound:      map[string]bool,      // owned; Builtin: whether the package of a directory key binds the name
+    visit:      Ref_Visit,            // nil when no caller reads the files
     visit_data: rawptr,
-    stopped:   bool,                 // `visit` gave false
-    batch:     ^Batch_Count,         // set by count_references; files then add to its counts only
+    stopped:    bool,         // `visit` gave false
+    batch:      ^Batch_Count, // set by count_references; files then add to its counts only
 }
 
 // Which files of a batch count a target: its buffer, the files of its package, or an importer.
@@ -67,7 +67,7 @@ Ref_Visit :: #type proc(data: rawptr, f: Ref_File) -> bool
 // Calls `visit` for each file with a hit of `target`. False when the request is cancelled or `visit` stops it.
 @(private)
 visit_references :: proc(ctx: ^Request_Context, target: Ref_Target, with_decl: bool, visit: Ref_Visit, data: rawptr) -> bool {
-    s := Ref_Scan{ctx = ctx, target = target, with_decl = with_decl, visit = visit, visit_data = data}
+    s  := Ref_Scan{ctx = ctx, target = target, with_decl = with_decl, visit = visit, visit_data = data}
     ok := scan(&s)
     hits_free(s.hits[:])
     delete(s.hits)
@@ -101,7 +101,7 @@ count_references :: proc(ctx: ^Request_Context, targets: []Ref_Target, counts: [
         s.dir_key = odinsema.path_key(targets[0].dir)
     }
     live := live_scan_file(ctx)
-    req := ctx.req
+    req  := ctx.req
     b.reach = .Buffer
     scan_file(&s, &live)
     // A buffer with no file or outside a workspace stands alone, as in definition.
@@ -203,10 +203,10 @@ rename :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     }
     defer delete(s.hits)
     for &hit in s.hits {
-        edit := lang.Text_Edit {
-            path     = hit.path,
-            start    = hit.offset,
-            end      = hit.offset + len(target.name),
+        edit := lang.Text_Edit{
+            path = hit.path,
+            start = hit.offset,
+            end = hit.offset + len(target.name),
             old_text = strings.clone(target.name),
             new_text = strings.clone(req.new_name),
         }
@@ -252,7 +252,7 @@ document_highlight :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
         }
         delete(s.bound)
     }
-    live := live_scan_file(&ctx)
+    live   := live_scan_file(&ctx)
     m, err := odinsema.scope_map(ctx.parsed)
     if err != nil {
         return
@@ -273,11 +273,7 @@ document_highlight :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
             continue
         }
         end := ref.end > ref.start ? ref.end : ref.start + len(ref.name)
-        append(&res.highlights, lang.Document_Highlight {
-            start = ref.start,
-            end   = end,
-            kind  = is_decl || ref.is_decl || ref.is_store ? .Write : .Read,
-        })
+        append(&res.highlights, lang.Document_Highlight{start = ref.start, end = end, kind = is_decl || ref.is_decl || ref.is_store ? .Write : .Read})
     }
     slice.sort_by(res.highlights[:], proc(a, b: lang.Document_Highlight) -> bool {
         return a.start < b.start
@@ -311,7 +307,7 @@ rename_allowed :: proc(ctx: ^Request_Context, target: Ref_Target) -> bool {
         return false
     }
     root := strings.trim_right(odinsema.path_key(ctx.req.workspace), "/")
-    key := odinsema.path_key(target.path)
+    key  := odinsema.path_key(target.path)
     return key == root || strings.has_prefix(key, strings.concatenate({root, "/"}, context.temp_allocator))
 }
 
@@ -361,16 +357,16 @@ scan :: proc(s: ^Ref_Scan) -> bool {
 @(private = "file")
 live_scan_file :: proc(ctx: ^Request_Context) -> Scan_File {
     dir := live_dir(ctx)
-    return Scan_File {
-        id      = ctx.live.id,
-        path    = ctx.req.path,
-        key     = ctx.live.key,
-        dir     = dir,
+    return Scan_File{
+        id = ctx.live.id,
+        path = ctx.req.path,
+        key = ctx.live.key,
+        dir = dir,
         dir_key = ctx.live.dir_key,
-        source  = ctx.req.source,
-        parsed  = ctx.parsed,
-        tree    = ctx.live.tree,
-        lines   = ctx.live.lines,
+        source = ctx.req.source,
+        parsed = ctx.parsed,
+        tree = ctx.live.tree,
+        lines = ctx.live.lines,
     }
 }
 
@@ -459,9 +455,9 @@ workspace_files :: proc(s: ^Ref_Scan) -> []odinsema.File_Id {
 // The workspace files outside the target's package that import it, sorted by path.
 @(private = "file")
 workspace_importers :: proc(s: ^Ref_Scan) -> []odinsema.File_Id {
-    ctx := s.ctx
+    ctx  := s.ctx
     snap := &ctx.snap
-    out := make([dynamic]odinsema.File_Id, context.temp_allocator)
+    out  := make([dynamic]odinsema.File_Id, context.temp_allocator)
     for id in odinsema.db_workspace(snap, ctx.req.workspace) {
         if lang.request_cancelled(ctx.req) {
             break
@@ -522,17 +518,17 @@ scan_disk_file :: proc(s: ^Ref_Scan, id: odinsema.File_Id) {
         return
     }
     path := odinsema.db_file_path(snap, id)
-    dir := filepath.dir(path)
-    f := Scan_File {
-        id      = id,
-        path    = path,
-        key     = odinsema.db_file_key(snap, id),
-        dir     = dir,
+    dir  := filepath.dir(path)
+    f    := Scan_File{
+        id = id,
+        path = path,
+        key = odinsema.db_file_key(snap, id),
+        dir = dir,
         dir_key = odinsema.path_key(dir),
-        source  = parsed.tree.text,
-        parsed  = parsed^,
-        tree    = data.tree,
-        lines   = data.lines,
+        source = parsed.tree.text,
+        parsed = parsed^,
+        tree = data.tree,
+        lines = data.lines,
     }
     scan_file(s, &f)
 }
@@ -604,7 +600,7 @@ count_cache_store :: proc(s: ^Ref_Scan, f: ^Scan_File, m: ^odinsema.Scope_Map) {
         return
     }
     fc := file_counts_build(m, data.changed_at)
-    c := &s.ctx.e.counts
+    c  := &s.ctx.e.counts
     sync.guard(&c.mutex)
     c.builds += 1
     count_cache_put(c, f.key, fc)
@@ -619,18 +615,11 @@ count_cached_file :: proc(s: ^Ref_Scan, id: odinsema.File_Id) -> bool {
     if data == nil {
         return false
     }
-    key := odinsema.db_file_key(snap, id)
+    key  := odinsema.db_file_key(snap, id)
     path := odinsema.db_file_path(snap, id)
-    dir := filepath.dir(path)
-    f := Scan_File {
-        id      = id,
-        path    = path,
-        key     = key,
-        dir     = dir,
-        dir_key = odinsema.path_key(dir),
-        tree    = data.tree,
-    }
-    c := &s.ctx.e.counts
+    dir  := filepath.dir(path)
+    f    := Scan_File{id = id, path = path, key = key, dir = dir, dir_key = odinsema.path_key(dir), tree = data.tree}
+    c    := &s.ctx.e.counts
     sync.guard(&c.mutex)
     fc, found := &c.files[key]
     if !found || fc.changed_at != data.changed_at {
@@ -830,7 +819,7 @@ package_binds :: proc(s: ^Ref_Scan, f: ^Scan_File) -> bool {
     }
     cands := make([dynamic]Def_Candidate, context.temp_allocator)
     package_candidates(s.ctx, f.dir, s.target.name, "", true, &cands)
-    bound := len(cands) > 0
+    bound    := len(cands) > 0
     key, err := strings.clone(f.dir_key)
     if err != nil {
         return bound
@@ -899,17 +888,20 @@ operand_names_other :: proc(s: ^Ref_Scan, f: ^Scan_File, m: ^odinsema.Scope_Map,
 @(private = "file")
 add_hit :: proc(s: ^Ref_Scan, f: ^Scan_File, offset: int) {
     line, _ := offset_line_col(f.lines, offset)
-    start := f.lines[line - 1]
-    end := strings.index_byte(f.source[start:], '\n')
+    start   := f.lines[line - 1]
+    end     := strings.index_byte(f.source[start:], '\n')
     end = end < 0 ? len(f.source) : start + end
-    append(&s.hits, lang.Symbol {
-        name      = strings.clone(s.target.name),
-        kind      = strings.clone("reference"),
-        signature = strings.clone(strings.trim_space(f.source[start:end])),
-        path      = strings.clone(f.path),
-        line      = line,
-        offset    = offset,
-    })
+    append(
+        &s.hits,
+        lang.Symbol{
+            name = strings.clone(s.target.name),
+            kind = strings.clone("reference"),
+            signature = strings.clone(strings.trim_space(f.source[start:end])),
+            path = strings.clone(f.path),
+            line = line,
+            offset = offset,
+        },
+    )
 }
 
 // Sorts the hits by path and offset and drops the duplicates.

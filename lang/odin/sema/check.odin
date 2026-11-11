@@ -71,46 +71,46 @@ local_symbol :: proc(file: File_Id, name_offset: int) -> Symbol {
 // checker_destroy freezes what it adds (type_cache.odin). It holds pointers into itself, so it
 // must not be copied after checker_init. It must end before the snapshot.
 Checker :: struct {
-    snap:       ^Snapshot,
-    table:      Type_Table,
-    arena:      virtual.Arena,
-    alloc:      mem.Allocator, // of `arena`; the table, the maps and the strings
-    universe:   []Universe_Package, // borrowed
-    home_key:   string, // path_key of the package whose types print with no qualifier; "" when none
-    decls:      map[Symbol]Decl_Info,
-    pending:    map[Symbol]i32, // the declarations whose type is in progress, with their dependency node
-    consts:     map[Symbol]Const_Info,
-    evaluating: map[Symbol]i32, // the constants whose value is in progress, with their dependency node
-    files:      map[File_Id]^File_Cache,
-    packages:   map[string]^Package_View, // by path_key of the directory; nil when it cannot be read
-    scopes:     map[Scope_Key]^Scope_Map,
-    scope_list: [dynamic]^Scope_Map, // owned
-    path:       [dynamic]odinsyntax.Syntax_Node, // scratch of node_path
-    enum_env:   []Enum_Member, // the members before the enum value being evaluated
-    env:        []Binding,     // the polymorphic parameters bound for the type being read
-    depth:      int,           // the nesting of expr_type
-    instances:  map[Type_Id]Instance,  // the instances of polymorphic records
-    inst_cache: map[string]Memo_Type,  // by instance key
-    dir_keys:   map[string]string,     // path_key by directory as asked for
-    pairs:      map[Type_Id]Type_Id,   // (value, bool) by value type
-    results:    map[Type_Id]Type_Id,   // the result Tuple by procedure type
-    odin_types: map[string]Memo_Type,  // the types of build constants, by constant name
-    layouts:    map[Type_Id]Layout,    // the known layouts, by base type
-    laying_out: map[Type_Id]struct{},  // the base types whose layout is in progress
-    base:       ^Type_State, // one reference; the frozen state the tables started from; nil when none
-    exclude:    File_Id,     // the request's buffer: no frozen state holds what depends on its text
-    frame:      i32,         // the dependency node being computed; NO_NODE when none
-    nodes:      [dynamic]bool,   // per dependency node: it read `exclude`
-    edges:      [dynamic][2]i32, // (user, used) pairs of dependency nodes
-    distinct_nodes: map[Symbol]i32,              // the node of each anonymous distinct type made here
-    stamps:         map[File_Id]u64,             // the changed_at of each file read; 0 when it cannot be read
-    package_stamps: map[Package_Id]Package_Stamp, // each package viewed
-    exprs:      map[Expr_Key]Operand, // the operands expr_values reuses
-    cut:        int,                  // the times the depth limit cut an expression short
-    cfgs:       map[Cfg_Key]^Cfg,     // built by cfg_cached, in `arena`
-    scratch:    virtual.Arena,        // temporary arrays, freed by scratch_end
-    tmp:        mem.Allocator,        // of `scratch`
-    err:        mem.Allocator_Error,
+    snap:           ^Snapshot,
+    table:          Type_Table,
+    arena:          virtual.Arena,
+    alloc:          mem.Allocator,      // of `arena`; the table, the maps and the strings
+    universe:       []Universe_Package, // borrowed
+    home_key:       string,             // path_key of the package whose types print with no qualifier; "" when none
+    decls:          map[Symbol]Decl_Info,
+    pending:        map[Symbol]i32, // the declarations whose type is in progress, with their dependency node
+    consts:         map[Symbol]Const_Info,
+    evaluating:     map[Symbol]i32, // the constants whose value is in progress, with their dependency node
+    files:          map[File_Id]^File_Cache,
+    packages:       map[string]^Package_View, // by path_key of the directory; nil when it cannot be read
+    scopes:         map[Scope_Key]^Scope_Map,
+    scope_list:     [dynamic]^Scope_Map,             // owned
+    path:           [dynamic]odinsyntax.Syntax_Node, // scratch of node_path
+    enum_env:       []Enum_Member,                   // the members before the enum value being evaluated
+    env:            []Binding,                       // the polymorphic parameters bound for the type being read
+    depth:          int,                             // the nesting of expr_type
+    instances:      map[Type_Id]Instance,            // the instances of polymorphic records
+    inst_cache:     map[string]Memo_Type,            // by instance key
+    dir_keys:       map[string]string,               // path_key by directory as asked for
+    pairs:          map[Type_Id]Type_Id,             // (value, bool) by value type
+    results:        map[Type_Id]Type_Id,             // the result Tuple by procedure type
+    odin_types:     map[string]Memo_Type,            // the types of build constants, by constant name
+    layouts:        map[Type_Id]Layout,              // the known layouts, by base type
+    laying_out:     map[Type_Id]struct {},           // the base types whose layout is in progress
+    base:           ^Type_State,                     // one reference; the frozen state the tables started from; nil when none
+    exclude:        File_Id,                         // the request's buffer: no frozen state holds what depends on its text
+    frame:          i32,                             // the dependency node being computed; NO_NODE when none
+    nodes:          [dynamic]bool,                   // per dependency node: it read `exclude`
+    edges:          [dynamic][2]i32,                 // (user, used) pairs of dependency nodes
+    distinct_nodes: map[Symbol]i32,                  // the node of each anonymous distinct type made here
+    stamps:         map[File_Id]u64,                 // the changed_at of each file read; 0 when it cannot be read
+    package_stamps: map[Package_Id]Package_Stamp,    // each package viewed
+    exprs:          map[Expr_Key]Operand,            // the operands expr_values reuses
+    cut:            int,                             // the times the depth limit cut an expression short
+    cfgs:           map[Cfg_Key]^Cfg,                // built by cfg_cached, in `arena`
+    scratch:        virtual.Arena,                   // temporary arrays, freed by scratch_end
+    tmp:            mem.Allocator,                   // of `scratch`
+    err:            mem.Allocator_Error,
 }
 
 // The dependency node of a memo entry from a frozen state, or of no entry.
@@ -214,7 +214,7 @@ checker_init :: proc(c: ^Checker, snap: ^Snapshot, universe: []Universe_Package 
     c.results = make(map[Type_Id]Type_Id, c.alloc)
     c.odin_types = make(map[string]Memo_Type, c.alloc)
     c.layouts = make(map[Type_Id]Layout, c.alloc)
-    c.laying_out = make(map[Type_Id]struct{}, c.alloc)
+    c.laying_out = make(map[Type_Id]struct {}, c.alloc)
     c.exclude = snapshot_live_file(snap)
     c.frame = NO_NODE
     c.nodes = make([dynamic]bool, c.alloc)
@@ -461,7 +461,7 @@ scope_map_at :: proc(c: ^Checker, file: File_Id, offset: int) -> ^Scope_Map {
     if !fc.has_tops {
         root := odinsyntax.node_root(parsed.tree)
         tops := make([dynamic]Top_Range, c.alloc)
-        pos := root.offset
+        pos  := root.offset
         for child in odinsyntax.green_children(root.green) {
             child_len := odinsyntax.element_len(child)
             if _, is_node := odinsyntax.element_node(child); is_node {
@@ -645,7 +645,7 @@ member_lookup :: proc(c: ^Checker, dir, name: string, from: File_Id, external: b
     best, best_rank := Symbol{}, -1
     for ref in package_scope_lookup(view.scope, name) {
         item := package_item(view.sema_files, ref)
-        id := view.files[ref.file]
+        id   := view.files[ref.file]
         if external && item.visibility != .Public {
             continue
         }
@@ -703,15 +703,44 @@ universe_name :: proc(c: ^Checker, name: string) -> Resolved {
 
 // The constants the compiler declares.
 @(private, rodata)
-ODIN_CONSTANTS := [?]string {
-    "ODIN_ARCH", "ODIN_ARCH_STRING", "ODIN_BEDROCK", "ODIN_BUILD_MODE", "ODIN_BUILD_PROJECT_NAME", "ODIN_COMPILE_TIMESTAMP",
-    "ODIN_DEBUG", "ODIN_DEFAULT_CALLING_CONVENTION", "ODIN_DEFAULT_TO_NIL_ALLOCATOR", "ODIN_DEFAULT_TO_PANIC_ALLOCATOR", "ODIN_DISABLE_ASSERT",
-    "ODIN_ENDIAN", "ODIN_ENDIAN_STRING", "ODIN_ERROR_POS_STYLE", "ODIN_FOREIGN_ERROR_PROCEDURES",
-    "ODIN_MICROARCH_STRING", "ODIN_MINIMUM_OS_VERSION", "ODIN_NO_BOUNDS_CHECK", "ODIN_NO_CRT",
-    "ODIN_NO_ENTRY_POINT", "ODIN_NO_RTTI", "ODIN_NO_TYPE_ASSERT", "ODIN_OPTIMIZATION_MODE", "ODIN_OS",
-    "ODIN_OS_STRING", "ODIN_PLATFORM_SUBTARGET", "ODIN_PLATFORM_SUBTARGET_IOS", "ODIN_ROOT", "ODIN_SANITIZER_FLAGS", "ODIN_TEST",
-    "ODIN_USE_SEPARATE_MODULES", "ODIN_VALGRIND_SUPPORT", "ODIN_VENDOR", "ODIN_VERSION", "ODIN_VERSION_HASH",
-    "ODIN_WINDOWS_SUBSYSTEM", "ODIN_WINDOWS_SUBSYSTEM_STRING",
+ODIN_CONSTANTS := [?]string{
+    "ODIN_ARCH",
+    "ODIN_ARCH_STRING",
+    "ODIN_BEDROCK",
+    "ODIN_BUILD_MODE",
+    "ODIN_BUILD_PROJECT_NAME",
+    "ODIN_COMPILE_TIMESTAMP",
+    "ODIN_DEBUG",
+    "ODIN_DEFAULT_CALLING_CONVENTION",
+    "ODIN_DEFAULT_TO_NIL_ALLOCATOR",
+    "ODIN_DEFAULT_TO_PANIC_ALLOCATOR",
+    "ODIN_DISABLE_ASSERT",
+    "ODIN_ENDIAN",
+    "ODIN_ENDIAN_STRING",
+    "ODIN_ERROR_POS_STYLE",
+    "ODIN_FOREIGN_ERROR_PROCEDURES",
+    "ODIN_MICROARCH_STRING",
+    "ODIN_MINIMUM_OS_VERSION",
+    "ODIN_NO_BOUNDS_CHECK",
+    "ODIN_NO_CRT",
+    "ODIN_NO_ENTRY_POINT",
+    "ODIN_NO_RTTI",
+    "ODIN_NO_TYPE_ASSERT",
+    "ODIN_OPTIMIZATION_MODE",
+    "ODIN_OS",
+    "ODIN_OS_STRING",
+    "ODIN_PLATFORM_SUBTARGET",
+    "ODIN_PLATFORM_SUBTARGET_IOS",
+    "ODIN_ROOT",
+    "ODIN_SANITIZER_FLAGS",
+    "ODIN_TEST",
+    "ODIN_USE_SEPARATE_MODULES",
+    "ODIN_VALGRIND_SUPPORT",
+    "ODIN_VENDOR",
+    "ODIN_VERSION",
+    "ODIN_VERSION_HASH",
+    "ODIN_WINDOWS_SUBSYSTEM",
+    "ODIN_WINDOWS_SUBSYSTEM_STRING",
 }
 
 @(private)
@@ -918,11 +947,23 @@ binding_info :: proc(c: ^Checker, sym: Symbol, name: string, constant: bool, typ
 is_type_literal :: proc(n: odinsyntax.Syntax_Node) -> bool {
     n := n
     #partial switch n.green.kind {
-    case .Struct_Type, .Union_Type, .Enum_Type, .Bit_Set_Type, .Bit_Field_Type, .Distinct_Type, .Proc_Type,
-         .Map_Type, .Matrix_Type, .Array_Type, .Dynamic_Array_Type, .Pointer_Type, .Multi_Pointer_Type, .Helper_Type:
+    case .Struct_Type,
+        .Union_Type,
+        .Enum_Type,
+        .Bit_Set_Type,
+        .Bit_Field_Type,
+        .Distinct_Type,
+        .Proc_Type,
+        .Map_Type,
+        .Matrix_Type,
+        .Array_Type,
+        .Dynamic_Array_Type,
+        .Pointer_Type,
+        .Multi_Pointer_Type,
+        .Helper_Type:
         return true
     case .Tag_Expr:
-        t, _ := odinsyntax.as_tag_expr(n)
+        t, _      := odinsyntax.as_tag_expr(n)
         inner, ok := odinsyntax.tag_expr_expr(&t)
         return ok && is_type_literal(inner)
     }
@@ -934,7 +975,7 @@ is_type_literal :: proc(n: odinsyntax.Syntax_Node) -> bool {
 @(private)
 named_decl :: proc(c: ^Checker, sym: Symbol, name: string, value: odinsyntax.Syntax_Node) -> Type_Id {
     value := value
-    qual := sym.item == LOCAL_ITEM ? "" : qualifier(c, sym.file)
+    qual  := sym.item == LOCAL_ITEM ? "" : qualifier(c, sym.file)
     named := type_named(&c.table, sym, name, qual)
     if named == INVALID_TYPE {
         return INVALID_TYPE
@@ -960,7 +1001,7 @@ named_decl :: proc(c: ^Checker, sym: Symbol, name: string, value: odinsyntax.Syn
 @(private)
 poly_info :: proc(c: ^Checker, sym: Symbol) -> Decl_Info {
     offset := int(sym.child)
-    path := node_path(c, sym.file, offset)
+    path   := node_path(c, sym.file, offset)
     poly: odinsyntax.Syntax_Node
     has_poly := false
     field: odinsyntax.Syntax_Node
@@ -991,7 +1032,7 @@ poly_info :: proc(c: ^Checker, sym: Symbol) -> Decl_Info {
         }
     }
     pt, _ := odinsyntax.as_poly_type(poly)
-    spec := INVALID_TYPE
+    spec  := INVALID_TYPE
     if s, ok := odinsyntax.poly_type_specialization(&pt); ok {
         spec = type_expr(c, sym.file, s)
     }
@@ -1042,7 +1083,7 @@ type_expr :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Type
         return type_dynamic_array(t, elem_type(c, file, odinsyntax.dynamic_array_type_elem(&d)))
     case .Map_Type:
         m, _ := odinsyntax.as_map_type(n)
-        key := elem_type(c, file, odinsyntax.map_type_key(&m))
+        key  := elem_type(c, file, odinsyntax.map_type_key(&m))
         return type_map(t, key, elem_type(c, file, odinsyntax.map_type_value(&m)))
     case .Matrix_Type:
         return matrix_type(c, file, n, false)
@@ -1070,8 +1111,8 @@ type_expr :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Type
             return id
         }
         node, saved := dep_enter(c)
-        d, _ := odinsyntax.as_distinct_type(n)
-        base := elem_type(c, file, odinsyntax.distinct_type_type(&d))
+        d, _        := odinsyntax.as_distinct_type(n)
+        base        := elem_type(c, file, odinsyntax.distinct_type_type(&d))
         dep_leave(c, saved)
         if _, entry, _, err := map_entry(&c.distinct_nodes, sym); note_alloc(c, err) {
             entry^ = node
@@ -1086,7 +1127,7 @@ type_expr :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Type
         e, _ := odinsyntax.as_ellipsis_type(n)
         return type_slice(t, elem_type(c, file, odinsyntax.ellipsis_type_elem(&e)))
     case .Poly_Type:
-        p, _ := odinsyntax.as_poly_type(n)
+        p, _      := odinsyntax.as_poly_type(n)
         ident, ok := odinsyntax.poly_type_name(&p)
         if !ok {
             return INVALID_TYPE
@@ -1143,8 +1184,8 @@ length_of :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, ok: boo
 // `[]T`, `[?]T`, `[N]T` or `[Enum]T`.
 @(private)
 array_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Type_Id {
-    a, _ := odinsyntax.as_array_type(n)
-    elem := elem_type(c, file, odinsyntax.array_type_elem(&a))
+    a, _              := odinsyntax.as_array_type(n)
+    elem              := elem_type(c, file, odinsyntax.array_type_elem(&a))
     len_node, has_len := odinsyntax.array_type_len(&a)
     if !has_len {
         if _, unknown := odinsyntax.find_child_token((^odinsyntax.Syntax_Node)(&a), {tokens = {.Question}}); unknown {
@@ -1169,7 +1210,7 @@ matrix_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, row_m
 // A type under a directive: `#soa`, `#simd`, `#row_major`; another directive keeps the type.
 @(private)
 tag_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Type_Id {
-    tag, _ := odinsyntax.as_tag_expr(n)
+    tag, _    := odinsyntax.as_tag_expr(n)
     inner, ok := odinsyntax.tag_expr_expr(&tag)
     if !ok {
         return INVALID_TYPE
@@ -1214,8 +1255,8 @@ tag_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Type_
 
 @(private)
 bit_set_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Type_Id {
-    b, _ := odinsyntax.as_bit_set_type(n)
-    backing := elem_type(c, file, odinsyntax.bit_set_type_backing(&b))
+    b, _     := odinsyntax.as_bit_set_type(n)
+    backing  := elem_type(c, file, odinsyntax.bit_set_type_backing(&b))
     elem, ok := odinsyntax.bit_set_type_elem(&b)
     if !ok {
         return INVALID_TYPE
@@ -1225,8 +1266,8 @@ bit_set_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> T
         if op.green.kind == .Range_Full || op.green.kind == .Range_Half {
             lo_v, lo_ok := child_const(c, file, odinsyntax.binary_expr_lhs(&r))
             hi_v, hi_ok := child_const(c, file, odinsyntax.binary_expr_rhs(&r))
-            lo, lo_int := const_to_i64(lo_v)
-            hi, hi_int := const_to_i64(hi_v)
+            lo, lo_int  := const_to_i64(lo_v)
+            hi, hi_int  := const_to_i64(hi_v)
             if !lo_ok || !hi_ok || !lo_int || !hi_int {
                 return INVALID_TYPE
             }
@@ -1235,7 +1276,7 @@ bit_set_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> T
             }
             _, lo_rune := lo_v.(rune)
             _, hi_rune := hi_v.(rune)
-            bound := lo_rune || hi_rune ? type_basic(.Rune) : type_untyped(.Int)
+            bound      := lo_rune || hi_rune ? type_basic(.Rune) : type_untyped(.Int)
             return type_bit_set_range(&c.table, bound, lo, hi, backing)
         }
     }
@@ -1255,17 +1296,22 @@ child_const :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, ok: b
 param_tags :: proc(n: ^odinsyntax.Syntax_Node, flags: ^bit_set[Param_Flag]) {
     dirs := odinsyntax.child_iter(n, {kinds = {.Directive}})
     for d in odinsyntax.child_iter_next(&dirs) {
-        dir, _ := odinsyntax.as_directive(d)
+        dir, _  := odinsyntax.as_directive(d)
         tok, ok := odinsyntax.directive_name(&dir)
         if !ok {
             continue
         }
         switch odinsyntax.syntax_token_text(tok) {
-        case "any_int":  flags^ += {.Any_Int}
-        case "c_vararg": flags^ += {.C_Vararg}
-        case "by_ptr":   flags^ += {.By_Ptr}
-        case "no_alias": flags^ += {.No_Alias}
-        case "const":    flags^ += {.Const}
+        case "any_int":
+            flags^ += {.Any_Int}
+        case "c_vararg":
+            flags^ += {.C_Vararg}
+        case "by_ptr":
+            flags^ += {.By_Ptr}
+        case "no_alias":
+            flags^ += {.No_Alias}
+        case "const":
+            flags^ += {.Const}
         }
     }
 }
@@ -1274,12 +1320,12 @@ param_tags :: proc(n: ^odinsyntax.Syntax_Node, flags: ^bit_set[Param_Flag]) {
 @(private)
 read_params :: proc(c: ^Checker, file: File_Id, list: odinsyntax.Syntax_Node) -> []Proc_Param {
     list := list
-    out := make([dynamic]Proc_Param, c.tmp)
-    it := odinsyntax.child_iter(&list, {kinds = {.Field}})
+    out  := make([dynamic]Proc_Param, c.tmp)
+    it   := odinsyntax.child_iter(&list, {kinds = {.Field}})
     for field in odinsyntax.child_iter_next(&it) {
         field := field
-        f, _ := odinsyntax.as_field(field)
-        p := Proc_Param{name_offset = -1}
+        f, _  := odinsyntax.as_field(field)
+        p     := Proc_Param{name_offset = -1}
         param_tags(&field, &p.flags)
         // `#any_int a, #any_int b: i64`: a tag before a later name sits in the name list.
         if names, has_names := odinsyntax.field_names(&f); has_names {
@@ -1314,7 +1360,7 @@ read_params :: proc(c: ^Checker, file: File_Id, list: odinsyntax.Syntax_Node) ->
         nit := odinsyntax.name_list_names(&names)
         for name in odinsyntax.child_iter_next(&nit) {
             name := name
-            q := p
+            q    := p
             #partial switch name.green.kind {
             case .Ident:
                 q.name = odinsyntax.node_text(name)
@@ -1340,7 +1386,7 @@ read_params :: proc(c: ^Checker, file: File_Id, list: odinsyntax.Syntax_Node) ->
 @(private)
 proc_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, tags: bit_set[Proc_Tag]) -> Type_Id {
     pt, _ := odinsyntax.as_proc_type(n)
-    temp := scratch_begin(c)
+    temp  := scratch_begin(c)
     defer scratch_end(temp)
     p := Proc_Type{tags = tags + directive_tags(odinsyntax.proc_type_tags(&pt)), file = file, offset = int(n.offset)}
     if cc, ok := odinsyntax.proc_type_calling_convention(&pt); ok {
@@ -1363,14 +1409,16 @@ directive_tags :: proc(it: odinsyntax.Child_Iter) -> bit_set[Proc_Tag] {
     it := it
     tags: bit_set[Proc_Tag]
     for d in odinsyntax.child_iter_next(&it) {
-        dir, _ := odinsyntax.as_directive(d)
+        dir, _  := odinsyntax.as_directive(d)
         tok, ok := odinsyntax.directive_name(&dir)
         if !ok {
             continue
         }
         switch odinsyntax.syntax_token_text(tok) {
-        case "optional_ok":              tags += {.Optional_Ok}
-        case "optional_allocator_error": tags += {.Optional_Allocator_Error}
+        case "optional_ok":
+            tags += {.Optional_Ok}
+        case "optional_allocator_error":
+            tags += {.Optional_Allocator_Error}
         }
     }
     return tags
@@ -1383,7 +1431,7 @@ record_directives :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node)
     n := n
     names = make([dynamic]string, c.tmp)
     after := ""
-    it := odinsyntax.child_iter(&n, {kinds = {.Directive, .Paren_Expr}})
+    it    := odinsyntax.child_iter(&n, {kinds = {.Directive, .Paren_Expr}})
     for child in odinsyntax.child_iter_next(&it) {
         child := child
         if child.green.kind == .Paren_Expr {
@@ -1399,7 +1447,7 @@ record_directives :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node)
             after = ""
             continue
         }
-        d, _ := odinsyntax.as_directive(child)
+        d, _    := odinsyntax.as_directive(child)
         tok, ok := odinsyntax.directive_name(&d)
         if !ok {
             continue
@@ -1428,17 +1476,20 @@ struct_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Ty
     st.max_field_align = max_field_align
     for name in names {
         switch name {
-        case "packed":    st.flags += {.Packed}
-        case "raw_union": st.flags += {.Raw_Union}
-        case "no_copy":   st.flags += {.No_Copy}
+        case "packed":
+            st.flags += {.Packed}
+        case "raw_union":
+            st.flags += {.Raw_Union}
+        case "no_copy":
+            st.flags += {.No_Copy}
         }
     }
     fields := make([dynamic]Struct_Field, c.tmp)
     if list, ok := odinsyntax.struct_type_fields(&s); ok {
         it := odinsyntax.field_list_fields(&list)
         for field in odinsyntax.child_iter_next(&it) {
-            field := field
-            f, _ := odinsyntax.as_field(field)
+            field                 := field
+            f, _                  := odinsyntax.as_field(field)
             names_list, has_names := odinsyntax.field_names(&f)
             if !has_names {
                 continue
@@ -1486,12 +1537,14 @@ union_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Typ
     ut.align = align
     for name in names {
         switch name {
-        case "no_nil":     ut.flags += {.No_Nil}
-        case "shared_nil": ut.flags += {.Shared_Nil}
+        case "no_nil":
+            ut.flags += {.No_Nil}
+        case "shared_nil":
+            ut.flags += {.Shared_Nil}
         }
     }
     variants := make([dynamic]Type_Id, c.tmp)
-    it := odinsyntax.union_type_variants(&u)
+    it       := odinsyntax.union_type_variants(&u)
     for v in odinsyntax.child_iter_next(&it) {
         if _, err := append(&variants, type_expr(c, file, v)); !note_alloc(c, err) {
             return INVALID_TYPE
@@ -1505,16 +1558,16 @@ union_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Typ
 @(private)
 enum_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Type_Id {
     e, _ := odinsyntax.as_enum_type(n)
-    et := Enum_Type{backing = elem_type(c, file, odinsyntax.enum_type_backing(&e)), file = file}
+    et   := Enum_Type{backing = elem_type(c, file, odinsyntax.enum_type_backing(&e)), file = file}
     temp := scratch_begin(c)
     defer scratch_end(temp)
     members := make([dynamic]Enum_Member, c.tmp)
-    saved := c.enum_env
+    saved   := c.enum_env
     defer c.enum_env = saved
     next: i64 = 0
     it := odinsyntax.enum_type_members(&e)
     for m in odinsyntax.child_iter_next(&it) {
-        m := m
+        m      := m
         member := Enum_Member{name_offset = -1}
         if m.green.kind == .Ident {
             member.name = odinsyntax.node_text(m)
@@ -1549,23 +1602,23 @@ enum_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Type
 @(private)
 bit_field_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Type_Id {
     b, _ := odinsyntax.as_bit_field_type(n)
-    bt := Bit_Field_Type{backing = elem_type(c, file, odinsyntax.bit_field_type_backing(&b)), file = file}
+    bt   := Bit_Field_Type{backing = elem_type(c, file, odinsyntax.bit_field_type_backing(&b)), file = file}
     temp := scratch_begin(c)
     defer scratch_end(temp)
     fields := make([dynamic]Bit_Field_Entry, c.tmp)
 
     it := odinsyntax.bit_field_type_fields(&b)
     for field in odinsyntax.child_iter_next(&it) {
-        f, _ := odinsyntax.as_bit_field_field(field)
+        f, _     := odinsyntax.as_bit_field_field(field)
         name, ok := odinsyntax.bit_field_field_name(&f)
         if !ok {
             continue
         }
-        entry := Bit_Field_Entry {
-            name        = odinsyntax.node_text(odinsyntax.Syntax_Node(name)),
+        entry := Bit_Field_Entry{
+            name = odinsyntax.node_text(odinsyntax.Syntax_Node(name)),
             name_offset = int(name.offset),
-            type        = elem_type(c, file, odinsyntax.bit_field_field_type(&f)),
-            bits        = length_of(c, file, odinsyntax.bit_field_field_bits(&f)),
+            type = elem_type(c, file, odinsyntax.bit_field_field_type(&f)),
+            bits = length_of(c, file, odinsyntax.bit_field_field_bits(&f)),
         }
         if _, err := append(&fields, entry); !note_alloc(c, err) {
             return INVALID_TYPE

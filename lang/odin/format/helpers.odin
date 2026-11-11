@@ -107,7 +107,7 @@ append_list_group :: proc(pr: ^Printer, out: ^[dynamic]Doc, open, close: string,
 // `@(elem, elem)`; `@name` takes the parentheses too.
 @(private)
 print_attribute :: proc(pr: ^Printer, out: ^[dynamic]Doc, a: Node) {
-    ks := kids(a)
+    ks    := kids(a)
     elems := expr_kids(ks)
     append(out, text("@("))
     print_expr_list(pr, out, elems)

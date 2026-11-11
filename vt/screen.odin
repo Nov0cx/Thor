@@ -75,7 +75,7 @@ cursor_up :: proc(t: ^Term, n: int) {
     top, _ := bounds(t)
     // A cursor already above the region moves within the screen instead, which
     // is what leaving the region by an absolute move leaves behind.
-    limit := t.cur.y < top ? 0 : top
+    limit  := t.cur.y < top ? 0 : top
     t.cur.y = max(t.cur.y - max(n, 1), limit)
     t.cur.pending_wrap = false
 }
@@ -83,7 +83,7 @@ cursor_up :: proc(t: ^Term, n: int) {
 @(private)
 cursor_down :: proc(t: ^Term, n: int) {
     _, bottom := bounds(t)
-    limit := t.cur.y > bottom ? t.rows - 1 : bottom
+    limit     := t.cur.y > bottom ? t.rows - 1 : bottom
     t.cur.y = min(t.cur.y + max(n, 1), limit)
     t.cur.pending_wrap = false
 }
@@ -161,7 +161,7 @@ scroll_up :: proc(t: ^Term, n: int) {
     n := n
     n = min(max(n, 1), t.bottom - t.top + 1)
     context.allocator = t.allocator
-    g := grid(t)
+    g            := grid(t)
     keep_history := !t.alt_active && t.top == 0
 
     for _ in 0 ..< n {
@@ -457,26 +457,20 @@ put_rune :: proc(t: ^Term, r: rune) {
     }
     clear_wide_partner(t, line, t.cur.x)
 
-    cell := Cell {
-        ch        = r,
-        fg        = t.cur.pen.fg,
-        bg        = t.cur.pen.bg,
-        ul        = t.cur.pen.ul,
-        link      = t.cur.pen.link,
-        attrs     = t.cur.pen.attrs,
+    cell := Cell{
+        ch = r,
+        fg = t.cur.pen.fg,
+        bg = t.cur.pen.bg,
+        ul = t.cur.pen.ul,
+        link = t.cur.pen.link,
+        attrs = t.cur.pen.attrs,
         underline = t.cur.pen.underline,
     }
     if width == 2 {
         cell.flags += {.Wide}
         clear_wide_partner(t, line, t.cur.x + 1)
         line.cells[t.cur.x] = cell
-        line.cells[t.cur.x + 1] = Cell {
-            ch    = ' ',
-            fg    = cell.fg,
-            bg    = cell.bg,
-            attrs = cell.attrs,
-            flags = {.Spacer},
-        }
+        line.cells[t.cur.x + 1] = Cell{ch = ' ', fg = cell.fg, bg = cell.bg, attrs = cell.attrs, flags = {.Spacer}}
     } else {
         line.cells[t.cur.x] = cell
     }
@@ -523,7 +517,7 @@ combine_with_previous :: proc(t: ^Term, r: rune) {
     cell := &line.cells[x]
 
     context.allocator = t.allocator
-    base := term_grapheme(t, cell.grapheme)
+    base    := term_grapheme(t, cell.grapheme)
     builder := strings.builder_make(context.temp_allocator)
     if base != "" {
         strings.write_string(&builder, base)
@@ -565,10 +559,39 @@ charset_map :: proc(t: ^Term, r: rune) -> rune {
 // DEC special graphics, 0x5f to 0x7e: the line-drawing set every full-screen
 // program that predates Unicode boxes with.
 @(private = "file")
-DEC_GRAPHICS := [?]rune {
-    ' ', '◆', '▒', '␉', '␌', '␍', '␊', '°', '±', '␤', '␋', '┘', '┐', '┌', '└',
-    '┼', '⎺', '⎻', '─', '⎼', '⎽', '├', '┤', '┴', '┬', '│', '≤', '≥', 'π', '≠',
-    '£', '·',
+DEC_GRAPHICS := [?]rune{
+    ' ',
+    '◆',
+    '▒',
+    '␉',
+    '␌',
+    '␍',
+    '␊',
+    '°',
+    '±',
+    '␤',
+    '␋',
+    '┘',
+    '┐',
+    '┌',
+    '└',
+    '┼',
+    '⎺',
+    '⎻',
+    '─',
+    '⎼',
+    '⎽',
+    '├',
+    '┤',
+    '┴',
+    '┬',
+    '│',
+    '≤',
+    '≥',
+    'π',
+    '≠',
+    '£',
+    '·',
 }
 
 @(private)
@@ -601,5 +624,5 @@ repeat_last :: proc(t: ^Term, last: rune, n: int) {
 // Writes `text` into the reply the host owes the shell.
 @(private)
 reply :: proc(t: ^Term, text: string) {
-    append(&t.reply, ..transmute([]u8) text)
+    append(&t.reply, ..transmute([]u8)text)
 }

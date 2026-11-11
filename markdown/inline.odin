@@ -15,10 +15,10 @@ Token :: struct {
     kbd:    bool, // a `<kbd>` key cap
     link:   bool,
     url:    string, // borrowed from the source, "" when not a link
-    glue:   bool, // no space between it and the token before
+    glue:   bool,   // no space between it and the token before
     strike: bool,
-    brk:    bool, // a hard line break follows
-    image:  bool, // `url` is an image the host can show, `text` its alternative text
+    brk:    bool,   // a hard line break follows
+    image:  bool,   // `url` is an image the host can show, `text` its alternative text
     size:   [2]f32, // the pixel size of that image
 }
 
@@ -49,7 +49,7 @@ inline_begin :: proc(b: ^Build, tokens: ^[dynamic]Token) -> Inline {
 // a hard break; a plain line end is a space.
 @(private)
 inline_line :: proc(st: ^Inline, line: string, color: ui.Color, style: Style = {}) {
-    s := line
+    s    := line
     hard := false
     switch {
     case strings.has_suffix(s, "  "):
@@ -70,7 +70,7 @@ inline_line :: proc(st: ^Inline, line: string, color: ui.Color, style: Style = {
 @(private)
 inline :: proc(b: ^Build, s: string, color: ui.Color, style: Style = {}) -> [dynamic]Token {
     tokens := make([dynamic]Token, context.temp_allocator)
-    st := inline_begin(b, &tokens)
+    st     := inline_begin(b, &tokens)
     inline_span(&st, s, Span_Style{color = color, style = style})
     return tokens
 }
@@ -88,7 +88,7 @@ inline_break :: proc(st: ^Inline) {
 // Every token text borrows from `s`; only colors and flags are computed here.
 @(private = "file")
 inline_span :: proc(st: ^Inline, s: string, style: Span_Style) {
-    i := 0
+    i   := 0
     run := 0
     for i < len(s) {
         c := s[i]
@@ -115,7 +115,7 @@ inline_span :: proc(st: ^Inline, s: string, style: Span_Style) {
                 }
                 push_token(
                     st,
-                    Token {
+                    Token{
                         text = inner,
                         color = style.url != "" ? st.b.pal.link : st.b.pal.code,
                         code = true,
@@ -184,7 +184,7 @@ inline_span :: proc(st: ^Inline, s: string, style: Span_Style) {
             }
 
         case '*', '_':
-            n := i + 1 < len(s) && s[i + 1] == c ? 2 : 1
+            n     := i + 1 < len(s) && s[i + 1] == c ? 2 : 1
             close := emphasis_close(s, i, n)
             if close < 0 && n == 2 {
                 n = 1
@@ -264,10 +264,10 @@ inline_html :: proc(st: ^Inline, s: string, open: int, style: Span_Style, run: i
     if close < 2 {
         return
     }
-    tag := s[open + 1:open + close]
+    tag     := s[open + 1:open + close]
     closing := strings.has_prefix(tag, "/")
-    name := strings.trim_prefix(tag, "/")
-    attrs := ""
+    name    := strings.trim_prefix(tag, "/")
+    attrs   := ""
     if cut := strings.index_any(name, " \t/"); cut >= 0 {
         attrs = name[cut:]
         name = name[:cut]
@@ -290,13 +290,13 @@ inline_html :: proc(st: ^Inline, s: string, open: int, style: Span_Style, run: i
     }
 
     end_tag := strings.concatenate({"</", name, ">"}, context.temp_allocator)
-    end := index_fold(s[after:], end_tag)
+    end     := index_fold(s[after:], end_tag)
     if end < 0 {
         return after, true
     }
-    inner := s[after:after + end]
+    inner  := s[after:after + end]
     resume := after + end + len(end_tag)
-    sub := style
+    sub    := style
     switch lower {
     case "b", "strong":
         sub.style += {.Bold}
@@ -387,17 +387,7 @@ html_attr :: proc(attrs, name: string) -> string {
 // One token of text in `style`.
 @(private = "file")
 push_styled :: proc(st: ^Inline, text: string, style: Span_Style) {
-    push_token(
-        st,
-        Token {
-            text = text,
-            color = style.color,
-            style = style.style,
-            strike = style.strike,
-            link = style.url != "",
-            url = style.url,
-        },
-    )
+    push_token(st, Token{text = text, color = style.color, style = style.style, strike = style.strike, link = style.url != "", url = style.url})
 }
 
 @(private = "file")
@@ -500,7 +490,7 @@ code_close :: proc(s: string, from, n: int) -> int {
 // marker bytes, or -1. An underscore inside a word is not a marker.
 @(private = "file")
 emphasis_close :: proc(s: string, open, n: int) -> int {
-    c := s[open]
+    c     := s[open]
     first := open + n
     if first >= len(s) || s[first] == ' ' {
         return -1

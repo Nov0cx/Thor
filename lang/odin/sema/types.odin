@@ -45,74 +45,123 @@ Type_Kind :: enum u8 {
 
 // A built-in type.
 Basic_Kind :: enum u8 {
-    Bool, B8, B16, B32, B64,
-    Int, Uint, I8, I16, I32, I64, I128, U8, U16, U32, U64, U128, Uintptr,
-    I16le, I32le, I64le, I128le, U16le, U32le, U64le, U128le,
-    I16be, I32be, I64be, I128be, U16be, U32be, U64be, U128be,
-    F16, F32, F64, F16le, F32le, F64le, F16be, F32be, F64be,
-    Complex32, Complex64, Complex128,
-    Quaternion64, Quaternion128, Quaternion256,
-    Rune, String, Cstring, String16, Cstring16, Rawptr, Typeid, Any,
+    Bool,
+    B8,
+    B16,
+    B32,
+    B64,
+    Int,
+    Uint,
+    I8,
+    I16,
+    I32,
+    I64,
+    I128,
+    U8,
+    U16,
+    U32,
+    U64,
+    U128,
+    Uintptr,
+    I16le,
+    I32le,
+    I64le,
+    I128le,
+    U16le,
+    U32le,
+    U64le,
+    U128le,
+    I16be,
+    I32be,
+    I64be,
+    I128be,
+    U16be,
+    U32be,
+    U64be,
+    U128be,
+    F16,
+    F32,
+    F64,
+    F16le,
+    F32le,
+    F64le,
+    F16be,
+    F32be,
+    F64be,
+    Complex32,
+    Complex64,
+    Complex128,
+    Quaternion64,
+    Quaternion128,
+    Quaternion256,
+    Rune,
+    String,
+    Cstring,
+    String16,
+    Cstring16,
+    Rawptr,
+    Typeid,
+    Any,
 }
 
-BASIC_NAMES := [Basic_Kind]string {
-    .Bool          = "bool",
-    .B8            = "b8",
-    .B16           = "b16",
-    .B32           = "b32",
-    .B64           = "b64",
-    .Int           = "int",
-    .Uint          = "uint",
-    .I8            = "i8",
-    .I16           = "i16",
-    .I32           = "i32",
-    .I64           = "i64",
-    .I128          = "i128",
-    .U8            = "u8",
-    .U16           = "u16",
-    .U32           = "u32",
-    .U64           = "u64",
-    .U128          = "u128",
-    .Uintptr       = "uintptr",
-    .I16le         = "i16le",
-    .I32le         = "i32le",
-    .I64le         = "i64le",
-    .I128le        = "i128le",
-    .U16le         = "u16le",
-    .U32le         = "u32le",
-    .U64le         = "u64le",
-    .U128le        = "u128le",
-    .I16be         = "i16be",
-    .I32be         = "i32be",
-    .I64be         = "i64be",
-    .I128be        = "i128be",
-    .U16be         = "u16be",
-    .U32be         = "u32be",
-    .U64be         = "u64be",
-    .U128be        = "u128be",
-    .F16           = "f16",
-    .F32           = "f32",
-    .F64           = "f64",
-    .F16le         = "f16le",
-    .F32le         = "f32le",
-    .F64le         = "f64le",
-    .F16be         = "f16be",
-    .F32be         = "f32be",
-    .F64be         = "f64be",
-    .Complex32     = "complex32",
-    .Complex64     = "complex64",
-    .Complex128    = "complex128",
-    .Quaternion64  = "quaternion64",
+BASIC_NAMES := [Basic_Kind]string{
+    .Bool = "bool",
+    .B8 = "b8",
+    .B16 = "b16",
+    .B32 = "b32",
+    .B64 = "b64",
+    .Int = "int",
+    .Uint = "uint",
+    .I8 = "i8",
+    .I16 = "i16",
+    .I32 = "i32",
+    .I64 = "i64",
+    .I128 = "i128",
+    .U8 = "u8",
+    .U16 = "u16",
+    .U32 = "u32",
+    .U64 = "u64",
+    .U128 = "u128",
+    .Uintptr = "uintptr",
+    .I16le = "i16le",
+    .I32le = "i32le",
+    .I64le = "i64le",
+    .I128le = "i128le",
+    .U16le = "u16le",
+    .U32le = "u32le",
+    .U64le = "u64le",
+    .U128le = "u128le",
+    .I16be = "i16be",
+    .I32be = "i32be",
+    .I64be = "i64be",
+    .I128be = "i128be",
+    .U16be = "u16be",
+    .U32be = "u32be",
+    .U64be = "u64be",
+    .U128be = "u128be",
+    .F16 = "f16",
+    .F32 = "f32",
+    .F64 = "f64",
+    .F16le = "f16le",
+    .F32le = "f32le",
+    .F64le = "f64le",
+    .F16be = "f16be",
+    .F32be = "f32be",
+    .F64be = "f64be",
+    .Complex32 = "complex32",
+    .Complex64 = "complex64",
+    .Complex128 = "complex128",
+    .Quaternion64 = "quaternion64",
     .Quaternion128 = "quaternion128",
     .Quaternion256 = "quaternion256",
-    .Rune          = "rune",
-    .String        = "string",
-    .Cstring       = "cstring",
-    .String16      = "string16",
-    .Cstring16     = "cstring16",
-    .Rawptr        = "rawptr",
-    .Typeid        = "typeid",
-    .Any           = "any",
+    .Rune = "rune",
+    .String = "string",
+    .Cstring = "cstring",
+    .String16 = "string16",
+    .Cstring16 = "cstring16",
+    .Rawptr = "rawptr",
+    .Typeid = "typeid",
+    .Any = "any",
 }
 
 // The type of an untyped constant or of `nil` and `---`.
@@ -128,16 +177,16 @@ Untyped_Kind :: enum u8 {
     Uninit,
 }
 
-UNTYPED_NAMES := [Untyped_Kind]string {
-    .Int        = "untyped int",
-    .Float      = "untyped float",
-    .Complex    = "untyped complex",
+UNTYPED_NAMES := [Untyped_Kind]string{
+    .Int = "untyped int",
+    .Float = "untyped float",
+    .Complex = "untyped complex",
     .Quaternion = "untyped quaternion",
-    .Rune       = "untyped rune",
-    .String     = "untyped string",
-    .Bool       = "untyped bool",
-    .Nil        = "untyped nil",
-    .Uninit     = "---",
+    .Rune = "untyped rune",
+    .String = "untyped string",
+    .Bool = "untyped bool",
+    .Nil = "untyped nil",
+    .Uninit = "---",
 }
 
 Basic_Type :: struct {
@@ -230,7 +279,7 @@ Struct_Field :: struct {
     name:        string,
     type:        Type_Id,
     is_using:    bool,
-    is_subtype:  bool, // `#subtype`: converts like `using`, brings no names into reach
+    is_subtype:  bool,   // `#subtype`: converts like `using`, brings no names into reach
     tag:         string, // with its quotes; "" when none
     name_offset: int,
 }
@@ -242,8 +291,8 @@ Struct_Flag :: enum u8 {
 }
 
 Struct_Type :: struct {
-    fields: []Struct_Field,
-    params: []Proc_Param, // the polymorphic parameters
+    fields:          []Struct_Field,
+    params:          []Proc_Param, // the polymorphic parameters
     flags:           bit_set[Struct_Flag],
     align:           i64,     // `#align(N)`; 0 when none
     min_field_align: i64,     // `#min_field_align(N)`; 0 when none
@@ -400,11 +449,11 @@ Type_Table :: struct {
 FIRST_UNTYPED :: 1 + len(Basic_Kind)
 
 type_table_init :: proc(t: ^Type_Table, allocator := context.allocator) -> mem.Allocator_Error {
-    t^ = Type_Table {
+    t^ = Type_Table{
         allocator = allocator,
-        types     = make([dynamic]Type, 0, FIRST_UNTYPED + len(Untyped_Kind), allocator) or_return,
-        interned  = make(map[Type_Key]Type_Id, allocator),
-        named     = make(map[Symbol]Type_Id, allocator),
+        types = make([dynamic]Type, 0, FIRST_UNTYPED + len(Untyped_Kind), allocator) or_return,
+        interned = make(map[Type_Key]Type_Id, allocator),
+        named = make(map[Symbol]Type_Id, allocator),
         distincts = make(map[Symbol]Type_Id, allocator),
     }
     append(&t.types, nil) or_return
@@ -432,10 +481,10 @@ type_table_destroy :: proc(t: ^Type_Table) {
 // the types with `src`; a deep copy copies them too.
 @(private)
 type_table_copy :: proc(dst, src: ^Type_Table, allocator: mem.Allocator, deep: bool) -> mem.Allocator_Error {
-    dst^ = Type_Table {
+    dst^ = Type_Table{
         allocator = allocator,
-        interned  = make(map[Type_Key]Type_Id, allocator),
-        named     = make(map[Symbol]Type_Id, allocator),
+        interned = make(map[Type_Key]Type_Id, allocator),
+        named = make(map[Symbol]Type_Id, allocator),
         distincts = make(map[Symbol]Type_Id, allocator),
     }
     dst.types = make([dynamic]Type, len(src.types), allocator) or_return
@@ -624,29 +673,52 @@ type_get :: proc(t: ^Type_Table, id: Type_Id) -> Type {
 
 type_kind :: proc(t: ^Type_Table, id: Type_Id) -> Type_Kind {
     switch _ in type_get(t, id) {
-    case Basic_Type:            return .Basic
-    case Untyped_Type:          return .Untyped
-    case Pointer_Type:          return .Pointer
-    case Multi_Pointer_Type:    return .Multi_Pointer
-    case Slice_Type:            return .Slice
-    case Array_Type:            return .Array
-    case Enumerated_Array_Type: return .Enumerated_Array
-    case Dynamic_Array_Type:    return .Dynamic_Array
-    case Map_Type:              return .Map
-    case Bit_Set_Type:          return .Bit_Set
-    case Bit_Field_Type:        return .Bit_Field
-    case Matrix_Type:           return .Matrix
-    case Simd_Type:             return .Simd
-    case Soa_Type:              return .Soa
-    case Struct_Type:           return .Struct
-    case Union_Type:            return .Union
-    case Enum_Type:             return .Enum
-    case Proc_Type:             return .Proc
-    case Tuple_Type:            return .Tuple
-    case Named_Type:            return .Named
-    case Distinct_Type:         return .Distinct
-    case Poly_Param_Type:       return .Poly_Param
-    case Proc_Group_Type:       return .Proc_Group
+    case Basic_Type:
+        return .Basic
+    case Untyped_Type:
+        return .Untyped
+    case Pointer_Type:
+        return .Pointer
+    case Multi_Pointer_Type:
+        return .Multi_Pointer
+    case Slice_Type:
+        return .Slice
+    case Array_Type:
+        return .Array
+    case Enumerated_Array_Type:
+        return .Enumerated_Array
+    case Dynamic_Array_Type:
+        return .Dynamic_Array
+    case Map_Type:
+        return .Map
+    case Bit_Set_Type:
+        return .Bit_Set
+    case Bit_Field_Type:
+        return .Bit_Field
+    case Matrix_Type:
+        return .Matrix
+    case Simd_Type:
+        return .Simd
+    case Soa_Type:
+        return .Soa
+    case Struct_Type:
+        return .Struct
+    case Union_Type:
+        return .Union
+    case Enum_Type:
+        return .Enum
+    case Proc_Type:
+        return .Proc
+    case Tuple_Type:
+        return .Tuple
+    case Named_Type:
+        return .Named
+    case Distinct_Type:
+        return .Distinct
+    case Poly_Param_Type:
+        return .Poly_Param
+    case Proc_Group_Type:
+        return .Proc_Group
     }
     return .Invalid
 }
@@ -959,13 +1031,20 @@ type_default :: proc(t: ^Type_Table, id: Type_Id) -> Type_Id {
         return id
     }
     switch u.kind {
-    case .Int:        return type_basic(.Int)
-    case .Float:      return type_basic(.F64)
-    case .Complex:    return type_basic(.Complex128)
-    case .Quaternion: return type_basic(.Quaternion256)
-    case .Rune:       return type_basic(.Rune)
-    case .String:     return type_basic(.String)
-    case .Bool:       return type_basic(.Bool)
+    case .Int:
+        return type_basic(.Int)
+    case .Float:
+        return type_basic(.F64)
+    case .Complex:
+        return type_basic(.Complex128)
+    case .Quaternion:
+        return type_basic(.Quaternion256)
+    case .Rune:
+        return type_basic(.Rune)
+    case .String:
+        return type_basic(.String)
+    case .Bool:
+        return type_basic(.Bool)
     case .Nil, .Uninit:
     }
     return id
@@ -1070,9 +1149,12 @@ write_type :: proc(sb: ^strings.Builder, t: ^Type_Table, id: Type_Id) {
         write_type(sb, t, v.elem)
     case Soa_Type:
         switch v.kind {
-        case .Array:   write_len(sb, "#soa[", v.len, "]")
-        case .Slice:   strings.write_string(sb, "#soa[]")
-        case .Dynamic: strings.write_string(sb, "#soa[dynamic]")
+        case .Array:
+            write_len(sb, "#soa[", v.len, "]")
+        case .Slice:
+            strings.write_string(sb, "#soa[]")
+        case .Dynamic:
+            strings.write_string(sb, "#soa[dynamic]")
         }
         write_type(sb, t, v.elem)
     case Struct_Type:

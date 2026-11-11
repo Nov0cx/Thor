@@ -20,8 +20,8 @@ DIFF_LINE_CAP :: 1500
 #assert(DIFF_LINE_CAP < int(max(u16)))
 
 Diff_Span :: struct {
-    start: int, // byte offset in `old`
-    end:   int, // byte offset in `old`, exclusive
+    start: int,    // byte offset in `old`
+    end:   int,    // byte offset in `old`, exclusive
     text:  string, // replacement text — borrowed from `new`
 }
 
@@ -129,7 +129,9 @@ diff_lcs :: proc(old, new: string, a, b: []Diff_Line, spans: ^[dynamic]Diff_Span
     na, nb := len(a), len(b)
     // dp[i*  (nb+1) + j] = LCS length of a[:i], b[:j]
     dp := make([]u16, (na + 1) * (nb + 1), context.temp_allocator)
-    row :: proc(nb: int, i: int) -> int {return i * (nb + 1)}
+    row :: proc(nb: int, i: int) -> int {
+        return i * (nb + 1)
+    }
     for i := 1; i <= na; i += 1 {
         for j := 1; j <= nb; j += 1 {
             if diff_line_text(old, a[i - 1]) == diff_line_text(new, b[j - 1]) {

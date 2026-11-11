@@ -29,7 +29,9 @@ destroy_test_thor :: proc(thor: ^Thor) {
     thor_drain_io(thor)
     // After the closes: closing the last file rebinds the panes, which sets the
     // snippet variables again.
-    for &editor in thor.editors {editview.editor_destroy(&editor)}
+    for &editor in thor.editors {
+        editview.editor_destroy(&editor)
+    }
     thor_clear_jump_list(thor)
     delete(thor.jump_back)
     delete(thor.jump_forward)
@@ -71,7 +73,7 @@ caret_line :: proc(thor: ^Thor) -> int {
 test_jump_list_back_and_forward :: proc(t: ^testing.T) {
     PATH_A :: "thor_jump_a.tmp"
     PATH_B :: "thor_jump_b.tmp"
-    TEXT :: "one\ntwo\nthree\nfour\nfive\n"
+    TEXT   :: "one\ntwo\nthree\nfour\nfive\n"
 
     testing.expect(t, os.write_entire_file(PATH_A, TEXT) == nil, "could not create test file A")
     defer os.remove(PATH_A)

@@ -16,37 +16,37 @@ import lang ".."
 // completionProvider the same way — whether the server actually resolves is a
 // second question, answered by `resolve_completions`.
 @(private)
-PROVIDER_KEYS := [lang.Request_Kind]string {
-    .Definition        = "definitionProvider",
-    .Type_Definition   = "typeDefinitionProvider",
-    .Hover             = "hoverProvider",
-    .Document_Symbols  = "documentSymbolProvider",
+PROVIDER_KEYS := [lang.Request_Kind]string{
+    .Definition = "definitionProvider",
+    .Type_Definition = "typeDefinitionProvider",
+    .Hover = "hoverProvider",
+    .Document_Symbols = "documentSymbolProvider",
     .Workspace_Symbols = "workspaceSymbolProvider",
-    .References        = "referencesProvider",
-    .Signature_Help    = "signatureHelpProvider",
-    .Completion        = "completionProvider",
-    .Package_Doc       = "hoverProvider",
-    .Rename            = "renameProvider",
-    .Diagnostics       = "diagnosticProvider",
+    .References = "referencesProvider",
+    .Signature_Help = "signatureHelpProvider",
+    .Completion = "completionProvider",
+    .Package_Doc = "hoverProvider",
+    .Rename = "renameProvider",
+    .Diagnostics = "diagnosticProvider",
     .Syntax_Diagnostics = "", // in-client only; no server claims it
-    .Code_Actions      = "codeActionProvider",
-    .Semantic_Tokens   = "semanticTokensProvider",
-    .Inlay_Hints       = "inlayHintProvider",
+    .Code_Actions = "codeActionProvider",
+    .Semantic_Tokens = "semanticTokensProvider",
+    .Inlay_Hints = "inlayHintProvider",
     .Document_Highlight = "documentHighlightProvider",
-    .Format            = "documentFormattingProvider",
-    .Format_Range      = "documentRangeFormattingProvider",
-    .Format_On_Type    = "documentOnTypeFormattingProvider",
-    .Execute_Command   = "executeCommandProvider",
+    .Format = "documentFormattingProvider",
+    .Format_Range = "documentRangeFormattingProvider",
+    .Format_On_Type = "documentOnTypeFormattingProvider",
+    .Execute_Command = "executeCommandProvider",
     .Resolve_Completion = "completionProvider",
-    .Resolve_Action    = "", // in-client only; a server resolves its own actions
-    .Call_Hierarchy    = "", // in-client only
-    .Type_Hierarchy    = "", // in-client only
-    .Implementations   = "implementationProvider",
-    .Selection_Range   = "", // in-client only
-    .Code_Lens         = "", // in-client only
-    .Progress          = "", // unsolicited push; no capability gate, same as Package_Doc
-    .Apply_Edit        = "", // unsolicited push; no capability gate, same as Package_Doc
-    .Message           = "", // unsolicited push; no capability gate
+    .Resolve_Action = "", // in-client only; a server resolves its own actions
+    .Call_Hierarchy = "", // in-client only
+    .Type_Hierarchy = "", // in-client only
+    .Implementations = "implementationProvider",
+    .Selection_Range = "", // in-client only
+    .Code_Lens = "", // in-client only
+    .Progress = "", // unsolicited push; no capability gate, same as Package_Doc
+    .Apply_Edit = "", // unsolicited push; no capability gate, same as Package_Doc
+    .Message = "", // unsolicited push; no capability gate
 }
 
 // What one entry of a server's semantic-token legend means to Thor. `valid` is
@@ -60,18 +60,18 @@ Token_Legend_Entry :: struct {
 // One immutable answer per question the client asks of a server.
 Capabilities :: struct {
     kinds:            bit_set[lang.Request_Kind],
-    encoding:         Encoding, // how the server counts characters
-    open_close:       bool,     // it wants didOpen and didClose
-    changes:          bool,     // it wants didChange
-    sync_incremental: bool,     // didChange may send a range instead of the whole buffer
-    saves:            bool,     // it wants didSave
-    prepare_rename:   bool,     // renameProvider.prepareProvider
-    resolve_actions:  bool,     // codeActionProvider.resolveProvider
-    resolve_items:    bool,     // completionProvider.resolveProvider
+    encoding:         Encoding,             // how the server counts characters
+    open_close:       bool,                 // it wants didOpen and didClose
+    changes:          bool,                 // it wants didChange
+    sync_incremental: bool,                 // didChange may send a range instead of the whole buffer
+    saves:            bool,                 // it wants didSave
+    prepare_rename:   bool,                 // renameProvider.prepareProvider
+    resolve_actions:  bool,                 // codeActionProvider.resolveProvider
+    resolve_items:    bool,                 // completionProvider.resolveProvider
     token_legend:     []Token_Legend_Entry, // owned; indexed by the server's tokenTypes
-    token_delta:      bool,     // semanticTokensProvider.full.delta: the /full/delta method may be asked for
-    on_type_triggers: []string, // owned; documentOnTypeFormattingProvider's trigger characters
-    item_triggers:    []string, // owned; completionProvider's trigger characters
+    token_delta:      bool,                 // semanticTokensProvider.full.delta: the /full/delta method may be asked for
+    on_type_triggers: []string,             // owned; documentOnTypeFormattingProvider's trigger characters
+    item_triggers:    []string,             // owned; completionProvider's trigger characters
     allocator:        runtime.Allocator,    // what built token_legend
 }
 
@@ -79,10 +79,7 @@ Capabilities :: struct {
 // that claims nothing, which is what stops a request reaching one that would
 // answer an error to every one of them.
 capabilities_decode :: proc(result: json.Value, allocator := context.allocator) -> Capabilities {
-    caps := Capabilities {
-        encoding  = .Utf16,
-        allocator = allocator,
-    }
+    caps      := Capabilities{encoding = .Utf16, allocator = allocator}
     root, rok := result.(json.Object)
     if !rok {
         return caps

@@ -18,7 +18,7 @@ Seen :: struct {
 
 @(private = "file")
 seen_collect :: proc(data: rawptr, change: Change) {
-    seen := cast(^Seen) data
+    seen := cast(^Seen)data
     append(&seen.paths, strings.clone(change.path))
 }
 
@@ -62,10 +62,7 @@ temp_root :: proc(t: ^testing.T, name: string) -> string {
     if base == "" {
         base = "/tmp"
     }
-    root, join_err := filepath.join(
-        {strings.trim_right(base, "/"), fmt.tprintf("%s_%d", name, time.now()._nsec)},
-        context.temp_allocator,
-    )
+    root, join_err := filepath.join({strings.trim_right(base, "/"), fmt.tprintf("%s_%d", name, time.now()._nsec)}, context.temp_allocator)
     if join_err != nil {
         testing.fail_now(t, "could not name a temp dir")
     }
@@ -84,7 +81,7 @@ test_watch_rename_reports_the_new_path :: proc(t: ^testing.T) {
     defer os.remove(root)
 
     before, _ := filepath.join({root, "before"}, context.temp_allocator)
-    after, _ := filepath.join({root, "after"}, context.temp_allocator)
+    after, _  := filepath.join({root, "after"}, context.temp_allocator)
     if err := os.make_directory(before); err != nil {
         testing.fail_now(t, fmt.tprintf("could not create %q: %v", before, err))
     }
@@ -106,10 +103,10 @@ test_watch_rename_reports_the_new_path :: proc(t: ^testing.T) {
     // the queue keeps its order, so the directory's own event is always consumed
     // before an event for a file inside it.
     stale, _ := filepath.join({before, "note.txt"}, context.temp_allocator)
-    file, _ := filepath.join({after, "note.txt"}, context.temp_allocator)
+    file, _  := filepath.join({after, "note.txt"}, context.temp_allocator)
     defer os.remove(file)
     for _ in 0 ..< 5 {
-        _ = os.write_entire_file(file, transmute([]u8) string("hi"))
+        _ = os.write_entire_file(file, transmute([]u8)string("hi"))
         pump_for(&w, &seen, file, 1500 * time.Millisecond)
         if seen_has(&seen, file) {
             break
@@ -159,12 +156,9 @@ test_watch_degrade_falls_back_to_polling :: proc(t: ^testing.T) {
     // can keep its size and write time, which is no difference to report.
     reported := false
     for attempt in 0 ..< 5 {
-        file, _ := filepath.join(
-            {root, fmt.tprintf("after_%d.txt", attempt)},
-            context.temp_allocator,
-        )
+        file, _ := filepath.join({root, fmt.tprintf("after_%d.txt", attempt)}, context.temp_allocator)
         defer os.remove(file)
-        if err := os.write_entire_file(file, transmute([]u8) string("hi")); err != nil {
+        if err := os.write_entire_file(file, transmute([]u8)string("hi")); err != nil {
             continue
         }
         pump_for(&w, &seen, file, 3 * time.Second)
@@ -204,8 +198,8 @@ test_watch_skips_a_dependency_tree :: proc(t: ^testing.T) {
     defer os.remove(inside)
     defer os.remove(beside)
 
-    _ = os.write_entire_file(inside, transmute([]u8) string("dep"))
-    _ = os.write_entire_file(beside, transmute([]u8) string("own"))
+    _ = os.write_entire_file(inside, transmute([]u8)string("dep"))
+    _ = os.write_entire_file(beside, transmute([]u8)string("own"))
     pump_for(&w, &seen, beside, 2 * time.Second)
 
     testing.expect(t, seen_has(&seen, beside), "a file in the workspace was never reported")

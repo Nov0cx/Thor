@@ -19,9 +19,9 @@ import "core:thread"
 import "core:time"
 
 import "../atomicfile"
+import "../lockfree"
 import "../setting"
 import "../update"
-import "../lockfree"
 
 import rl "vendor:raylib"
 // The titlebar button's metrics, matching the task selector beside it.
@@ -70,31 +70,31 @@ Update_Kind :: enum {
 // Async update work. The worker fills the out_ fields and appends itself to
 // thor.finished_updates; the main thread applies and frees.
 Update_Job :: struct {
-    queue_next: ^Update_Job, // link in Thor.finished_updates
-    owner:        ^Thor,
-    allocator:    runtime.Allocator,
-    worker:       ^thread.Thread,
-    kind:         Update_Kind,
-    manual:       bool,   // a manual check also reports "up to date"
+    queue_next:      ^Update_Job, // link in Thor.finished_updates
+    owner:           ^Thor,
+    allocator:       runtime.Allocator,
+    worker:          ^thread.Thread,
+    kind:            Update_Kind,
+    manual:          bool,   // a manual check also reports "up to date"
     // Install inputs, cloned on the main thread before the worker starts.
-    in_url:       string, // owned
-    in_sums_url:  string, // owned
-    in_asset:     string, // owned
-    in_size:      i64,
-    in_target:    update.Target,
+    in_url:          string, // owned
+    in_sums_url:     string, // owned
+    in_asset:        string, // owned
+    in_size:         i64,
+    in_target:       update.Target,
     // Set by the main thread at shutdown; kills the command the worker runs, so a quit does not wait for it.
-    cancel:       bool,
+    cancel:          bool,
     // The install step, stored by the worker and read by the title bar.
-    phase:        update.Install_Phase,
+    phase:           update.Install_Phase,
     // Results, applied and freed on the main thread.
-    status:       update.Status,
-    out_version:  string, // owned
-    out_notes:    string, // owned
-    out_url:      string, // owned
-    out_sums_url: string, // owned
-    out_asset:    string, // owned
-    out_root:     string, // owned; Install only, the staged folder to swap from
-    out_size:     i64,
+    status:          update.Status,
+    out_version:     string, // owned
+    out_notes:       string, // owned
+    out_url:         string, // owned
+    out_sums_url:    string, // owned
+    out_asset:       string, // owned
+    out_root:        string, // owned; Install only, the staged folder to swap from
+    out_size:        i64,
     out_installable: bool,
 }
 
@@ -211,14 +211,8 @@ update_install_worker :: proc(job: ^Update_Job) {
     context.allocator = job.allocator
     defer free_all(context.temp_allocator)
 
-    plan := update.Install_Plan {
-        url      = job.in_url,
-        sums_url = job.in_sums_url,
-        asset    = job.in_asset,
-        size     = job.in_size,
-        target   = job.in_target,
-    }
-    agent := update.user_agent(VERSION, context.temp_allocator)
+    plan   := update.Install_Plan{url = job.in_url, sums_url = job.in_sums_url, asset = job.in_asset, size = job.in_size, target = job.in_target}
+    agent  := update.user_agent(VERSION, context.temp_allocator)
     result := update.install_apply(plan, agent, &job.cancel, &job.phase, job.allocator)
     job.status = result.status
     job.out_root = result.root
@@ -398,30 +392,16 @@ thor_prompt_update :: proc(thor: ^Thor) {
     thor.update_prompt_shown = true
     delete(thor.update_prompt)
     if thor.update_installable {
-        thor.update_prompt = fmt.aprintf(
-            "Thor %s is available, you have %s. Install it and restart?",
-            thor.update_version,
-            VERSION,
-        )
+        thor.update_prompt = fmt.aprintf("Thor %s is available, you have %s. Install it and restart?", thor.update_version, VERSION)
     } else {
-        thor.update_prompt = fmt.aprintf(
-            "Thor %s is available, you have %s. Open the download page?",
-            thor.update_version,
-            VERSION,
-        )
+        thor.update_prompt = fmt.aprintf("Thor %s is available, you have %s. Open the download page?", thor.update_version, VERSION)
     }
-    thor_palette_confirm(
-        thor,
-        thor.update_prompt,
-        thor_accept_update,
-        thor,
-        thor_dismiss_update,
-    )
+    thor_palette_confirm(thor, thor.update_prompt, thor_accept_update, thor, thor_dismiss_update)
 }
 
 @(private = "file")
 thor_accept_update :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if thor.update_installable {
         thor_install_update(thor)
         return
@@ -433,7 +413,7 @@ thor_accept_update :: proc(data: rawptr) {
 // costs nothing but the prompt.
 @(private = "file")
 thor_dismiss_update :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor   := cast(^Thor)data
     record := thor_read_update_record()
     record.skipped_version = thor.update_version
     thor_write_update_record(record)
@@ -443,7 +423,7 @@ thor_dismiss_update :: proc(data: rawptr) {
 // The titlebar button. Re-asks while an update is waiting, reports progress
 // while one installs.
 thor_click_update :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if thor.update_state == .Installing {
         thor_flash_status(thor, "The update is downloading")
         return
@@ -458,7 +438,7 @@ thor_click_update :: proc(data: rawptr) {
 // The Help menu and the palette entry. An explicit request beats both the
 // throttle and the check_for_updates setting.
 thor_cmd_check_for_updates :: proc(data: rawptr) {
-    thor_check_for_updates(cast(^Thor) data, manual = true)
+    thor_check_for_updates(cast(^Thor)data, manual = true)
 }
 
 // Opens the releases page for a build that cannot replace itself.

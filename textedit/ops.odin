@@ -34,7 +34,7 @@ copy_payload :: proc(state: ^State, allocator := context.temp_allocator) -> (str
 
     if has_any_selection(state) {
         builder := strings.builder_make(allocator)
-        first := true
+        first   := true
         for cursor in state.cursors {
             lo, hi := selection_range(cursor)
             if hi <= lo {
@@ -49,7 +49,7 @@ copy_payload :: proc(state: ^State, allocator := context.temp_allocator) -> (str
         return strings.to_string(builder), true
     }
 
-    builder := strings.builder_make(allocator)
+    builder    := strings.builder_make(allocator)
     last_start := -1
     for cursor in state.cursors {
         start := line_start(txt, cursor.caret)
@@ -72,8 +72,8 @@ select_line :: proc(state: ^State) {
     txt := text(state)
     for &cursor in state.cursors {
         lo, hi := selection_range(cursor)
-        start := line_start(txt, lo)
-        end := line_end(txt, hi)
+        start  := line_start(txt, lo)
+        end    := line_end(txt, hi)
         if end < len(txt) {
             end += 1
         }
@@ -88,7 +88,7 @@ select_line :: proc(state: ^State) {
 // and whether any were found. Used by double-click / word-drag selection.
 word_range_at :: proc(txt: string, pos: int) -> (int, int, bool) {
     start := word_run_start(txt, pos)
-    end := word_run_end(txt, pos)
+    end   := word_run_end(txt, pos)
     return start, end, end > start
 }
 
@@ -113,7 +113,7 @@ occurrence_taken :: proc(state: ^State, start, width: int) -> bool {
 // primary selection, adds a cursor at its next free occurrence, wrapping past
 // the end. `whole_word` skips an occurrence glued to a word character.
 select_word_or_next :: proc(state: ^State, whole_word: bool) {
-    txt := text(state)
+    txt     := text(state)
     primary := primary_cursor(state)
 
     if !has_selection(primary) {
@@ -137,8 +137,8 @@ select_word_or_next :: proc(state: ^State, whole_word: bool) {
 
     // Every occurrence from the primary's end, wrapping once: taking only the
     // document-first one on wrap strands the occurrences before the primary.
-    next := -1
-    scan := hi
+    next    := -1
+    scan    := hi
     wrapped := false
     for {
         idx := scan + len(needle) <= len(txt) ? strings.index(txt[scan:], needle) : -1
@@ -167,11 +167,7 @@ select_word_or_next :: proc(state: ^State, whole_word: bool) {
         return
     }
 
-    append(&state.cursors, Cursor {
-        anchor = next,
-        caret = next + len(needle),
-        preferred_column = cursor_column(state, txt, next + len(needle)),
-    })
+    append(&state.cursors, Cursor{anchor = next, caret = next + len(needle), preferred_column = cursor_column(state, txt, next + len(needle))})
     normalize_cursors(state)
 }
 
@@ -179,10 +175,10 @@ select_word_or_next :: proc(state: ^State, whole_word: bool) {
 // selection the primary selects the range it is in, else a cursor selects the next range not taken.
 // False when the primary is not in a range or its selection is not one.
 select_range_or_next :: proc(state: ^State, ranges: [][2]int) -> bool {
-    txt := text(state)
+    txt     := text(state)
     primary := primary_cursor(state)
-    lo, hi := selection_range(primary)
-    at := -1
+    lo, hi  := selection_range(primary)
+    at      := -1
     for r, i in ranges {
         if has_selection(primary) ? lo == r[0] && hi == r[1] : lo >= r[0] && lo <= r[1] {
             at = i
@@ -269,17 +265,17 @@ delete_lines :: proc(state: ^State) {
 
 // Removes trailing spaces and tabs from every line as one undo entry.
 trim_trailing_whitespace :: proc(state: ^State) {
-    txt := text(state)
+    txt   := text(state)
     edits := make([dynamic]Line_Edit, context.temp_allocator)
-    pos := 0
+    pos   := 0
     for pos <= len(txt) {
-        end := line_end(txt, pos)
+        end  := line_end(txt, pos)
         trim := end
         for trim > pos && (txt[trim - 1] == ' ' || txt[trim - 1] == '\t') {
             trim -= 1
         }
         if trim < end {
-            append(&edits, Line_Edit {pos = trim, remove = end - trim})
+            append(&edits, Line_Edit{pos = trim, remove = end - trim})
         }
         if end >= len(txt) {
             break
@@ -298,8 +294,8 @@ insert_line_below :: proc(state: ^State) {
 // Opens a line over each cursor with the indentation of the cursor's line.
 insert_line_above :: proc(state: ^State) {
     move_line_start(state, false)
-    txt := text(state)
-    entry := Undo_Entry {cursors_before = clone_cursors(state)}
+    txt   := text(state)
+    entry := Undo_Entry{cursors_before = clone_cursors(state)}
 
     offset := 0
     for &cursor in state.cursors {
@@ -308,9 +304,9 @@ insert_line_above :: proc(state: ^State) {
         for ws < len(txt) && (txt[ws] == ' ' || txt[ws] == '\t') {
             ws += 1
         }
-        indent := txt[ls:ws]
+        indent     := txt[ls:ws]
         insert_str := strings.concatenate({indent, "\n"}, context.temp_allocator)
-        append(&entry.ops, Edit_Op {kind = .Insert, pos = ls + offset, text = strings.clone(insert_str)})
+        append(&entry.ops, Edit_Op{kind = .Insert, pos = ls + offset, text = strings.clone(insert_str)})
         table_insert(state, ls + offset, insert_str)
         cursor.caret = ls + offset + len(indent)
         cursor.anchor = cursor.caret
@@ -336,7 +332,7 @@ covered_line_blocks :: proc(txt: string, state: ^State) -> [dynamic]Line_Block {
         if hi > lo && txt[hi - 1] == '\n' {
             hi -= 1
         }
-        block := Line_Block {line_start(txt, lo), line_end(txt, hi)}
+        block := Line_Block{line_start(txt, lo), line_end(txt, hi)}
         if n := len(blocks); n > 0 && block.start <= blocks[n - 1].end + 1 {
             blocks[n - 1].end = max(blocks[n - 1].end, block.end)
             continue
@@ -362,7 +358,7 @@ block_index :: proc(blocks: []Line_Block, pos: int) -> int {
 // Swaps the lines each cursor covers with the adjacent line. Nothing moves when
 // one block is at the edge of the buffer.
 move_lines :: proc(state: ^State, delta: int) {
-    txt := text(state)
+    txt    := text(state)
     blocks := covered_line_blocks(txt, state)
     for block in blocks {
         if (delta < 0 && block.start == 0) || (delta >= 0 && block.end >= len(txt)) {
@@ -370,7 +366,7 @@ move_lines :: proc(state: ^State, delta: int) {
         }
     }
 
-    entry := Undo_Entry {cursors_before = clone_cursors(state)}
+    entry  := Undo_Entry{cursors_before = clone_cursors(state)}
     shifts := make([]int, len(blocks), context.temp_allocator)
     for block, i in blocks {
         lines := txt[block.start:block.end]
@@ -390,9 +386,9 @@ move_lines :: proc(state: ^State, delta: int) {
             shifts[i] = len(next) + 1
         }
         // The replacement has the length of the text it replaces, so offsets hold.
-        append(&entry.ops, Edit_Op {kind = .Delete, pos = start, text = strings.clone(txt[start:end])})
+        append(&entry.ops, Edit_Op{kind = .Delete, pos = start, text = strings.clone(txt[start:end])})
         table_delete(state, start, end - start)
-        append(&entry.ops, Edit_Op {kind = .Insert, pos = start, text = strings.clone(replacement)})
+        append(&entry.ops, Edit_Op{kind = .Insert, pos = start, text = strings.clone(replacement)})
         table_insert(state, start, replacement)
     }
 
@@ -408,15 +404,15 @@ move_lines :: proc(state: ^State, delta: int) {
 // Duplicates the lines each cursor covers. delta < 0 keeps the cursors on the
 // upper copy, delta > 0 moves them to the lower copy.
 duplicate_lines :: proc(state: ^State, delta: int) {
-    txt := text(state)
+    txt    := text(state)
     blocks := covered_line_blocks(txt, state)
 
-    entry := Undo_Entry {cursors_before = clone_cursors(state)}
+    entry  := Undo_Entry{cursors_before = clone_cursors(state)}
     shifts := make([]int, len(blocks), context.temp_allocator)
     offset := 0
     for block, i in blocks {
         inserted := strings.concatenate({txt[block.start:block.end], "\n"}, context.temp_allocator)
-        append(&entry.ops, Edit_Op {kind = .Insert, pos = block.start + offset, text = strings.clone(inserted)})
+        append(&entry.ops, Edit_Op{kind = .Insert, pos = block.start + offset, text = strings.clone(inserted)})
         table_insert(state, block.start + offset, inserted)
         shifts[i] = offset + (delta > 0 ? len(inserted) : 0)
         offset += len(inserted)
@@ -453,7 +449,7 @@ transform_case :: proc(state: ^State, mode: Case_Transform) {
     // Cursors are in ascending order, so the ranges are too. Two carets in one
     // word name the same range, which is taken once.
     ranges := make([dynamic]Case_Range, context.temp_allocator)
-    done := 0
+    done   := 0
     for cursor in state.cursors {
         lo, hi := selection_range(cursor)
         if hi == lo {
@@ -468,22 +464,22 @@ transform_case :: proc(state: ^State, mode: Case_Transform) {
         }
         done = hi
 
-        original := txt[lo:hi]
+        original    := txt[lo:hi]
         transformed := transform_case_string(original, mode)
         if transformed != original {
-            append(&ranges, Case_Range {lo = lo, hi = hi, text = transformed})
+            append(&ranges, Case_Range{lo = lo, hi = hi, text = transformed})
         }
     }
     if len(ranges) == 0 {
         return
     }
 
-    entry := Undo_Entry {cursors_before = clone_cursors(state)}
+    entry  := Undo_Entry{cursors_before = clone_cursors(state)}
     offset := 0
     for r in ranges {
-        append(&entry.ops, Edit_Op {kind = .Delete, pos = r.lo + offset, text = strings.clone(txt[r.lo:r.hi])})
+        append(&entry.ops, Edit_Op{kind = .Delete, pos = r.lo + offset, text = strings.clone(txt[r.lo:r.hi])})
         table_delete(state, r.lo + offset, r.hi - r.lo)
-        append(&entry.ops, Edit_Op {kind = .Insert, pos = r.lo + offset, text = strings.clone(r.text)})
+        append(&entry.ops, Edit_Op{kind = .Insert, pos = r.lo + offset, text = strings.clone(r.text)})
         table_insert(state, r.lo + offset, r.text)
         offset += len(r.text) - (r.hi - r.lo)
     }
@@ -528,7 +524,7 @@ upper_rune :: proc(r: rune) -> rune {
 
 @(private = "file")
 transform_case_string :: proc(s: string, mode: Case_Transform, allocator := context.temp_allocator) -> string {
-    builder := strings.builder_make(0, len(s), allocator)
+    builder       := strings.builder_make(0, len(s), allocator)
     at_word_start := true
     for r in s {
         word := is_word_rune(r)
@@ -566,7 +562,7 @@ Join_Region :: struct {
 // first becomes one space; `head` is the length of the trimmed first line.
 @(private = "file")
 joined_text :: proc(region: string) -> (joined: string, head: int) {
-    builder := strings.builder_make(context.temp_allocator)
+    builder  := strings.builder_make(context.temp_allocator)
     segments := strings.split(region, "\n", context.temp_allocator)
     for seg, i in segments {
         if i == 0 {
@@ -592,7 +588,7 @@ joined_text :: proc(region: string) -> (joined: string, head: int) {
 // selection joins its line with the line below. Regions that share a line are
 // one region. One undo entry.
 join_lines :: proc(state: ^State) {
-    txt := text(state)
+    txt     := text(state)
     regions := make([dynamic]Join_Region, context.temp_allocator)
     for cursor in state.cursors {
         lo, hi := selection_range(cursor)
@@ -600,7 +596,7 @@ join_lines :: proc(state: ^State) {
             hi -= 1
         }
         first := line_start(txt, lo)
-        last := line_start(txt, hi)
+        last  := line_start(txt, hi)
         if last == first {
             le := line_end(txt, first)
             if le >= len(txt) {
@@ -613,27 +609,27 @@ join_lines :: proc(state: ^State) {
             regions[n - 1].end = max(regions[n - 1].end, end)
             continue
         }
-        append(&regions, Join_Region {start = first, end = end})
+        append(&regions, Join_Region{start = first, end = end})
     }
     if len(regions) == 0 {
         return
     }
 
-    entry := Undo_Entry {cursors_before = clone_cursors(state)}
+    entry  := Undo_Entry{cursors_before = clone_cursors(state)}
     offset := 0
     for &region in regions {
         region.text, region.head = joined_text(txt[region.start:region.end])
         pos := region.start + offset
-        append(&entry.ops, Edit_Op {kind = .Delete, pos = pos, text = strings.clone(txt[region.start:region.end])})
+        append(&entry.ops, Edit_Op{kind = .Delete, pos = pos, text = strings.clone(txt[region.start:region.end])})
         table_delete(state, pos, region.end - region.start)
-        append(&entry.ops, Edit_Op {kind = .Insert, pos = pos, text = strings.clone(region.text)})
+        append(&entry.ops, Edit_Op{kind = .Insert, pos = pos, text = strings.clone(region.text)})
         table_insert(state, pos, region.text)
         offset += len(region.text) - (region.end - region.start)
     }
 
     for &cursor in state.cursors {
-        lo, _ := selection_range(cursor)
-        shift := 0
+        lo, _  := selection_range(cursor)
+        shift  := 0
         joined := false
         for region in regions {
             if region.start > lo {
@@ -679,12 +675,12 @@ replace_ranges :: proc(state: ^State, ranges: []Replace) -> int {
     })
 
     edits := make([dynamic]Line_Edit, context.temp_allocator)
-    last := 0
+    last  := 0
     for r in sorted {
         if r.start < last || r.end < r.start || r.end > len(txt) {
             continue
         }
-        append(&edits, Line_Edit {pos = r.start, remove = r.end - r.start, insert = r.text})
+        append(&edits, Line_Edit{pos = r.start, remove = r.end - r.start, insert = r.text})
         last = r.end
     }
     apply_line_edits(state, txt, edits[:])
@@ -703,7 +699,7 @@ insert_at :: proc(state: ^State, pos: int, s: string) -> Error {
     if len(s) == 0 {
         return .None
     }
-    edits := [1]Line_Edit {{pos = pos, insert = s}}
+    edits := [1]Line_Edit{{pos = pos, insert = s}}
     apply_line_edits(state, text(state), edits[:])
     return .None
 }
@@ -718,7 +714,7 @@ delete_range :: proc(state: ^State, pos, count: int) -> Error {
     if count == 0 {
         return .None
     }
-    edits := [1]Line_Edit {{pos = pos, remove = count}}
+    edits := [1]Line_Edit{{pos = pos, remove = count}}
     apply_line_edits(state, text(state), edits[:])
     return .None
 }
@@ -733,7 +729,7 @@ replace_range :: proc(state: ^State, pos, count: int, s: string) -> Error {
     if count == 0 && len(s) == 0 {
         return .None
     }
-    edits := [1]Line_Edit {{pos = pos, remove = count, insert = s}}
+    edits := [1]Line_Edit{{pos = pos, remove = count, insert = s}}
     apply_line_edits(state, text(state), edits[:])
     return .None
 }
@@ -812,16 +808,16 @@ apply_line_edits :: proc(state: ^State, txt: string, edits: []Line_Edit) {
 // caller moves the cursors and calls finish_edit.
 @(private = "file")
 write_line_edits :: proc(state: ^State, txt: string, edits: []Line_Edit) -> Undo_Entry {
-    entry := Undo_Entry {cursors_before = clone_cursors(state)}
+    entry  := Undo_Entry{cursors_before = clone_cursors(state)}
     offset := 0
     for edit in edits {
         pos := edit.pos + offset
         if edit.remove > 0 {
-            append(&entry.ops, Edit_Op {kind = .Delete, pos = pos, text = strings.clone(txt[edit.pos:edit.pos + edit.remove])})
+            append(&entry.ops, Edit_Op{kind = .Delete, pos = pos, text = strings.clone(txt[edit.pos:edit.pos + edit.remove])})
             table_delete(state, pos, edit.remove)
         }
         if len(edit.insert) > 0 {
-            append(&entry.ops, Edit_Op {kind = .Insert, pos = pos, text = strings.clone(edit.insert)})
+            append(&entry.ops, Edit_Op{kind = .Insert, pos = pos, text = strings.clone(edit.insert)})
             table_insert(state, pos, edit.insert)
         }
         offset += len(edit.insert) - edit.remove
@@ -921,7 +917,7 @@ detect_indent :: proc(state: ^State) -> Indent_Info {
 
     for pos := 0; pos < len(txt); pos = line_end(txt, pos) + 1 {
         end := line_end(txt, pos)
-        i := pos
+        i   := pos
         for i < end && txt[i] == ' ' {
             i += 1
         }
@@ -980,25 +976,25 @@ indent_unit :: proc(state: ^State) -> string {
 // Tab without a selection: a literal tab in a document that indents with tabs,
 // else spaces up to the next tab stop.
 insert_tab :: proc(state: ^State) {
-    txt := text(state)
-    entry := Undo_Entry {cursors_before = clone_cursors(state)}
+    txt   := text(state)
+    entry := Undo_Entry{cursors_before = clone_cursors(state)}
 
     // Cursors are kept sorted; apply low to high, shifting later positions.
     offset := 0
     for &cursor in state.cursors {
         lo, hi := selection_range(cursor)
         if hi > lo {
-            append(&entry.ops, Edit_Op {kind = .Delete, pos = lo + offset, text = strings.clone(txt[lo:hi])})
+            append(&entry.ops, Edit_Op{kind = .Delete, pos = lo + offset, text = strings.clone(txt[lo:hi])})
             table_delete(state, lo + offset, hi - lo)
         }
-        width := tab_width(state)
-        count := width - (cursor_column(state, txt, lo) % width)
+        width      := tab_width(state)
+        count      := width - (cursor_column(state, txt, lo) % width)
         all_spaces := INDENT_SPACES
-        spaces := all_spaces[:count]
+        spaces     := all_spaces[:count]
         if uses_tabs(state) {
             spaces, count = "\t", 1
         }
-        append(&entry.ops, Edit_Op {kind = .Insert, pos = lo + offset, text = strings.clone(spaces)})
+        append(&entry.ops, Edit_Op{kind = .Insert, pos = lo + offset, text = strings.clone(spaces)})
         table_insert(state, lo + offset, spaces)
         cursor.caret = lo + offset + count
         cursor.anchor = cursor.caret
@@ -1012,18 +1008,18 @@ insert_tab :: proc(state: ^State) {
 // one extra indent level when the caret follows an opening bracket. A closer
 // that follows the caret goes to its own line. Replaces any selection.
 insert_newline :: proc(state: ^State) {
-    txt := text(state)
-    entry := Undo_Entry {cursors_before = clone_cursors(state)}
+    txt   := text(state)
+    entry := Undo_Entry{cursors_before = clone_cursors(state)}
 
     offset := 0
     for &cursor in state.cursors {
         lo, hi := selection_range(cursor)
         if hi > lo {
-            append(&entry.ops, Edit_Op {kind = .Delete, pos = lo + offset, text = strings.clone(txt[lo:hi])})
+            append(&entry.ops, Edit_Op{kind = .Delete, pos = lo + offset, text = strings.clone(txt[lo:hi])})
             table_delete(state, lo + offset, hi - lo)
         }
 
-        ls := line_start(txt, lo)
+        ls     := line_start(txt, lo)
         ws_end := ls
         for ws_end < len(txt) && (txt[ws_end] == ' ' || txt[ws_end] == '\t') {
             ws_end += 1
@@ -1037,7 +1033,7 @@ insert_newline :: proc(state: ^State) {
             j -= 1
         }
         extra := ""
-        tail := ""
+        tail  := ""
         if j >= ls && (txt[j] == '{' || txt[j] == '[' || txt[j] == '(') {
             extra = indent_unit(state)
             // The closer of the pair goes to its own line.
@@ -1050,9 +1046,9 @@ insert_newline :: proc(state: ^State) {
             }
         }
 
-        head := strings.concatenate({"\n", indent, extra}, context.temp_allocator)
+        head       := strings.concatenate({"\n", indent, extra}, context.temp_allocator)
         insert_str := strings.concatenate({head, tail}, context.temp_allocator)
-        append(&entry.ops, Edit_Op {kind = .Insert, pos = lo + offset, text = strings.clone(insert_str)})
+        append(&entry.ops, Edit_Op{kind = .Insert, pos = lo + offset, text = strings.clone(insert_str)})
         table_insert(state, lo + offset, insert_str)
         cursor.caret = lo + offset + len(head)
         cursor.anchor = cursor.caret
@@ -1085,12 +1081,12 @@ brace_block_applies :: proc(state: ^State) -> bool {
 // Inserts a `{ }` block spread over three lines with the caret on the indented
 // middle line. Assumes brace_block_applies(state) held (single collapsed cursor).
 insert_brace_block :: proc(state: ^State) {
-    txt := text(state)
-    entry := Undo_Entry {cursors_before = clone_cursors(state)}
+    txt   := text(state)
+    entry := Undo_Entry{cursors_before = clone_cursors(state)}
 
     cursor := &state.cursors[0]
-    lo := cursor.caret
-    ls := line_start(txt, lo)
+    lo     := cursor.caret
+    ls     := line_start(txt, lo)
     ws_end := ls
     for ws_end < len(txt) && (txt[ws_end] == ' ' || txt[ws_end] == '\t') {
         ws_end += 1
@@ -1101,7 +1097,7 @@ insert_brace_block :: proc(state: ^State) {
     full := strings.concatenate({head, "\n", indent, "}"}, context.temp_allocator)
 
     table_insert(state, lo, full)
-    append(&entry.ops, Edit_Op {kind = .Insert, pos = lo, text = strings.clone(full)})
+    append(&entry.ops, Edit_Op{kind = .Insert, pos = lo, text = strings.clone(full)})
     cursor.caret = lo + len(head)
     cursor.anchor = cursor.caret
 
@@ -1123,26 +1119,26 @@ line_is_blank :: proc(txt: string, start: int) -> bool {
 // Indents the covered lines. Blank lines are skipped, which would only gain
 // trailing whitespace.
 indent_lines :: proc(state: ^State) {
-    txt := text(state)
+    txt    := text(state)
     starts := covered_line_starts(txt, state)
-    edits := make([dynamic]Line_Edit, context.temp_allocator)
+    edits  := make([dynamic]Line_Edit, context.temp_allocator)
     for start in starts {
         if line_is_blank(txt, start) {
             continue
         }
-        append(&edits, Line_Edit {pos = start, insert = indent_unit(state)})
+        append(&edits, Line_Edit{pos = start, insert = indent_unit(state)})
     }
     apply_line_edits(state, txt, edits[:])
 }
 
 outdent_lines :: proc(state: ^State) {
-    txt := text(state)
+    txt    := text(state)
     starts := covered_line_starts(txt, state)
-    edits := make([dynamic]Line_Edit, context.temp_allocator)
-    width := tab_width(state)
+    edits  := make([dynamic]Line_Edit, context.temp_allocator)
+    width  := tab_width(state)
     for start in starts {
         if start < len(txt) && txt[start] == '\t' {
-            append(&edits, Line_Edit {pos = start, remove = 1})
+            append(&edits, Line_Edit{pos = start, remove = 1})
             continue
         }
         spaces := 0
@@ -1150,7 +1146,7 @@ outdent_lines :: proc(state: ^State) {
             spaces += 1
         }
         if spaces > 0 {
-            append(&edits, Line_Edit {pos = start, remove = spaces})
+            append(&edits, Line_Edit{pos = start, remove = spaces})
         }
     }
     apply_line_edits(state, txt, edits[:])
@@ -1162,14 +1158,14 @@ toggle_comment :: proc(state: ^State, prefix: string) {
     if prefix == "" {
         return
     }
-    txt := text(state)
+    txt    := text(state)
     starts := covered_line_starts(txt, state)
 
     all_commented := true
-    any_content := false
+    any_content   := false
     for start in starts {
         end := line_end(txt, start)
-        i := start
+        i   := start
         for i < end && (txt[i] == ' ' || txt[i] == '\t') {
             i += 1
         }
@@ -1185,11 +1181,11 @@ toggle_comment :: proc(state: ^State, prefix: string) {
         return
     }
 
-    edits := make([dynamic]Line_Edit, context.temp_allocator)
+    edits  := make([dynamic]Line_Edit, context.temp_allocator)
     marker := strings.concatenate({prefix, " "}, context.temp_allocator)
     for start in starts {
         end := line_end(txt, start)
-        i := start
+        i   := start
         for i < end && (txt[i] == ' ' || txt[i] == '\t') {
             i += 1
         }
@@ -1202,9 +1198,9 @@ toggle_comment :: proc(state: ^State, prefix: string) {
             if i + remove < end && txt[i + remove] == ' ' {
                 remove += 1
             }
-            append(&edits, Line_Edit {pos = i, remove = remove})
+            append(&edits, Line_Edit{pos = i, remove = remove})
         } else if !strings.has_prefix(txt[i:end], prefix) {
-            append(&edits, Line_Edit {pos = i, insert = marker})
+            append(&edits, Line_Edit{pos = i, insert = marker})
         }
     }
     apply_line_edits(state, txt, edits[:])
@@ -1218,16 +1214,16 @@ toggle_block_comment :: proc(state: ^State, open, close: string) {
     if open == "" || close == "" {
         return
     }
-    txt := text(state)
+    txt   := text(state)
     edits := make([dynamic]Line_Edit, context.temp_allocator)
     // Bytes the opener adds in front of each cursor's range; 0 for the others.
     leads := make([]int, len(state.cursors), context.temp_allocator)
-    head := strings.concatenate({open, " "}, context.temp_allocator)
-    tail := strings.concatenate({" ", close}, context.temp_allocator)
+    head  := strings.concatenate({open, " "}, context.temp_allocator)
+    tail  := strings.concatenate({" ", close}, context.temp_allocator)
 
     done := 0
     for cursor, index in state.cursors {
-        lo, hi := selection_range(cursor)
+        lo, hi   := selection_range(cursor)
         selected := hi > lo
         if !selected {
             lo = line_start(txt, lo)
@@ -1254,12 +1250,12 @@ toggle_block_comment :: proc(state: ^State, open, close: string) {
             if back - 1 >= lo + front && txt[back - 1] == ' ' {
                 back -= 1
             }
-            append(&edits, Line_Edit {pos = lo, remove = front})
-            append(&edits, Line_Edit {pos = back, remove = hi - back})
+            append(&edits, Line_Edit{pos = lo, remove = front})
+            append(&edits, Line_Edit{pos = back, remove = hi - back})
             continue
         }
-        append(&edits, Line_Edit {pos = lo, insert = head})
-        append(&edits, Line_Edit {pos = hi, insert = tail})
+        append(&edits, Line_Edit{pos = lo, insert = head})
+        append(&edits, Line_Edit{pos = hi, insert = tail})
         if selected {
             leads[index] = len(head)
         }
@@ -1286,7 +1282,7 @@ toggle_block_comment :: proc(state: ^State, open, close: string) {
 // Lines without the target, or where it is the first non-blank character, are
 // left untouched. One undo entry.
 align_at_char :: proc(state: ^State, target: rune) {
-    txt := text(state)
+    txt    := text(state)
     starts := covered_line_starts(txt, state)
 
     // First pass: locate the target on each line and the column just after the
@@ -1294,10 +1290,10 @@ align_at_char :: proc(state: ^State, target: rune) {
     Line_Target :: struct {
         ws_start, char_pos, content_col: int,
     }
-    targets := make([dynamic]Line_Target, context.temp_allocator)
+    targets   := make([dynamic]Line_Target, context.temp_allocator)
     align_col := 0
     for start in starts {
-        end := line_end(txt, start)
+        end      := line_end(txt, start)
         char_pos := -1
         for i := start; i < end; {
             r, w := utf8.decode_rune_in_string(txt[i:])
@@ -1318,14 +1314,14 @@ align_at_char :: proc(state: ^State, target: rune) {
             continue // target is the first non-blank; leave indentation alone
         }
         content_col := cursor_column(state, txt, ws)
-        append(&targets, Line_Target {ws_start = ws, char_pos = char_pos, content_col = content_col})
+        append(&targets, Line_Target{ws_start = ws, char_pos = char_pos, content_col = content_col})
         align_col = max(align_col, content_col + 1)
     }
 
     edits := make([dynamic]Line_Edit, context.temp_allocator)
     for t in targets {
         spaces := strings.repeat(" ", align_col - t.content_col, context.temp_allocator)
-        append(&edits, Line_Edit {pos = t.ws_start, remove = t.char_pos - t.ws_start, insert = spaces})
+        append(&edits, Line_Edit{pos = t.ws_start, remove = t.char_pos - t.ws_start, insert = spaces})
     }
     apply_line_edits(state, txt, edits[:])
 }

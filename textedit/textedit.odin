@@ -28,25 +28,25 @@ Edit_Op :: struct {
 }
 
 State :: struct {
-    table:      piecetable.Piece_Table, // owned
-    cursors:    [dynamic]Cursor,        // owned
-    history:    Undo_Tree,              // owned
+    table:          piecetable.Piece_Table, // owned
+    cursors:        [dynamic]Cursor,        // owned
+    history:        Undo_Tree,              // owned
     // Op text held by history, against MAX_UNDO_BYTES.
-    undo_bytes: int,
+    undo_bytes:     int,
     // True while the current undo node can still absorb the next keystroke.
-    coalescing: bool,
+    coalescing:     bool,
     // Bumped on every content change (edits, undo, redo, set_text); never lowered.
     // Callers compare against a saved revision to detect unsaved changes.
-    revision:   u64,
+    revision:       u64,
     // Names the content: the revision that first made it. Undo and redo bring
     // an older value back, so equal ids mean equal text.
-    content_id: u64,
+    content_id:     u64,
     // This document's soft-tab width; 0 follows the package default.
-    tab_width:  int,
+    tab_width:      int,
     // This document's indent style; Unknown follows the package default.
-    indent_style: Indent_Style,
+    indent_style:   Indent_Style,
     // Comment and string syntax for bracket matching. Borrowed.
-    lexical:    Lexical,
+    lexical:        Lexical,
     // Byte offset of every line start, so a line query is a binary search and not
     // a scan from byte 0. Patched from the change log at the first query after a
     // content change, like the text snapshot, and rebuilt when the log no longer
@@ -107,8 +107,8 @@ changes_since :: proc(state: ^State, revision: u64) -> (Change, bool) {
 record_change :: proc(state: ^State, revision: u64, ops: []Edit_Op, reverse := false) {
     lo, hi, delta := 0, -1, 0
     for i in 0 ..< len(ops) {
-        op := ops[reverse ? len(ops) - 1 - i : i]
-        n := len(op.text)
+        op     := ops[reverse ? len(ops) - 1 - i : i]
+        n      := len(op.text)
         insert := (op.kind == .Insert) != reverse
         if hi < 0 {
             lo, hi = op.pos, op.pos
@@ -123,16 +123,11 @@ record_change :: proc(state: ^State, revision: u64, ops: []Edit_Op, reverse := f
         }
     }
     hi = max(hi, lo)
-    state.changes[revision % CHANGE_LOG] = Change {
-        revision = revision,
-        lo       = lo,
-        old_hi   = hi - delta,
-        new_hi   = hi,
-    }
+    state.changes[revision % CHANGE_LOG] = Change{revision = revision, lo = lo, old_hi = hi - delta, new_hi = hi}
 }
 
 init :: proc(state: ^State) {
-    append(&state.cursors, Cursor {})
+    append(&state.cursors, Cursor{})
 }
 
 destroy :: proc(state: ^State) {
@@ -147,17 +142,13 @@ set_text :: proc(state: ^State, new_text: string) {
     piecetable.piecetable_set_text(&state.table, new_text)
     tree_clear(&state.history)
     clear(&state.cursors)
-    append(&state.cursors, Cursor {})
+    append(&state.cursors, Cursor{})
     state.undo_bytes = 0
     state.coalescing = false
     state.revision += 1
     state.content_id = state.revision
     state.lines_valid = false
-    state.changes[state.revision % CHANGE_LOG] = Change {
-        revision = state.revision,
-        old_hi   = old_len,
-        new_hi   = len(new_text),
-    }
+    state.changes[state.revision % CHANGE_LOG] = Change{revision = state.revision, old_hi = old_len, new_hi = len(new_text)}
 }
 
 // Replaces the whole text as one undo entry, so a reload from disk can be
@@ -168,7 +159,7 @@ replace_text :: proc(state: ^State, new_text: string) -> bool {
     if old == new_text {
         return false
     }
-    limit := min(len(old), len(new_text))
+    limit  := min(len(old), len(new_text))
     prefix := 0
     for prefix < limit && old[prefix] == new_text[prefix] {
         prefix += 1
@@ -178,15 +169,15 @@ replace_text :: proc(state: ^State, new_text: string) -> bool {
         suffix += 1
     }
 
-    entry := Undo_Entry {cursors_before = clone_cursors(state)}
-    removed := old[prefix:len(old) - suffix]
+    entry    := Undo_Entry{cursors_before = clone_cursors(state)}
+    removed  := old[prefix:len(old) - suffix]
     inserted := new_text[prefix:len(new_text) - suffix]
     if len(removed) > 0 {
-        append(&entry.ops, Edit_Op {kind = .Delete, pos = prefix, text = strings.clone(removed)})
+        append(&entry.ops, Edit_Op{kind = .Delete, pos = prefix, text = strings.clone(removed)})
         table_delete(state, prefix, len(removed))
     }
     if len(inserted) > 0 {
-        append(&entry.ops, Edit_Op {kind = .Insert, pos = prefix, text = strings.clone(inserted)})
+        append(&entry.ops, Edit_Op{kind = .Insert, pos = prefix, text = strings.clone(inserted)})
         table_insert(state, prefix, inserted)
     }
     for &cursor in state.cursors {
@@ -274,9 +265,9 @@ primary_cursor :: proc(state: ^State) -> Cursor {
 
 set_single_cursor :: proc(state: ^State, pos: int) {
     txt := text(state)
-    p := clamp(pos, 0, len(txt))
+    p   := clamp(pos, 0, len(txt))
     clear(&state.cursors)
-    append(&state.cursors, Cursor {caret = p, anchor = p, preferred_column = cursor_column(state, txt, p)})
+    append(&state.cursors, Cursor{caret = p, anchor = p, preferred_column = cursor_column(state, txt, p)})
 }
 
 // Replaces the whole cursor set, clamped to the buffer (used when the content is
@@ -286,16 +277,12 @@ set_cursors :: proc(state: ^State, cursors: []Cursor) {
     txt := text(state)
     clear(&state.cursors)
     for cursor in cursors {
-        caret := clamp(cursor.caret, 0, len(txt))
+        caret  := clamp(cursor.caret, 0, len(txt))
         anchor := clamp(cursor.anchor, 0, len(txt))
-        append(&state.cursors, Cursor {
-            caret = caret,
-            anchor = anchor,
-            preferred_column = cursor_column(state, txt, caret),
-        })
+        append(&state.cursors, Cursor{caret = caret, anchor = anchor, preferred_column = cursor_column(state, txt, caret)})
     }
     if len(state.cursors) == 0 {
-        append(&state.cursors, Cursor {})
+        append(&state.cursors, Cursor{})
     }
     normalize_cursors(state)
 }
@@ -304,10 +291,10 @@ set_cursors :: proc(state: ^State, cursors: []Cursor) {
 // (used by find to highlight a match).
 select_range :: proc(state: ^State, lo, hi: int) {
     txt := text(state)
-    a := clamp(lo, 0, len(txt))
-    b := clamp(hi, 0, len(txt))
+    a   := clamp(lo, 0, len(txt))
+    b   := clamp(hi, 0, len(txt))
     clear(&state.cursors)
-    append(&state.cursors, Cursor {anchor = a, caret = b, preferred_column = cursor_column(state, txt, b)})
+    append(&state.cursors, Cursor{anchor = a, caret = b, preferred_column = cursor_column(state, txt, b)})
 }
 
 collapse_to_primary :: proc(state: ^State) {
@@ -319,11 +306,7 @@ collapse_to_primary :: proc(state: ^State) {
 select_all :: proc(state: ^State) {
     txt := text(state)
     clear(&state.cursors)
-    append(&state.cursors, Cursor {
-        caret = len(txt),
-        anchor = 0,
-        preferred_column = cursor_column(state, txt, len(txt)),
-    })
+    append(&state.cursors, Cursor{caret = len(txt), anchor = 0, preferred_column = cursor_column(state, txt, len(txt))})
 }
 
 // Public entry point for callers (e.g. the editor's visual movement) that set
@@ -387,9 +370,9 @@ merged_cursor :: proc(a, b: Cursor, txt: string, tab_width: int) -> Cursor {
     b_lo, b_hi := selection_range(b)
     lo, hi := min(a_lo, b_lo), max(a_hi, b_hi)
     reversed := has_selection(b) ? b.caret < b.anchor : a.caret < a.anchor
-    out := Cursor {caret = hi, anchor = lo}
+    out      := Cursor{caret = hi, anchor = lo}
     if reversed {
-        out = Cursor {caret = lo, anchor = hi}
+        out = Cursor{caret = lo, anchor = hi}
     }
     out.preferred_column = column(txt, out.caret, tab_width)
     return out
@@ -501,7 +484,7 @@ move_document_end :: proc(state: ^State, extend: bool) {
 // matches the other end of its string. A bracket in code does not count the
 // brackets in strings and comments.
 move_to_matching_bracket :: proc(state: ^State, extend: bool) {
-    txt := text(state)
+    txt    := text(state)
     ranges := skip_ranges(txt, state.lexical)
     for &cursor in state.cursors {
         if bracket_pos, match_pos, forward, found := find_matching_bracket(txt, ranges, cursor.caret); found {
@@ -549,7 +532,7 @@ apply_delimiter_jump :: proc(cursor: ^Cursor, txt: string, delim_pos, match_pos:
 // Selects the text between the innermost bracket pair around the caret,
 // excluding the brackets. Works next to a bracket or from inside the pair.
 select_between_brackets :: proc(state: ^State) {
-    txt := text(state)
+    txt    := text(state)
     ranges := skip_ranges(txt, state.lexical)
     for &cursor in state.cursors {
         open_pos, close_pos, found := bracket_span_in(txt, ranges, cursor.caret)
@@ -565,7 +548,7 @@ select_between_brackets :: proc(state: ^State) {
 
 // Spawns an extra cursor one line above (delta < 0) or below each existing one.
 add_cursor_vertical :: proc(state: ^State, delta: int) {
-    txt := text(state)
+    txt     := text(state)
     spawned := make([dynamic]Cursor, context.temp_allocator)
     for cursor in state.cursors {
         start, full := line_start_relative(txt, cursor.caret, delta)
@@ -573,7 +556,7 @@ add_cursor_vertical :: proc(state: ^State, delta: int) {
             continue
         }
         pos := offset_for_column(txt, start, cursor.preferred_column, tab_width(state))
-        append(&spawned, Cursor {caret = pos, anchor = pos, preferred_column = cursor.preferred_column})
+        append(&spawned, Cursor{caret = pos, anchor = pos, preferred_column = cursor.preferred_column})
     }
     for cursor in spawned {
         append(&state.cursors, cursor)
@@ -585,8 +568,8 @@ insert_text :: proc(state: ^State, s: string) {
     if len(s) == 0 {
         return
     }
-    txt := text(state)
-    entry := Undo_Entry {cursors_before = clone_cursors(state)}
+    txt   := text(state)
+    entry := Undo_Entry{cursors_before = clone_cursors(state)}
 
     // Replacing a selection is its own undo step, and only a single typed
     // character joins a typing run — never a paste or a completion insert.
@@ -597,10 +580,10 @@ insert_text :: proc(state: ^State, s: string) {
     for &cursor in state.cursors {
         lo, hi := selection_range(cursor)
         if hi > lo {
-            append(&entry.ops, Edit_Op {kind = .Delete, pos = lo + offset, text = strings.clone(txt[lo:hi])})
+            append(&entry.ops, Edit_Op{kind = .Delete, pos = lo + offset, text = strings.clone(txt[lo:hi])})
             table_delete(state, lo + offset, hi - lo)
         }
-        append(&entry.ops, Edit_Op {kind = .Insert, pos = lo + offset, text = strings.clone(s)})
+        append(&entry.ops, Edit_Op{kind = .Insert, pos = lo + offset, text = strings.clone(s)})
         table_insert(state, lo + offset, s)
         cursor.caret = lo + offset + len(s)
         cursor.anchor = cursor.caret
@@ -623,9 +606,12 @@ is_single_grapheme :: proc(s: string) -> bool {
 // Matching close for an auto-paired opener; ok=false if r is not an opener.
 auto_close_for :: proc(r: rune) -> (rune, bool) {
     switch r {
-    case '(': return ')', true
-    case '[': return ']', true
-    case '{': return '}', true
+    case '(':
+        return ')', true
+    case '[':
+        return ']', true
+    case '{':
+        return '}', true
     }
     return 0, false
 }
@@ -646,20 +632,20 @@ is_word_byte_ascii :: proc(b: u8) -> bool {
 // Types an opener: wraps a selection in open..close, or inserts the pair with
 // the caret left between them when there is no selection.
 insert_pair :: proc(state: ^State, open, close: rune) {
-    entry := Undo_Entry {cursors_before = clone_cursors(state)}
-    ob, ow := utf8.encode_rune(open)
+    entry    := Undo_Entry{cursors_before = clone_cursors(state)}
+    ob, ow   := utf8.encode_rune(open)
     cbuf, cw := utf8.encode_rune(close)
-    open_s := string(ob[:ow])
-    close_s := string(cbuf[:cw])
+    open_s   := string(ob[:ow])
+    close_s  := string(cbuf[:cw])
 
     offset := 0
     for &cursor in state.cursors {
         lo, hi := selection_range(cursor)
         table_insert(state, lo + offset, open_s)
-        append(&entry.ops, Edit_Op {kind = .Insert, pos = lo + offset, text = strings.clone(open_s)})
+        append(&entry.ops, Edit_Op{kind = .Insert, pos = lo + offset, text = strings.clone(open_s)})
         close_pos := hi + offset + ow
         table_insert(state, close_pos, close_s)
-        append(&entry.ops, Edit_Op {kind = .Insert, pos = close_pos, text = strings.clone(close_s)})
+        append(&entry.ops, Edit_Op{kind = .Insert, pos = close_pos, text = strings.clone(close_s)})
 
         cursor.anchor = lo + offset + ow
         cursor.caret = hi > lo ? hi + offset + ow : cursor.anchor
@@ -671,10 +657,10 @@ insert_pair :: proc(state: ^State, open, close: rune) {
 // Types a closer: steps over an identical character already in front of the
 // caret (so typing `)` past an auto-inserted `)` just moves), else inserts it.
 insert_or_step :: proc(state: ^State, close: rune) {
-    txt := text(state)
-    entry := Undo_Entry {cursors_before = clone_cursors(state)}
+    txt      := text(state)
+    entry    := Undo_Entry{cursors_before = clone_cursors(state)}
     cbuf, cw := utf8.encode_rune(close)
-    close_s := string(cbuf[:cw])
+    close_s  := string(cbuf[:cw])
 
     offset := 0
     edited := false
@@ -687,10 +673,10 @@ insert_or_step :: proc(state: ^State, close: rune) {
         }
         if hi > lo {
             table_delete(state, lo + offset, hi - lo)
-            append(&entry.ops, Edit_Op {kind = .Delete, pos = lo + offset, text = strings.clone(txt[lo:hi])})
+            append(&entry.ops, Edit_Op{kind = .Delete, pos = lo + offset, text = strings.clone(txt[lo:hi])})
         }
         table_insert(state, lo + offset, close_s)
-        append(&entry.ops, Edit_Op {kind = .Insert, pos = lo + offset, text = strings.clone(close_s)})
+        append(&entry.ops, Edit_Op{kind = .Insert, pos = lo + offset, text = strings.clone(close_s)})
         cursor.caret = lo + offset + cw
         cursor.anchor = cursor.caret
         offset += cw - (hi - lo)
@@ -712,10 +698,10 @@ insert_quote :: proc(state: ^State, q: rune) {
         return
     }
 
-    txt := text(state)
-    entry := Undo_Entry {cursors_before = clone_cursors(state)}
+    txt      := text(state)
+    entry    := Undo_Entry{cursors_before = clone_cursors(state)}
     qbuf, qw := utf8.encode_rune(q)
-    q_s := string(qbuf[:qw])
+    q_s      := string(qbuf[:qw])
 
     offset := 0
     edited := false
@@ -729,10 +715,10 @@ insert_quote :: proc(state: ^State, q: rune) {
         edited = true
         pair := !(lo > 0 && is_word_byte_ascii(txt[lo - 1]))
         table_insert(state, lo + offset, q_s)
-        append(&entry.ops, Edit_Op {kind = .Insert, pos = lo + offset, text = strings.clone(q_s)})
+        append(&entry.ops, Edit_Op{kind = .Insert, pos = lo + offset, text = strings.clone(q_s)})
         if pair {
             table_insert(state, lo + offset + qw, q_s)
-            append(&entry.ops, Edit_Op {kind = .Insert, pos = lo + offset + qw, text = strings.clone(q_s)})
+            append(&entry.ops, Edit_Op{kind = .Insert, pos = lo + offset + qw, text = strings.clone(q_s)})
         }
         cursor.caret = lo + offset + qw
         cursor.anchor = cursor.caret
@@ -764,11 +750,11 @@ block_comment_applies :: proc(state: ^State) -> bool {
 // caret between them (`/*|*/`). Assumes block_comment_applies(state) held (single
 // collapsed cursor with `/` before the caret).
 insert_block_comment :: proc(state: ^State) {
-    entry := Undo_Entry {cursors_before = clone_cursors(state)}
+    entry  := Undo_Entry{cursors_before = clone_cursors(state)}
     cursor := &state.cursors[0]
-    lo := cursor.caret
+    lo     := cursor.caret
     table_insert(state, lo, "**/")
-    append(&entry.ops, Edit_Op {kind = .Insert, pos = lo, text = strings.clone("**/")})
+    append(&entry.ops, Edit_Op{kind = .Insert, pos = lo, text = strings.clone("**/")})
     cursor.caret = lo + 1
     cursor.anchor = cursor.caret
     finish_edit(state, &entry)
@@ -779,24 +765,28 @@ insert_block_comment :: proc(state: ^State) {
 @(private)
 is_auto_pair_bytes :: proc(open, close: u8) -> bool {
     switch open {
-    case '(': return close == ')'
-    case '[': return close == ']'
-    case '{': return close == '}'
-    case '"', '\'', '`': return close == open
+    case '(':
+        return close == ')'
+    case '[':
+        return close == ']'
+    case '{':
+        return close == '}'
+    case '"', '\'', '`':
+        return close == open
     }
     return false
 }
 
 delete_backward :: proc(state: ^State) {
-    txt := text(state)
-    entry := Undo_Entry {cursors_before = clone_cursors(state)}
+    txt      := text(state)
+    entry    := Undo_Entry{cursors_before = clone_cursors(state)}
     // Deleting a selection is its own undo step.
     coalesce := has_any_selection(state) ? Coalesce.None : .Delete_Back
 
-    offset := 0
+    offset  := 0
     changed := false
     // End of the last deleted range, in offsets of `txt`.
-    done := 0
+    done    := 0
     for &cursor in state.cursors {
         lo, hi := selection_range(cursor)
         if hi == lo && lo > 0 {
@@ -813,7 +803,7 @@ delete_backward :: proc(state: ^State) {
         hi = max(hi, lo)
         done = hi
         if hi > lo {
-            append(&entry.ops, Edit_Op {kind = .Delete, pos = lo + offset, text = strings.clone(txt[lo:hi])})
+            append(&entry.ops, Edit_Op{kind = .Delete, pos = lo + offset, text = strings.clone(txt[lo:hi])})
             table_delete(state, lo + offset, hi - lo)
             changed = true
         }
@@ -830,15 +820,15 @@ delete_backward :: proc(state: ^State) {
 }
 
 delete_forward :: proc(state: ^State) {
-    txt := text(state)
-    entry := Undo_Entry {cursors_before = clone_cursors(state)}
+    txt      := text(state)
+    entry    := Undo_Entry{cursors_before = clone_cursors(state)}
     // Deleting a selection is its own undo step.
     coalesce := has_any_selection(state) ? Coalesce.None : .Delete_Forward
 
-    offset := 0
+    offset  := 0
     changed := false
     // End of the last deleted range, in offsets of `txt`.
-    done := 0
+    done    := 0
     for &cursor in state.cursors {
         lo, hi := selection_range(cursor)
         if hi == lo && lo < len(txt) {
@@ -848,7 +838,7 @@ delete_forward :: proc(state: ^State) {
         hi = max(hi, lo)
         done = hi
         if hi > lo {
-            append(&entry.ops, Edit_Op {kind = .Delete, pos = lo + offset, text = strings.clone(txt[lo:hi])})
+            append(&entry.ops, Edit_Op{kind = .Delete, pos = lo + offset, text = strings.clone(txt[lo:hi])})
             table_delete(state, lo + offset, hi - lo)
             changed = true
         }
@@ -951,7 +941,7 @@ patch_line_table :: proc(state: ^State, txt: string, change: Change) {
     lines := &state.lines
     // First start after lo, and first start after old_hi.
     first := first_line_after(lines[:], change.lo)
-    last := first_line_after(lines[:], change.old_hi)
+    last  := first_line_after(lines[:], change.old_hi)
     delta := change.new_hi - change.old_hi
     for i in last ..< len(lines) {
         lines[i] += delta
@@ -1045,7 +1035,7 @@ grapheme_next :: proc(txt: string, pos: int) -> int {
     if pos >= len(txt) {
         return len(txt)
     }
-    it := utf8.decode_grapheme_iterator_make(txt[pos:])
+    it       := utf8.decode_grapheme_iterator_make(txt[pos:])
     // The first boundary is always 0; the second one ends this cluster. Only
     // `byte_index` is usable: the iterator's `text` is sliced by display cells.
     _, _, ok := utf8.decode_grapheme_iterate(&it)
@@ -1069,7 +1059,7 @@ grapheme_prev :: proc(txt: string, pos: int) -> int {
     }
 
     best := from
-    it := utf8.decode_grapheme_iterator_make(txt[from:pos])
+    it   := utf8.decode_grapheme_iterator_make(txt[from:pos])
     for {
         _, cluster, ok := utf8.decode_grapheme_iterate(&it)
         if !ok {
@@ -1084,10 +1074,21 @@ grapheme_prev :: proc(txt: string, pos: int) -> int {
 // forms and for emoji, else 1.
 rune_cells :: proc(r: rune) -> int {
     switch r {
-    case 0x1100 ..= 0x115F, 0x2E80 ..= 0x303E, 0x3041 ..= 0x33FF, 0x3400 ..= 0x4DBF, 0x4E00 ..= 0x9FFF,
-         0xA000 ..= 0xA4CF, 0xAC00 ..= 0xD7A3, 0xF900 ..= 0xFAFF, 0xFE30 ..= 0xFE4F, 0xFF00 ..= 0xFF60,
-         0xFFE0 ..= 0xFFE6, 0x1F300 ..= 0x1F64F, 0x1F680 ..= 0x1F6FF, 0x1F900 ..= 0x1F9FF,
-         0x20000 ..= 0x3FFFD:
+    case 0x1100 ..= 0x115F,
+        0x2E80 ..= 0x303E,
+        0x3041 ..= 0x33FF,
+        0x3400 ..= 0x4DBF,
+        0x4E00 ..= 0x9FFF,
+        0xA000 ..= 0xA4CF,
+        0xAC00 ..= 0xD7A3,
+        0xF900 ..= 0xFAFF,
+        0xFE30 ..= 0xFE4F,
+        0xFF00 ..= 0xFF60,
+        0xFFE0 ..= 0xFFE6,
+        0x1F300 ..= 0x1F64F,
+        0x1F680 ..= 0x1F6FF,
+        0x1F900 ..= 0x1F9FF,
+        0x20000 ..= 0x3FFFD:
         return 2
     }
     return 1
@@ -1099,7 +1100,7 @@ rune_cells :: proc(r: rune) -> int {
 // ASCII too, since a combining mark would join the cluster before it.
 display_width :: proc(s: string, tab_width: int) -> int {
     width := max(tab_width, 1)
-    col := 0
+    col   := 0
     for i := 0; i < len(s); {
         b := s[i]
         switch {
@@ -1122,9 +1123,9 @@ display_width :: proc(s: string, tab_width: int) -> int {
 // Byte offset at display column `col` in `s`, never past it: a tab straddling
 // `col` is not entered, so the offset lands before it. Stops at a newline.
 display_offset :: proc(s: string, col: int, tab_width: int) -> int {
-    width := max(tab_width, 1)
+    width   := max(tab_width, 1)
     current := 0
-    i := 0
+    i       := 0
     for i < len(s) && current < col {
         b := s[i]
         if b == '\n' {

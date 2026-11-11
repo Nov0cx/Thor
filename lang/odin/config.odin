@@ -31,23 +31,23 @@ ANALYZER_CONFIG :: "odin-analyzer.lua"
 // every feature on, the host target, every diagnostic an error.
 @(private)
 Config :: struct {
-    severities:              map[string]Severity_Setting, // owned ids from `"diagnostics"`
-    collections:             map[string]string, // name → resolved absolute dir
-    target_os:               odinsema.Target_OS,   // .Unknown when not set
-    target_arch:             odinsema.Target_Arch, // .Unknown when not set
+    severities:              map[string]Severity_Setting,     // owned ids from `"diagnostics"`
+    collections:             map[string]string,               // name → resolved absolute dir
+    target_os:               odinsema.Target_OS,              // .Unknown when not set
+    target_arch:             odinsema.Target_Arch,            // .Unknown when not set
     defines:                 [dynamic]odinsema.Target_Define, // owned names and string values
     enable_hover:            bool,
     enable_document_symbols: bool,
     enable_references:       bool,
     enable_rename:           bool,
     enable_completion:       bool,
-    enable_snippets:         bool, // completion inserts a procedure call with its parameters as stops
-    inlay_types:             bool, // inlay hints show the type of a `:=` name
-    inlay_parameters:        bool, // inlay hints show the parameter name of an argument
-    package_diagnostics:     bool, // live diagnostics also cover the other files of the package
-    diagnostics_telemetry:   bool, // the compiler check logs where it and the live check disagree
+    enable_snippets:         bool,                  // completion inserts a procedure call with its parameters as stops
+    inlay_types:             bool,                  // inlay hints show the type of a `:=` name
+    inlay_parameters:        bool,                  // inlay hints show the parameter name of an argument
+    package_diagnostics:     bool,                  // live diagnostics also cover the other files of the package
+    diagnostics_telemetry:   bool,                  // the compiler check logs where it and the live check disagree
     naming:                  odinsema.Naming_Rules, // the spellings `style/naming` accepts
-    vet:                     odinsema.Vet_Flags, // checks `"vet"` adds to the `-vet` set
+    vet:                     odinsema.Vet_Flags,    // checks `"vet"` adds to the `-vet` set
 }
 
 // What `"diagnostics": {"<id>": ...}` sets for the live diagnostics of one id.
@@ -67,13 +67,13 @@ Severity_Setting :: enum u8 {
 // `alloc` (the engine allocator), never the per-request Manager allocator.
 @(private)
 Config_Cache :: struct {
-    mutex:     sync.Mutex,
-    alloc:     runtime.Allocator,
-    workspace: string, // engine-owned; the workspace this was loaded for
-    loaded:    bool,
-    modtime:   i64,
-    size:      i64,
-    cfg:       Config,
+    mutex:        sync.Mutex,
+    alloc:        runtime.Allocator,
+    workspace:    string, // engine-owned; the workspace this was loaded for
+    loaded:       bool,
+    modtime:      i64,
+    size:         i64,
+    cfg:          Config,
     file_targets: map[string]File_Target, // owned keys: path_key of the file; kept when the file is read again
 }
 
@@ -123,19 +123,19 @@ config_ensure :: proc(cache: ^Config_Cache, workspace: string) {
 // context.allocator (the engine allocator, set by config_ensure).
 @(private)
 config_defaults :: proc() -> Config {
-    return Config {
-        collections             = make(map[string]string),
-        severities              = make(map[string]Severity_Setting),
-        defines                 = make([dynamic]odinsema.Target_Define),
-        enable_hover            = true,
+    return Config{
+        collections = make(map[string]string),
+        severities = make(map[string]Severity_Setting),
+        defines = make([dynamic]odinsema.Target_Define),
+        enable_hover = true,
         enable_document_symbols = true,
-        enable_references       = true,
-        enable_rename           = true,
-        enable_completion       = true,
-        enable_snippets         = true,
-        inlay_types             = true,
-        inlay_parameters        = true,
-        naming                  = odinsema.DEFAULT_NAMING_RULES,
+        enable_references = true,
+        enable_rename = true,
+        enable_completion = true,
+        enable_snippets = true,
+        inlay_types = true,
+        inlay_parameters = true,
+        naming = odinsema.DEFAULT_NAMING_RULES,
     }
 }
 
@@ -201,7 +201,7 @@ config_parse :: proc(cache: ^Config_Cache, workspace, path: string) {
             continue
         }
         name, nok := entry["name"].(json.String)
-        p, pok := entry["path"].(json.String)
+        p, pok    := entry["path"].(json.String)
         if !nok || !pok || name == "" || p == "" {
             continue
         }
@@ -285,7 +285,7 @@ config_parse_vet :: proc(cache: ^Config_Cache, obj: json.Object) {
     }
     for item in list {
         word, is_string := item.(json.String)
-        flags, known := odinsema.vet_option_flags(word)
+        flags, known    := odinsema.vet_option_flags(word)
         if !is_string || !known {
             log.warnf("odin-analyzer.lua: vet entry %v is not a check and was dropped", item)
             continue
@@ -311,11 +311,16 @@ config_parse_naming :: proc(cache: ^Config_Cache, obj: json.Object) {
     for key, value in entries {
         rule: ^odinsema.Name_Styles
         switch key {
-        case "type":        rule = &cache.cfg.naming.type
-        case "proc":        rule = &cache.cfg.naming.procedure
-        case "variable":    rule = &cache.cfg.naming.variable
-        case "constant":    rule = &cache.cfg.naming.constant
-        case "enum_member": rule = &cache.cfg.naming.enum_member
+        case "type":
+            rule = &cache.cfg.naming.type
+        case "proc":
+            rule = &cache.cfg.naming.procedure
+        case "variable":
+            rule = &cache.cfg.naming.variable
+        case "constant":
+            rule = &cache.cfg.naming.constant
+        case "enum_member":
+            rule = &cache.cfg.naming.enum_member
         case:
             log.warnf("odin-analyzer.lua: naming key %q is unknown and was dropped", key)
             continue
@@ -402,28 +407,41 @@ target_triple :: proc(target_os: odinsema.Target_OS, arch: odinsema.Target_Arch)
     #partial switch target_os {
     case .Windows:
         #partial switch arch {
-        case .amd64: return "windows_amd64"
-        case .i386:  return "windows_i386"
-        case .arm64: return "windows_arm64"
+        case .amd64:
+            return "windows_amd64"
+        case .i386:
+            return "windows_i386"
+        case .arm64:
+            return "windows_arm64"
         }
     case .Linux:
         #partial switch arch {
-        case .amd64: return "linux_amd64"
-        case .i386:  return "linux_i386"
-        case .arm64: return "linux_arm64"
-        case .arm32: return "linux_arm32"
-        case .riscv64: return "linux_riscv64"
+        case .amd64:
+            return "linux_amd64"
+        case .i386:
+            return "linux_i386"
+        case .arm64:
+            return "linux_arm64"
+        case .arm32:
+            return "linux_arm32"
+        case .riscv64:
+            return "linux_riscv64"
         }
     case .Darwin:
         #partial switch arch {
-        case .amd64: return "darwin_amd64"
-        case .arm64: return "darwin_arm64"
+        case .amd64:
+            return "darwin_amd64"
+        case .arm64:
+            return "darwin_arm64"
         }
     case .FreeBSD:
         #partial switch arch {
-        case .amd64: return "freebsd_amd64"
-        case .arm64: return "freebsd_arm64"
-        case .i386:  return "freebsd_i386"
+        case .amd64:
+            return "freebsd_amd64"
+        case .arm64:
+            return "freebsd_arm64"
+        case .i386:
+            return "freebsd_i386"
         }
     case .OpenBSD:
         if arch == .amd64 {
@@ -431,8 +449,10 @@ target_triple :: proc(target_os: odinsema.Target_OS, arch: odinsema.Target_Arch)
         }
     case .NetBSD:
         #partial switch arch {
-        case .amd64: return "netbsd_amd64"
-        case .arm64: return "netbsd_arm64"
+        case .amd64:
+            return "netbsd_amd64"
+        case .arm64:
+            return "netbsd_arm64"
         }
     case .Haiku:
         if arch == .amd64 {
@@ -440,13 +460,17 @@ target_triple :: proc(target_os: odinsema.Target_OS, arch: odinsema.Target_Arch)
         }
     case .WASI:
         #partial switch arch {
-        case .wasm32: return "wasi_wasm32"
-        case .wasm64p32: return "wasi_wasm64p32"
+        case .wasm32:
+            return "wasi_wasm32"
+        case .wasm64p32:
+            return "wasi_wasm64p32"
         }
     case .JS:
         #partial switch arch {
-        case .wasm32: return "js_wasm32"
-        case .wasm64p32: return "js_wasm64p32"
+        case .wasm32:
+            return "js_wasm32"
+        case .wasm64p32:
+            return "js_wasm64p32"
         }
     case .Orca:
         if arch == .wasm32 {
@@ -454,11 +478,16 @@ target_triple :: proc(target_os: odinsema.Target_OS, arch: odinsema.Target_Arch)
         }
     case .Freestanding:
         #partial switch arch {
-        case .wasm32: return "freestanding_wasm32"
-        case .wasm64p32: return "freestanding_wasm64p32"
-        case .amd64: return "freestanding_amd64_sysv"
-        case .arm64: return "freestanding_arm64"
-        case .riscv64: return "freestanding_riscv64"
+        case .wasm32:
+            return "freestanding_wasm32"
+        case .wasm64p32:
+            return "freestanding_wasm64p32"
+        case .amd64:
+            return "freestanding_amd64_sysv"
+        case .arm64:
+            return "freestanding_arm64"
+        case .riscv64:
+            return "freestanding_riscv64"
         }
     }
     return ""
@@ -471,9 +500,9 @@ config_validate_target :: proc(cache: ^Config_Cache) {
     if cache.cfg.target_os == .Unknown && cache.cfg.target_arch == .Unknown {
         return
     }
-    host := odinsema.target_host()
+    host      := odinsema.target_host()
     target_os := cache.cfg.target_os != .Unknown ? cache.cfg.target_os : host.os
-    arch := cache.cfg.target_arch != .Unknown ? cache.cfg.target_arch : host.arch
+    arch      := cache.cfg.target_arch != .Unknown ? cache.cfg.target_arch : host.arch
     if target_triple(target_os, arch) == "" {
         log.warnf("odin-analyzer.lua: target %v/%v is not a compiler target and was ignored", target_os, arch)
         cache.cfg.target_os = .Unknown
@@ -487,7 +516,7 @@ config_validate_target :: proc(cache: ^Config_Cache) {
 @(private)
 config_target :: proc(e: ^Engine, workspace: string, path := "") -> odinsema.Target {
     target := odinsema.target_host()
-    cache := &e.config
+    cache  := &e.config
     sync.lock(&cache.mutex)
     defer sync.unlock(&cache.mutex)
     choice, own := file_target_lookup(cache, path)
@@ -578,7 +607,7 @@ Collection :: struct {
 @(private)
 config_collection_names :: proc(e: ^Engine, workspace: string) -> []string {
     colls := config_collections(e, workspace)
-    out := make([dynamic]string, 0, len(colls), context.temp_allocator)
+    out   := make([dynamic]string, 0, len(colls), context.temp_allocator)
     for c in colls {
         append(&out, c.name)
     }
@@ -599,13 +628,7 @@ config_collections :: proc(e: ^Engine, workspace: string) -> []Collection {
     defer sync.unlock(&cache.mutex)
     config_ensure(cache, workspace)
     for name, dir in cache.cfg.collections {
-        append(
-            &out,
-            Collection {
-                name = strings.clone(name, context.temp_allocator),
-                dir = strings.clone(dir, context.temp_allocator),
-            },
-        )
+        append(&out, Collection{name = strings.clone(name, context.temp_allocator), dir = strings.clone(dir, context.temp_allocator)})
     }
     return out[:]
 }

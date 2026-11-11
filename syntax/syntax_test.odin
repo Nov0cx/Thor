@@ -27,7 +27,7 @@ test_highlight_odin :: proc(t: ^testing.T) {
     h := highlighter_create()
     defer highlighter_destroy(&h)
 
-    src := `package demo
+    src   := `package demo
 
 Point :: struct { x: int }
 
@@ -55,9 +55,9 @@ main :: proc() {
         got, ok := head_at(spans, src, needle)
         testing.expectf(t, ok && got == want, "%q: got %q (found=%v), want %q", needle, got, ok, want)
     }
-    expect(t, spans, src, "Point", "type")     // struct declaration
-    expect(t, spans, src, "main", "function")  // proc
-    expect(t, spans, src, "int", "type")       // builtin type via #any-of?
+    expect(t, spans, src, "Point", "type") // struct declaration
+    expect(t, spans, src, "main", "function") // proc
+    expect(t, spans, src, "int", "type") // builtin type via #any-of?
     expect(t, spans, src, "\"hi\"", "string")
     expect(t, spans, src, "// note", "comment")
     // A named parameter in a `#type proc(...)` stays a parameter, not a type.
@@ -75,7 +75,7 @@ test_highlight_odin_package_qualifier :: proc(t: ^testing.T) {
     h := highlighter_create()
     defer highlighter_destroy(&h)
 
-    src := `package demo
+    src   := `package demo
 
 import "core:mem"
 import vmem "core:mem/virtual"
@@ -102,7 +102,7 @@ test_highlight_odin_type_alias :: proc(t: ^testing.T) {
     h := highlighter_create()
     defer highlighter_destroy(&h)
 
-    src := `package demo
+    src   := `package demo
 
 import "core:mem"
 
@@ -156,7 +156,7 @@ test_fold_ranges_odin :: proc(t: ^testing.T) {
     // 4         x := 1
     // 5     }
     // 6 }
-    src := "package demo\n\nmain :: proc() {\n\tif true {\n\t\tx := 1\n\t}\n}\n"
+    src   := "package demo\n\nmain :: proc() {\n\tif true {\n\t\tx := 1\n\t}\n}\n"
     folds := fold_ranges(&h, "", src, "odin", context.allocator)
     defer delete(folds)
 
@@ -188,7 +188,7 @@ test_fold_ranges_c :: proc(t: ^testing.T) {
     // 0 int main(void) {
     // 1     return 0;
     // 2 }
-    src := "int main(void) {\n    return 0;\n}\n"
+    src   := "int main(void) {\n    return 0;\n}\n"
     folds := fold_ranges(&h, "", src, "c", context.allocator)
     defer delete(folds)
     testing.expect(t, has_fold(folds, 0, 2), "C function body should fold 0..2")
@@ -230,7 +230,7 @@ test_incremental_highlight_matches_cold_parse :: proc(t: ^testing.T) {
     h := highlighter_create()
     defer highlighter_destroy(&h)
 
-    steps := []string {
+    steps := []string{
         "package demo\n\nmain :: proc() {\n\tx := 1\n}\n",
         "package demo\n\nmain :: proc() {\n\tx := 12\n}\n",
         // A new declaration above the existing one shifts everything below it.
@@ -266,7 +266,7 @@ test_highlight_cache_is_per_path :: proc(t: ^testing.T) {
     defer highlighter_destroy(&h)
 
     odin := "package demo\n\nmain :: proc() {\n\tx := 1\n}\n"
-    c := "int main(void) {\n\treturn 0; // done\n}\n"
+    c    := "int main(void) {\n\treturn 0; // done\n}\n"
 
     for round in 0 ..< 3 {
         os := highlight(&h, "a.odin", odin, "odin", context.temp_allocator)
@@ -279,7 +279,7 @@ test_highlight_cache_is_per_path :: proc(t: ^testing.T) {
     // The same path re-typed as another language: the Odin tree is dropped
     // rather than handed to the C parser.
     reused := highlight(&h, "a.odin", c, "c", context.temp_allocator)
-    cold := highlight(&h, "", c, "c", context.temp_allocator)
+    cold   := highlight(&h, "", c, "c", context.temp_allocator)
     testing.expect(t, same_spans(reused, cold), "a grammar change must re-parse from scratch")
 }
 
@@ -290,12 +290,12 @@ test_highlight_cache_evicts_and_reparses :: proc(t: ^testing.T) {
     h := highlighter_create()
     defer highlighter_destroy(&h)
 
-    src := "package demo\n\nmain :: proc() {\n\tx := 1\n}\n"
+    src  := "package demo\n\nmain :: proc() {\n\tx := 1\n}\n"
     want := highlight(&h, "", src, "odin", context.temp_allocator)
 
     for i in 0 ..< treecache.SLOTS + 2 {
         path := fmt.tprintf("file%d.odin", i)
-        got := highlight(&h, path, src, "odin", context.temp_allocator)
+        got  := highlight(&h, path, src, "odin", context.temp_allocator)
         testing.expectf(t, same_spans(got, want), "%s: spans diverged", path)
     }
 
@@ -316,14 +316,14 @@ test_query_for_keys_on_lang_and_source :: proc(t: ^testing.T) {
     h := highlighter_create()
     defer highlighter_destroy(&h)
 
-    src := "(comment) @comment"
+    src         := "(comment) @comment"
     q1, _, err1 := query_for(&h, "odin", src)
     testing.expect(t, err1 == .None)
     q2, _, err2 := query_for(&h, "odin", src)
     testing.expect(t, err2 == .None)
     testing.expect(t, q1 == q2, "the same (lang, source) must hit the cache")
 
-    other := "(identifier) @variable"
+    other       := "(identifier) @variable"
     q3, _, err3 := query_for(&h, "odin", other)
     testing.expect(t, err3 == .None)
     testing.expect(t, q1 != q3, "a different source must compile a different query")
@@ -380,13 +380,13 @@ test_highlight_predicates :: proc(t: ^testing.T) {
     defer highlighter_destroy(&h)
 
     // #match?: C reads an all-caps name as a constant and leaves the rest alone.
-    c := "int main(void) { return MAX_SIZE + count; }\n"
+    c  := "int main(void) { return MAX_SIZE + count; }\n"
     cs := highlight(&h, "", c, "c", context.temp_allocator)
     expect_head(t, cs, c, "MAX_SIZE", "constant")
     expect_head(t, cs, c, "count", "variable")
 
     // #lua-match? guarded by #not-has-parent?: Odin's constants and types.
-    odin := "package demo\n\nmain :: proc() {\n\tn := MAX_THINGS\n\tm := lower_case\n\tp: Point\n}\n"
+    odin  := "package demo\n\nmain :: proc() {\n\tn := MAX_THINGS\n\tm := lower_case\n\tp: Point\n}\n"
     odins := highlight(&h, "", odin, "odin", context.temp_allocator)
     expect_head(t, odins, odin, "MAX_THINGS", "constant")
     expect_head(t, odins, odin, "lower_case", "variable")
@@ -400,7 +400,7 @@ test_eval_predicate :: proc(t: ^testing.T) {
     h := highlighter_create()
     defer highlighter_destroy(&h)
 
-    lit :: proc(text: string) -> Predicate_Arg {
+    lit   :: proc(text: string) -> Predicate_Arg {
         return Predicate_Arg{text = text}
     }
     check :: proc(t: ^testing.T, h: ^Highlighter, op: string, want: bool, args: ..Predicate_Arg) {
@@ -470,7 +470,7 @@ test_highlight_c_family :: proc(t: ^testing.T) {
     h := highlighter_create()
     defer highlighter_destroy(&h)
 
-    c := "int main(void) {\n\treturn 0; // done\n}\n"
+    c  := "int main(void) {\n\treturn 0; // done\n}\n"
     cs := highlight(&h, "", c, "c", context.temp_allocator)
     testing.expect(t, len(cs) > 0, "expected c spans")
     expect_head(t, cs, c, "// done", "comment")
@@ -479,7 +479,7 @@ test_highlight_c_family :: proc(t: ^testing.T) {
     cps := highlight(&h, "", cpp, "cpp", context.temp_allocator)
     testing.expect(t, len(cps) > 0, "expected cpp spans")
 
-    go := "package main\nfunc main() {\n\ts := \"hi\" // note\n}\n"
+    go  := "package main\nfunc main() {\n\ts := \"hi\" // note\n}\n"
     gos := highlight(&h, "", go, "go", context.temp_allocator)
     testing.expect(t, len(gos) > 0, "expected go spans")
     expect_head(t, gos, go, "\"hi\"", "string")
@@ -495,19 +495,19 @@ test_highlight_js_ts :: proc(t: ^testing.T) {
     h := highlighter_create()
     defer highlighter_destroy(&h)
 
-    js := "const x = 1 // note\nfunction f(a) { return \"hi\" }\n"
+    js  := "const x = 1 // note\nfunction f(a) { return \"hi\" }\n"
     jss := highlight(&h, "", js, "javascript", context.temp_allocator)
     testing.expect(t, len(jss) > 0, "expected javascript spans")
     expect_head(t, jss, js, "// note", "comment")
     expect_head(t, jss, js, "\"hi\"", "string")
 
-    ts := "const n: number = 1\ntype Id = string // alias\n"
+    ts  := "const n: number = 1\ntype Id = string // alias\n"
     tss := highlight(&h, "", ts, "typescript", context.temp_allocator)
     testing.expect(t, len(tss) > 0, "expected typescript spans")
     expect_head(t, tss, ts, "// alias", "comment") // from the javascript base
-    expect_head(t, tss, ts, "number", "type")      // from the typescript layer
+    expect_head(t, tss, ts, "number", "type") // from the typescript layer
 
-    tsx := "const el = <div className=\"a\">{x}</div>\n"
+    tsx  := "const el = <div className=\"a\">{x}</div>\n"
     tsxs := highlight(&h, "", tsx, "tsx", context.temp_allocator)
     testing.expect(t, len(tsxs) > 0, "expected tsx spans")
 }
@@ -526,7 +526,7 @@ test_highlight_range_window :: proc(t: ^testing.T) {
     src := strings.to_string(b)
 
     marker := "proc_200 ::"
-    lo := strings.index(src, marker)
+    lo     := strings.index(src, marker)
     testing.expect(t, lo > 0, "marker not found")
     hi := lo + 200
 
@@ -547,9 +547,8 @@ test_highlight_range_window :: proc(t: ^testing.T) {
     // and one that also appears earlier would look up a span outside it.
     for needle in ([?]string{"proc_200", "x := 200"}) {
         want, ok_whole := head_at(whole, src, needle)
-        got, ok_win := head_at(windowed, src, needle)
-        testing.expectf(t, ok_whole && ok_win && want == got,
-            "%q: windowed %q vs whole %q", needle, got, want)
+        got, ok_win    := head_at(windowed, src, needle)
+        testing.expectf(t, ok_whole && ok_win && want == got, "%q: windowed %q vs whole %q", needle, got, want)
     }
 
     // The full range is exactly the whole-document answer.
@@ -579,8 +578,7 @@ test_highlight_range_straddling_node :: proc(t: ^testing.T) {
     spans := highlight_range(&h, "", src, "odin", lo, lo + 20, context.temp_allocator)
 
     got, ok := head_at(spans, src, "line 150")
-    testing.expectf(t, ok && got == "comment",
-        "a block comment opening before the window must still color it: got %q (found=%v)", got, ok)
+    testing.expectf(t, ok && got == "comment", "a block comment opening before the window must still color it: got %q (found=%v)", got, ok)
 
     // And its extent is the real one, reaching back before the window.
     covering := false

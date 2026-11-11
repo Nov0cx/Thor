@@ -38,12 +38,12 @@ Own_Cand :: struct {
 
 @(private = "file")
 Own_Walk :: struct {
-    c:      ^Checker,
-    file:   File_Id,
-    refs:   [dynamic]Name_Ref, // the local references of the body, by start
-    locals: map[int]bool,      // the name offsets of the plain variables of the body
-    cands:  [dynamic]Own_Cand,
-    by_decl: map[int]int,      // name offset -> index into cands
+    c:       ^Checker,
+    file:    File_Id,
+    refs:    [dynamic]Name_Ref, // the local references of the body, by start
+    locals:  map[int]bool,      // the name offsets of the plain variables of the body
+    cands:   [dynamic]Own_Cand,
+    by_decl: map[int]int, // name offset -> index into cands
 }
 
 @(private = "file")
@@ -54,7 +54,25 @@ Callee_Class :: enum u8 {
 }
 
 @(private = "file")
-BORROWING_BUILTINS :: [?]string{"len", "cap", "clear", "resize", "reserve", "shrink", "pop", "pop_safe", "pop_front", "ordered_remove", "unordered_remove", "copy", "raw_data", "min", "max", "abs", "clamp"}
+BORROWING_BUILTINS :: [?]string{
+    "len",
+    "cap",
+    "clear",
+    "resize",
+    "reserve",
+    "shrink",
+    "pop",
+    "pop_safe",
+    "pop_front",
+    "ordered_remove",
+    "unordered_remove",
+    "copy",
+    "raw_data",
+    "min",
+    "max",
+    "abs",
+    "clamp",
+}
 
 @(private = "file")
 BORROWING_PACKAGES :: [?]string{"fmt", "log"}
@@ -83,7 +101,10 @@ allocating_package_proc :: proc(pkg, name: string) -> bool {
 // scope map `m` of its file. A local is followed from a `make`, `new`, `new_clone` or a few `strings`
 // calls with the default allocator to the free, or to the place it is handed on; the follow stops
 // where the value leaves the procedure's hands, so only a value that no path hands on is reported.
-ownership :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.Syntax_Node, allocator := context.allocator) -> (out: Ownership_Report, err: mem.Allocator_Error) {
+ownership :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.Syntax_Node, allocator := context.allocator) -> (
+    out: Ownership_Report,
+    err: mem.Allocator_Error,
+) {
     out.leaks = make([dynamic]Live_Name, allocator)
     out.double_frees = make([dynamic]Live_Name, allocator)
     out.uses_after_free = make([dynamic]Live_Name, allocator)
@@ -100,7 +121,7 @@ ownership :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.Syn
         return
     }
     lit_start, lit_end := odinsyntax.node_range(lit)
-    depth := -1
+    depth              := -1
     for s in m.scopes {
         if s.start == int(lit_start) && s.end == int(lit_end) {
             depth = s.proc_depth
@@ -110,13 +131,13 @@ ownership :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.Syn
     if depth < 0 {
         return
     }
-    alloc := context.temp_allocator
-    w := Own_Walk {
-        c       = c,
-        file    = file,
-        refs    = make([dynamic]Name_Ref, alloc),
-        locals  = make(map[int]bool, alloc),
-        cands   = make([dynamic]Own_Cand, alloc),
+    alloc  := context.temp_allocator
+    w      := Own_Walk{
+        c = c,
+        file = file,
+        refs = make([dynamic]Name_Ref, alloc),
+        locals = make(map[int]bool, alloc),
+        cands = make([dynamic]Own_Cand, alloc),
         by_decl = make(map[int]int, alloc),
     }
     in_lit := locals_between(m, int(lit_start), int(lit_end), alloc)
@@ -135,7 +156,9 @@ ownership :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.Syn
             append(&w.refs, r) or_return
         }
     }
-    slice.sort_by(w.refs[:], proc(a, b: Name_Ref) -> bool {return a.start < b.start})
+    slice.sort_by(w.refs[:], proc(a, b: Name_Ref) -> bool {
+        return a.start < b.start
+    })
     find_allocs(&w, body) or_return
     if len(w.cands) == 0 {
         return
@@ -161,7 +184,9 @@ ownership_destroy :: proc(r: ^Ownership_Report) {
 // The reference at `start`, when the body has one there.
 @(private = "file")
 ref_at :: proc(w: ^Own_Walk, start: int) -> (Name_Ref, bool) {
-    i, found := slice.binary_search_by(w.refs[:], start, proc(r: Name_Ref, s: int) -> slice.Ordering {return slice.cmp(r.start, s)})
+    i, found := slice.binary_search_by(w.refs[:], start, proc(r: Name_Ref, s: int) -> slice.Ordering {
+        return slice.cmp(r.start, s)
+    })
     if !found {
         return {}, false
     }
@@ -186,8 +211,8 @@ use_cand :: proc(w: ^Own_Walk, n: odinsyntax.Syntax_Node) -> (int, bool) {
 @(private = "file")
 list_items :: proc(list: odinsyntax.Expr_List) -> [dynamic]odinsyntax.Syntax_Node {
     list := list
-    out := make([dynamic]odinsyntax.Syntax_Node, context.temp_allocator)
-    it := odinsyntax.expr_list_items(&list)
+    out  := make([dynamic]odinsyntax.Syntax_Node, context.temp_allocator)
+    it   := odinsyntax.expr_list_items(&list)
     for item in odinsyntax.child_iter_next(&it) {
         append(&out, item)
     }
@@ -198,7 +223,7 @@ list_items :: proc(list: odinsyntax.Expr_List) -> [dynamic]odinsyntax.Syntax_Nod
 unparen :: proc(n: odinsyntax.Syntax_Node) -> odinsyntax.Syntax_Node {
     n := n
     for n.green.kind == .Paren_Expr {
-        pe, _ := odinsyntax.as_paren_expr(n)
+        pe, _     := odinsyntax.as_paren_expr(n)
         inner, ok := odinsyntax.paren_expr_expr(&pe)
         if !ok {
             break
@@ -221,7 +246,7 @@ callee_names :: proc(callee: odinsyntax.Syntax_Node) -> (pkg, name: string, oper
     if _, arrow := odinsyntax.selector_expr_arrow(&sel); arrow {
         return
     }
-    op, has_op := odinsyntax.selector_expr_operand(&sel)
+    op, has_op       := odinsyntax.selector_expr_operand(&sel)
     field, has_field := odinsyntax.selector_expr_field(&sel)
     if !has_op || !has_field || op.green.kind != .Ident {
         return
@@ -232,7 +257,15 @@ callee_names :: proc(callee: odinsyntax.Syntax_Node) -> (pkg, name: string, oper
 // True when `name` is a procedure that takes a value back.
 @(private = "file")
 free_name :: proc(name: string) -> bool {
-    return name == "free" || name == "delete" || name == "destroy" || strings.has_prefix(name, "delete_") || strings.has_prefix(name, "free_") || strings.has_prefix(name, "destroy_") || strings.has_suffix(name, "_destroy") || strings.has_suffix(name, "_delete") || strings.has_suffix(name, "_free")
+    return name == "free" ||
+        name == "delete" ||
+        name == "destroy" ||
+        strings.has_prefix(name, "delete_") ||
+        strings.has_prefix(name, "free_") ||
+        strings.has_prefix(name, "destroy_") ||
+        strings.has_suffix(name, "_destroy") ||
+        strings.has_suffix(name, "_delete") ||
+        strings.has_suffix(name, "_free")
 }
 
 @(private = "file")
@@ -265,7 +298,7 @@ alloc_call :: proc(w: ^Own_Walk, expr: odinsyntax.Syntax_Node) -> bool {
     if e.green.kind != .Call_Expr {
         return false
     }
-    ce, _ := odinsyntax.as_call_expr(e)
+    ce, _              := odinsyntax.as_call_expr(e)
     callee, has_callee := odinsyntax.call_expr_callee(&ce)
     if !has_callee {
         return false
@@ -306,22 +339,22 @@ find_allocs :: proc(w: ^Own_Walk, n: odinsyntax.Syntax_Node) -> mem.Allocator_Er
     case .Proc_Lit:
         return nil
     case .Value_Decl:
-        v, _ := odinsyntax.as_value_decl(n)
-        attrs := odinsyntax.value_decl_attributes(&v)
-        _, has_attrs := odinsyntax.child_iter_next(&attrs)
-        names, has_names := odinsyntax.value_decl_names(&v)
+        v, _               := odinsyntax.as_value_decl(n)
+        attrs              := odinsyntax.value_decl_attributes(&v)
+        _, has_attrs       := odinsyntax.child_iter_next(&attrs)
+        names, has_names   := odinsyntax.value_decl_names(&v)
         values, has_values := odinsyntax.value_decl_values(&v)
         if !has_attrs && has_names && has_values {
-            it := odinsyntax.name_list_names(&names)
+            it         := odinsyntax.name_list_names(&names)
             first, one := odinsyntax.child_iter_next(&it)
-            _, more := odinsyntax.child_iter_next(&it)
-            items := list_items(values)
+            _, more    := odinsyntax.child_iter_next(&it)
+            items      := list_items(values)
             if one && !more && len(items) == 1 && w.locals[int(first.offset)] && alloc_call(w, items[0]) {
                 add_cand(w, int(first.offset), int(first.offset), odinsyntax.node_text(first)) or_return
             }
         }
     case .Assign_Stmt:
-        a, _ := odinsyntax.as_assign_stmt(n)
+        a, _         := odinsyntax.as_assign_stmt(n)
         lhs, has_lhs := odinsyntax.assign_stmt_lhs(&a)
         rhs, has_rhs := odinsyntax.assign_stmt_rhs(&a)
         if has_lhs && has_rhs {
@@ -396,7 +429,7 @@ arg_target :: proc(n: odinsyntax.Syntax_Node) -> odinsyntax.Syntax_Node {
     for {
         #partial switch n.green.kind {
         case .Field_Value:
-            fv, _ := odinsyntax.as_field_value(n)
+            fv, _     := odinsyntax.as_field_value(n)
             inner, ok := odinsyntax.field_value_value(&fv)
             if !ok {
                 return n
@@ -408,8 +441,8 @@ arg_target :: proc(n: odinsyntax.Syntax_Node) -> odinsyntax.Syntax_Node {
                 return n
             }
         case .Unary_Expr:
-            u, _ := odinsyntax.as_unary_expr(n)
-            op, has_op := odinsyntax.unary_expr_op(&u)
+            u, _                 := odinsyntax.as_unary_expr(n)
+            op, has_op           := odinsyntax.unary_expr_op(&u)
             operand, has_operand := odinsyntax.unary_expr_operand(&u)
             if !has_op || !has_operand || op.green.kind != .And {
                 return n
@@ -423,7 +456,7 @@ arg_target :: proc(n: odinsyntax.Syntax_Node) -> odinsyntax.Syntax_Node {
 
 @(private = "file")
 call_events :: proc(w: ^Own_Walk, call: odinsyntax.Syntax_Node, out: ^[dynamic]Own_Event) {
-    ce, _ := odinsyntax.as_call_expr(call)
+    ce, _              := odinsyntax.as_call_expr(call)
     callee, has_callee := odinsyntax.call_expr_callee(&ce)
     if !has_callee {
         return
@@ -436,7 +469,7 @@ call_events :: proc(w: ^Own_Walk, call: odinsyntax.Syntax_Node, out: ^[dynamic]O
     }
     it := odinsyntax.arg_list_args(&args)
     for arg in odinsyntax.child_iter_next(&it) {
-        target := arg_target(arg)
+        target         := arg_target(arg)
         index, is_cand := use_cand(w, target)
         if !is_cand {
             walk_own(w, arg, false, out)
@@ -475,16 +508,16 @@ step_events :: proc(w: ^Own_Walk, s: Cfg_Step, out: ^[dynamic]Own_Event) {
 
 @(private = "file")
 decl_events :: proc(w: ^Own_Walk, n: odinsyntax.Syntax_Node, out: ^[dynamic]Own_Event) {
-    v, _ := odinsyntax.as_value_decl(n)
+    v, _               := odinsyntax.as_value_decl(n)
     values, has_values := odinsyntax.value_decl_values(&v)
     if !has_values {
         return
     }
     if names, has_names := odinsyntax.value_decl_names(&v); has_names {
-        it := odinsyntax.name_list_names(&names)
+        it         := odinsyntax.name_list_names(&names)
         first, one := odinsyntax.child_iter_next(&it)
-        _, more := odinsyntax.child_iter_next(&it)
-        items := list_items(values)
+        _, more    := odinsyntax.child_iter_next(&it)
+        items      := list_items(values)
         if index, is_cand := w.by_decl[int(first.offset)]; one && !more && is_cand && len(items) == 1 && alloc_call(w, items[0]) {
             walk_own(w, items[0], false, out)
             append(out, Own_Event{.Alloc, index, int(first.offset)})
@@ -496,7 +529,7 @@ decl_events :: proc(w: ^Own_Walk, n: odinsyntax.Syntax_Node, out: ^[dynamic]Own_
 
 @(private = "file")
 assign_events :: proc(w: ^Own_Walk, n: odinsyntax.Syntax_Node, out: ^[dynamic]Own_Event) {
-    a, _ := odinsyntax.as_assign_stmt(n)
+    a, _         := odinsyntax.as_assign_stmt(n)
     lhs, has_lhs := odinsyntax.assign_stmt_lhs(&a)
     rhs, has_rhs := odinsyntax.assign_stmt_rhs(&a)
     if !has_lhs || !has_rhs {
@@ -539,7 +572,7 @@ Own_Findings :: struct {
 @(private = "file")
 apply_event :: proc(w: ^Own_Walk, s: Own_State, e: Own_Event, found: ^Own_Findings) {
     freed := bits_has(s.freed, e.local)
-    name := w.cands[e.local].name
+    name  := w.cands[e.local].name
     switch e.kind {
     case .Alloc:
         bits_set(s.owned, e.local)
@@ -574,11 +607,11 @@ apply_event :: proc(w: ^Own_Walk, s: Own_State, e: Own_Event, found: ^Own_Findin
 @(private = "file")
 ownership_flow :: proc(w: ^Own_Walk, lit: odinsyntax.Syntax_Node, out: ^Ownership_Report) -> mem.Allocator_Error {
     alloc := context.temp_allocator
-    g := cfg_cached(w.c, w.file, lit)
+    g     := cfg_cached(w.c, w.file, lit)
     if g == nil {
         return nil
     }
-    reach := cfg_reachable(g, alloc)
+    reach  := cfg_reachable(g, alloc)
     events := make([][][dynamic]Own_Event, len(g.blocks), alloc)
     for blk, b in g.blocks {
         if !reach[b] {
@@ -603,7 +636,7 @@ ownership_flow :: proc(w: ^Own_Walk, lit: odinsyntax.Syntax_Node, out: ^Ownershi
         }
     }
 
-    words := (len(w.cands) + 63) / 64
+    words     := (len(w.cands) + 63) / 64
     out_owned := make([]Bits, len(g.blocks), alloc)
     out_freed := make([]Bits, len(g.blocks), alloc)
     for b in 0 ..< len(g.blocks) {
@@ -613,7 +646,7 @@ ownership_flow :: proc(w: ^Own_Walk, lit: odinsyntax.Syntax_Node, out: ^Ownershi
             word = ~u64(0)
         }
     }
-    cur := Own_State{make(Bits, words, alloc), make(Bits, words, alloc)}
+    cur   := Own_State{make(Bits, words, alloc), make(Bits, words, alloc)}
     enter := proc(g: ^Cfg, b: int, preds: [][dynamic]int, out_owned, out_freed: []Bits, cur: Own_State) {
         for k in 0 ..< len(cur.owned) {
             cur.owned[k] = 0

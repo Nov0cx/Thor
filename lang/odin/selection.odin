@@ -17,8 +17,8 @@ selection_range :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
         return
     }
     text := ctx.parsed.tree.text
-    lo := clamp(min(req.offset, req.end), 0, len(text))
-    hi := clamp(max(req.offset, req.end), lo, len(text))
+    lo   := clamp(min(req.offset, req.end), 0, len(text))
+    hi   := clamp(max(req.offset, req.end), lo, len(text))
     if lo == hi && len(text) > 0 {
         // A caret selects the byte after it, else the identifier it ends.
         if lo >= len(text) || (!is_word_byte(text[lo]) && lo > 0 && is_word_byte(text[lo - 1])) {
@@ -26,7 +26,7 @@ selection_range :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
         }
         hi = lo + 1
     }
-    root := odinsyntax.node_root(ctx.parsed.tree)
+    root      := odinsyntax.node_root(ctx.parsed.tree)
     found, ok := odinsyntax.node_covering(root, u32(lo), u32(hi), context.temp_allocator)
     if !ok {
         return

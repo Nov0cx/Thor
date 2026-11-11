@@ -14,13 +14,13 @@ import "../prof"
 import "../setting"
 import ui "../vendor/loom/loom"
 
-CLIPBOARD_HISTORY_MAX :: 30
+CLIPBOARD_HISTORY_MAX  :: 30
 // Longest entry kept, in bytes. A bigger copy is not recorded.
-CLIPBOARD_ENTRY_MAX :: 1 << 20
-CLIPBOARD_LABEL_RUNES :: 60
+CLIPBOARD_ENTRY_MAX    :: 1 << 20
+CLIPBOARD_LABEL_RUNES  :: 60
 // The history between sessions, encrypted (clipboard_crypt.odin). Inside, each entry is a
 // "--- <byte count>" line, the text and a newline.
-CLIPBOARD_FILE :: "sessions/clipboard.txt"
+CLIPBOARD_FILE         :: "sessions/clipboard.txt"
 CLIPBOARD_ENTRY_HEADER :: "--- "
 // Shortest single word that counts as a password when it mixes three character classes.
 CLIPBOARD_PASSWORD_MIN :: 8
@@ -33,7 +33,7 @@ Clipboard_Entry :: struct {
 
 // Records `text` as the newest entry. A text already in the list moves to the front.
 thor_clipboard_note :: proc(data: rawptr, text: string) {
-    thor := cast(^Thor) data
+    thor   := cast(^Thor)data
     source := ""
     if file := thor_active_open_file(thor); file != nil {
         source = file.path
@@ -58,7 +58,7 @@ clipboard_history_add :: proc(history: ^[dynamic]Clipboard_Entry, text: string, 
     for len(history) >= CLIPBOARD_HISTORY_MAX {
         clipboard_entry_wipe(pop(history))
     }
-    inject_at(history, 0, Clipboard_Entry {strings.clone(text), private})
+    inject_at(history, 0, Clipboard_Entry{strings.clone(text), private})
 }
 
 // Reports whether `text` looks like a secret, by its content or by the file it came from.
@@ -74,9 +74,23 @@ clipboard_is_secret :: proc(text: string, source_path: string) -> bool {
     if strings.index_any(word, " \t\r\n") >= 0 {
         return false
     }
-    TOKEN_PREFIXES :: [?]string {
-        "ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_", "glpat-", "sk-", "xoxb-", "xoxp-",
-        "xoxa-", "AKIA", "ASIA", "AIza", "npm_", "pypi-",
+    TOKEN_PREFIXES :: [?]string{
+        "ghp_",
+        "gho_",
+        "ghu_",
+        "ghs_",
+        "ghr_",
+        "github_pat_",
+        "glpat-",
+        "sk-",
+        "xoxb-",
+        "xoxp-",
+        "xoxa-",
+        "AKIA",
+        "ASIA",
+        "AIza",
+        "npm_",
+        "pypi-",
     }
     for prefix in TOKEN_PREFIXES {
         if strings.has_prefix(word, prefix) && len(word) > len(prefix) + 8 {
@@ -93,10 +107,14 @@ clipboard_is_secret :: proc(text: string, source_path: string) -> bool {
     lower, upper, digit, symbol: bool
     for r in word {
         switch r {
-        case 'a' ..= 'z': lower = true
-        case 'A' ..= 'Z': upper = true
-        case '0' ..= '9': digit = true
-        case: symbol = true
+        case 'a' ..= 'z':
+            lower = true
+        case 'A' ..= 'Z':
+            upper = true
+        case '0' ..= '9':
+            digit = true
+        case:
+            symbol = true
         }
     }
     return int(lower) + int(upper) + int(digit) + int(symbol) >= 3
@@ -186,8 +204,8 @@ thor_clipboard_history_save :: proc(thor: ^Thor) {
         return
     }
     clipboard_file_restrict()
-    data := clipboard_history_format(thor.clipboard_history[:])
-    sealed := clipboard_seal(&key, transmute([]byte) data)
+    data   := clipboard_history_format(thor.clipboard_history[:])
+    sealed := clipboard_seal(&key, transmute([]byte)data)
     mem.zero_explicit(&key, len(key))
     mem.zero_explicit(raw_data(data), len(data))
     if err := atomicfile.write(CLIPBOARD_FILE, sealed); err != nil {
@@ -197,7 +215,7 @@ thor_clipboard_history_save :: proc(thor: ^Thor) {
 
 // Empties the history, in memory and on disk.
 thor_cmd_clear_clipboard_history :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     for entry in thor.clipboard_history {
         clipboard_entry_wipe(entry)
     }
@@ -278,14 +296,14 @@ clipboard_history_format :: proc(entries: []Clipboard_Entry, allocator := contex
 @(private)
 clipboard_history_parse :: proc(data: string, allocator := context.temp_allocator) -> [dynamic]string {
     entries := make([dynamic]string, allocator)
-    rest := data
+    rest    := data
     for len(rest) > 0 && strings.has_prefix(rest, CLIPBOARD_ENTRY_HEADER) {
         eol := strings.index_byte(rest, '\n')
         if eol < 0 {
             break
         }
         size, ok := strconv.parse_int(strings.trim_right(rest[len(CLIPBOARD_ENTRY_HEADER):eol], "\r"), 10)
-        body := rest[eol + 1:]
+        body     := rest[eol + 1:]
         if !ok || size < 0 || size > len(body) {
             break
         }
@@ -315,7 +333,7 @@ thor_clipboard_history_destroy :: proc(thor: ^Thor) {
 thor_clipboard_label :: proc(text: string, allocator := context.temp_allocator) -> string {
     first := ""
     lines := 0
-    rest := text
+    rest  := text
     for line in strings.split_lines_iterator(&rest) {
         lines += 1
         if first == "" {
@@ -323,7 +341,7 @@ thor_clipboard_label :: proc(text: string, allocator := context.temp_allocator) 
         }
     }
 
-    b := strings.builder_make(allocator)
+    b     := strings.builder_make(allocator)
     runes := 0
     for r in first {
         if runes == CLIPBOARD_LABEL_RUNES {
@@ -342,7 +360,7 @@ thor_clipboard_label :: proc(text: string, allocator := context.temp_allocator) 
 }
 
 thor_cmd_clipboard_history :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if thor_active_editor(thor) == nil || thor_active_editor(thor).state == nil {
         thor_flash_status(thor, "Clipboard history: no file to paste into")
         return
@@ -357,22 +375,13 @@ thor_cmd_clipboard_history :: proc(data: rawptr) {
         labels[i] = thor_clipboard_label(entry.text)
         values[i] = entry.text
     }
-    thor_select_open(
-        thor,
-        "Clipboard History",
-        labels,
-        values[0],
-        nil,
-        thor_clipboard_history_commit,
-        thor,
-        values,
-    )
+    thor_select_open(thor, "Clipboard History", labels, values[0], nil, thor_clipboard_history_commit, thor, values)
 }
 
 // Puts the chosen entry on the clipboard and pastes it into the active pane.
 @(private = "file")
 thor_clipboard_history_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     ui.set_clipboard_text(choice)
     editview.editor_paste(thor_active_editor(thor))
 }

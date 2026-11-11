@@ -30,16 +30,8 @@ test_window_file_keying :: proc(t: ^testing.T) {
 // "already open" window record.
 @(test)
 test_path_key_separates_hyphens_from_separators :: proc(t: ^testing.T) {
-    testing.expect(
-        t,
-        thor_path_key("C:\\foo-bar") != thor_path_key("C:\\foo\\bar"),
-        "a hyphenated folder must not key like a nested one",
-    )
-    testing.expect(
-        t,
-        thor_path_key("C:\\a\\b-c") != thor_path_key("C:\\a-b\\c"),
-        "moving the hyphen must change the key",
-    )
+    testing.expect(t, thor_path_key("C:\\foo-bar") != thor_path_key("C:\\foo\\bar"), "a hyphenated folder must not key like a nested one")
+    testing.expect(t, thor_path_key("C:\\a\\b-c") != thor_path_key("C:\\a-b\\c"), "moving the hyphen must change the key")
 
     // Case-insensitive keying only holds where the host filesystem is: Windows.
     when ODIN_OS == .Windows {
@@ -67,7 +59,7 @@ write_test_record :: proc(t: ^testing.T, workspace: string, pid: int, hwnd: i64)
     }
     path := strings.clone(thor_window_file(workspace))
     body := fmt.tprintf("{{\"workspace\":%q,\"pid\":%d,\"hwnd\":%d}}", workspace, pid, hwnd)
-    err := os.write_entire_file(path, transmute([]u8) body)
+    err  := os.write_entire_file(path, transmute([]u8)body)
     testing.expect(t, err == nil, "could not write the test window record")
     return path
 }

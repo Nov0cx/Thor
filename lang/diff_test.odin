@@ -43,8 +43,8 @@ test_diff_identical :: proc(t: ^testing.T) {
 
 @(test)
 test_diff_single_line_change_is_minimal :: proc(t: ^testing.T) {
-    old := "a\nb\nc\nd\ne\n"
-    new := "a\nb\nX\nd\ne\n"
+    old   := "a\nb\nc\nd\ne\n"
+    new   := "a\nb\nX\nd\ne\n"
     spans := diff_spans(old, new, context.temp_allocator)
     testing.expect_value(t, len(spans), 1)
     testing.expect_value(t, spans[0].text, "X\n")

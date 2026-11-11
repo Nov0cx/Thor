@@ -3,9 +3,9 @@ package thor
 import "core:path/filepath"
 import "core:strings"
 
+import "../editview"
 import "../lang"
 import "../textedit"
-import "../editview"
 // Compiler diagnostics, editor side. The check itself lives behind the language
 // seam — `lang/odin/check.odin` runs `odin check` on a pool worker and answers a
 // lang.Diagnostic_Report like any other request — so what is left here is only
@@ -51,8 +51,7 @@ thor_apply_diagnostics :: proc(thor: ^Thor, res: ^lang.Result) {
     // newer edit, and clearing it would show a false all-clear until the
     // already-queued next check catches up.
     for file in thor.open_files {
-        if file.loaded && !file.closed && scope_covers(file.path, res.report.scope) &&
-           report_matches_file(file, res.revision) {
+        if file.loaded && !file.closed && scope_covers(file.path, res.report.scope) && report_matches_file(file, res.revision) {
             thor_clear_file_diagnostics(file)
         }
     }
@@ -107,18 +106,18 @@ thor_apply_diagnostic :: proc(thor: ^Thor, d: lang.Diagnostic, revision: u64) {
 // `d` mapped onto `file`'s live buffer, with its message cloned.
 @(private = "file")
 editor_diagnostic :: proc(file: ^Open_File, d: lang.Diagnostic) -> editview.Diagnostic {
-    text := textedit.text(&file.state)
+    text  := textedit.text(&file.state)
     line0 := d.line - 1
     start := textedit.state_line_start(&file.state, line0) + (d.col - 1)
     start = clamp(start, 0, len(text))
-    return editview.Diagnostic {
-        start    = start,
-        end      = diagnostic_token_end(text, start),
-        line     = line0,
+    return editview.Diagnostic{
+        start = start,
+        end = diagnostic_token_end(text, start),
+        line = line0,
         severity = editor_severity(d.severity),
-        message  = strings.clone(d.message),
-        code     = d.code,
-        lint     = d.lint,
+        message = strings.clone(d.message),
+        code = d.code,
+        lint = d.lint,
     }
 }
 
@@ -263,10 +262,14 @@ thor_file_live_diagnostics :: proc(file: ^Open_File) -> []editview.Diagnostic {
 // is what keeps the language layer free of widget types.
 editor_severity :: proc(severity: lang.Diagnostic_Severity) -> editview.Diagnostic_Severity {
     switch severity {
-    case .Error:   return .Error
-    case .Warning: return .Warning
-    case .Information: return .Information
-    case .Hint:    return .Hint
+    case .Error:
+        return .Error
+    case .Warning:
+        return .Warning
+    case .Information:
+        return .Information
+    case .Hint:
+        return .Hint
     }
     return .Error
 }

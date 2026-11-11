@@ -13,8 +13,8 @@ import "base:runtime"
 import "core:strings"
 import "core:sync"
 
-import ts "../vendor/odin-tree-sitter"
 import "../prof"
+import ts "../vendor/odin-tree-sitter"
 
 // Buffers resident at once, retired least-recently-used — enough that
 // alternating between open tabs doesn't thrash.
@@ -238,11 +238,11 @@ source_edit :: proc(old, new: string) -> ts.Input_Edit {
     }
 
     start := ts.Point{row = u32(row), col = u32(prefix - line_start)} // the same in both
-    return ts.Input_Edit {
-        start_byte    = u32(prefix),
-        old_end_byte  = u32(old_end),
-        new_end_byte  = u32(new_end),
-        start_point   = start,
+    return ts.Input_Edit{
+        start_byte = u32(prefix),
+        old_end_byte = u32(old_end),
+        new_end_byte = u32(new_end),
+        start_point = start,
         old_end_point = byte_point(old, prefix, old_end, start),
         new_end_point = byte_point(new, prefix, new_end, start),
     }
@@ -260,7 +260,7 @@ is_utf8_tail :: proc(b: byte) -> bool {
 // so they have to be right.
 @(private)
 byte_point :: proc(s: string, from, offset: int, at: ts.Point) -> ts.Point {
-    row := int(at.row)
+    row        := int(at.row)
     line_start := from - int(at.col)
     for i in from ..< offset {
         if s[i] == '\n' {

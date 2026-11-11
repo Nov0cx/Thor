@@ -19,7 +19,7 @@ TREE_CACHE_MAGIC :: "THORITC\x00"
 Tree_Cache :: struct {
     mutex:   sync.Mutex,
     entries: map[string]Cache_Entry, // owned, keys included
-    added:   int, // entries stored since the last db_cache_encode
+    added:   int,                    // entries stored since the last db_cache_encode
 }
 
 // One cached file: its stamp and its tree_encode bytes.
@@ -325,7 +325,7 @@ min_size :: proc(ti: ^runtime.Type_Info) -> int {
 
 @(private = "file")
 enum_value :: proc(p: rawptr, base: ^runtime.Type_Info) -> i64 {
-    ti := runtime.type_info_base(base)
+    ti     := runtime.type_info_base(base)
     signed := false
     if v, ok := ti.variant.(runtime.Type_Info_Integer); ok {
         signed = v.signed
@@ -469,11 +469,11 @@ db_cache_load :: proc(db: ^Db, blob: []byte, key: string) -> bool {
         return false
     }
     for _ in 0 ..< count {
-        path, pok := r_string(&r)
+        path, pok    := r_string(&r)
         modtime, mok := r_i64(&r)
-        size, sok := r_i64(&r)
-        sum, hok := r_i64(&r)
-        data, dok := r_string(&r)
+        size, sok    := r_i64(&r)
+        sum, hok     := r_i64(&r)
+        data, dok    := r_string(&r)
         if !pok || !mok || !sok || !hok || !dok || hash.fnv64a(transmute([]byte)data) != u64(sum) {
             cache_clear(db)
             return false
@@ -503,7 +503,7 @@ db_cache_encode :: proc(db: ^Db, key: string, allocator := context.allocator) ->
     c := &db.cache
     sync.guard(&c.mutex)
     buf := make([dynamic]byte, 0, 64 * mem.Kilobyte, allocator)
-    w := Writer{buf = &buf, ok = true}
+    w   := Writer{buf = &buf, ok = true}
     w_bytes(&w, raw_data(string(TREE_CACHE_MAGIC)), len(TREE_CACHE_MAGIC))
     format := u32le(TREE_CACHE_FORMAT)
     w_bytes(&w, &format, 4)
@@ -529,7 +529,7 @@ db_cache_encode :: proc(db: ^Db, key: string, allocator := context.allocator) ->
 // Adds or replaces one entry with a copy of `data`. The caller holds the cache.
 @(private = "file")
 cache_insert :: proc(db: ^Db, path: string, modtime, size: i64, data: []byte) -> bool {
-    c := &db.cache
+    c          := &db.cache
     owned, err := make([]byte, len(data), db.allocator)
     if err != nil {
         return false

@@ -31,13 +31,13 @@ decl_under :: proc(ctx: ^Request_Context) -> (cand: Def_Candidate, ok: bool) {
             return c, true
         }
         line, _ := offset_line_col(ctx.live.lines, item.name_offset)
-        return Def_Candidate {
-            path       = ctx.req.path,
-            name       = item.name,
-            kind       = item.kind,
-            signature  = item.signature,
-            offset     = item.name_offset,
-            line       = line,
+        return Def_Candidate{
+            path = ctx.req.path,
+            name = item.name,
+            kind = item.kind,
+            signature = item.signature,
+            offset = item.name_offset,
+            line = line,
             visibility = item.visibility,
         }, true
     }
@@ -98,14 +98,17 @@ add_item_symbol :: proc(res: ^lang.Result, item: ^odinsema.Item, path: string, l
     if len(lines) > 0 {
         line, _ = offset_line_col(lines, item.name_offset)
     }
-    append(&res.symbols, lang.Symbol {
-        name      = strings.clone(item.name),
-        kind      = strings.clone(symbol_kind(item.kind)),
-        signature = strings.clone(item.signature),
-        path      = strings.clone(path),
-        line      = line,
-        offset    = item.name_offset,
-    })
+    append(
+        &res.symbols,
+        lang.Symbol{
+            name = strings.clone(item.name),
+            kind = strings.clone(symbol_kind(item.kind)),
+            signature = strings.clone(item.signature),
+            path = strings.clone(path),
+            line = line,
+            offset = item.name_offset,
+        },
+    )
 }
 
 @(private = "file")
@@ -115,14 +118,17 @@ add_cand_symbol :: proc(res: ^lang.Result, c: Def_Candidate) {
             return
         }
     }
-    append(&res.symbols, lang.Symbol {
-        name      = strings.clone(c.name),
-        kind      = strings.clone(symbol_kind(c.kind)),
-        signature = strings.clone(c.signature),
-        path      = strings.clone(c.path),
-        line      = c.line,
-        offset    = c.offset,
-    })
+    append(
+        &res.symbols,
+        lang.Symbol{
+            name = strings.clone(c.name),
+            kind = strings.clone(symbol_kind(c.kind)),
+            signature = strings.clone(c.signature),
+            path = strings.clone(c.path),
+            line = c.line,
+            offset = c.offset,
+        },
+    )
 }
 
 @(private = "file")
@@ -166,15 +172,8 @@ Caller_Scan :: struct {
 
 @(private = "file")
 incoming_calls :: proc(ctx: ^Request_Context, cand: Def_Candidate, res: ^lang.Result) -> bool {
-    target := Ref_Target {
-        kind       = .Package_Item,
-        name       = cand.name,
-        path       = cand.path,
-        decl       = cand.offset,
-        dir        = decl_dir(ctx, cand),
-        visibility = cand.visibility,
-    }
-    scan := Caller_Scan{res = res, name = cand.name}
+    target := Ref_Target{kind = .Package_Item, name = cand.name, path = cand.path, decl = cand.offset, dir = decl_dir(ctx, cand), visibility = cand.visibility}
+    scan   := Caller_Scan{res = res, name = cand.name}
     return visit_references(ctx, target, false, caller_visit, &scan)
 }
 
@@ -349,14 +348,17 @@ add_found_types :: proc(ctx: ^Request_Context, c: ^odinsema.Checker, found: []Ty
         if dup {
             continue
         }
-        append(&res.symbols, lang.Symbol {
-            name      = strings.clone(j.name),
-            kind      = strings.clone(j.kind),
-            signature = strings.clone(j.signature),
-            path      = strings.clone(j.path),
-            line      = j.line,
-            offset    = j.start,
-        })
+        append(
+            &res.symbols,
+            lang.Symbol{
+                name = strings.clone(j.name),
+                kind = strings.clone(j.kind),
+                signature = strings.clone(j.signature),
+                path = strings.clone(j.path),
+                line = j.line,
+                offset = j.start,
+            },
+        )
     }
 }
 
@@ -421,7 +423,7 @@ implementations :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
         union_variants(&ctx, cand, res)
     case:
         if is_type_kind(cand.kind) {
-            c := request_checker(&ctx)
+            c       := request_checker(&ctx)
             sym, ok := decl_symbol(&ctx, cand.path, cand.offset)
             if c != nil && ok {
                 subtypes(&ctx, c, sym, cand.name, res)
@@ -470,12 +472,12 @@ holding_groups :: proc(ctx: ^Request_Context, cand: Def_Candidate, res: ^lang.Re
 // The declared variant types of the union `cand`.
 @(private = "file")
 union_variants :: proc(ctx: ^Request_Context, cand: Def_Candidate, res: ^lang.Result) {
-    c := request_checker(ctx)
+    c       := request_checker(ctx)
     sym, ok := decl_symbol(ctx, cand.path, cand.offset)
     if c == nil || !ok {
         return
     }
-    base := odinsema.type_base(&c.table, odinsema.decl_type(c, sym))
+    base        := odinsema.type_base(&c.table, odinsema.decl_type(c, sym))
     u, is_union := odinsema.type_get(&c.table, base).(odinsema.Union_Type)
     if !is_union {
         return

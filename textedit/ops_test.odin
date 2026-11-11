@@ -212,7 +212,7 @@ test_line_table_patch_matches_rebuild :: proc(t: ^testing.T) {
     pieces := [?]string{"x", "\n", "y\nz", "\n\n", "q"}
 
     for round in 0 ..< 500 {
-        n := length(&state)
+        n   := length(&state)
         pos := rand.int_max(n + 1)
         switch rand.int_max(6) {
         case 0, 1:
@@ -318,7 +318,7 @@ test_align_at_char :: proc(t: ^testing.T) {
     // Select the whole block and align the `=` into one column. Whitespace
     // before the target is normalized, so both under- and over-spaced lines snap.
     content := "a = 1\nbb = 2\nccc     = 3"
-    state := ops_state(content, 0)
+    state   := ops_state(content, 0)
     defer destroy(&state)
     state.cursors[0].anchor = 0
     state.cursors[0].caret = len(content)
@@ -342,7 +342,7 @@ test_align_at_char :: proc(t: ^testing.T) {
     // A tab-indented line contributes its display width, so the space padding
     // lands the target on the same column the tab-indented one reaches.
     tabbed_src := "\tb = 2\nlonger = 3"
-    tabbed := ops_state(tabbed_src, 0)
+    tabbed     := ops_state(tabbed_src, 0)
     defer destroy(&tabbed)
     tabbed.cursors[0].anchor = 0
     tabbed.cursors[0].caret = len(tabbed_src)
@@ -527,7 +527,7 @@ test_delete_to_line_end :: proc(t: ^testing.T) {
     undo(&state)
     testing.expect_value(t, text(&state), "hello world\nnext")
 
-    set_cursors(&state, []Cursor {{caret = 2, anchor = 2}, {caret = 14, anchor = 14}})
+    set_cursors(&state, []Cursor{{caret = 2, anchor = 2}, {caret = 14, anchor = 14}})
     delete_to_line_end(&state)
     testing.expect_value(t, text(&state), "he\nne")
 }
@@ -548,7 +548,7 @@ test_delete_to_line_start :: proc(t: ^testing.T) {
     undo(&state)
     testing.expect_value(t, text(&state), "first\nhello world")
 
-    set_cursors(&state, []Cursor {{caret = 3, anchor = 3}, {caret = 11, anchor = 11}})
+    set_cursors(&state, []Cursor{{caret = 3, anchor = 3}, {caret = 11, anchor = 11}})
     delete_to_line_start(&state)
     testing.expect_value(t, text(&state), "st\n world")
 }
@@ -561,7 +561,7 @@ test_delete_word_merges_carets_in_one_word :: proc(t: ^testing.T) {
     state := ops_state("hello world", 3)
     defer destroy(&state)
 
-    set_cursors(&state, []Cursor {{caret = 3, anchor = 3}, {caret = 5, anchor = 5}})
+    set_cursors(&state, []Cursor{{caret = 3, anchor = 3}, {caret = 5, anchor = 5}})
     testing.expect_value(t, len(state.cursors), 2)
 
     delete_word_backward(&state)
@@ -572,7 +572,7 @@ test_delete_word_merges_carets_in_one_word :: proc(t: ^testing.T) {
     undo(&state)
     testing.expect_value(t, text(&state), "hello world")
 
-    set_cursors(&state, []Cursor {{caret = 6, anchor = 6}, {caret = 8, anchor = 8}})
+    set_cursors(&state, []Cursor{{caret = 6, anchor = 6}, {caret = 8, anchor = 8}})
     delete_word_forward(&state)
     testing.expect_value(t, text(&state), "hello ")
     testing.expect_value(t, len(state.cursors), 1)
@@ -585,11 +585,7 @@ test_replace_ranges :: proc(t: ^testing.T) {
     state := ops_state("foo bar foo baz foo", 4)
     defer destroy(&state)
 
-    n := replace_ranges(&state, []Replace {
-        {start = 16, end = 19, text = "quux"},
-        {start = 0, end = 3, text = "quux"},
-        {start = 8, end = 11, text = "quux"},
-    })
+    n := replace_ranges(&state, []Replace{{start = 16, end = 19, text = "quux"}, {start = 0, end = 3, text = "quux"}, {start = 8, end = 11, text = "quux"}})
     testing.expect_value(t, n, 3)
     testing.expect_value(t, text(&state), "quux bar quux baz quux")
     // The caret sat after the first replacement, so it shifts by that one edit.
@@ -602,11 +598,7 @@ test_replace_ranges :: proc(t: ^testing.T) {
     // Overlapping and out-of-bounds ranges are skipped rather than corrupting.
     set_text(&state, "abcdef")
     set_single_cursor(&state, 0)
-    m := replace_ranges(&state, []Replace {
-        {start = 0, end = 3, text = "X"},
-        {start = 2, end = 4, text = "Y"},
-        {start = 5, end = 99, text = "Z"},
-    })
+    m := replace_ranges(&state, []Replace{{start = 0, end = 3, text = "X"}, {start = 2, end = 4, text = "Y"}, {start = 5, end = 99, text = "Z"}})
     testing.expect_value(t, m, 1)
     testing.expect_value(t, text(&state), "Xdef")
 }
@@ -678,7 +670,7 @@ test_line_ops_keep_every_cursor :: proc(t: ^testing.T) {
     defer destroy(&state)
 
     // Carets on "bbb" and "ddd".
-    set_cursors(&state, {Cursor {caret = 4, anchor = 4}, Cursor {caret = 12, anchor = 12}})
+    set_cursors(&state, {Cursor{caret = 4, anchor = 4}, Cursor{caret = 12, anchor = 12}})
     move_lines(&state, -1)
     testing.expect_value(t, text(&state), "bbb\naaa\nddd\nccc\neee")
     testing.expect_value(t, len(state.cursors), 2)
@@ -700,7 +692,7 @@ test_line_ops_keep_every_cursor :: proc(t: ^testing.T) {
     undo(&state)
     testing.expect_value(t, text(&state), "aaa\nbbb\nccc\nddd\neee")
 
-    set_cursors(&state, {Cursor {caret = 0, anchor = 0}, Cursor {caret = 12, anchor = 12}})
+    set_cursors(&state, {Cursor{caret = 0, anchor = 0}, Cursor{caret = 12, anchor = 12}})
     join_lines(&state)
     testing.expect_value(t, text(&state), "aaa bbb\nccc\nddd eee")
     testing.expect_value(t, len(state.cursors), 2)

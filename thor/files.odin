@@ -14,14 +14,14 @@ import "core:time"
 import rl "vendor:raylib"
 
 import "../atomicfile"
+import "../editview"
 import "../lang"
+import "../lockfree"
+import "../prof"
 import "../render"
 import "../setting"
 import "../textedit"
 import ui "../vendor/loom/loom"
-import "../editview"
-import "../lockfree"
-import "../prof"
 // Line terminator a file uses on disk. The buffer holds LF, so a CRLF file is
 // collapsed on load and expanded again on save; the editing core and every byte
 // offset downstream never see a CR. A file that mixes the two is Mixed: its
@@ -36,127 +36,127 @@ Line_Ending :: enum u8 {
 // One open document. The textedit state lives here, not in the editor widget,
 // so undo history and cursors survive tab switches; the editor only borrows it.
 Open_File :: struct {
-    path:               string, // owned
-    name:               string, // slice into path, do not free separately
+    path:                 string, // owned
+    name:                 string, // slice into path, do not free separately
     // Base name, plus a directory suffix on a collision. Owned; set by thor_update_tab_labels.
-    tab_label:          string,
-    state:              textedit.State,
-    loaded:             bool,
+    tab_label:            string,
+    state:                textedit.State,
+    loaded:               bool,
     // Byte offset of the top row when a pane last showed this file; the view comes back to it.
-    view_top:           int,
+    view_top:             int,
     // Caret and top line a session restore applies once the load lands.
-    restore:            File_View,
-    restore_pending:    bool,
-    load_failed:        bool,
-    saving:             bool,
+    restore:              File_View,
+    restore_pending:      bool,
+    load_failed:          bool,
+    saving:               bool,
     // A disk-change reload is in flight; no second reload or save starts.
-    reloading:          bool,
+    reloading:            bool,
     // The file changed again during that read, so another read follows it.
-    reload_pending:     bool,
+    reload_pending:       bool,
     // Changed on disk over unsaved edits, and the conflict prompt is not answered yet.
-    disk_changed:       bool,
+    disk_changed:         bool,
     // The tab closed while a job holds the record; freed when pending_jobs is zero.
-    closed:             bool,
+    closed:               bool,
     // The save worker writes nothing: the file is being deleted. Read atomically by save_worker.
-    save_cancel:        bool,
-    pending_jobs:       int,
-    saved_revision:     u64,
+    save_cancel:          bool,
+    pending_jobs:         int,
+    saved_revision:       u64,
     // textedit.content_id of the text on disk. An undo back to it moves
     // saved_revision to the current revision (thor_sync_saved).
-    saved_content:      u64,
-    last_seen_revision: u64,
+    saved_content:        u64,
+    last_seen_revision:   u64,
     // What the next save writes; detected on load. A file Thor creates gets the
     // zero value, LF.
-    line_ending:        Line_Ending,
+    line_ending:          Line_Ending,
     // What the file is on disk; the buffer is UTF-8 with no byte order mark.
-    encoding:           Encoding,
-    bom:                bool,
+    encoding:             Encoding,
+    bom:                  bool,
     // The last save was refused. Autosave waits for an edit past
     // `failed_revision` before it tries again, and a close asks first.
-    save_failed:        bool,
-    failed_revision:    u64,
+    save_failed:          bool,
+    failed_revision:      u64,
     // Time and size on disk at the last look, for a file no watcher covers.
-    disk_stamp:         Disk_Stamp,
-    last_edit:          time.Tick,
+    disk_stamp:           Disk_Stamp,
+    last_edit:            time.Tick,
     // Syntax highlight spans and the buffer revision they were computed from.
     // The spans cover `highlight_start ..< highlight_end` only — the pane's view
     // plus a margin, not the whole buffer — so a pane that scrolls out of that
     // window re-highlights. Highlighting a large file whole costs seconds.
-    highlights:         [dynamic]editview.Highlight_Span,
-    highlight_revision: u64,
-    highlighted:        bool,
-    highlight_start:    int,
-    highlight_end:      int,
+    highlights:           [dynamic]editview.Highlight_Span,
+    highlight_revision:   u64,
+    highlighted:          bool,
+    highlight_start:      int,
+    highlight_end:        int,
     // Foldable line ranges. These follow the buffer, not the view, so they are
     // recomputed on a revision change only — never on a scroll.
-    folds:              [dynamic]editview.Fold_Range,
-    folds_revision:     u64,
-    folds_ready:        bool,
+    folds:                [dynamic]editview.Fold_Range,
+    folds_revision:       u64,
+    folds_ready:          bool,
     // Indentation read off the buffer for the status bar. detect_indent walks the
     // whole file and the status bar asks every frame, so the result is cached
     // against the revision it was read from and refreshed no faster than
     // INDENT_SCAN_INTERVAL.
-    indent:             textedit.Indent_Info,
-    indent_revision:    u64,
-    indent_ready:       bool,
-    indent_time:        f64,
+    indent:               textedit.Indent_Info,
+    indent_revision:      u64,
+    indent_ready:         bool,
+    indent_time:          f64,
     // What the analyzer proved each identifier to be, layered over the grammar's
     // spans by thor_update_highlights. `semantic_ready` marks a result having
     // landed at all, since revision 0 is a real revision. Kept across an edit —
     // dropping it would flash the file back to plain syntax colors on every
     // keystroke — but rebased onto the current text first, so a token never
     // paints part of an identifier.
-    semantic:           [dynamic]lang.Semantic_Token,
-    semantic_revision:  u64,
-    semantic_ready:     bool,
+    semantic:             [dynamic]lang.Semantic_Token,
+    semantic_revision:    u64,
+    semantic_ready:       bool,
     // The buffer text `semantic` was classified over. Owned; empty until a
     // result lands. thor_rebase_semantic diffs it against the live text to move
     // the tokens onto it.
-    semantic_source:    string,
+    semantic_source:      string,
     // Inlay hints over [inlay_start, inlay_end) of `inlay_source` (owned, as are the labels).
     // `inlay_view` holds them rebased onto the live text, labels borrowed.
-    inlays:              [dynamic]editview.Inlay,
-    inlay_source:        string,
-    inlay_revision:      u64,
-    inlay_start:         int,
-    inlay_end:           int,
-    inlay_ready:         bool,
-    inlay_view:          [dynamic]editview.Inlay,
-    inlay_view_revision: u64,
-    inlay_view_valid:    bool,
-    lens:                File_Lens, // reference counts after declaration names
+    inlays:               [dynamic]editview.Inlay,
+    inlay_source:         string,
+    inlay_revision:       u64,
+    inlay_start:          int,
+    inlay_end:            int,
+    inlay_ready:          bool,
+    inlay_view:           [dynamic]editview.Inlay,
+    inlay_view_revision:  u64,
+    inlay_view_valid:     bool,
+    lens:                 File_Lens, // reference counts after declaration names
     // Document sync for a backend that mirrors the editor's buffers.
     // `lang_open` marks the mirror as started, `lang_revision` the buffer
     // revision it last received. See thor_lang_notify.
-    lang_revision:      u64,
-    lang_open:          bool,
+    lang_revision:        u64,
+    lang_open:            bool,
     // Compiler diagnostics from the last `odin check` of this file's package,
     // and the buffer revision they were computed against. Shown only while the
     // buffer still matches that revision (an edit clears them until re-checked).
-    diagnostics:        [dynamic]editview.Diagnostic,
+    diagnostics:          [dynamic]editview.Diagnostic,
     diagnostics_revision: u64,
     // Live syntax errors and the revision they were parsed at. Shown when the
     // compiler diagnostics are stale.
-    syntax_diagnostics: [dynamic]editview.Diagnostic, // owned
-    syntax_revision:    u64,
-    syntax_ready:       bool,
+    syntax_diagnostics:   [dynamic]editview.Diagnostic, // owned
+    syntax_revision:      u64,
+    syntax_ready:         bool,
     // The compiler diagnostics and the lint items of the live check, shown when both are
     // current. Messages are borrowed from the two lists above.
-    merged_diagnostics: [dynamic]editview.Diagnostic,
+    merged_diagnostics:   [dynamic]editview.Diagnostic,
     // Line-level git diff vs HEAD, refreshed alongside git status. Index i
     // (0-based) holds line i's status; drives the editor's gutter diff bar.
-    diff_lines:         [dynamic]editview.Diff_Line_Kind,
+    diff_lines:           [dynamic]editview.Diff_Line_Kind,
     // Image files bypass the text pipeline: the pixels load into a GPU texture
     // and show in the image view instead of the editor. `loaded` stays false.
-    is_image:           bool,
-    texture:            rl.Texture2D,
-    texture_loaded:     bool,
+    is_image:             bool,
+    texture:              rl.Texture2D,
+    texture_loaded:       bool,
     // 3D model files take the same bypass as images: the meshes upload to the
     // GPU and show in the model view instead of the editor. `loaded` stays false.
-    is_model:           bool,
-    model:              rl.Model,
-    model_bounds:       rl.BoundingBox,
-    model_loaded:       bool,
+    is_model:             bool,
+    model:                rl.Model,
+    model_bounds:         rl.BoundingBox,
+    model_loaded:         bool,
 }
 
 // Loaded via a memory mapping on a worker thread, which copies the view out and
@@ -164,32 +164,32 @@ Open_File :: struct {
 // it. A live mapping stops the process that owns the file from truncating it, so
 // it must not outlive the read.
 Load_Job :: struct {
-    queue_next: ^Load_Job, // link in Thor.finished_loads
-    owner:   ^Thor,
-    file:    ^Open_File,
-    path:    string, // borrowed from file; valid while pending_jobs > 0
-    worker:  ^thread.Thread,
+    queue_next:       ^Load_Job, // link in Thor.finished_loads
+    owner:            ^Thor,
+    file:             ^Open_File,
+    path:             string, // borrowed from file; valid while pending_jobs > 0
+    worker:           ^thread.Thread,
     // Reload of an already-open buffer after an external disk change, rather than
     // the initial open: the reap diffs the bytes against the buffer.
-    reload:  bool,
+    reload:           bool,
     // The user already answered the conflict prompt for this file, so the reap
     // replaces the buffer even with unsaved edits in it.
-    force:   bool,
-    ok:      bool,
-    binary:  bool,
+    force:            bool,
+    ok:               bool,
+    binary:           bool,
     // This job decodes an image rather than parsing text; skips the NUL probe
     // (an image is binary by definition) and the line-ending prep.
-    image:   bool,
+    image:            bool,
     // raylib-owned pixels. Freed by the worker itself on a failed decode
     // (UnloadImage is plain CPU memory, safe off the main thread); on success
     // the reap uploads it to GL and frees it after.
-    decoded: rl.Image,
-    data:    [^]u8,
-    size:    int,
-    mapping: File_Map, // closed by the worker; closed again on reap is a no-op
+    decoded:          rl.Image,
+    data:             [^]u8,
+    size:             int,
+    mapping:          File_Map, // closed by the worker; closed again on reap is a no-op
     // The worker's copy of the mapped bytes, and the allocator it came from —
     // the worker runs under the default context, not the main thread's.
-    buffer:  []u8,
+    buffer:           []u8,
     buffer_allocator: mem.Allocator,
     // Line-ending prep, done on the worker so the reap does not re-scan the
     // whole file. `text` points *into* `buffer` when text_allocated is false
@@ -206,18 +206,18 @@ Load_Job :: struct {
 
 Save_Job :: struct {
     queue_next: ^Save_Job, // link in Thor.finished_saves
-    owner:     ^Thor,
-    file:      ^Open_File,
-    path:      string, // borrowed from file; valid while pending_jobs > 0
-    text:      string, // owned snapshot, freed on the main thread
-    revision:  u64,
-    content:   u64, // textedit.content_id of `text`
-    worker:    ^thread.Thread,
-    ok:        bool,
+    owner:      ^Thor,
+    file:       ^Open_File,
+    path:       string, // borrowed from file; valid while pending_jobs > 0
+    text:       string, // owned snapshot, freed on the main thread
+    revision:   u64,
+    content:    u64, // textedit.content_id of `text`
+    worker:     ^thread.Thread,
+    ok:         bool,
     // The write was dropped for a pending delete, so this is no failure to
     // report and the buffer keeps its unsaved state.
-    cancelled: bool,
-    err:       os.Error,
+    cancelled:  bool,
+    err:        os.Error,
 }
 
 // What a File_Op_Job does with each of its entries.
@@ -253,7 +253,7 @@ File_Op_Job :: struct {
     worker:     ^thread.Thread,
     kind:       File_Op_Kind,
     entries:    [dynamic]File_Op_Entry, // owned, with the strings in it
-    dest_label: string, // owned, the folder a copy lands in, for the status message
+    dest_label: string,                 // owned, the folder a copy lands in, for the status message
 }
 
 // Status bar label for an ending.
@@ -337,7 +337,7 @@ load_worker :: proc(job: ^Load_Job) {
 
     if job.image {
         ext := strings.clone_to_cstring(filepath.ext(job.path), context.temp_allocator)
-        job.decoded = rl.LoadImageFromMemory(ext, job.data, cast(c.int) job.size)
+        job.decoded = rl.LoadImageFromMemory(ext, job.data, cast(c.int)job.size)
         job.ok = rl.IsImageValid(job.decoded)
         if !job.ok {
             rl.UnloadImage(job.decoded)
@@ -400,7 +400,7 @@ save_worker :: proc(job: ^Save_Job) {
     if sync.atomic_load(&job.file.save_cancel) {
         job.cancelled = true
     } else {
-        job.err = atomicfile.write(job.path, transmute([]byte) job.text)
+        job.err = atomicfile.write(job.path, transmute([]byte)job.text)
         job.ok = job.err == nil
     }
     free_all(context.temp_allocator)
@@ -462,10 +462,10 @@ thor_apply_file_op :: proc(thor: ^Thor, job: ^File_Op_Job) {
     thread.join(job.worker)
     thread.destroy(job.worker)
 
-    verb := job.kind == .Delete ? "delete" : job.kind == .Copy ? "copy" : "move"
-    done := 0
+    verb           := job.kind == .Delete ? "delete" : job.kind == .Copy ? "copy" : "move"
+    done           := 0
     moved_but_left := 0
-    failed := ""
+    failed         := ""
     for entry in job.entries {
         name := thor_file_base(entry.src)
         switch {
@@ -493,17 +493,10 @@ thor_apply_file_op :: proc(thor: ^Thor, job: ^File_Op_Job) {
         thor_flash_status(thor, failed, is_error = true)
     case moved_but_left > 0:
         noun := moved_but_left == 1 ? "original" : "originals"
-        thor_flash_status(
-            thor,
-            fmt.tprintf("Moved, but couldn't remove %d %s", moved_but_left, noun),
-            is_error = true,
-        )
+        thor_flash_status(thor, fmt.tprintf("Moved, but couldn't remove %d %s", moved_but_left, noun), is_error = true)
     case job.kind == .Copy:
         noun := done == 1 ? "item" : "items"
-        thor_flash_status(
-            thor,
-            fmt.tprintf("Copied %d %s into %s", done, noun, filepath.base(job.dest_label)),
-        )
+        thor_flash_status(thor, fmt.tprintf("Copied %d %s into %s", done, noun, filepath.base(job.dest_label)))
     case job.kind == .Move:
         noun := done == 1 ? "item" : "items"
         thor_flash_status(thor, fmt.tprintf("Moved %d %s", done, noun))
@@ -563,7 +556,7 @@ thor_retarget_open_file :: proc(thor: ^Thor, old_path, new_path: string) {
             continue
         }
         // The part below the folder, in native separators.
-        tail := thor_canon_path(file.path)[len(old_canon):]
+        tail      := thor_canon_path(file.path)[len(old_canon):]
         native, _ := strings.replace_all(tail, "/", filepath.SEPARATOR_STRING, context.temp_allocator)
         delete(file.path)
         file.path = strings.concatenate({canonical, native})
@@ -618,7 +611,7 @@ dir_segment_count :: proc(dir: string) -> int {
 // normalizes.
 @(private = "file")
 thor_disambiguating_dir :: proc(file: ^Open_File, group: []^Open_File) -> string {
-    dir := file_dir(file.path)
+    dir       := file_dir(file.path)
     max_depth := max(dir_segment_count(dir), 1)
 
     // The directories once, not once per depth.
@@ -630,7 +623,7 @@ thor_disambiguating_dir :: proc(file: ^Open_File, group: []^Open_File) -> string
     }
 
     for depth in 1 ..= max_depth {
-        tail := dir_tail(dir, depth)
+        tail   := dir_tail(dir, depth)
         unique := true
         for other in others {
             if dir_tail(other, depth) == tail {
@@ -668,7 +661,7 @@ thor_update_tab_labels :: proc(thor: ^Thor) {
             file.tab_label = strings.clone(file.name)
         } else {
             suffix := thor_disambiguating_dir(file, group[:])
-            b := strings.builder_make()
+            b      := strings.builder_make()
             strings.write_string(&b, file.name)
             if len(suffix) > 0 {
                 strings.write_string(&b, " — ") // em dash
@@ -866,7 +859,7 @@ thor_apply_reload :: proc(thor: ^Thor, job: ^Load_Job) {
     buffer_text := job.text
     // A copy: the cursor remap and the pane rebind below still read it after
     // set_text has replaced the buffer it came from.
-    old_text := textedit.text_clone(&file.state, context.temp_allocator)
+    old_text    := textedit.text_clone(&file.state, context.temp_allocator)
     if buffer_text == old_text {
         file.line_ending = ending // an external tool may have converted it
         // The edits (or an undo of them) end at exactly what is on disk, so the
@@ -885,12 +878,15 @@ thor_apply_reload :: proc(thor: ^Thor, job: ^Load_Job) {
     // Move every cursor with the text it sits on, so a change above a caret does
     // not leave it on another line. Anchors move too, so a selection survives.
     prefix, suffix := thor_common_affixes(old_text, buffer_text)
-    cursors := make([dynamic]textedit.Cursor, 0, len(file.state.cursors), context.temp_allocator)
+    cursors        := make([dynamic]textedit.Cursor, 0, len(file.state.cursors), context.temp_allocator)
     for cursor in file.state.cursors {
-        append(&cursors, textedit.Cursor {
-            caret  = thor_remap_offset(old_text, buffer_text, cursor.caret, prefix, suffix),
-            anchor = thor_remap_offset(old_text, buffer_text, cursor.anchor, prefix, suffix),
-        })
+        append(
+            &cursors,
+            textedit.Cursor{
+                caret = thor_remap_offset(old_text, buffer_text, cursor.caret, prefix, suffix),
+                anchor = thor_remap_offset(old_text, buffer_text, cursor.anchor, prefix, suffix),
+            },
+        )
     }
 
     file.line_ending = ending
@@ -922,16 +918,8 @@ thor_prompt_disk_conflict :: proc(thor: ^Thor) {
         }
         thor.conflict_file = file
         delete(thor.conflict_prompt)
-        thor.conflict_prompt = strings.concatenate(
-            {"\"", file.name, "\" changed on disk. Reload and discard your edits?"},
-        )
-        thor_palette_confirm(
-        thor,
-        thor.conflict_prompt,
-        thor_confirm_disk_reload,
-        thor,
-        thor_dismiss_disk_reload,
-    )
+        thor.conflict_prompt = strings.concatenate({"\"", file.name, "\" changed on disk. Reload and discard your edits?"})
+        thor_palette_confirm(thor, thor.conflict_prompt, thor_confirm_disk_reload, thor, thor_dismiss_disk_reload)
         return
     }
 }
@@ -939,7 +927,7 @@ thor_prompt_disk_conflict :: proc(thor: ^Thor) {
 // Conflict prompt accepted: drop the buffer's edits for what is on disk.
 @(private = "file")
 thor_confirm_disk_reload :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     file := thor.conflict_file
     thor.conflict_file = nil
     if file == nil || file.closed {
@@ -955,7 +943,7 @@ thor_confirm_disk_reload :: proc(data: rawptr) {
 // asked about again when it changes on disk once more.
 @(private = "file")
 thor_dismiss_disk_reload :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     file := thor.conflict_file
     thor.conflict_file = nil
     if file != nil {
@@ -975,9 +963,9 @@ thor_rebind_reloaded_panes :: proc(thor: ^Thor, file: ^Open_File, old_text, new_
             continue
         }
         editor := thor_pane_editor(thor, pane)
-        top := editview.editor_top_offset(editor)
-        moved := thor_remap_offset(old_text, new_text, top, prefix, suffix)
-        shift := textedit.line_index(new_text, moved) - textedit.line_index(old_text, top)
+        top    := editview.editor_top_offset(editor)
+        moved  := thor_remap_offset(old_text, new_text, top, prefix, suffix)
+        shift  := textedit.line_index(new_text, moved) - textedit.line_index(old_text, top)
         thor_bind_pane(thor, pane, keep_view = true)
         editview.editor_scroll_lines(editor, shift)
     }
@@ -1056,7 +1044,7 @@ thor_is_model_path :: proc(name: string) -> bool {
 // On failure the tab shows the load-failed placeholder, matching a bad image.
 @(private = "file")
 thor_load_model :: proc(file: ^Open_File) {
-    path := strings.clone_to_cstring(file.path, context.temp_allocator)
+    path  := strings.clone_to_cstring(file.path, context.temp_allocator)
     model := rl.LoadModel(path)
     if !rl.IsModelValid(model) {
         rl.UnloadModel(model) // frees the default material LoadModel still made
@@ -1212,7 +1200,7 @@ thor_set_line_ending :: proc(thor: ^Thor, file: ^Open_File, ending: Line_Ending)
 
 // Status bar click and the palette toggle: flips the active file's ending.
 thor_toggle_line_ending :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if file := thor_active_open_file(thor); file != nil {
         thor_set_line_ending(thor, file, file.line_ending == .LF ? .CRLF : .LF)
     }
@@ -1220,7 +1208,7 @@ thor_toggle_line_ending :: proc(data: rawptr) {
 
 // Ctrl+S from the editor widget: save the active file immediately.
 thor_request_save :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if file := thor_active_open_file(thor); file != nil {
         thor_save_explicit(thor, file)
     }
@@ -1232,7 +1220,7 @@ thor_update_files :: proc(thor: ^Thor) {
     prof.proc_scope()
     thor_process_io(thor)
     thor_apply_pending_goto(thor)
-    
+
     // Orphan-save insurance: a .Format result cancelled before thor_apply_format
     // would strand format_save_pending forever. With no format left in flight,
     // flush it unformatted rather than wait.
@@ -1249,8 +1237,7 @@ thor_update_files :: proc(thor: ^Thor) {
     // the slot would then refuse every later request for the process's life.
     // Ahead of lang.manager_dispatch in the run loop, so a result reaped this
     // frame has already cleared the slot through its handler.
-    if thor.semantic_request_id != 0 &&
-       !lang.manager_has_request(&thor.lang_manager, thor.semantic_request_id) {
+    if thor.semantic_request_id != 0 && !lang.manager_has_request(&thor.lang_manager, thor.semantic_request_id) {
         thor.semantic_request_id = 0
         delete(thor.semantic_path)
         thor.semantic_path = ""
@@ -1261,8 +1248,7 @@ thor_update_files :: proc(thor: ^Thor) {
     thor_recover_lens_slot(thor)
     thor_recover_occurrence_slot(thor)
     thor_peek_tick(thor)
-    if thor.syntax_request_id != 0 &&
-       !lang.manager_has_request(&thor.lang_manager, thor.syntax_request_id) {
+    if thor.syntax_request_id != 0 && !lang.manager_has_request(&thor.lang_manager, thor.syntax_request_id) {
         thor.syntax_request_id = 0
     }
 
@@ -1338,17 +1324,17 @@ thor_process_io :: proc(thor: ^Thor) {
     thor_file_search_tick(thor)
     file_searches := make([dynamic]^File_Search_Job, context.temp_allocator)
     outside_stats := make([dynamic]^Outside_Stat_Job, context.temp_allocator)
-    loads := make([dynamic]^Load_Job, context.temp_allocator)
-    saves := make([dynamic]^Save_Job, context.temp_allocator)
-    git := make([dynamic]^Git_Status_Job, context.temp_allocator)
-    git_ops := make([dynamic]^Git_Op_Job, context.temp_allocator)
-    ops := make([dynamic]^File_Op_Job, context.temp_allocator)
-    shells := make([dynamic]^Shell_Detect_Job, context.temp_allocator)
-    file_index := make([dynamic]^File_Index_Job, context.temp_allocator)
-    updates := make([dynamic]^Update_Job, context.temp_allocator)
-    ext_updates := make([dynamic]^Ext_Job, context.temp_allocator)
-    md_images := make([dynamic]^Md_Image_Job, context.temp_allocator)
-    plugin_execs := make([dynamic]^Plugin_Exec_Job, context.temp_allocator)
+    loads         := make([dynamic]^Load_Job, context.temp_allocator)
+    saves         := make([dynamic]^Save_Job, context.temp_allocator)
+    git           := make([dynamic]^Git_Status_Job, context.temp_allocator)
+    git_ops       := make([dynamic]^Git_Op_Job, context.temp_allocator)
+    ops           := make([dynamic]^File_Op_Job, context.temp_allocator)
+    shells        := make([dynamic]^Shell_Detect_Job, context.temp_allocator)
+    file_index    := make([dynamic]^File_Index_Job, context.temp_allocator)
+    updates       := make([dynamic]^Update_Job, context.temp_allocator)
+    ext_updates   := make([dynamic]^Ext_Job, context.temp_allocator)
+    md_images     := make([dynamic]^Md_Image_Job, context.temp_allocator)
+    plugin_execs  := make([dynamic]^Plugin_Exec_Job, context.temp_allocator)
 
     thor_take_jobs(&thor.finished_md_images, &md_images)
     thor_take_jobs(&thor.finished_plugin_execs, &plugin_execs)
@@ -1379,11 +1365,11 @@ thor_process_io :: proc(thor: ^Thor) {
         thread.join(job.worker)
         thread.destroy(job.worker)
 
-        file := job.file
+        file   := job.file
         reload := job.reload
         // Read before the free below; job is gone by the time these decide
         // the .Opened notify and the re-bind.
-        image := job.image
+        image  := job.image
         opened ||= !reload && !image && job.ok
         if image {
             thor_apply_image(thor, job)
@@ -1401,7 +1387,10 @@ thor_process_io :: proc(thor: ^Thor) {
             thor_restore_backup(thor, file)
             thor_apply_file_view(file)
             if thor_big_file(file) {
-                log.infof("Large file %q: semantic highlighting, inlay hints, reference counts, folding, live diagnostics and language servers are off", job.path)
+                log.infof(
+                    "Large file %q: semantic highlighting, inlay hints, reference counts, folding, live diagnostics and language servers are off",
+                    job.path,
+                )
                 thor_flash_status(thor, fmt.tprintf("%s is large: semantic highlighting, hints, folding and language servers are off", file.name), false)
             }
         } else {
@@ -1654,7 +1643,7 @@ thor_close_files_under :: proc(thor: ^Thor, path: string) {
 
 // Tree widget callback: a file row was clicked in the explorer.
 thor_tree_open :: proc(data: rawptr, path: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_open_file(thor, path)
 }
 
@@ -1662,7 +1651,7 @@ thor_tree_open :: proc(data: rawptr, path: string) {
 // whole explorer selection when the row belongs to it, so a multi-select acts as
 // one action. Opens a confirmation dialog; thor_confirm_delete does the removal.
 thor_tree_delete :: proc(data: rawptr, path: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if path == "" {
         return
     }
@@ -1684,12 +1673,7 @@ thor_tree_delete :: proc(data: rawptr, path: string) {
         thor.delete_prompt = strings.concatenate({"Delete \"", thor_file_base(path), "\"?"})
     }
 
-    thor_palette_confirm(
-        thor,
-        thor.delete_prompt,
-        thor_confirm_delete,
-        thor,
-    )
+    thor_palette_confirm(thor, thor.delete_prompt, thor_confirm_delete, thor)
 }
 
 thor_clear_pending_deletes :: proc(thor: ^Thor) {
@@ -1703,7 +1687,7 @@ thor_clear_pending_deletes :: proc(thor: ^Thor) {
 // worker. Deleting a folder walks its whole tree, so it never runs on the main
 // thread; thor_apply_file_op reports every outcome in the status bar.
 thor_confirm_delete :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     defer thor_clear_pending_deletes(thor)
 
     entries: [dynamic]File_Op_Entry
@@ -1724,19 +1708,13 @@ thor_begin_rename :: proc(thor: ^Thor, path: string) {
     delete(thor.pending_rename_path)
     thor.pending_rename_path = strings.clone(path)
 
-    thor_palette_prompt(
-        thor,
-        "New name",
-        thor_confirm_rename,
-        thor,
-        thor_file_base(path),
-    )
+    thor_palette_prompt(thor, "New name", thor_confirm_rename, thor, thor_file_base(path))
 }
 
 // Name prompt accepted: rename the file/folder on disk within its directory and
 // retarget any open tab that pointed at it.
 thor_confirm_rename :: proc(data: rawptr, name: string) {
-    thor := cast(^Thor) data
+    thor     := cast(^Thor)data
     old_path := thor.pending_rename_path
     defer {
         delete(thor.pending_rename_path)
@@ -1804,7 +1782,7 @@ thor_confirm_rename :: proc(data: rawptr, name: string) {
 // folder on disk and retargets any open tab that pointed at it (folders never
 // match an open file, matching thor_confirm_rename's rename behavior).
 thor_tree_move :: proc(data: rawptr, src_path: string, dst_dir: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
 
     new_path, join_err := filepath.join({dst_dir, thor_file_base(src_path)}, context.temp_allocator)
     if join_err != nil {
@@ -2090,12 +2068,8 @@ Import_Result :: enum {
 // copy in `entries` for thor_start_file_op. A name collision is reported rather
 // than overwritten, on disk or against a copy queued earlier in the same drop.
 // Every failure flashes its reason, so no branch leaves the drop looking ignored.
-thor_queue_import :: proc(
-    thor: ^Thor,
-    entries: ^[dynamic]File_Op_Entry,
-    src_path, dst_dir: string,
-) -> Import_Result {
-    name := thor_file_base(src_path)
+thor_queue_import :: proc(thor: ^Thor, entries: ^[dynamic]File_Op_Entry, src_path, dst_dir: string) -> Import_Result {
+    name               := thor_file_base(src_path)
     new_path, join_err := filepath.join({dst_dir, name}, context.temp_allocator)
     if join_err != nil {
         log.warnf("Cannot import %q into %q: %v", src_path, dst_dir, join_err)
@@ -2140,12 +2114,12 @@ Md_Image :: struct {
 
 Md_Image_Job :: struct {
     queue_next: ^Md_Image_Job, // link in Thor.finished_md_images
-    owner:     ^Thor,
-    allocator: mem.Allocator,
-    worker:    ^thread.Thread,
-    path:      string, // owned
-    decoded:   rl.Image,
-    ok:        bool,
+    owner:      ^Thor,
+    allocator:  mem.Allocator,
+    worker:     ^thread.Thread,
+    path:       string, // owned
+    decoded:    rl.Image,
+    ok:         bool,
 }
 
 // Starts the decode of one image file for the markdown preview.
@@ -2175,7 +2149,7 @@ md_image_worker :: proc(job: ^Md_Image_Job) {
         return
     }
     ext := strings.clone_to_cstring(filepath.ext(job.path), context.temp_allocator)
-    job.decoded = rl.LoadImageFromMemory(ext, raw_data(data), cast(c.int) len(data))
+    job.decoded = rl.LoadImageFromMemory(ext, raw_data(data), cast(c.int)len(data))
     job.ok = rl.IsImageValid(job.decoded)
     if !job.ok {
         rl.UnloadImage(job.decoded)
@@ -2198,7 +2172,7 @@ thor_apply_md_image :: proc(thor: ^Thor, job: ^Md_Image_Job) {
         free(job)
     }
 
-    view := &thor.markdown_view
+    view         := &thor.markdown_view
     image, found := &view.images[job.path]
     if !found {
         return

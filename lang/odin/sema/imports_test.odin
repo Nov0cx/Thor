@@ -59,7 +59,7 @@ odin_root :: proc() -> string {
 
 @(test)
 test_import_aliases :: proc(t: ^testing.T) {
-    src := `package app
+    src         := `package app
 
 import "core:fmt"
 import f "core:strings"
@@ -70,7 +70,7 @@ import "shared:util/"
 foreign import kernel32 "system:Kernel32.lib"
 `
     collections := Collections{odin_root = "odin"}
-    c, ok := read_imports(t, src, "app", &collections)
+    c, ok       := read_imports(t, src, "app", &collections)
     if !ok {
         return
     }
@@ -84,7 +84,7 @@ foreign import kernel32 "system:Kernel32.lib"
         valid:    bool,
         coll:     string,
         dir:      string,
-    } {
+    }{
         {"fmt", false, true, "core", "odin/core/fmt"},
         {"f", true, true, "core", "odin/core/strings"},
         {"json", false, true, "core", "odin/core/encoding/json"},
@@ -134,7 +134,7 @@ foreign import kernel32 "system:Kernel32.lib"
 
 @(test)
 test_import_relative_and_unknown :: proc(t: ^testing.T) {
-    src := `package app
+    src         := `package app
 
 import "../lib"
 import "./sub/./inner"
@@ -142,9 +142,9 @@ import "mine:tools/x"
 import "nope:thing"
 import "core:fmt"
 `
-    custom := []Collection{{"mine", "ext/mine"}}
+    custom      := []Collection{{"mine", "ext/mine"}}
     collections := Collections{custom = custom}
-    c, ok := read_imports(t, src, "work/app/src", &collections)
+    c, ok       := read_imports(t, src, "work/app/src", &collections)
     if !ok {
         return
     }
@@ -168,7 +168,7 @@ import "core:fmt"
 
 @(test)
 test_import_backslash_dir :: proc(t: ^testing.T) {
-    src := "package app\n\nimport \"../lib\"\nimport \"..\\\\other\\\\pkg\"\n"
+    src   := "package app\n\nimport \"../lib\"\nimport \"..\\\\other\\\\pkg\"\n"
     c, ok := read_imports(t, src, "D:\\work\\app\\src\\", nil)
     if !ok {
         return
@@ -184,7 +184,7 @@ test_import_backslash_dir :: proc(t: ^testing.T) {
 
 @(test)
 test_import_odin_root :: proc(t: ^testing.T) {
-    root := odin_root()
+    root          := odin_root()
     fmt_dir, jerr := filepath.join({root, "core", "fmt"}, context.temp_allocator)
     if !testing.expect_value(t, jerr, nil) {
         return
@@ -193,14 +193,14 @@ test_import_odin_root :: proc(t: ^testing.T) {
         log.infof("no Odin root at %q; resolution against it is skipped", root)
         return
     }
-    src := `package app
+    src         := `package app
 
 import "core:fmt"
 import "base:runtime"
 import "core:not_a_package_zz"
 `
     collections := Collections{odin_root = root}
-    c, ok := read_imports(t, src, ".", &collections)
+    c, ok       := read_imports(t, src, ".", &collections)
     if !ok {
         return
     }

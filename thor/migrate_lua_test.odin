@@ -50,12 +50,12 @@ test_migrate_json_config :: proc(t: ^testing.T) {
     palette, ok := theme.load(root + "/themes/x.lua")
     defer theme.destroy(&palette)
     testing.expect(t, ok && palette.name == "X", "the theme converts")
-    testing.expect_value(t, palette.keywords_color, ui.Color {0x11, 0x22, 0x33, 0xFF})
+    testing.expect_value(t, palette.keywords_color, ui.Color{0x11, 0x22, 0x33, 0xFF})
 
     perms := plugin.manifest_permissions(root + "/plugins/p")
     testing.expect(t, perms != {}, "the manifest converts")
 
-    for name in ([]string {"settings.json.bak", "keybinds.json.bak", "themes/x.json.bak", "plugins/p/plugin.json.bak", "tips.json"}) {
+    for name in ([]string{"settings.json.bak", "keybinds.json.bak", "themes/x.json.bak", "plugins/p/plugin.json.bak", "tips.json"}) {
         testing.expectf(t, os.exists(strings.concatenate({root, "/", name}, context.temp_allocator)), "%s is kept", name)
     }
 

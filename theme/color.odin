@@ -22,15 +22,15 @@ from_rl :: proc(c: rl.Color) -> ui.Color {
 }
 
 // Text drawn on a light background.
-COLOR_ON_DARK :: ui.Color {16, 18, 22, 255}
+COLOR_ON_DARK :: ui.Color{16, 18, 22, 255}
 
 // Text drawn on a dark background.
-COLOR_ON_LIGHT :: ui.Color {255, 255, 255, 255}
+COLOR_ON_LIGHT :: ui.Color{255, 255, 255, 255}
 
 // One sRGB channel as a linear value, for the luminance sum.
 @(private = "file")
 channel_linear :: proc(value: u8) -> f32 {
-    c := cast(f32) value / 255
+    c := cast(f32)value / 255
     if c <= 0.03928 {
         return c / 12.92
     }
@@ -39,9 +39,7 @@ channel_linear :: proc(value: u8) -> f32 {
 
 // Relative luminance (WCAG) of `color`: 0 for black, 1 for white. Alpha is ignored.
 color_luminance :: proc(color: ui.Color) -> f32 {
-    return 0.2126 * channel_linear(color.r) +
-        0.7152 * channel_linear(color.g) +
-        0.0722 * channel_linear(color.b)
+    return 0.2126 * channel_linear(color.r) + 0.7152 * channel_linear(color.g) + 0.0722 * channel_linear(color.b)
 }
 
 // Contrast ratio (WCAG) between two colors, 1 to 21. Alpha is ignored.
@@ -111,8 +109,8 @@ color_ensure_contrast :: proc(foreground, background: ui.Color, ratio: f32) -> u
     // Away from the background is toward white on a dark one, toward black on a
     // light one.
     toward_light := color_on(background) == COLOR_ON_LIGHT
-    hsv := rl.ColorToHSV(to_rl(foreground))
-    lifted := color_with_hsv(foreground, hsv.x, hsv.y, toward_light ? 1 : 0)
+    hsv          := rl.ColorToHSV(to_rl(foreground))
+    lifted       := color_with_hsv(foreground, hsv.x, hsv.y, toward_light ? 1 : 0)
     if color_contrast_ratio(lifted, background) >= ratio {
         return color_bisect(foreground, lifted, background, ratio)
     }
@@ -126,7 +124,7 @@ color_bisect :: proc(near, far, background: ui.Color, ratio: f32) -> ui.Color {
     best := far
     low, high := f32(0), f32(1)
     for _ in 0 ..< CONTRAST_STEPS {
-        mid := (low + high) / 2
+        mid       := (low + high) / 2
         candidate := color_mix(near, far, mid)
         if color_contrast_ratio(candidate, background) >= ratio {
             best = candidate

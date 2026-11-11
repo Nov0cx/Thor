@@ -7,9 +7,7 @@ Signal :: struct($T: typeid) {
 }
 
 make_signal :: proc(value: $T) -> Signal(T) {
-    return Signal(T) {
-        value = value,
-    }
+    return Signal(T){value = value}
 }
 
 signal_get :: proc(signal: ^Signal($T)) -> T {

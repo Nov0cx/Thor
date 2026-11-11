@@ -24,8 +24,8 @@ TEXT_FLOOR :: f32(4.5)
 // contrast floor against the background, so a bad seed pair still reads. `name` is
 // cloned, as load's is, so destroy pairs.
 generate :: proc(name: string, background, accent: ui.Color, dark: bool) -> Theme {
-    bg := theme_clamp_background(background, dark)
-    up := dark ? WHITE : BLACK
+    bg   := theme_clamp_background(background, dark)
+    up   := dark ? WHITE : BLACK
     down := dark ? BLACK : WHITE
 
     theme: Theme
@@ -83,9 +83,9 @@ generate :: proc(name: string, background, accent: ui.Color, dark: bool) -> Them
 // saturation. color_on then answers for it on its own.
 @(private = "file")
 theme_clamp_background :: proc(background: ui.Color, dark: bool) -> ui.Color {
-    hsv := rl.ColorToHSV(to_rl(background))
+    hsv   := rl.ColorToHSV(to_rl(background))
     value := dark ? min(hsv.z, DARK_BACKGROUND_VALUE) : max(hsv.z, LIGHT_BACKGROUND_VALUE)
-    out := color_with_hsv(background, hsv.x, hsv.y, value)
+    out   := color_with_hsv(background, hsv.x, hsv.y, value)
     out.a = 0xFF
     return out
 }
@@ -109,7 +109,7 @@ theme_status :: proc(accent, background: ui.Color, hue: f32) -> ui.Color {
 // the accent's own neighbourhood, so the roles stay apart.
 @(private = "file")
 theme_syntax :: proc(accent, background: ui.Color, degrees: f32) -> ui.Color {
-    hsv := rl.ColorToHSV(to_rl(accent))
+    hsv     := rl.ColorToHSV(to_rl(accent))
     rotated := color_with_hsv(accent, math.mod(hsv.x + degrees + 360, 360), max(hsv.y, 0.50), hsv.z)
     return color_ensure_contrast(rotated, background, TEXT_FLOOR)
 }

@@ -48,7 +48,7 @@ thor_format_file :: proc(thor: ^Thor, file: ^Open_File) -> bool {
         return false
     }
     source := textedit.text(&file.state)
-    id := lang.manager_request_latest(
+    id     := lang.manager_request_latest(
         &thor.lang_manager,
         .Format,
         file.path,
@@ -126,7 +126,7 @@ thor_format_on_type :: proc(thor: ^Thor, file: ^Open_File, offset: int, char: st
         return
     }
     source := textedit.text(&file.state)
-    id := lang.manager_request_debounced(
+    id     := lang.manager_request_debounced(
         &thor.lang_manager,
         .Format_On_Type,
         file.path,
@@ -181,7 +181,7 @@ thor_format_document :: proc(thor: ^Thor) {
 }
 
 thor_cmd_format_document :: proc(data: rawptr) {
-    thor_format_document(cast(^Thor) data)
+    thor_format_document(cast(^Thor)data)
 }
 
 // Ctrl+alt+shift+l / "Edit: Format Selection": formats the selection, or the
@@ -197,7 +197,7 @@ thor_format_selection_command :: proc(thor: ^Thor) {
 }
 
 thor_cmd_format_selection :: proc(data: rawptr) {
-    thor_format_selection_command(cast(^Thor) data)
+    thor_format_selection_command(cast(^Thor)data)
 }
 
 // Applies a Format / Format_Range result at `path` through the same

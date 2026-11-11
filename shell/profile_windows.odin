@@ -17,21 +17,18 @@ profiles_detect :: proc(allocator := context.allocator) -> []Profile {
         system_root = "C:/Windows"
     }
     system32 := join_temp(system_root, "System32")
-    comspec := os.get_env("ComSpec", context.temp_allocator)
+    comspec  := os.get_env("ComSpec", context.temp_allocator)
 
-    program_files := os.get_env("ProgramFiles", context.temp_allocator)
+    program_files     := os.get_env("ProgramFiles", context.temp_allocator)
     program_files_x86 := os.get_env("ProgramFiles(x86)", context.temp_allocator)
-    local_app_data := os.get_env("LocalAppData", context.temp_allocator)
+    local_app_data    := os.get_env("LocalAppData", context.temp_allocator)
 
     // PowerShell 7 installs beside Windows PowerShell instead of replacing it.
     add_profile(
         &list,
         "pwsh",
         "PowerShell",
-        {
-            join_temp(program_files, "PowerShell/7/pwsh.exe"),
-            which_temp("pwsh.exe"),
-        },
+        {join_temp(program_files, "PowerShell/7/pwsh.exe"), which_temp("pwsh.exe")},
         {"-NoLogo"},
         {},
         .Powershell,
@@ -74,16 +71,7 @@ profiles_detect :: proc(allocator := context.allocator) -> []Profile {
     if vsdevcmd, ok := msvc.find_vsdevcmd(); ok {
         arch := msvc.native_arch()
         call := fmt.tprintf("%s -startdir=none", msvc.vsdevcmd_call(vsdevcmd, arch))
-        add_profile(
-            &list,
-            "msvc",
-            "Developer Command Prompt",
-            {comspec, join_temp(system32, "cmd.exe")},
-            {},
-            {call},
-            .Cmd,
-            allocator,
-        )
+        add_profile(&list, "msvc", "Developer Command Prompt", {comspec, join_temp(system32, "cmd.exe")}, {}, {call}, .Cmd, allocator)
     }
 
     add_profile(&list, "msys2", "MSYS2", env_candidates(MSYS2), {"--login"}, {}, .Posix, allocator)
@@ -122,11 +110,11 @@ UNINSTALL :: `Software\Microsoft\Windows\CurrentVersion\Uninstall`
 // The uninstall entry is what shows MSYS2 in "Apps & features"; it carries the
 // directory the installer wrote to.
 @(private = "file")
-MSYS2 := Posix_Env {
-    roots  = {"C:/msys64", "C:/msys32"},
-    bash   = "usr/bin/bash.exe",
+MSYS2 := Posix_Env{
+    roots = {"C:/msys64", "C:/msys32"},
+    bash = "usr/bin/bash.exe",
     marker = "msys2_shell.cmd",
-    keys   = {
+    keys = {
         {win32.HKEY_CURRENT_USER, UNINSTALL + `\MSYS2 64bit`, "InstallLocation"},
         {win32.HKEY_LOCAL_MACHINE, UNINSTALL + `\MSYS2 64bit`, "InstallLocation"},
         {win32.HKEY_CURRENT_USER, UNINSTALL + `\MSYS2 32bit`, "InstallLocation"},
@@ -137,14 +125,11 @@ MSYS2 := Posix_Env {
 // Cygwin's setup writes the root it installed to under its own key, per machine
 // or, for a user install, per user.
 @(private = "file")
-CYGWIN := Posix_Env {
-    roots  = {"C:/cygwin64", "C:/cygwin"},
-    bash   = "bin/bash.exe",
+CYGWIN := Posix_Env{
+    roots = {"C:/cygwin64", "C:/cygwin"},
+    bash = "bin/bash.exe",
     marker = "Cygwin.bat",
-    keys   = {
-        {win32.HKEY_LOCAL_MACHINE, `SOFTWARE\Cygwin\setup`, "rootdir"},
-        {win32.HKEY_CURRENT_USER, `SOFTWARE\Cygwin\setup`, "rootdir"},
-    },
+    keys = {{win32.HKEY_LOCAL_MACHINE, `SOFTWARE\Cygwin\setup`, "rootdir"}, {win32.HKEY_CURRENT_USER, `SOFTWARE\Cygwin\setup`, "rootdir"}},
 }
 
 // Every bash.exe that can belong to `env`, best first: the default roots, the
@@ -205,7 +190,7 @@ wsl_has_distribution :: proc() -> bool {
 @(private = "file")
 registry_string :: proc(root: win32.HKEY, subkey, value: string) -> string {
     wsubkey := win32.utf8_to_wstring(subkey, context.temp_allocator)
-    wvalue := win32.utf8_to_wstring(value, context.temp_allocator)
+    wvalue  := win32.utf8_to_wstring(value, context.temp_allocator)
 
     for view in ([]win32.REGSAM{win32.KEY_WOW64_64KEY, win32.KEY_WOW64_32KEY}) {
         key: win32.HKEY
@@ -215,7 +200,7 @@ registry_string :: proc(root: win32.HKEY, subkey, value: string) -> string {
         defer win32.RegCloseKey(key)
 
         buf: [win32.MAX_PATH]u16
-        size := win32.DWORD(size_of(buf))
+        size  := win32.DWORD(size_of(buf))
         flags := win32.DWORD(win32.RRF_RT_REG_SZ | win32.RRF_RT_REG_EXPAND_SZ)
         if win32.RegGetValueW(key, nil, wvalue, flags, nil, raw_data(buf[:]), &size) != 0 {
             continue

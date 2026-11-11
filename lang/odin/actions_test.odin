@@ -12,7 +12,7 @@ ACTION_CONFIG :: `return { target = { os = "windows", arch = "amd64" } }`
 // The quick fixes for `source` with the caret at the `skip`th occurrence of `marker`.
 @(private)
 actions_at :: proc(t: ^testing.T, e: ^Engine, root, source, marker: string, skip := 0) -> lang.Result {
-    at := -1
+    at   := -1
     from := 0
     for _ in 0 ..= skip {
         i := strings.index(source[from:], marker)
@@ -22,14 +22,14 @@ actions_at :: proc(t: ^testing.T, e: ^Engine, root, source, marker: string, skip
         at = from + i
         from = at + 1
     }
-    req := lang.Request {
-        kind      = .Code_Actions,
-        path      = fixture_path(root, "app/main.odin"),
-        ext       = ".odin",
-        source    = source,
+    req := lang.Request{
+        kind = .Code_Actions,
+        path = fixture_path(root, "app/main.odin"),
+        ext = ".odin",
+        source = source,
         workspace = root,
-        offset    = at,
-        end       = at,
+        offset = at,
+        end = at,
     }
     res: lang.Result
     code_actions(e, &req, &res)
@@ -89,7 +89,7 @@ f :: proc(e: E, u: union { int, string }) {
 }
 `
     root := fixture(t, "action_switch", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     res := actions_at(t, e, root, SRC, "case .A")
@@ -123,7 +123,7 @@ f :: proc() {
 }
 `
     root := fixture(t, "action_imports", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     res := actions_at(t, e, root, SRC, "core:strings")
@@ -149,7 +149,7 @@ f :: proc() {
 }
 `
     root := fixture(t, "action_add_import", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     res := actions_at(t, e, root, SRC, "mt.println")
@@ -195,12 +195,12 @@ f :: proc(xs: []int) {
 }
 `
     root := fixture(t, "action_unused_var", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     cases := [?]struct {
         marker, title, from, to: string,
-    } {
+    }{
         {"x := g()", "Assign the value of 'x' to '_'", "x := g()", "_ = g()"},
         {"a, b", "Rename 'a' to '_'", "a, b := g()", "_, b := g()"},
         {"p, q", "Rename 'p' to '_'", "p, q := g()", "_, q := g()"},
@@ -208,7 +208,7 @@ f :: proc(xs: []int) {
         {"for k", "Rename 'k' to '_'", "for k in", "for _ in"},
     }
     for c in cases {
-        res := actions_at(t, e, root, SRC, c.marker)
+        res     := actions_at(t, e, root, SRC, c.marker)
         want, _ := strings.replace(SRC, c.from, c.to, 1, context.temp_allocator)
         testing.expect_value(t, applied(t, &res, SRC, c.title), want)
         free_actions(&res)
@@ -248,7 +248,7 @@ f :: proc() {
 }
 `
     root := fixture(t, "action_ignore", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     res := actions_at(t, e, root, SRC, "x := 2")
@@ -274,7 +274,7 @@ f :: proc() {
 }
 `
     root := fixture(t, "action_syntax", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     res := actions_at(t, e, root, SRC, "x :=")
@@ -302,7 +302,7 @@ f :: proc() {
 }
 `
     root := fixture(t, "action_struct_fields", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     one := actions_at(t, e, root, SRC, `b = "x"`)
@@ -345,7 +345,7 @@ g :: proc() -> bool {
 }
 `
     root := fixture(t, "action_or_return", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     res := actions_at(t, e, root, SRC, "x := two")
@@ -375,17 +375,18 @@ f :: proc(count: int, name: string, h: lib.Handle) {
 
 take :: proc(s: string) {}
 `
-    root := fixture(t, "action_create_decl", {
-        {".thor/odin-analyzer.lua", ACTION_CONFIG},
-        {"lib/lib.odin", "package lib\n\nHandle :: distinct int\n"},
-    })
-    e := engine_create()
+    root := fixture(t, "action_create_decl", {{".thor/odin-analyzer.lua", ACTION_CONFIG}, {"lib/lib.odin", "package lib\n\nHandle :: distinct int\n"}})
+    e    := engine_create()
     defer engine_destroy(e)
 
     call := actions_at(t, e, root, SRC, "check(")
     defer free_actions(&call)
     got := applied(t, &call, SRC, "Create procedure 'check'")
-    testing.expect(t, strings.contains(got, "\n}\n\ncheck :: proc(count: int, name: string, h: lib.Handle, p4: f64) -> bool {\n    unimplemented()\n}\n\ntake ::"), got)
+    testing.expect(
+        t,
+        strings.contains(got, "\n}\n\ncheck :: proc(count: int, name: string, h: lib.Handle, p4: f64) -> bool {\n    unimplemented()\n}\n\ntake ::"),
+        got,
+    )
 
     lit := actions_at(t, e, root, SRC, "Point{")
     defer free_actions(&lit)
@@ -421,10 +422,10 @@ g :: proc() {
 h :: proc(n: int) { n += 1 }
 `
     root := fixture(t, "action_compiler_lines", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
-    at :: proc(src, marker: string, skip := 0) -> int {
+    at  :: proc(src, marker: string, skip := 0) -> int {
         from := 0
         for _ in 0 ..< skip {
             from += strings.index(src[from:], marker) + 1
@@ -433,14 +434,14 @@ h :: proc(n: int) { n += 1 }
     }
     run :: proc(e: ^Engine, root: string, offset: int, message: string) -> lang.Result {
         diags := []lang.Diagnostic_Ref{{start = offset, end = offset + 1, severity = .Error, message = message}}
-        req := lang.Request {
-            kind        = .Code_Actions,
-            path        = fixture_path(root, "app/main.odin"),
-            ext         = ".odin",
-            source      = SRC,
-            workspace   = root,
-            offset      = offset,
-            end         = offset,
+        req   := lang.Request{
+            kind = .Code_Actions,
+            path = fixture_path(root, "app/main.odin"),
+            ext = ".odin",
+            source = SRC,
+            workspace = root,
+            offset = offset,
+            end = offset,
             diagnostics = diags,
         }
         res: lang.Result
@@ -448,7 +449,7 @@ h :: proc(n: int) { n += 1 }
         return res
     }
 
-    res := run(e, root, at(SRC, "n += 1"), "Cannot assign to 'n' which is a procedure parameter")
+    res     := run(e, root, at(SRC, "n += 1"), "Cannot assign to 'n' which is a procedure parameter")
     want, _ := strings.replace(SRC, "    n += 1\n    return", "    n := n\n    n += 1\n    return", 1, context.temp_allocator)
     testing.expect_value(t, applied(t, &res, SRC, "Copy parameter 'n' into a local variable"), want)
     free_actions(&res)
@@ -470,19 +471,19 @@ h :: proc(n: int) { n += 1 }
 test_action_missing_comma :: proc(t: ^testing.T) {
     SRC :: "package app\n\nE :: enum {\n    A,\n    B // last\n}\n"
     root := fixture(t, "action_comma", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     offset := strings.index(SRC, "\n}")
-    diags := []lang.Diagnostic_Ref{{start = offset, end = offset + 1, severity = .Warning, message = "Expected a comma, got a newline"}}
-    req := lang.Request {
-        kind        = .Code_Actions,
-        path        = fixture_path(root, "app/main.odin"),
-        ext         = ".odin",
-        source      = SRC,
-        workspace   = root,
-        offset      = offset,
-        end         = offset,
+    diags  := []lang.Diagnostic_Ref{{start = offset, end = offset + 1, severity = .Warning, message = "Expected a comma, got a newline"}}
+    req    := lang.Request{
+        kind = .Code_Actions,
+        path = fixture_path(root, "app/main.odin"),
+        ext = ".odin",
+        source = SRC,
+        workspace = root,
+        offset = offset,
+        end = offset,
         diagnostics = diags,
     }
     res: lang.Result
@@ -496,19 +497,19 @@ test_action_missing_comma :: proc(t: ^testing.T) {
 test_action_unneeded_semicolon :: proc(t: ^testing.T) {
     SRC :: "package app\n\nf :: proc() {\n    x := 1 ;\n    _ = x\n}\n"
     root := fixture(t, "action_semicolon", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     offset := strings.index_byte(SRC, ';')
-    diags := []lang.Diagnostic_Ref{{start = offset, end = offset + 1, severity = .Warning, message = "Found unneeded semicolon"}}
-    req := lang.Request {
-        kind        = .Code_Actions,
-        path        = fixture_path(root, "app/main.odin"),
-        ext         = ".odin",
-        source      = SRC,
-        workspace   = root,
-        offset      = offset,
-        end         = offset,
+    diags  := []lang.Diagnostic_Ref{{start = offset, end = offset + 1, severity = .Warning, message = "Found unneeded semicolon"}}
+    req    := lang.Request{
+        kind = .Code_Actions,
+        path = fixture_path(root, "app/main.odin"),
+        ext = ".odin",
+        source = SRC,
+        workspace = root,
+        offset = offset,
+        end = offset,
         diagnostics = diags,
     }
     res: lang.Result
@@ -530,15 +531,15 @@ compiler_line_actions :: proc(t: ^testing.T, e: ^Engine, root, src, marker, mess
         testing.fail_now(t, "marker not found")
     }
     offset := from + i
-    diags := []lang.Diagnostic_Ref{{start = offset, end = offset + 1, severity = severity, message = message}}
-    req := lang.Request {
-        kind        = .Code_Actions,
-        path        = fixture_path(root, "app/main.odin"),
-        ext         = ".odin",
-        source      = src,
-        workspace   = root,
-        offset      = offset,
-        end         = offset,
+    diags  := []lang.Diagnostic_Ref{{start = offset, end = offset + 1, severity = severity, message = message}}
+    req    := lang.Request{
+        kind = .Code_Actions,
+        path = fixture_path(root, "app/main.odin"),
+        ext = ".odin",
+        source = src,
+        workspace = root,
+        offset = offset,
+        end = offset,
         diagnostics = diags,
     }
     res: lang.Result
@@ -608,20 +609,26 @@ g :: proc(arr: [3]int, u: U) {
 }
 `
     root := fixture(t, "action_immutable_loop", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     Want :: struct {
         marker, message, title, from, to: string,
     }
-    wants := []Want {
+    wants := []Want{
         {"x.a = 3", "Cannot assign to 'x.a'", "Declare 'x' as '&x' to make it mutable", "for x in arr {\n        x.a", "for &x in arr {\n        x.a"},
         {"v = 2", "Cannot assign to 'v'", "Declare 'v' as '&v' to make it mutable", "for k, v in m", "for k, &v in m"},
         {"&y", "Cannot take the pointer address of 'y'", "Declare 'y' as '&y' to make it mutable", "for y in sp", "for &y in sp"},
-        {"w = 3", "Cannot assign to 'w'", "Declare 'w' as '&w' to make it mutable", "switch w in u {\n    case int:\n        w = 3\n    }\n    for r", "switch &w in u {\n    case int:\n        w = 3\n    }\n    for r"},
+        {
+            "w = 3",
+            "Cannot assign to 'w'",
+            "Declare 'w' as '&w' to make it mutable",
+            "switch w in u {\n    case int:\n        w = 3\n    }\n    for r",
+            "switch &w in u {\n    case int:\n        w = 3\n    }\n    for r",
+        },
     }
     for w in wants {
-        res := compiler_line_actions(t, e, root, SRC, w.marker, w.message)
+        res     := compiler_line_actions(t, e, root, SRC, w.marker, w.message)
         want, _ := strings.replace(SRC, w.from, w.to, 1, context.temp_allocator)
         testing.expect_value(t, applied(t, &res, SRC, w.title), want)
         free_actions(&res)
@@ -632,7 +639,7 @@ g :: proc(arr: [3]int, u: U) {
         marker, message: string,
         skip:            int,
     }
-    misses := []Miss {
+    misses := []Miss{
         {"i = 2", "Cannot assign to 'i'", 0},
         {"k = 1", "Cannot assign to 'k'", 0},
         {"r = 'c'", "Cannot assign to 'r'", 0},
@@ -668,26 +675,33 @@ f :: proc(a: int, p: ^int) -> int {
 }
 `
     root := fixture(t, "action_unneeded_cast", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     Want :: struct {
         marker, message, title, from, to: string,
         severity:                         lang.Diagnostic_Severity,
     }
-    wants := []Want {
+    wants := []Want{
         {"a\n    c", "Unneeded cast of 'a' to identical type 'int'", "Remove the unneeded cast", "cast(int)a\n", "a\n", .Warning},
         {"transmute", "Unneeded transmute of 'transmute(int)a' to identical type 'int'", "Remove the unneeded transmute", "transmute(int)a", "a", .Warning},
         {"(a + 1)", "Unneeded cast of '(a + 1)' to identical type 'int'", "Remove the unneeded cast", "cast(int)(a + 1)", "(a + 1)", .Hint},
         {"(a)", "Unneeded cast of '(a)' to identical type 'int'", "Remove the unneeded cast", "cast(int)(a)", "a", .Error},
         {"-a", "Unneeded cast of '-a' to identical type 'int'", "Remove the unneeded cast", "cast(int)-a", "(-a)", .Warning},
-        {"cast(int)a\n    i", "Unneeded cast of 'cast(int)a' to identical type 'int'", "Remove the unneeded cast", "cast(int)cast(int)a", "cast(int)a", .Warning},
+        {
+            "cast(int)a\n    i",
+            "Unneeded cast of 'cast(int)a' to identical type 'int'",
+            "Remove the unneeded cast",
+            "cast(int)cast(int)a",
+            "cast(int)a",
+            .Warning,
+        },
         {"p^", "Unneeded cast of 'p^' to identical type 'int'", "Remove the unneeded cast", "cast(int)p^ // deref", "p^ // deref", .Warning},
         {"-a // neg", "Unneeded cast of '-a' to identical type 'int'", "Remove the unneeded cast", "cast(int)-a // neg", "(-a) // neg", .Warning},
         {"(a) // paren", "Unneeded cast of '(a)' to identical type 'int'", "Remove the unneeded cast", "cast(int)(a) // paren", "a // paren", .Warning},
     }
     for w in wants {
-        res := compiler_line_actions(t, e, root, SRC, w.marker, w.message, w.severity)
+        res     := compiler_line_actions(t, e, root, SRC, w.marker, w.message, w.severity)
         want, _ := strings.replace(SRC, w.from, w.to, 1, context.temp_allocator)
         testing.expect_value(t, applied(t, &res, SRC, w.title), want)
         free_actions(&res)
@@ -708,23 +722,23 @@ f :: proc(a: int, p: ^int) -> int {
 // The message as `odin check -vet-tabs` dev-2026-11-nightly:9a69916 words it; the live check gives it as a warning.
 @(test)
 test_action_vet_tabs :: proc(t: ^testing.T) {
-    SRC :: "package app\n\nf :: proc() {\n    x := 1\n    if x > 0 {\n\t  x = 2\n        x += 1\n    }\n}\n"
+    SRC     :: "package app\n\nf :: proc() {\n    x := 1\n    if x > 0 {\n\t  x = 2\n        x += 1\n    }\n}\n"
     MESSAGE :: "With '-vet-tabs', tabs must be used for indentation"
     root := fixture(t, "action_vet_tabs", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     Want :: struct {
         marker, from, to: string,
         severity:         lang.Diagnostic_Severity,
     }
-    wants := []Want {
+    wants := []Want{
         {"x := 1", "    x := 1", "\tx := 1", .Warning},
         {"x = 2", "\t  x = 2", "\t\tx = 2", .Error},
         {"x += 1", "        x += 1", "\t\tx += 1", .Hint},
     }
     for w in wants {
-        res := compiler_line_actions(t, e, root, SRC, w.marker, MESSAGE, w.severity)
+        res     := compiler_line_actions(t, e, root, SRC, w.marker, MESSAGE, w.severity)
         want, _ := strings.replace(SRC, w.from, w.to, 1, context.temp_allocator)
         testing.expect_value(t, applied(t, &res, SRC, "Indent the line with tabs"), want)
         free_actions(&res)

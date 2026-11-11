@@ -44,7 +44,7 @@ check :: proc(current: string, cancel: ^bool = nil, allocator := context.allocat
         return result
     }
 
-    agent := user_agent(current, context.temp_allocator)
+    agent           := user_agent(current, context.temp_allocator)
     release, status := fetch_latest_release(tools, API_URL, agent, cancel, context.temp_allocator)
     if status != .Ok {
         result.status = status
@@ -61,8 +61,8 @@ check :: proc(current: string, cancel: ^bool = nil, allocator := context.allocat
         return result
     }
 
-    version := release.tag_name[1:]
-    asset_name := target_asset_name(target, version, context.temp_allocator)
+    version          := release.tag_name[1:]
+    asset_name       := target_asset_name(target, version, context.temp_allocator)
     asset, has_asset := release_find_asset(release, asset_name)
     if !has_asset {
         result.status = .No_Asset
@@ -75,8 +75,7 @@ check :: proc(current: string, cancel: ^bool = nil, allocator := context.allocat
         result.status = .No_Asset
         return result
     }
-    if !url_is_release_download(asset.browser_download_url) ||
-       !url_is_release_download(sums.browser_download_url) {
+    if !url_is_release_download(asset.browser_download_url) || !url_is_release_download(sums.browser_download_url) {
         result.status = .Bad_Url
         return result
     }
@@ -103,7 +102,10 @@ check :: proc(current: string, cancel: ^bool = nil, allocator := context.allocat
 
 // Reads the latest release of `url`, a releases API address. Up_To_Date is a
 // repository that has published nothing yet.
-fetch_latest_release :: proc(tools: Tools, url: string, agent: string, cancel: ^bool = nil, allocator := context.allocator) -> (release: Api_Release, status: Status) {
+fetch_latest_release :: proc(tools: Tools, url: string, agent: string, cancel: ^bool = nil, allocator := context.allocator) -> (
+    release: Api_Release,
+    status: Status,
+) {
     scratch, has_scratch := scratch_dir(context.temp_allocator)
     if !has_scratch {
         return {}, .Not_Installable

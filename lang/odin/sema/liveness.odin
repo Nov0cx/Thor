@@ -81,7 +81,10 @@ LIVE_ALL_KINDS :: ~odinsyntax.Kind_Set{}
 // `-vet-unused-variables` counts: a plain `=` is a use, and a reference in a `when` branch the
 // target does not take is not. A dead store is a plain `=`, or a declaration value that holds a call,
 // that no path reads.
-liveness :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.Syntax_Node, allocator := context.allocator) -> (out: Liveness_Report, err: mem.Allocator_Error) {
+liveness :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.Syntax_Node, allocator := context.allocator) -> (
+    out: Liveness_Report,
+    err: mem.Allocator_Error,
+) {
     out.unused = make([dynamic]Live_Name, allocator)
     out.dead_stores = make([dynamic]Live_Name, allocator)
     pl, is_lit := odinsyntax.as_proc_lit(lit)
@@ -93,7 +96,7 @@ liveness :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.Synt
         return
     }
     lit_start, lit_end := odinsyntax.node_range(lit)
-    depth := -1
+    depth              := -1
     for s in m.scopes {
         if s.start == int(lit_start) && s.end == int(lit_end) {
             depth = s.proc_depth
@@ -104,17 +107,17 @@ liveness :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.Synt
         return
     }
     alloc := context.temp_allocator
-    w := Live_Walk {
-        c       = c,
-        file    = file,
-        m       = m,
+    w     := Live_Walk{
+        c = c,
+        file = file,
+        m = m,
         tracked = make([dynamic]Live_Local, alloc),
         by_decl = make(map[int]int, alloc),
-        refs    = make([dynamic]Live_Ref, alloc),
+        refs = make([dynamic]Live_Ref, alloc),
         untaken = make([dynamic]Span, alloc),
-        attrs   = make([dynamic]int, alloc),
+        attrs = make([dynamic]int, alloc),
         computed = make(map[int]bool, alloc),
-        alloc   = alloc,
+        alloc = alloc,
     }
     for i in locals_between(m, int(lit_start), int(lit_end), alloc) {
         l := m.locals[i]
@@ -139,7 +142,9 @@ liveness :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.Synt
             append(&w.refs, Live_Ref{r.start, r.end, index, r.is_decl, r.is_store}) or_return
         }
     }
-    slice.sort_by(w.refs[:], proc(a, b: Live_Ref) -> bool {return a.start < b.start})
+    slice.sort_by(w.refs[:], proc(a, b: Live_Ref) -> bool {
+        return a.start < b.start
+    })
     scan(&w, body)
     for at in w.attrs {
         if index, ok := w.by_decl[at]; ok {
@@ -157,7 +162,7 @@ liveness :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.Synt
     }
     groups := make(map[Name_Key][dynamic]int, alloc)
     for t, i in w.tracked {
-        l := m.locals[t.local]
+        l   := m.locals[t.local]
         key := Name_Key{l.scope, l.name}
         if key not_in groups {
             groups[key] = make([dynamic]int, alloc)
@@ -295,15 +300,15 @@ add_span :: proc(w: ^Live_Walk, n: odinsyntax.Syntax_Node) {
 
 @(private = "file")
 scan_decl :: proc(w: ^Live_Walk, n: odinsyntax.Syntax_Node) {
-    v, _ := odinsyntax.as_value_decl(n)
-    attrs := odinsyntax.value_decl_attributes(&v)
-    _, has_attrs := odinsyntax.child_iter_next(&attrs)
+    v, _             := odinsyntax.as_value_decl(n)
+    attrs            := odinsyntax.value_decl_attributes(&v)
+    _, has_attrs     := odinsyntax.child_iter_next(&attrs)
     names, has_names := odinsyntax.value_decl_names(&v)
     if !has_names {
         return
     }
     it := odinsyntax.name_list_names(&names)
-    n := n
+    n  := n
     for name in odinsyntax.child_iter_next(&it) {
         if has_attrs {
             append(&w.attrs, int(name.offset))
@@ -319,7 +324,7 @@ scan_decl :: proc(w: ^Live_Walk, n: odinsyntax.Syntax_Node) {
 @(private = "file")
 has_ref_var :: proc(vars: odinsyntax.Expr_List) -> bool {
     vars := vars
-    it := odinsyntax.expr_list_items(&vars)
+    it   := odinsyntax.expr_list_items(&vars)
     for item in odinsyntax.child_iter_next(&it) {
         if item.green.kind == .Unary_Expr {
             return true
@@ -366,7 +371,9 @@ escape :: proc(w: ^Live_Walk, n: odinsyntax.Syntax_Node) {
 // The index into Live_Walk.refs of the reference at `start`.
 @(private = "file")
 find_ref :: proc(w: ^Live_Walk, start: int) -> (int, bool) {
-    i, found := slice.binary_search_by(w.refs[:], start, proc(r: Live_Ref, s: int) -> slice.Ordering {return slice.cmp(r.start, s)})
+    i, found := slice.binary_search_by(w.refs[:], start, proc(r: Live_Ref, s: int) -> slice.Ordering {
+        return slice.cmp(r.start, s)
+    })
     return i, found
 }
 
@@ -377,7 +384,7 @@ has_call :: proc(w: ^Live_Walk, n: odinsyntax.Syntax_Node) -> bool {
     n := n
     #partial switch n.green.kind {
     case .Call_Expr:
-        ce, _ := odinsyntax.as_call_expr(n)
+        ce, _              := odinsyntax.as_call_expr(n)
         callee, has_callee := odinsyntax.call_expr_callee(&ce)
         if !has_callee {
             return true
@@ -458,7 +465,7 @@ dead_stores :: proc(w: ^Live_Walk, lit: odinsyntax.Syntax_Node, out: ^Liveness_R
     if g == nil {
         return nil
     }
-    reach := cfg_reachable(g, w.alloc)
+    reach   := cfg_reachable(g, w.alloc)
     effects := make([][]Effect, len(g.blocks), w.alloc)
     covered := make([]bool, len(w.refs), w.alloc)
     for blk, b in g.blocks {
@@ -471,8 +478,10 @@ dead_stores :: proc(w: ^Live_Walk, lit: odinsyntax.Syntax_Node, out: ^Liveness_R
             e.defs = make([dynamic]Def, w.alloc)
             e.uses = make([dynamic]int, w.alloc)
             start, end := odinsyntax.node_range(s.node)
-            or_branch := s.kind == .Stmt && has_or_branch(s.node)
-            first, _ := slice.binary_search_by(w.refs[:], int(start), proc(r: Live_Ref, s: int) -> slice.Ordering {return slice.cmp(r.start, s)})
+            or_branch  := s.kind == .Stmt && has_or_branch(s.node)
+            first, _   := slice.binary_search_by(w.refs[:], int(start), proc(r: Live_Ref, s: int) -> slice.Ordering {
+                return slice.cmp(r.start, s)
+            })
             for j := first; j < len(w.refs) && w.refs[j].start < int(end); j += 1 {
                 r := w.refs[j]
                 covered[j] = true
@@ -488,7 +497,7 @@ dead_stores :: proc(w: ^Live_Walk, lit: odinsyntax.Syntax_Node, out: ^Liveness_R
                 if or_branch {
                     continue
                 }
-                l := w.m.locals[w.tracked[r.local].local]
+                l          := w.m.locals[w.tracked[r.local].local]
                 reportable := r.is_store || (l.value_offset >= 0 && w.computed[r.start])
                 append(&e.defs, Def{r.local, r.start, reportable})
             }
@@ -500,8 +509,8 @@ dead_stores :: proc(w: ^Live_Walk, lit: odinsyntax.Syntax_Node, out: ^Liveness_R
         }
     }
 
-    words := (len(w.tracked) + 63) / 64
-    live_in := make([]Bits, len(g.blocks), w.alloc)
+    words    := (len(w.tracked) + 63) / 64
+    live_in  := make([]Bits, len(g.blocks), w.alloc)
     live_out := make([]Bits, len(g.blocks), w.alloc)
     for b in 0 ..< len(g.blocks) {
         live_in[b] = make(Bits, words, w.alloc)

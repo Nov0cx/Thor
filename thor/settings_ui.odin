@@ -4,13 +4,13 @@ import "core:fmt"
 import "core:slice"
 import "core:strings"
 
+import "../font"
 import "../input"
 import "../lang"
 import "../plugin"
 import "../setting"
 import "../shell"
 import ui "../vendor/loom/loom"
-import "../font"
 // Wires and drives the Settings modal. `settings_view.odin` draws and edits the
 // rows; this file owns the settings knowledge: it builds the rows from the live
 // config and persists each change, letting the auto-reload path re-apply it.
@@ -27,7 +27,7 @@ thor_open_settings_view :: proc(thor: ^Thor, category := "") {
 }
 
 thor_cmd_open_settings_gui :: proc(data: rawptr) {
-    thor_open_settings_view(cast(^Thor) data)
+    thor_open_settings_view(cast(^Thor)data)
 }
 
 // Rebuilds every row from the config for the view's current scope. Called on
@@ -60,28 +60,30 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     }
 
     thor_settings_begin_category(view, "editor", "Editor", "adjustments")
+    thor_settings_add_number(view, "tab_width", "Tab Width", setting.tab_width(config), setting.TAB_WIDTH_MIN, setting.TAB_WIDTH_MAX, 1)
+    thor_settings_add_number(view, "font_size", "Font Size", setting.font_size(config), setting.FONT_SIZE_MIN, setting.FONT_SIZE_MAX, 1)
     thor_settings_add_number(
-        view, "tab_width", "Tab Width", setting.tab_width(config), setting.TAB_WIDTH_MIN, setting.TAB_WIDTH_MAX, 1,
+        view,
+        "autosave_delay_ms",
+        "Autosave Delay (ms)",
+        setting.autosave_delay_ms(config),
+        setting.AUTOSAVE_DELAY_MIN,
+        setting.AUTOSAVE_DELAY_MAX,
+        250,
     )
     thor_settings_add_number(
-        view, "font_size", "Font Size", setting.font_size(config), setting.FONT_SIZE_MIN, setting.FONT_SIZE_MAX, 1,
-    )
-    thor_settings_add_number(
-        view, "autosave_delay_ms", "Autosave Delay (ms)", setting.autosave_delay_ms(config),
-        setting.AUTOSAVE_DELAY_MIN, setting.AUTOSAVE_DELAY_MAX, 250,
-    )
-    thor_settings_add_number(
-        view, "peek_height", "Peek Definition Height (rows)", setting.peek_height(config),
-        setting.PEEK_HEIGHT_MIN, setting.PEEK_HEIGHT_MAX, 1,
+        view,
+        "peek_height",
+        "Peek Definition Height (rows)",
+        setting.peek_height(config),
+        setting.PEEK_HEIGHT_MIN,
+        setting.PEEK_HEIGHT_MAX,
+        1,
     )
     thor_settings_add_choice(view, "insert_spaces", "Insert Spaces", thor_on_off_label(setting.insert_spaces(config)))
-    thor_settings_add_choice(
-        view, "detect_indentation", "Detect Indentation", thor_on_off_label(setting.detect_indentation(config)),
-    )
+    thor_settings_add_choice(view, "detect_indentation", "Detect Indentation", thor_on_off_label(setting.detect_indentation(config)))
     thor_settings_add_choice(view, "indent_guides", "Indent Guides", thor_on_off_label(setting.indent_guides(config)))
-    thor_settings_add_choice(
-        view, "relative_line_numbers", "Relative Line Numbers", thor_on_off_label(setting.relative_line_numbers(config)),
-    )
+    thor_settings_add_choice(view, "relative_line_numbers", "Relative Line Numbers", thor_on_off_label(setting.relative_line_numbers(config)))
 
     thor_settings_begin_category(view, "appearance", "Appearance", "palette")
     theme := setting.theme_name(config)
@@ -199,7 +201,7 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     }
     slice.sort(actions[:])
     for action in actions {
-        kb := config.keybinds[action] or_else {}
+        kb    := config.keybinds[action] or_else {}
         chord := setting.keybind_to_string(kb, context.temp_allocator)
         thor_settings_add_keybind(view, action, action, chord)
     }
@@ -208,7 +210,7 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
 // Persists a nudged number to the active config layer, then reloads so it
 // applies live (and refreshes the modal's rows).
 thor_on_setting_number :: proc(data: rawptr, id: string, value: int) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if err := setting.persist_int(thor_active_settings_path(thor), id, value); err != .None {
         thor_settings_save_failed(thor, thor_active_settings_path(thor), err)
         return
@@ -219,7 +221,7 @@ thor_on_setting_number :: proc(data: rawptr, id: string, value: int) {
 // A choice row opens the matching live-preview picker (theme or font); its commit
 // persists and reloads on its own.
 thor_on_setting_choice :: proc(data: rawptr, id: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if plugin_id, source, is_plugin := thor_plugin_setting_name(id); is_plugin {
         thor_cmd_change_plugin_permission(thor, source, plugin_id)
         return
@@ -258,13 +260,23 @@ thor_on_setting_choice :: proc(data: rawptr, id: string) {
         thor_cmd_change_indent_guides(thor)
     case "insert_spaces":
         thor_select_open(
-            thor, "Insert Spaces", ON_OFF_LABELS[:], thor_on_off_label(setting.insert_spaces(&thor.config)),
-            thor_no_preview, thor_insert_spaces_commit, thor,
+            thor,
+            "Insert Spaces",
+            ON_OFF_LABELS[:],
+            thor_on_off_label(setting.insert_spaces(&thor.config)),
+            thor_no_preview,
+            thor_insert_spaces_commit,
+            thor,
         )
     case "detect_indentation":
         thor_select_open(
-            thor, "Detect Indentation", ON_OFF_LABELS[:], thor_on_off_label(setting.detect_indentation(&thor.config)),
-            thor_no_preview, thor_detect_indentation_commit, thor,
+            thor,
+            "Detect Indentation",
+            ON_OFF_LABELS[:],
+            thor_on_off_label(setting.detect_indentation(&thor.config)),
+            thor_no_preview,
+            thor_detect_indentation_commit,
+            thor,
         )
     case "relative_line_numbers":
         thor_cmd_change_relative_line_numbers(thor)
@@ -280,20 +292,35 @@ thor_on_setting_choice :: proc(data: rawptr, id: string) {
         thor_cmd_change_open_folder_in(thor)
     case "pane_layout":
         thor_select_open(
-            thor, "Editor Pane Layout", PANE_LAYOUT_LABELS[:], thor_pane_layout_label(&thor.config),
-            thor_no_preview, thor_pane_layout_commit, thor,
+            thor,
+            "Editor Pane Layout",
+            PANE_LAYOUT_LABELS[:],
+            thor_pane_layout_label(&thor.config),
+            thor_no_preview,
+            thor_pane_layout_commit,
+            thor,
         )
     case "right_alt":
         thor_cmd_change_right_alt(thor)
     case "clipboard_history_save":
         thor_select_open(
-            thor, "Save Clipboard History", ON_OFF_LABELS[:], thor_on_off_label(setting.clipboard_history_save(&thor.config)),
-            thor_no_preview, thor_clipboard_history_save_commit, thor,
+            thor,
+            "Save Clipboard History",
+            ON_OFF_LABELS[:],
+            thor_on_off_label(setting.clipboard_history_save(&thor.config)),
+            thor_no_preview,
+            thor_clipboard_history_save_commit,
+            thor,
         )
     case "terminal_clipboard":
         thor_select_open(
-            thor, "Programs Set Clipboard", ON_OFF_LABELS[:], thor_on_off_label(setting.terminal_clipboard(&thor.config)),
-            thor_no_preview, thor_terminal_clipboard_commit, thor,
+            thor,
+            "Programs Set Clipboard",
+            ON_OFF_LABELS[:],
+            thor_on_off_label(setting.terminal_clipboard(&thor.config)),
+            thor_no_preview,
+            thor_terminal_clipboard_commit,
+            thor,
         )
     case "default_shell":
         thor_cmd_select_shell(thor)
@@ -318,11 +345,11 @@ thor_default_shell_label :: proc(thor: ^Thor, config: ^setting.Settings) -> stri
 
 // Picker rows for open_folder_in, in Open_Folder_In order.
 @(private = "file")
-OPEN_FOLDER_IN_LABELS := [?]string {"Ask", "This Window", "New Window"}
+OPEN_FOLDER_IN_LABELS := [?]string{"Ask", "This Window", "New Window"}
 
 // The current open_folder_in setting as its picker row.
 thor_open_folder_in_label :: proc(config: ^setting.Settings) -> string {
-    return OPEN_FOLDER_IN_LABELS[cast(int) setting.open_folder_in(config)]
+    return OPEN_FOLDER_IN_LABELS[cast(int)setting.open_folder_in(config)]
 }
 
 // Settings row: choose where an opened folder goes. Nothing to preview — the
@@ -342,11 +369,11 @@ thor_cmd_change_open_folder_in :: proc(thor: ^Thor) {
 thor_open_folder_in_preview :: proc(_: rawptr, _: string) {}
 
 thor_open_folder_in_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor) data
+    thor   := cast(^Thor)data
     picked := setting.Open_Folder_In.Ask
     for label, index in OPEN_FOLDER_IN_LABELS {
         if label == choice {
-            picked = cast(setting.Open_Folder_In) index
+            picked = cast(setting.Open_Folder_In)index
             break
         }
     }
@@ -358,7 +385,7 @@ thor_open_folder_in_commit :: proc(data: rawptr, choice: string) {
 
 // Picker rows for pane_layout: remember, then Pane_Layout order.
 @(private = "file")
-PANE_LAYOUT_LABELS := [1 + len(Pane_Layout)]string {
+PANE_LAYOUT_LABELS := [1 + len(Pane_Layout)]string{
     "Remember per Folder",
     LAYOUT_TITLES[.Single],
     LAYOUT_TITLES[.Columns2],
@@ -379,7 +406,7 @@ thor_pane_layout_label :: proc(config: ^setting.Settings) -> string {
 
 // Saves the picked layout and, unless it is remember, switches to it now.
 thor_pane_layout_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor) data
+    thor  := cast(^Thor)data
     value := "remember"
     picked: Maybe(Pane_Layout)
     for title, layout in LAYOUT_TITLES {
@@ -406,11 +433,11 @@ thor_pane_layout_commit :: proc(data: rawptr, choice: string) {
 
 // Picker rows for right_alt, in Right_Alt order.
 @(private = "file")
-RIGHT_ALT_LABELS := [?]string {"Auto (Keyboard Layout)", "AltGr", "Alt"}
+RIGHT_ALT_LABELS := [?]string{"Auto (Keyboard Layout)", "AltGr", "Alt"}
 
 // The current right_alt setting as its picker row.
 thor_right_alt_label :: proc(config: ^setting.Settings) -> string {
-    return RIGHT_ALT_LABELS[cast(int) setting.right_alt(config)]
+    return RIGHT_ALT_LABELS[cast(int)setting.right_alt(config)]
 }
 
 // Pushes the right_alt setting onto the input backend.
@@ -427,28 +454,20 @@ thor_apply_right_alt :: proc(thor: ^Thor) {
 
 // Settings row: choose what Right Alt is.
 thor_cmd_change_right_alt :: proc(thor: ^Thor) {
-    thor_select_open(
-        thor,
-        "Right Alt",
-        RIGHT_ALT_LABELS[:],
-        thor_right_alt_label(&thor.config),
-        thor_open_folder_in_preview,
-        thor_right_alt_commit,
-        thor,
-    )
+    thor_select_open(thor, "Right Alt", RIGHT_ALT_LABELS[:], thor_right_alt_label(&thor.config), thor_open_folder_in_preview, thor_right_alt_commit, thor)
 }
 
 thor_right_alt_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor) data
+    thor   := cast(^Thor)data
     picked := setting.Right_Alt.Auto
     for label, index in RIGHT_ALT_LABELS {
         if label == choice {
-            picked = cast(setting.Right_Alt) index
+            picked = cast(setting.Right_Alt)index
             break
         }
     }
     value := setting.right_alt_value(picked)
-    path := setting.USER_SETTINGS
+    path  := setting.USER_SETTINGS
     if err := setting.persist_string(path, "right_alt", value); err != .None {
         thor_settings_save_failed(thor, path, err)
         return
@@ -463,7 +482,7 @@ thor_right_alt_commit :: proc(data: rawptr, choice: string) {
 }
 
 // Picker rows for every on/off setting in the modal.
-ON_OFF_LABELS := [?]string {"On", "Off"}
+ON_OFF_LABELS := [?]string{"On", "Off"}
 
 thor_on_off_label :: proc(on: bool) -> string {
     return on ? ON_OFF_LABELS[0] : ON_OFF_LABELS[1]
@@ -524,7 +543,7 @@ thor_language_backend_feature_name :: proc(id: string) -> (backend_id: string, k
     if !strings.has_prefix(id, LANGUAGE_BACKEND_FEATURE_PREFIX) {
         return "", .Definition, false
     }
-    rest := id[len(LANGUAGE_BACKEND_FEATURE_PREFIX):]
+    rest  := id[len(LANGUAGE_BACKEND_FEATURE_PREFIX):]
     colon := strings.index_byte(rest, ':')
     if colon < 0 {
         return "", .Definition, false
@@ -538,37 +557,37 @@ thor_language_backend_feature_name :: proc(id: string) -> (backend_id: string, k
 
 // Row labels for the language features, in Request_Kind order. The user-facing
 // names of the commands each one serves, not the seam's kind names.
-LANGUAGE_FEATURE_LABELS := [lang.Request_Kind]string {
-    .Definition         = "Go to Definition",
-    .Type_Definition    = "Go to Type Definition",
-    .Hover              = "Hover",
-    .Document_Symbols   = "Document Symbols",
-    .Workspace_Symbols  = "Workspace Symbols",
-    .References         = "Find References",
-    .Signature_Help     = "Signature Help",
-    .Completion         = "Completion",
-    .Package_Doc        = "Package Documentation",
-    .Rename             = "Rename Symbol",
-    .Diagnostics        = "Diagnostics",
+LANGUAGE_FEATURE_LABELS := [lang.Request_Kind]string{
+    .Definition = "Go to Definition",
+    .Type_Definition = "Go to Type Definition",
+    .Hover = "Hover",
+    .Document_Symbols = "Document Symbols",
+    .Workspace_Symbols = "Workspace Symbols",
+    .References = "Find References",
+    .Signature_Help = "Signature Help",
+    .Completion = "Completion",
+    .Package_Doc = "Package Documentation",
+    .Rename = "Rename Symbol",
+    .Diagnostics = "Diagnostics",
     .Syntax_Diagnostics = "Live Syntax Errors",
-    .Code_Actions       = "Code Actions",
-    .Semantic_Tokens    = "Semantic Highlighting",
-    .Inlay_Hints        = "Inlay Hints",
+    .Code_Actions = "Code Actions",
+    .Semantic_Tokens = "Semantic Highlighting",
+    .Inlay_Hints = "Inlay Hints",
     .Document_Highlight = "Highlight Uses",
-    .Format             = "Format Document",
-    .Format_Range       = "Format Selection",
-    .Format_On_Type     = "Format On Type",
-    .Execute_Command    = "Server Commands",
+    .Format = "Format Document",
+    .Format_Range = "Format Selection",
+    .Format_On_Type = "Format On Type",
+    .Execute_Command = "Server Commands",
     .Resolve_Completion = "Completion Follow-Up Edits",
-    .Resolve_Action     = "Refactorings That Ask",
-    .Call_Hierarchy     = "Call Hierarchy",
-    .Type_Hierarchy     = "Type Hierarchy",
-    .Implementations    = "Go to Implementations",
-    .Selection_Range    = "Expand Selection",
-    .Code_Lens          = "Reference Counts",
-    .Progress           = "Progress Notifications",
-    .Apply_Edit         = "Server-Applied Edits",
-    .Message            = "Server Messages",
+    .Resolve_Action = "Refactorings That Ask",
+    .Call_Hierarchy = "Call Hierarchy",
+    .Type_Hierarchy = "Type Hierarchy",
+    .Implementations = "Go to Implementations",
+    .Selection_Range = "Expand Selection",
+    .Code_Lens = "Reference Counts",
+    .Progress = "Progress Notifications",
+    .Apply_Edit = "Server-Applied Edits",
+    .Message = "Server Messages",
 }
 
 // Settings row: turn language intelligence on or off, whole-seam. Nothing to
@@ -580,15 +599,7 @@ LANGUAGE_FEATURE_LABELS := [lang.Request_Kind]string {
 @(private = "file")
 thor_cmd_change_language_master :: proc(thor: ^Thor) {
     on := setting.language_enabled(&thor.config)
-    thor_select_open(
-        thor,
-        "Language Intelligence",
-        ON_OFF_LABELS[:],
-        thor_on_off_label(on),
-        thor_language_master_preview,
-        thor_language_master_commit,
-        thor,
-    )
+    thor_select_open(thor, "Language Intelligence", ON_OFF_LABELS[:], thor_on_off_label(on), thor_language_master_preview, thor_language_master_commit, thor)
 }
 
 @(private = "file")
@@ -596,8 +607,8 @@ thor_language_master_preview :: proc(_: rawptr, _: string) {}
 
 @(private = "file")
 thor_language_master_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor) data
-    on := choice == ON_OFF_LABELS[0]
+    thor := cast(^Thor)data
+    on   := choice == ON_OFF_LABELS[0]
     if err := setting.persist_nested_bool(thor_active_settings_path(thor), setting.LANGUAGE_SETTING, setting.LANGUAGE_ENABLED_KEY, on); err != .None {
         thor_settings_save_failed(thor, thor_active_settings_path(thor), err)
         return
@@ -610,22 +621,22 @@ thor_no_preview :: proc(_: rawptr, _: string) {}
 
 @(private = "file")
 thor_insert_spaces_commit :: proc(data: rawptr, choice: string) {
-    thor_persist_bool_setting(cast(^Thor) data, "insert_spaces", choice == ON_OFF_LABELS[0])
+    thor_persist_bool_setting(cast(^Thor)data, "insert_spaces", choice == ON_OFF_LABELS[0])
 }
 
 @(private = "file")
 thor_detect_indentation_commit :: proc(data: rawptr, choice: string) {
-    thor_persist_bool_setting(cast(^Thor) data, "detect_indentation", choice == ON_OFF_LABELS[0])
+    thor_persist_bool_setting(cast(^Thor)data, "detect_indentation", choice == ON_OFF_LABELS[0])
 }
 
 @(private = "file")
 thor_clipboard_history_save_commit :: proc(data: rawptr, choice: string) {
-    thor_persist_bool_setting(cast(^Thor) data, "clipboard_history_save", choice == ON_OFF_LABELS[0])
+    thor_persist_bool_setting(cast(^Thor)data, "clipboard_history_save", choice == ON_OFF_LABELS[0])
 }
 
 @(private = "file")
 thor_terminal_clipboard_commit :: proc(data: rawptr, choice: string) {
-    thor_persist_bool_setting(cast(^Thor) data, "terminal_clipboard", choice == ON_OFF_LABELS[0])
+    thor_persist_bool_setting(cast(^Thor)data, "terminal_clipboard", choice == ON_OFF_LABELS[0])
 }
 
 // Settings row: the indentation guides. Both panes preview at once, so a split
@@ -645,7 +656,7 @@ thor_cmd_change_indent_guides :: proc(thor: ^Thor) {
 
 @(private = "file")
 thor_indent_guides_preview :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     for &editor in thor.editors {
         editor.indent_guides = choice == ON_OFF_LABELS[0]
     }
@@ -653,7 +664,7 @@ thor_indent_guides_preview :: proc(data: rawptr, choice: string) {
 
 @(private = "file")
 thor_indent_guides_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_indent_guides_preview(data, choice)
     thor_persist_bool_setting(thor, "indent_guides", choice == ON_OFF_LABELS[0])
 }
@@ -675,7 +686,7 @@ thor_cmd_change_relative_line_numbers :: proc(thor: ^Thor) {
 
 @(private = "file")
 thor_relative_lines_preview :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     for &editor in thor.editors {
         editor.relative_lines = choice == ON_OFF_LABELS[0]
     }
@@ -683,7 +694,7 @@ thor_relative_lines_preview :: proc(data: rawptr, choice: string) {
 
 @(private = "file")
 thor_relative_lines_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_relative_lines_preview(data, choice)
     thor_persist_bool_setting(thor, "relative_line_numbers", choice == ON_OFF_LABELS[0])
 }
@@ -693,15 +704,7 @@ thor_relative_lines_commit :: proc(data: rawptr, choice: string) {
 @(private = "file")
 thor_cmd_change_tooltips :: proc(thor: ^Thor) {
     on := setting.tooltips(&thor.config)
-    thor_select_open(
-        thor,
-        "Tooltips",
-        ON_OFF_LABELS[:],
-        thor_on_off_label(on),
-        thor_tooltips_preview,
-        thor_tooltips_commit,
-        thor,
-    )
+    thor_select_open(thor, "Tooltips", ON_OFF_LABELS[:], thor_on_off_label(on), thor_tooltips_preview, thor_tooltips_commit, thor)
 }
 
 @(private = "file")
@@ -709,7 +712,7 @@ thor_tooltips_preview :: proc(_: rawptr, _: string) {}
 
 @(private = "file")
 thor_tooltips_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_persist_bool_setting(thor, "tooltips", choice == ON_OFF_LABELS[0])
 }
 
@@ -718,15 +721,7 @@ thor_tooltips_commit :: proc(data: rawptr, choice: string) {
 @(private = "file")
 thor_cmd_change_tip_of_the_day :: proc(thor: ^Thor) {
     on := setting.tip_of_the_day(&thor.config)
-    thor_select_open(
-        thor,
-        "Tip of the Day",
-        ON_OFF_LABELS[:],
-        thor_on_off_label(on),
-        thor_tip_of_the_day_preview,
-        thor_tip_of_the_day_commit,
-        thor,
-    )
+    thor_select_open(thor, "Tip of the Day", ON_OFF_LABELS[:], thor_on_off_label(on), thor_tip_of_the_day_preview, thor_tip_of_the_day_commit, thor)
 }
 
 @(private = "file")
@@ -734,7 +729,7 @@ thor_tip_of_the_day_preview :: proc(_: rawptr, _: string) {}
 
 @(private = "file")
 thor_tip_of_the_day_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_persist_bool_setting(thor, "tip_of_the_day", choice == ON_OFF_LABELS[0])
 }
 
@@ -743,15 +738,7 @@ thor_tip_of_the_day_commit :: proc(data: rawptr, choice: string) {
 @(private = "file")
 thor_cmd_change_format_on_save :: proc(thor: ^Thor) {
     on := setting.format_on_save(&thor.config)
-    thor_select_open(
-        thor,
-        "Format on Save",
-        ON_OFF_LABELS[:],
-        thor_on_off_label(on),
-        thor_format_on_save_preview,
-        thor_format_on_save_commit,
-        thor,
-    )
+    thor_select_open(thor, "Format on Save", ON_OFF_LABELS[:], thor_on_off_label(on), thor_format_on_save_preview, thor_format_on_save_commit, thor)
 }
 
 @(private = "file")
@@ -759,7 +746,7 @@ thor_format_on_save_preview :: proc(_: rawptr, _: string) {}
 
 @(private = "file")
 thor_format_on_save_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_persist_bool_setting(thor, "format_on_save", choice == ON_OFF_LABELS[0])
 }
 
@@ -768,15 +755,7 @@ thor_format_on_save_commit :: proc(data: rawptr, choice: string) {
 @(private = "file")
 thor_cmd_change_check_for_updates :: proc(thor: ^Thor) {
     on := setting.check_for_updates(&thor.config)
-    thor_select_open(
-        thor,
-        "Check for Updates",
-        ON_OFF_LABELS[:],
-        thor_on_off_label(on),
-        thor_check_for_updates_preview,
-        thor_check_for_updates_commit,
-        thor,
-    )
+    thor_select_open(thor, "Check for Updates", ON_OFF_LABELS[:], thor_on_off_label(on), thor_check_for_updates_preview, thor_check_for_updates_commit, thor)
 }
 
 @(private = "file")
@@ -784,7 +763,7 @@ thor_check_for_updates_preview :: proc(_: rawptr, _: string) {}
 
 @(private = "file")
 thor_check_for_updates_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_persist_bool_setting(thor, "check_for_updates", choice == ON_OFF_LABELS[0])
 }
 
@@ -793,15 +772,7 @@ thor_check_for_updates_commit :: proc(data: rawptr, choice: string) {
 @(private = "file")
 thor_cmd_change_format_on_type :: proc(thor: ^Thor) {
     on := setting.format_on_type(&thor.config)
-    thor_select_open(
-        thor,
-        "Format on Type",
-        ON_OFF_LABELS[:],
-        thor_on_off_label(on),
-        thor_format_on_type_preview,
-        thor_format_on_type_commit,
-        thor,
-    )
+    thor_select_open(thor, "Format on Type", ON_OFF_LABELS[:], thor_on_off_label(on), thor_format_on_type_preview, thor_format_on_type_commit, thor)
 }
 
 @(private = "file")
@@ -809,7 +780,7 @@ thor_format_on_type_preview :: proc(_: rawptr, _: string) {}
 
 @(private = "file")
 thor_format_on_type_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_persist_bool_setting(thor, "format_on_type", choice == ON_OFF_LABELS[0])
 }
 
@@ -834,15 +805,7 @@ thor_cmd_change_language_backend :: proc(thor: ^Thor, backend_id: string) {
     delete(thor.language_backend_target)
     thor.language_backend_target = strings.clone(backend_id)
     on, _ := thor_backend_gate(thor, &thor.config, backend_id)
-    thor_select_open(
-        thor,
-        backend_id,
-        ON_OFF_LABELS[:],
-        thor_on_off_label(on),
-        thor_language_backend_preview,
-        thor_language_backend_commit,
-        thor,
-    )
+    thor_select_open(thor, backend_id, ON_OFF_LABELS[:], thor_on_off_label(on), thor_language_backend_preview, thor_language_backend_commit, thor)
 }
 
 @(private = "file")
@@ -850,7 +813,7 @@ thor_language_backend_preview :: proc(_: rawptr, _: string) {}
 
 @(private = "file")
 thor_language_backend_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if thor.language_backend_target == "" {
         return
     }
@@ -867,17 +830,9 @@ thor_cmd_change_language_backend_feature :: proc(thor: ^Thor, backend_id: string
     thor.language_backend_target = strings.clone(backend_id)
     thor.language_backend_feature_kind = kind
     _, features := thor_backend_gate(thor, &thor.config, backend_id)
-    on := kind in features
-    title := fmt.tprintf("%s — %s", backend_id, LANGUAGE_FEATURE_LABELS[kind])
-    thor_select_open(
-        thor,
-        title,
-        ON_OFF_LABELS[:],
-        thor_on_off_label(on),
-        thor_language_backend_feature_preview,
-        thor_language_backend_feature_commit,
-        thor,
-    )
+    on          := kind in features
+    title       := fmt.tprintf("%s — %s", backend_id, LANGUAGE_FEATURE_LABELS[kind])
+    thor_select_open(thor, title, ON_OFF_LABELS[:], thor_on_off_label(on), thor_language_backend_feature_preview, thor_language_backend_feature_commit, thor)
 }
 
 @(private = "file")
@@ -885,7 +840,7 @@ thor_language_backend_feature_preview :: proc(_: rawptr, _: string) {}
 
 @(private = "file")
 thor_language_backend_feature_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if thor.language_backend_target == "" {
         return
     }
@@ -898,9 +853,7 @@ thor_language_backend_feature_commit :: proc(data: rawptr, choice: string) {
 @(private = "file")
 thor_persist_backend_key :: proc(thor: ^Thor, key: string, on: bool) {
     path := thor_active_settings_path(thor)
-    err := setting.persist_double_nested_bool(
-        path, setting.LANGUAGE_BACKENDS_SETTING, thor.language_backend_target, key, on,
-    )
+    err  := setting.persist_double_nested_bool(path, setting.LANGUAGE_BACKENDS_SETTING, thor.language_backend_target, key, on)
     if err != .None {
         thor_settings_save_failed(thor, path, err)
         return
@@ -937,7 +890,7 @@ thor_plugin_setting_name :: proc(id: string) -> (name: string, source: Plugin_So
 }
 
 @(private = "file")
-PLUGIN_PERMISSION_LABELS := [?]string {"Allowed", "Blocked"}
+PLUGIN_PERMISSION_LABELS := [?]string{"Allowed", "Blocked"}
 
 // Settings row: allow or block one plugin's permissions. Allowing a bundled
 // plugin runs it at once and blocking a running one waits for a restart; either
@@ -954,15 +907,7 @@ thor_cmd_change_plugin_permission :: proc(thor: ^Thor, source: Plugin_Source, pl
     delete(thor.plugin_setting_target)
     thor.plugin_setting_target = strings.clone(plugin_id)
     thor.plugin_setting_source = source
-    thor_select_open(
-        thor,
-        "Plugin Permissions",
-        PLUGIN_PERMISSION_LABELS[:],
-        current,
-        thor_plugin_permission_preview,
-        thor_plugin_permission_commit,
-        thor,
-    )
+    thor_select_open(thor, "Plugin Permissions", PLUGIN_PERMISSION_LABELS[:], current, thor_plugin_permission_preview, thor_plugin_permission_commit, thor)
 }
 
 @(private = "file")
@@ -970,7 +915,7 @@ thor_plugin_permission_preview :: proc(_: rawptr, _: string) {}
 
 @(private = "file")
 thor_plugin_permission_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if thor.plugin_setting_target == "" {
         return
     }
@@ -983,8 +928,8 @@ thor_plugin_permission_commit :: proc(data: rawptr, choice: string) {
 // Persists a captured (or cleared) chord to keybinds.lua, then reloads so the
 // binding takes effect immediately.
 thor_on_setting_keybind :: proc(data: rawptr, id: string, key: ui.Key, mods: input.Modifiers) {
-    thor := cast(^Thor) data
-    kb := setting.Keybind {key = key, mods = mods}
+    thor := cast(^Thor)data
+    kb   := setting.Keybind{key = key, mods = mods}
     spec := setting.keybind_spec(kb, context.temp_allocator)
     if err := setting.persist_keybind(thor_active_keybinds_path(thor), id, spec); err != .None {
         thor_settings_save_failed(thor, thor_active_keybinds_path(thor), err)

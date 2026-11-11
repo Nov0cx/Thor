@@ -6,34 +6,34 @@ import odinsyntax "../syntax"
 
 // Bytes the database holds, by kind. `used` is what the arenas gave out, `reserved` their address space.
 Db_Memory :: struct {
-    files:           int, // file slots
-    packages:        int, // package slots
-    disk_bodies:     int, // disk parses resident
-    disk_used:       int,
-    disk_reserved:   int,
-    disk_text:       int, // source text inside the disk parses, base chains included
-    live_bodies:     int,
-    live_used:       int,
-    live_reserved:   int,
-    live_text:       int,
-    live_trees:      int, // trees in the live chains, bases included
-    datas:           int, // item trees resident
-    data_used:       int,
-    data_reserved:   int,
-    lines:           int, // bytes of the line tables
-    memos:           int, // package memos resident
-    cache_entries:   int,
-    cache_bytes:     int, // encoded item trees in the tree cache
-    type_states:     int,
-    type_used:       int,
-    type_reserved:   int,
+    files:         int, // file slots
+    packages:      int, // package slots
+    disk_bodies:   int, // disk parses resident
+    disk_used:     int,
+    disk_reserved: int,
+    disk_text:     int, // source text inside the disk parses, base chains included
+    live_bodies:   int,
+    live_used:     int,
+    live_reserved: int,
+    live_text:     int,
+    live_trees:    int, // trees in the live chains, bases included
+    datas:         int, // item trees resident
+    data_used:     int,
+    data_reserved: int,
+    lines:         int, // bytes of the line tables
+    memos:         int, // package memos resident
+    cache_entries: int,
+    cache_bytes:   int, // encoded item trees in the tree cache
+    type_states:   int,
+    type_used:     int,
+    type_reserved: int,
 }
 
 // Counts what the database holds. Takes every slot lock in turn; for tests and benchmarks only.
 db_memory :: proc(db: ^Db) -> (m: Db_Memory) {
     m.files = int(slot_count(&db.files))
     m.packages = int(slot_count(&db.packages))
-    seen := make(map[^File_Data]struct{}, context.temp_allocator)
+    seen := make(map[^File_Data]struct {}, context.temp_allocator)
     for id in 0 ..< slot_count(&db.files) {
         slot := slot_get(&db.files, id)
         sync.guard(&slot.mutex)

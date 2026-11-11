@@ -19,7 +19,7 @@ REAP_INTERVAL :: 2 * time.Millisecond
 // `code` meaningless. The returned output is owned by context.allocator.
 run_status :: proc(command: string, cwd: string, timeout: time.Duration = 0, cancel: ^bool = nil) -> (output: string, code: int, ok: bool) {
     command_c := strings.clone_to_cstring(command, context.temp_allocator)
-    argv := [?]cstring {"/bin/sh", "-c", command_c, nil}
+    argv      := [?]cstring{"/bin/sh", "-c", command_c, nil}
     return run_argv(argv[:], false, cwd, timeout, cancel)
 }
 
@@ -117,7 +117,7 @@ run_argv :: proc(argv: []cstring, search_path: bool, cwd: string, timeout: time.
     }
     defer posix.close(out_fds[0])
 
-    start := time.tick_now()
+    start   := time.tick_now()
     stopped := false
     builder := strings.builder_make()
     buf: [4096]u8
@@ -129,7 +129,7 @@ run_argv :: proc(argv: []cstring, search_path: bool, cwd: string, timeout: time.
                 stopped = true
                 break
             }
-            fds := [1]posix.pollfd{{fd = out_fds[0], events = {.IN}}}
+            fds   := [1]posix.pollfd{{fd = out_fds[0], events = {.IN}}}
             ready := posix.poll(raw_data(fds[:]), 1, c.int(time.duration_milliseconds(poll_wait(start, timeout))))
             if ready < 0 {
                 if posix.errno() == .EINTR {
@@ -285,8 +285,7 @@ spawn :: proc(exe: string, arg: string, cwd: string) -> bool {
     close_fds(status_fds[1])
     // The intermediate child exits at once; reaping it here leaves no zombie.
     status: c.int
-    for posix.waitpid(pid, &status, {}) < 0 && posix.errno() == .EINTR {
-    }
+    for posix.waitpid(pid, &status, {}) < 0 && posix.errno() == .EINTR {}
 
     started := start_succeeded(status_fds[0])
     posix.close(status_fds[0])

@@ -8,14 +8,14 @@ import lang ".."
 
 @(private = "file")
 ask :: proc(e: ^Engine, kind: lang.Request_Kind, source, needle: string, skip := 0, query := "", workspace := "", path := "buffer.odin") -> lang.Result {
-    req := lang.Request {
-        kind      = kind,
-        path      = path,
-        ext       = ".odin",
-        source    = source,
-        offset    = strings.index(source, needle) + skip,
+    req := lang.Request{
+        kind = kind,
+        path = path,
+        ext = ".odin",
+        source = source,
+        offset = strings.index(source, needle) + skip,
         workspace = workspace,
-        query     = query,
+        query = query,
     }
     req.end = req.offset
     res := lang.Result{kind = kind}
@@ -214,7 +214,7 @@ test_selection_range_chain :: proc(t: ^testing.T) {
             testing.expect(t, r.start != r.end)
         }
     }
-    binary := lang.Text_Range{at, at + len("a + b")}
+    binary     := lang.Text_Range{at, at + len("a + b")}
     has_binary := false
     for r in res.ranges {
         has_binary ||= r == binary
@@ -229,17 +229,17 @@ test_selection_range_from_selection :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    src := "package demo\n\nmain :: proc() {\n\tx := (1 + 2) * 3\n}\n"
+    src  := "package demo\n\nmain :: proc() {\n\tx := (1 + 2) * 3\n}\n"
     from := strings.index(src, "1 + 2")
-    req := lang.Request{kind = .Selection_Range, path = "buffer.odin", ext = ".odin", source = src, offset = from, end = from + len("1 + 2")}
-    res := lang.Result{kind = .Selection_Range}
+    req  := lang.Request{kind = .Selection_Range, path = "buffer.odin", ext = ".odin", source = src, offset = from, end = from + len("1 + 2")}
+    res  := lang.Result{kind = .Selection_Range}
     resolve(e, &req, &res)
     defer free_result(&res)
     testing.expect(t, res.ok)
     for r in res.ranges {
         testing.expect(t, r.start <= from && r.end >= from + len("1 + 2"), "a step must hold the selection")
     }
-    paren := strings.index(src, "(1 + 2)")
+    paren     := strings.index(src, "(1 + 2)")
     has_paren := false
     for r in res.ranges {
         has_paren ||= r == lang.Text_Range{paren, paren + len("(1 + 2)")}
@@ -258,7 +258,7 @@ test_code_lens_counts :: proc(t: ^testing.T) {
     defer free_result(&res)
     testing.expect(t, res.ok)
     lens_src := LENS_SRC
-    counts := map[string]int{}
+    counts   := map[string]int{}
     defer delete(counts)
     for l in res.lenses {
         counts[lens_src[l.start:l.end]] = l.count
@@ -309,7 +309,7 @@ test_code_lens_count_cache_reuse_and_invalidate :: proc(t: ^testing.T) {
     defer os.remove_all(root)
     use_path := fixture_path(root, "use.odin")
 
-    src := "package demo\n\nhelper :: proc() -> int {\n\treturn 1\n}\n"
+    src       := "package demo\n\nhelper :: proc() -> int {\n\treturn 1\n}\n"
     main_path := fixture_path(root, "main.odin")
     for _ in 0 ..< 3 {
         res := ask(e, .Code_Lens, src, "package", workspace = root, path = main_path)

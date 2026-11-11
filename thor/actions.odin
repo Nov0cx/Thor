@@ -55,8 +55,7 @@ thor_global_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
     // and the picker's hex field is typed in). A bound theme command still runs
     // in the window.
     if thor.theme_editor_open || thor.color_picker_open {
-        if thor.theme_editor_open && !thor.color_picker_open && !thor.palette_open && !thor.select_open &&
-           event.action != .Release {
+        if thor.theme_editor_open && !thor.color_picker_open && !thor.palette_open && !thor.select_open && event.action != .Release {
             return thor_dispatch_app_bind(thor, event, "theme_")
         }
         return false
@@ -67,10 +66,7 @@ thor_global_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
         return false
     }
 
-    chord := setting.keybind_to_string(
-        setting.Keybind{key = event.key, mods = event.mods},
-        context.temp_allocator,
-    )
+    chord := setting.keybind_to_string(setting.Keybind{key = event.key, mods = event.mods}, context.temp_allocator)
 
     // A release only reaches the plugins: every shortcut here acts on the press.
     if event.action == .Release {
@@ -114,9 +110,7 @@ thor_global_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
     // and opens find/replace otherwise. With an overlay open it always means
     // replace: ctrl+r in the find bar is how the replace field is revealed.
     if thor_app_key_hit(thor, thor.replace_key, "replace", event) {
-        overlay :=
-            thor_palette_is_open(thor) ||
-            thor.find_open
+        overlay := thor_palette_is_open(thor) || thor.find_open
         if overlay || !thor_rename_symbol(thor) {
             thor_open_find(thor, true)
         }
@@ -344,7 +338,7 @@ thor_terminal_owns_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
     if !thor.console_focused {
         return false
     }
-    escapes := [?]setting.Keybind {
+    escapes := [?]setting.Keybind{
         thor.command_palette_key,
         thor.quick_open_key,
         thor.console_toggle_key,
@@ -416,11 +410,11 @@ thor_focus_terminal :: proc(thor: ^Thor) {
 }
 
 thor_toggle_explorer :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     signal_set(&thor.explorer_visible, !signal_get(&thor.explorer_visible))
 }
 
 thor_toggle_console :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     signal_set(&thor.console_visible, !signal_get(&thor.console_visible))
 }

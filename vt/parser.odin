@@ -25,9 +25,9 @@ Parser_State :: enum u8 {
 // as a sub-argument of the one before it, which is how SGR spells a direct
 // colour and an underline style.
 Params :: struct {
-    v:   [MAX_PARAMS]int,
-    sub: [MAX_PARAMS]bool,
-    n:   int,
+    v:        [MAX_PARAMS]int,
+    sub:      [MAX_PARAMS]bool,
+    n:        int,
     // An argument was left out, so the whole sequence is ignored.
     overflow: bool,
 }
@@ -98,7 +98,7 @@ term_feed :: proc(t: ^Term, data: []u8) {
 
 // The same with a string, which is what a host that prints its own lines has.
 term_feed_string :: proc(t: ^Term, text: string) {
-    term_feed(t, transmute([]u8) text)
+    term_feed(t, transmute([]u8)text)
 }
 
 @(private = "file")
@@ -199,11 +199,7 @@ utf8_decode :: proc(bytes: []u8) -> rune {
     case 3:
         r = rune(bytes[0] & 0x0f) << 12 | rune(bytes[1] & 0x3f) << 6 | rune(bytes[2] & 0x3f)
     case 4:
-        r =
-            rune(bytes[0] & 0x07) << 18 |
-            rune(bytes[1] & 0x3f) << 12 |
-            rune(bytes[2] & 0x3f) << 6 |
-            rune(bytes[3] & 0x3f)
+        r = rune(bytes[0] & 0x07) << 18 | rune(bytes[1] & 0x3f) << 12 | rune(bytes[2] & 0x3f) << 6 | rune(bytes[3] & 0x3f)
     case:
         return 0xfffd
     }
@@ -343,7 +339,7 @@ osc_byte :: proc(t: ^Term, b: u8) {
     case b == 0x18 || b == 0x1a:
         t.state = .Ground
     case b < 0x20:
-        // Other controls are not part of an OSC string.
+    // Other controls are not part of an OSC string.
     case:
         if len(t.osc) < MAX_OSC {
             append(&t.osc, b)

@@ -17,12 +17,12 @@ SLOT_CHUNKS :: 26
 @(private)
 Slot_Table :: struct($T: typeid) {
     chunks: [SLOT_CHUNKS]rawptr, // atomic; each a [^]^T, nil until its first entry
-    count:  u32, // atomic
+    count:  u32,                 // atomic
 }
 
 // The chunk and the offset in it of entry `index`.
 @(private = "file")
-slot_locate :: proc "contextless" (index: u32) -> (chunk: int, offset: int) {
+slot_locate :: proc "contextless"(index: u32) -> (chunk: int, offset: int) {
     n := u64(index) / SLOT_CHUNK_BASE + 1
     chunk = 63 - int(intrinsics.count_leading_zeros(n))
     offset = int(u64(index) - SLOT_CHUNK_BASE * ((u64(1) << uint(chunk)) - 1))
@@ -30,23 +30,23 @@ slot_locate :: proc "contextless" (index: u32) -> (chunk: int, offset: int) {
 }
 
 @(private = "file")
-slot_chunk_len :: proc "contextless" (chunk: int) -> int {
+slot_chunk_len :: proc "contextless"(chunk: int) -> int {
     return SLOT_CHUNK_BASE << uint(chunk)
 }
 
 @(private)
-slot_count :: proc "contextless" (t: ^Slot_Table($T)) -> u32 {
+slot_count :: proc "contextless"(t: ^Slot_Table($T)) -> u32 {
     return sync.atomic_load_explicit(&t.count, .Acquire)
 }
 
 // The entry `index`; nil when it is past the end. Any thread.
 @(private)
-slot_get :: proc "contextless" (t: ^Slot_Table($T), index: u32) -> ^T {
+slot_get :: proc "contextless"(t: ^Slot_Table($T), index: u32) -> ^T {
     if index >= sync.atomic_load_explicit(&t.count, .Acquire) {
         return nil
     }
     chunk, offset := slot_locate(index)
-    entries := cast([^]^T)sync.atomic_load_explicit(&t.chunks[chunk], .Acquire)
+    entries       := cast([^]^T)sync.atomic_load_explicit(&t.chunks[chunk], .Acquire)
     return entries[offset]
 }
 

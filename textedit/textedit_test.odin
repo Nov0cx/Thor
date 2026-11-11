@@ -88,7 +88,7 @@ test_word_jump_unicode :: proc(t: ^testing.T) {
     move_word(&state, -1, false)
     testing.expect_value(t, primary_cursor(&state).caret, 6)
 
-    txt := text(&state)
+    txt           := text(&state)
     lo, hi, found := word_range_at(txt, 1)
     testing.expect(t, found)
     testing.expect_value(t, lo, 0)
@@ -237,7 +237,7 @@ test_select_between_brackets :: proc(t: ^testing.T) {
     select_between_brackets(&state)
     cursor := primary_cursor(&state)
     lo, hi := selection_range(cursor)
-    testing.expect_value(t, lo, 5)  // just after '('
+    testing.expect_value(t, lo, 5) // just after '('
     testing.expect_value(t, hi, 12) // just before ')'
 
     // From directly next to the opening bracket: same span.
@@ -298,7 +298,7 @@ test_backspace_adjacent_carets_after_pair :: proc(t: ^testing.T) {
 
     insert_text(&state, "())")
     set_single_cursor(&state, 1)
-    append(&state.cursors, Cursor {caret = 2, anchor = 2})
+    append(&state.cursors, Cursor{caret = 2, anchor = 2})
 
     // The first caret takes the pair, which is also what the second would delete.
     delete_backward(&state)
@@ -390,8 +390,8 @@ test_transform_case_two_carets_one_word :: proc(t: ^testing.T) {
 
     set_text(&state, "ßß ab")
     set_single_cursor(&state, 0)
-    append(&state.cursors, Cursor {caret = 2, anchor = 2})
-    append(&state.cursors, Cursor {caret = 6, anchor = 6})
+    append(&state.cursors, Cursor{caret = 2, anchor = 2})
+    append(&state.cursors, Cursor{caret = 6, anchor = 6})
 
     // The word is rewritten once, and each caret lands on a rune boundary.
     transform_case(&state, .Upper)
@@ -471,7 +471,7 @@ test_grapheme_stepping :: proc(t: ^testing.T) {
     testing.expect_value(t, primary_cursor(&state).caret, 23) // flag
 
     // Stepping back retraces the same boundaries.
-    for expected in ([4]int {15, 4, 3, 0}) {
+    for expected in ([4]int{15, 4, 3, 0}) {
         move_horizontal(&state, -1, false)
         testing.expect_value(t, primary_cursor(&state).caret, expected)
     }
@@ -591,7 +591,7 @@ test_quote_delimiters :: proc(t: ^testing.T) {
     select_between_brackets(&state)
     cursor := primary_cursor(&state)
     lo, hi := selection_range(cursor)
-    testing.expect_value(t, lo, 5)  // just after the opening quote
+    testing.expect_value(t, lo, 5) // just after the opening quote
     testing.expect_value(t, hi, 10) // just before the closing quote
 
     // Jumping from just after the opening quote lands on the closing quote.
@@ -612,7 +612,7 @@ test_quote_step_over_is_no_edit :: proc(t: ^testing.T) {
     testing.expect_value(t, text(&state), "\"\"")
     insert_text(&state, "x")
     undo(&state)
-    depth := undo_depth(&state)
+    depth    := undo_depth(&state)
     revision := state.revision
 
     insert_quote(&state, '"')

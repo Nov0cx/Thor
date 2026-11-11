@@ -34,12 +34,12 @@ put :: proc(t: ^testing.T, dir, name, text: string) -> string {
 
 @(private = "file")
 stats_of :: proc(db: ^Db) -> Db_Stats {
-    return Db_Stats {
-        reads        = sync.atomic_load(&db.stats.reads),
-        parses       = sync.atomic_load(&db.stats.parses),
-        reparses     = sync.atomic_load(&db.stats.reparses),
-        trees        = sync.atomic_load(&db.stats.trees),
-        scopes       = sync.atomic_load(&db.stats.scopes),
+    return Db_Stats{
+        reads = sync.atomic_load(&db.stats.reads),
+        parses = sync.atomic_load(&db.stats.parses),
+        reparses = sync.atomic_load(&db.stats.reparses),
+        trees = sync.atomic_load(&db.stats.trees),
+        scopes = sync.atomic_load(&db.stats.scopes),
         local_scopes = sync.atomic_load(&db.stats.local_scopes),
     }
 }
@@ -106,7 +106,7 @@ test_db_stat_refresh :: proc(t: ^testing.T) {
         return
     }
     first := db_file(&snap, db_file_id(&snap, a))
-    view := db_package(&snap, db_package_id(&snap, dir))
+    view  := db_package(&snap, db_package_id(&snap, dir))
     testing.expect(t, view != nil && len(view.files) == 2)
     testing.expect(t, has_name(view, "two"))
 
@@ -179,7 +179,7 @@ test_db_stable_throttle :: proc(t: ^testing.T) {
     files, two := look(t, &db, &colls, pkg, w)
     testing.expect_value(t, files, 1)
     testing.expect(t, !two)
-    stats := sync.atomic_load(&db.stats.stats)
+    stats    := sync.atomic_load(&db.stats.stats)
     listings := sync.atomic_load(&db.stats.listings)
 
     sync.atomic_add(&fake_now, i64(time.Second))
@@ -277,7 +277,7 @@ test_db_target_change :: proc(t: ^testing.T) {
         return
     }
     defer os.remove_all(dir)
-    host := target_host()
+    host  := target_host()
     other := host
     other.os = host.os == .Linux ? .Windows : .Linux
     path := put(t, dir, fmt.tprintf("x_%s.odin", target_os_name(other.os)), "package p\n\nonly_other :: 1\n")
@@ -311,7 +311,7 @@ test_db_alternating_file_targets :: proc(t: ^testing.T) {
         return
     }
     defer os.remove_all(dir)
-    host := target_host()
+    host  := target_host()
     other := host
     other.os = host.os == .Linux ? .Windows : .Linux
     put(t, dir, fmt.tprintf("x_%s.odin", target_os_name(other.os)), "package p\n\nonly_other :: 1\n")
@@ -324,7 +324,7 @@ test_db_alternating_file_targets :: proc(t: ^testing.T) {
     for _ in 0 ..< 3 {
         for buffer, i in ([]string{a, b}) {
             target := i == 0 ? other : host
-            text := i == 0 ? "package p\n\nfrom_a :: 2\n" : "package p\n\nfrom_b :: 2\n"
+            text   := i == 0 ? "package p\n\nfrom_a :: 2\n" : "package p\n\nfrom_b :: 2\n"
             snap: Snapshot
             if !begin(t, &db, &snap, Snapshot_Input{target = target, has_live = true, live_path = buffer, live_text = text}) {
                 return
@@ -438,8 +438,8 @@ test_db_live_reparse :: proc(t: ^testing.T) {
     db: Db
     db_init(&db, read_plain)
     defer db_destroy(&db)
-    path := "bin/test/sema_db_reparse/a.odin"
-    texts := []string {
+    path  := "bin/test/sema_db_reparse/a.odin"
+    texts := []string{
         "package p\n\nrun :: proc() {\n    x := 1\n}\n",
         "package p\n\nrun :: proc() {\n    x := 12\n}\n",
         "package p\n\nrun :: proc() {\n    x := 123\n}\n",
@@ -705,8 +705,8 @@ test_db_parse_release :: proc(t: ^testing.T) {
         return
     }
     defer snapshot_end(&snap)
-    aid := db_file_id(&snap, a)
-    first := db_parse(&snap, aid)
+    aid    := db_file_id(&snap, a)
+    first  := db_parse(&snap, aid)
     second := db_parse(&snap, aid)
     testing.expect(t, first != nil && first == second, "a cached parse is shared")
     testing.expect_value(t, body_pins(&snap), 2)
@@ -768,7 +768,7 @@ test_db_workspace_throttle :: proc(t: ^testing.T) {
     files, two := look(t, &db, dir)
     testing.expect_value(t, files, 1)
     testing.expect(t, !two)
-    stats := sync.atomic_load(&db.stats.stats)
+    stats    := sync.atomic_load(&db.stats.stats)
     listings := sync.atomic_load(&db.stats.listings)
 
     put(t, dir, "a.odin", "package p\n\none :: 1\ntwo :: 2\n")

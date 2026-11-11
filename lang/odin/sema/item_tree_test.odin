@@ -29,7 +29,7 @@ find_item :: proc(tree: ^Item_Tree, name: string) -> (Item, bool) {
 
 @(test)
 test_item_tree_kinds_and_signatures :: proc(t: ^testing.T) {
-    src := `package demo
+    src  := `package demo
 
 import "core:fmt"
 import str "core:strings"
@@ -66,7 +66,7 @@ Generic :: struct($T: typeid) where size_of(T) > 0 { items: []T }
         kind:      Item_Kind,
         signature: string,
     }
-    wants := []Want {
+    wants := []Want{
         {"fmt", .Import, `import "core:fmt"`},
         {"str", .Import, `import str "core:strings"`},
         {"Color", .Enum, "Color :: enum u8"},
@@ -136,7 +136,7 @@ Generic :: struct($T: typeid) where size_of(T) > 0 { items: []T }
 
 @(test)
 test_item_tree_visibility_and_attributes :: proc(t: ^testing.T) {
-    src := `#+private
+    src  := `#+private
 package demo
 
 a :: 1
@@ -164,7 +164,7 @@ c :: proc() -> int { return 0 }
     }
     testing.expect_value(t, c.start, strings.index(src, "@(require"))
 
-    file_src := "#+private file\npackage demo\n\n@(private)\nx :: 1\ny :: 2\n"
+    file_src  := "#+private file\npackage demo\n\n@(private)\nx :: 1\ny :: 2\n"
     file_tree := build_tree(t, file_src)
     defer item_tree_destroy(file_tree)
     testing.expect_value(t, file_tree.private, Visibility.File)
@@ -176,7 +176,7 @@ c :: proc() -> int { return 0 }
 
 @(test)
 test_item_tree_when_and_foreign :: proc(t: ^testing.T) {
-    src := `package demo
+    src  := `package demo
 
 foreign import libc "system:c"
 foreign import "system:Comdlg32.lib"
@@ -271,7 +271,7 @@ test_item_tree_legacy_tags_and_broken_source :: proc(t: ^testing.T) {
 
 @(test)
 test_item_tree_doc_comments :: proc(t: ^testing.T) {
-    src := "//+build linux\n// Package demo pings.\n//\n//   Indented.\npackage demo\n\n" +
+    src  := "//+build linux\n// Package demo pings.\n//\n//   Indented.\npackage demo\n\n" +
         "// Pings the server.\n//Returns the round-trip.\nping :: proc() -> int { return 1 }\n\n" +
         "// Not the doc of pong.\n\npong :: 1\n" +
         "x :: 1 // trailing\ny :: 2\n" +
@@ -289,7 +289,7 @@ test_item_tree_doc_comments :: proc(t: ^testing.T) {
         name: string,
         doc:  string,
     }
-    wants := []Want {
+    wants := []Want{
         {"ping", "Pings the server.\nReturns the round-trip."},
         {"pong", ""},
         {"x", ""},
@@ -323,7 +323,7 @@ test_item_tree_doc_comments :: proc(t: ^testing.T) {
 
 @(test)
 test_item_tree_block_doc_comments :: proc(t: ^testing.T) {
-    src := "/*\n\tPackage demo.\n*/\npackage demo\n\n" +
+    src  := "/*\n\tPackage demo.\n*/\npackage demo\n\n" +
         "/*\n\tAn `enum` value.\n\tPossible values:\n\t\t`.A`, `.B`.\n*/\nARCH :: 1\n\n" +
         "/*\n * Starred.\n *\n * Second.\n */\nstarred :: 2\n\n" +
         "/* Opened.\n   Continued.\n*/\nopened :: 3\n\n" +
@@ -340,7 +340,7 @@ test_item_tree_block_doc_comments :: proc(t: ^testing.T) {
         name: string,
         doc:  string,
     }
-    wants := []Want {
+    wants := []Want{
         {"ARCH", "An `enum` value.\nPossible values:\n\t`.A`, `.B`."},
         {"starred", "Starred.\n\nSecond."},
         {"opened", "Opened.\nContinued."},
@@ -439,7 +439,7 @@ starts_with :: proc(src: string, offset: int, want: string) -> bool {
 
 @(test)
 test_item_tree_type_and_value_offsets :: proc(t: ^testing.T) {
-    src := "package demo\n" +
+    src  := "package demo\n" +
         "x: int = 5\n" +
         "y := 7\n" +
         "a, b := f()\n" +
@@ -458,7 +458,7 @@ test_item_tree_type_and_value_offsets :: proc(t: ^testing.T) {
         value: string,
         index: int,
     }
-    cases := []Want {
+    cases := []Want{
         {"x", "int", "5", -1},
         {"y", "", "7", -1},
         {"a", "", "f(", 0},

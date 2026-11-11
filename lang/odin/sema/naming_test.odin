@@ -96,7 +96,7 @@ Generic :: struct($T: typeid) {}
 
 @(test)
 test_naming_rules :: proc(t: ^testing.T) {
-    src := `package demo
+    src   := `package demo
 
 BadType :: struct { badField: int }
 badProc :: proc() {}

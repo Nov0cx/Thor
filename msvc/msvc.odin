@@ -23,7 +23,7 @@ TOOLS_ARM64 :: "Microsoft.VisualStudio.Component.VC.Tools.ARM64"
 // where its own architecture is not the host's. PROCESSOR_ARCHITEW6432 is what
 // the emulated process sees the real machine as.
 native_arch :: proc() -> string {
-    for name in ([?]string {"PROCESSOR_ARCHITEW6432", "PROCESSOR_ARCHITECTURE"}) {
+    for name in ([?]string{"PROCESSOR_ARCHITEW6432", "PROCESSOR_ARCHITECTURE"}) {
         value := os.get_env(name, context.temp_allocator)
         if value == "" {
             continue
@@ -40,12 +40,7 @@ native_arch :: proc() -> string {
 // `vsdevcmd`. The tools themselves are the host's, so -host_arch names the
 // machine and -arch what it builds for. Temporary memory.
 vsdevcmd_call :: proc(vsdevcmd: string, target_arch: string) -> string {
-    return fmt.tprintf(
-        `call "%s" -arch=%s -host_arch=%s`,
-        vsdevcmd,
-        target_arch,
-        native_arch(),
-    )
+    return fmt.tprintf(`call "%s" -arch=%s -host_arch=%s`, vsdevcmd, target_arch, native_arch())
 }
 
 // The batch file that loads the environment of the newest Visual Studio with the
@@ -58,7 +53,7 @@ find_vsdevcmd :: proc() -> (path: string, ok: bool) {
 
     // An ARM64 machine may carry either toolset, so either one answers; asking
     // for the x64 one alone hides an ARM64-only install altogether.
-    requires := [][]string {{"-requires", TOOLS_X64}}
+    requires := [][]string{{"-requires", TOOLS_X64}}
     if native_arch() == "arm64" {
         requires = {{"-requires", TOOLS_X64}, {"-requires", TOOLS_ARM64}, {"-requiresAny"}}
     }
@@ -69,9 +64,7 @@ find_vsdevcmd :: proc() -> (path: string, ok: bool) {
     }
     append(&command, "-property", "installationPath")
 
-    desc := os.Process_Desc {
-        command = command[:],
-    }
+    desc                  := os.Process_Desc{command = command[:]}
     state, stdout, _, err := os.process_exec(desc, context.temp_allocator)
     if err != nil || state.exit_code != 0 {
         return "", false

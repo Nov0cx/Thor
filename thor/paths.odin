@@ -33,7 +33,7 @@ thor_abs_path :: proc(path: string) -> string {
 // against the raw spelling beats none. For comparing only; never store it.
 @(private)
 thor_canon_path :: proc(path: string) -> string {
-    slashed, _ := strings.replace_all(thor_abs_path(path), "\\", "/", context.temp_allocator)
+    slashed, _   := strings.replace_all(thor_abs_path(path), "\\", "/", context.temp_allocator)
     cleaned, err := filepath.clean(slashed, context.temp_allocator)
     return err == nil ? cleaned : path
 }

@@ -49,7 +49,7 @@ LOOSE_FILE_SLOTS :: 64
 BODY_BUDGET :: 64 * mem.Megabyte
 
 // Most files and directory levels a workspace walk reads.
-WORKSPACE_FILE_LIMIT :: 4000
+WORKSPACE_FILE_LIMIT  :: 4000
 WORKSPACE_DEPTH_LIMIT :: 12
 
 // Counters for tests. Read them with sync.atomic_load.
@@ -72,32 +72,32 @@ Db_Stats :: struct {
 // Lock order: workspace slot, package slot, file slot, then Db.lock, Db.lru_mutex or
 // Db.type_mutex. The three are leaves; a file slot never takes a package slot.
 Db :: struct {
-    allocator:       mem.Allocator, // must be safe to use from every worker thread
-    read:            Read_Proc,
-    body_budget:     int,
-    workspace_limit: int,
-    clock:           Clock_Proc,
-    stable_interval: i64, // nanoseconds; see STABLE_INTERVAL
+    allocator:          mem.Allocator, // must be safe to use from every worker thread
+    read:               Read_Proc,
+    body_budget:        int,
+    workspace_limit:    int,
+    clock:              Clock_Proc,
+    stable_interval:    i64, // nanoseconds; see STABLE_INTERVAL
     workspace_interval: i64, // nanoseconds; 0 checks once per snapshot. See WORKSPACE_INTERVAL
-    cache:           Tree_Cache,
-    lock:            sync.RW_Mutex, // guards the intern maps, `configs` and appends to the slot tables
-    files:           Slot_Table(File_Slot),      // owned; read with no lock
-    file_ids:        map[string]File_Id,         // owned; keys borrowed from the slots
-    packages:        Slot_Table(Package_Slot),   // owned; read with no lock
-    package_ids:     map[string]Package_Id,      // owned; keys borrowed from the slots
-    configs:         map[string]u32,             // owned, keys included
-    workspace:       Workspace_Slot,
-    lru_mutex:       sync.Mutex,
-    bodies:          Lru, // files with a disk parse, weighted by bytes
-    lives:           Lru, // files with a live parse
-    scopes:          Lru, // packages with a memo
-    loose:           Lru, // files with disk data that nothing holds
-    type_mutex:      sync.Mutex, // guards `type_states` and Type_State.used
-    type_states:     [TYPE_STATE_SLOTS]^Type_State, // one reference each; nil when empty
-    type_clock:      u64, // the last Type_State.used given
-    revision:        u64, // atomic; bumped by every input change
-    epoch:           u64, // atomic; one per snapshot
-    stats:           Db_Stats,
+    cache:              Tree_Cache,
+    lock:               sync.RW_Mutex,            // guards the intern maps, `configs` and appends to the slot tables
+    files:              Slot_Table(File_Slot),    // owned; read with no lock
+    file_ids:           map[string]File_Id,       // owned; keys borrowed from the slots
+    packages:           Slot_Table(Package_Slot), // owned; read with no lock
+    package_ids:        map[string]Package_Id,    // owned; keys borrowed from the slots
+    configs:            map[string]u32,           // owned, keys included
+    workspace:          Workspace_Slot,
+    lru_mutex:          sync.Mutex,
+    bodies:             Lru,                           // files with a disk parse, weighted by bytes
+    lives:              Lru,                           // files with a live parse
+    scopes:             Lru,                           // packages with a memo
+    loose:              Lru,                           // files with disk data that nothing holds
+    type_mutex:         sync.Mutex,                    // guards `type_states` and Type_State.used
+    type_states:        [TYPE_STATE_SLOTS]^Type_State, // one reference each; nil when empty
+    type_clock:         u64,                           // the last Type_State.used given
+    revision:           u64,                           // atomic; bumped by every input change
+    epoch:              u64,                           // atomic; one per snapshot
+    stats:              Db_Stats,
 }
 
 // The values a snapshot pins.
@@ -140,8 +140,8 @@ Imports_Value :: struct {
     using value: Value,
     data:        ^File_Data, // one reference; `list` borrows its strings
     config:      u32,
-    epoch:       u64, // the snapshot that last checked `exists`
-    checked_at:  i64, // the time of that check
+    epoch:       u64,           // the snapshot that last checked `exists`
+    checked_at:  i64,           // the time of that check
     list:        []File_Import, // owned
 }
 
@@ -158,12 +158,12 @@ Package_Memo :: struct {
 // A package of one snapshot. Every field is valid until snapshot_end.
 Package_View :: struct {
     id:         Package_Id,
-    dir:        string,          // the directory as first asked for
-    files:      []File_Id,       // sorted by path; the live buffer joins when it is in the directory
-    datas:      []^File_Data,    // nil for a file that cannot be read
-    sema_files: []Package_File,  // what `scope` indexes
+    dir:        string,         // the directory as first asked for
+    files:      []File_Id,      // sorted by path; the live buffer joins when it is in the directory
+    datas:      []^File_Data,   // nil for a file that cannot be read
+    sema_files: []Package_File, // what `scope` indexes
     scope:      ^Package_Scope,
-    local:      bool,            // the scope was built for this snapshot only
+    local:      bool, // the scope was built for this snapshot only
 }
 
 // What one request reads: its configuration and its own buffer.
@@ -171,9 +171,9 @@ Snapshot_Input :: struct {
     target:      Target,       // borrowed until snapshot_end
     collections: ^Collections, // borrowed until snapshot_end; nil when none
     has_live:    bool,
-    live_path:   string,       // "" for a buffer with no file
-    live_text:   string,       // borrowed until snapshot_end
-    cancel:      ^bool,        // read with sync.atomic_load; nil when none
+    live_path:   string, // "" for a buffer with no file
+    live_text:   string, // borrowed until snapshot_end
+    cancel:      ^bool,  // read with sync.atomic_load; nil when none
 }
 
 // The view of the database of one request on one thread. Everything a query returns stays valid
@@ -188,8 +188,8 @@ Snapshot :: struct {
     collections: Collections,
     cancel:      ^bool,
     arena:       virtual.Arena,
-    alloc:       mem.Allocator, // of `arena`
-    pins:        [dynamic]^Value, // owned; one reference each
+    alloc:       mem.Allocator,                // of `arena`
+    pins:        [dynamic]^Value,              // owned; one reference each
     views:       map[Package_Id]^Package_View, // in `arena`
     live:        Live_Overlay,
     open:        bool,
@@ -227,8 +227,8 @@ File_Slot :: struct {
     exists:           bool,
     modtime:          i64,
     size:             i64,
-    disk:             ^File_Data,    // one reference; nil when not read or not readable
-    body:             ^File_Body,    // one reference; nil when evicted
+    disk:             ^File_Data, // one reference; nil when not read or not readable
+    body:             ^File_Body, // one reference; nil when evicted
     has_shape:        bool,
     shape:            u64,
     shape_changed_at: u64,
@@ -250,8 +250,8 @@ Package_Slot :: struct {
     dir:          string, // owned; as first given
     key:          string, // owned; path_key of dir
     listed_epoch: u64,
-    listed_time:  i64, // atomic; the time of that listing
-    listing:      []File_Id, // owned; sorted by path; valid when listed_epoch != 0
+    listed_time:  i64,           // atomic; the time of that listing
+    listing:      []File_Id,     // owned; sorted by path; valid when listed_epoch != 0
     memo:         ^Package_Memo, // one reference
 }
 
@@ -449,7 +449,7 @@ file_intern :: proc(db: ^Db, path: string) -> File_Id {
             return id
         }
     }
-    dir := filepath.dir(path)
+    dir     := filepath.dir(path)
     dir_key := path_key(dir == "" ? "." : dir)
     sync.guard(&db.lock)
     if id, ok := db.file_ids[key]; ok {
@@ -583,7 +583,7 @@ db_now :: proc(db: ^Db) -> i64 {
 // intervals say. Call it when the file is known to have changed on disk. Takes no slot lock, so
 // the main thread can call it while a worker parses.
 db_touch :: proc(db: ^Db, path: string) {
-    key := path_key(path)
+    key     := path_key(path)
     dir_key := path_key(filepath.dir(path))
     file: ^File_Slot
     pkg: ^Package_Slot
@@ -693,7 +693,7 @@ file_data_new :: proc(db: ^Db, parsed: odinsyntax.Parse) -> ^File_Data {
         return nil
     }
     stat_add(&db.stats.trees)
-    text := parsed.tree != nil ? parsed.tree.text : ""
+    text  := parsed.tree != nil ? parsed.tree.text : ""
     lines := line_starts(text, db.allocator)
     if lines == nil {
         item_tree_destroy(tree, db.allocator)
@@ -892,9 +892,9 @@ package_slot_drop_memo :: proc(db: ^Db, slot: ^Package_Slot) {
 // An intrusive list of ids, least recently used first, guarded by Db.lru_mutex.
 @(private)
 Lru :: struct {
-    prev:   [dynamic]u32, // owned; by id
-    next:   [dynamic]u32, // owned; by id
-    weight: [dynamic]int, // owned; by id
+    prev:   [dynamic]u32,  // owned; by id
+    next:   [dynamic]u32,  // owned; by id
+    weight: [dynamic]int,  // owned; by id
     listed: [dynamic]bool, // owned; by id
     head:   u32,
     tail:   u32,

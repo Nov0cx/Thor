@@ -9,8 +9,8 @@ import "core:time"
 // Set by `build.odin -- bench`; a plain test run skips the benchmark.
 BENCH :: #config(THOR_BENCH, false)
 
-BIG_FILE_LINES :: 250_000
-BIG_FILE_EDITS :: 4
+BIG_FILE_LINES  :: 250_000
+BIG_FILE_EDITS  :: 4
 BIG_FILE_WINDOW :: 4096
 
 @(private = "file")
@@ -50,7 +50,7 @@ test_bench_big_file_highlight :: proc(t: ^testing.T) {
     samples: [BIG_FILE_EDITS]time.Duration
     for i in 0 ..< BIG_FILE_EDITS {
         source := i % 2 == 0 ? edited : base
-        tick := time.tick_now()
+        tick   := time.tick_now()
         _ = highlight_range(&h, "big.odin", source, "odin", 0, BIG_FILE_WINDOW, context.temp_allocator)
         samples[i] = time.tick_since(tick)
     }

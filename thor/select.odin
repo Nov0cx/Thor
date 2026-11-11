@@ -11,26 +11,26 @@ import ui "../vendor/loom/loom"
 // selection moves; `commit` applies and persists it on confirm.
 Select_Choice_Proc :: #type proc(data: rawptr, choice: string)
 
-SELECT_WIDTH :: f32(420)
-SELECT_ROW_H :: f32(30)
+SELECT_WIDTH    :: f32(420)
+SELECT_ROW_H    :: f32(30)
 SELECT_MAX_ROWS :: 12
 
 Select_Dialog :: struct {
-    title:        string, // owned
+    title:         string,          // owned
     // Row labels shown in the list, and the value handed to the callbacks for
     // each row. They differ when the display name is not the persisted id (a
     // theme's name against its file base); values == options otherwise.
-    options:      [dynamic]string, // owned
-    values:       [dynamic]string, // owned, parallel to options
-    selected:     int,
-    scroll:       int,
+    options:       [dynamic]string, // owned
+    values:        [dynamic]string, // owned, parallel to options
+    selected:      int,
+    scroll:        int,
     // Option active when the dialog opened; re-previewed on cancel.
-    original:     int,
-    preview:      Select_Choice_Proc,
-    commit:       Select_Choice_Proc,
-    data:         rawptr,
+    original:      int,
+    preview:       Select_Choice_Proc,
+    commit:        Select_Choice_Proc,
+    data:          rawptr,
     // Pane key the focus goes back to when the dialog closes.
-    return_focus: string,
+    return_focus:  string,
     // Set on open: the next frame moves the focus to the dialog, away from a pane that takes the arrow keys.
     focus_pending: bool,
 }
@@ -124,10 +124,7 @@ select_close :: proc(thor: ^Thor) {
 @(private = "file")
 select_cancel :: proc(thor: ^Thor) {
     s := &thor.select
-    if s.original != s.selected &&
-       s.preview != nil &&
-       s.original >= 0 &&
-       s.original < len(s.values) {
+    if s.original != s.selected && s.preview != nil && s.original >= 0 && s.original < len(s.values) {
         s.preview(s.data, s.values[s.original])
     }
     select_close(thor)
@@ -143,7 +140,7 @@ select_confirm :: proc(thor: ^Thor) {
     }
     choice := strings.clone(s.values[s.selected], context.temp_allocator)
     commit := s.commit
-    data := s.data
+    data   := s.data
     select_close(thor)
     if commit != nil {
         commit(data, choice)
@@ -153,7 +150,7 @@ select_confirm :: proc(thor: ^Thor) {
 // Moves the selection by `delta`, keeps it on screen, and previews it live.
 @(private = "file")
 select_move :: proc(thor: ^Thor, delta: int) {
-    s := &thor.select
+    s     := &thor.select
     count := len(s.options)
     if count == 0 {
         return
@@ -259,24 +256,12 @@ select_box :: proc(thor: ^Thor) {
         s.focus_pending = false
     }
 
-    ui.label(
-        s.title,
-        {
-            key = "title",
-            props = {pad = ui.xy(10, 10), color = thor.theme.foreground, text_wrap = .None},
-        },
-    )
+    ui.label(s.title, {key = "title", props = {pad = ui.xy(10, 10), color = thor.theme.foreground, text_wrap = .None}})
 
     hovered := -1
     clicked := false
     {
-        list := ui.scope(
-            {
-                key = "list",
-                flags = {.Clickable},
-                props = {w = ui.Grow(1), h = ui.FIT, dir = .Column},
-            },
-        )
+        list := ui.scope({key = "list", flags = {.Clickable}, props = {w = ui.Grow(1), h = ui.FIT, dir = .Column}})
         if list.wheel.y != 0 {
             select_move(thor, list.wheel.y > 0 ? 1 : -1)
         }
@@ -307,7 +292,7 @@ select_box :: proc(thor: ^Thor) {
 
 @(private = "file")
 select_row :: proc(thor: ^Thor, index: int) -> ui.Interaction {
-    s := &thor.select
+    s  := &thor.select
     on := index == s.selected
 
     it := ui.scope(
@@ -326,16 +311,6 @@ select_row :: proc(thor: ^Thor, index: int) -> ui.Interaction {
             hover = {bg = thor.theme.buttons},
         },
     )
-    ui.label(
-        s.options[index],
-        {
-            key = "text",
-            props = {
-                w = ui.Grow(1),
-                color = on ? thor.theme.foreground : thor.theme.muted_color,
-                text_wrap = .Ellipsis,
-            },
-        },
-    )
+    ui.label(s.options[index], {key = "text", props = {w = ui.Grow(1), color = on ? thor.theme.foreground : thor.theme.muted_color, text_wrap = .Ellipsis}})
     return it
 }

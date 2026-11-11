@@ -17,12 +17,8 @@ test_native_arch_is_one_vsdevcmd_knows :: proc(t: ^testing.T) {
 // toolset that actually runs here.
 @(test)
 test_vsdevcmd_call_names_target_and_host :: proc(t: ^testing.T) {
-    for target in ([?]string {"amd64", "arm64"}) {
-        want := fmt.tprintf(
-            `call "C:/VS/Common7/Tools/VsDevCmd.bat" -arch=%s -host_arch=%s`,
-            target,
-            native_arch(),
-        )
+    for target in ([?]string{"amd64", "arm64"}) {
+        want := fmt.tprintf(`call "C:/VS/Common7/Tools/VsDevCmd.bat" -arch=%s -host_arch=%s`, target, native_arch())
         call := vsdevcmd_call("C:/VS/Common7/Tools/VsDevCmd.bat", target)
         testing.expect_value(t, call, want)
     }

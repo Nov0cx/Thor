@@ -74,8 +74,8 @@ test_call_problem :: proc(t: ^testing.T) {
         return
     }
     defer check_end(&env)
-    c := &env.c
-    cases := []Call_Case {
+    c     := &env.c
+    cases := []Call_Case{
         {text = "two_ints(1)\n", kind = .Missing, name = "b", type = "int"},
         {text = "two_ints(1, 2, 3)", kind = .Too_Many, least = 2, want = 2, got = 3},
         {text = "with_default(1, 2, 3)", kind = .Too_Many, least = 1, want = 2, got = 3},
@@ -120,7 +120,18 @@ test_call_problem :: proc(t: ^testing.T) {
             typ := type_string(&c.table, got.type, context.temp_allocator)
             testing.expectf(t, typ == k.type, "%q: type %q, want %q", k.text, typ, k.type)
         }
-        testing.expectf(t, got.least == k.least && got.want == k.want && got.got == k.got, "%q: counts %d/%d/%d, want %d/%d/%d", k.text, got.least, got.want, got.got, k.least, k.want, k.got)
+        testing.expectf(
+            t,
+            got.least == k.least && got.want == k.want && got.got == k.got,
+            "%q: counts %d/%d/%d, want %d/%d/%d",
+            k.text,
+            got.least,
+            got.want,
+            got.got,
+            k.least,
+            k.want,
+            k.got,
+        )
     }
     testing.expect_value(t, c.err, nil)
 }
@@ -168,8 +179,8 @@ test_member_problem :: proc(t: ^testing.T) {
         return
     }
     defer check_end(&env)
-    c := &env.c
-    cases := []Member_Case {
+    c     := &env.c
+    cases := []Member_Case{
         {"p.y", true, false, "Point"},
         {"pp.z", true, false, "^Point"},
         {"f.hi", true, false, "Flags"},
@@ -195,7 +206,16 @@ test_member_problem :: proc(t: ^testing.T) {
             continue
         }
         got := member_problem(c, ANON_FILE, sel)
-        testing.expectf(t, got.missing == k.missing && got.is_type == k.is_type, "%q: missing %v type %v, want %v %v", k.text, got.missing, got.is_type, k.missing, k.is_type)
+        testing.expectf(
+            t,
+            got.missing == k.missing && got.is_type == k.is_type,
+            "%q: missing %v type %v, want %v %v",
+            k.text,
+            got.missing,
+            got.is_type,
+            k.missing,
+            k.is_type,
+        )
         if k.missing && got.missing {
             owner := type_string(&c.table, got.owner, context.temp_allocator)
             testing.expectf(t, owner == k.owner, "%q: owner %q, want %q", k.text, owner, k.owner)
@@ -253,11 +273,11 @@ test_switch_missing :: proc(t: ^testing.T) {
         return
     }
     defer check_end(&env)
-    c := &env.c
+    c     := &env.c
     wants := [][]string{{"C"}, {"string", "f32"}, {"C"}, {"C"}, {}, {}, {}, {}, {}, {"int"}}
-    src := SWITCH_SRC
+    src   := SWITCH_SRC
     found := 0
-    from := 0
+    from  := 0
     for {
         i := strings.index(src[from:], "switch ")
         if i < 0 {
@@ -270,7 +290,7 @@ test_switch_missing :: proc(t: ^testing.T) {
             found += 1
             continue
         }
-        got := switch_missing(c, ANON_FILE, sw, context.temp_allocator)
+        got  := switch_missing(c, ANON_FILE, sw, context.temp_allocator)
         want := wants[found]
         testing.expectf(t, len(got) == len(want), "switch %d: got %v, want %v", found, got, want)
         for g, k in got {
@@ -325,7 +345,7 @@ test_static_assert_fails :: proc(t: ^testing.T) {
         fails:   bool,
         message: string,
     }
-    cases := []Assert_Case {
+    cases := []Assert_Case{
         {"#assert(N == 4)", true, ""},
         {`#assert(N > 4, "too small")`, true, `"too small"`},
         {"#assert(N == 3)", false, ""},
@@ -432,7 +452,7 @@ test_type_mismatches :: proc(t: ^testing.T) {
         kind:  odinsyntax.Syntax_Kind,
         wants: []string, // "value -> type" per problem
     }
-    cases := []Mismatch_Case {
+    cases := []Mismatch_Case{
         {"take(s, \"a\")", .Call_Expr, {"s -> int"}},
         {"take(1, 2)", .Call_Expr, {"2 -> string"}},
         {"take(s = \"a\", a = s)", .Call_Expr, {"s -> int"}},
@@ -475,13 +495,22 @@ test_type_mismatches :: proc(t: ^testing.T) {
         }
         problems: []Type_Problem
         #partial switch k.kind {
-        case .Call_Expr:   problems = argument_mismatches(c, ANON_FILE, n, context.temp_allocator)
-        case .Return_Stmt: problems = return_mismatches(c, ANON_FILE, n, context.temp_allocator)
-        case:              problems = assign_mismatches(c, ANON_FILE, n, context.temp_allocator)
+        case .Call_Expr:
+            problems = argument_mismatches(c, ANON_FILE, n, context.temp_allocator)
+        case .Return_Stmt:
+            problems = return_mismatches(c, ANON_FILE, n, context.temp_allocator)
+        case:
+            problems = assign_mismatches(c, ANON_FILE, n, context.temp_allocator)
         }
         got := make([dynamic]string, context.temp_allocator)
         for p in problems {
-            append(&got, strings.concatenate({odinsyntax.node_text(p.value), " -> ", type_string(&c.table, p.to, context.temp_allocator), p.overflow ? " (overflow)" : ""}, context.temp_allocator))
+            append(
+                &got,
+                strings.concatenate(
+                    {odinsyntax.node_text(p.value), " -> ", type_string(&c.table, p.to, context.temp_allocator), p.overflow ? " (overflow)" : ""},
+                    context.temp_allocator,
+                ),
+            )
         }
         testing.expectf(t, len(got) == len(k.wants), "%q: got %v, want %v", k.text, got[:], k.wants)
         for g, i in got {

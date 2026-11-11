@@ -89,7 +89,7 @@ undo_graph_build :: proc(state: ^textedit.State, allocator := context.allocator)
 // A node in `keep` or with the content id `saved` stays the newest of its row.
 undo_graph_group :: proc(state: ^textedit.State, rows: ^[dynamic]Undo_Graph_Row, saved: u64, keep: ..int) {
     nodes := state.history.nodes[:]
-    out := 0
+    out   := 0
     for i := 0; i < len(rows); i += 1 {
         row := rows[i]
         for i + 1 < len(rows) {
@@ -149,7 +149,7 @@ undo_graph_run_hunk :: proc(state: ^textedit.State, row: Undo_Graph_Row, allocat
         return {}, false
     }
     nodes := state.history.nodes[:]
-    top := &nodes[row.node]
+    top   := &nodes[row.node]
     if len(top.ops) != 1 {
         return {}, false
     }

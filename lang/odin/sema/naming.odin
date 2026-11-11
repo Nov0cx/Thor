@@ -24,11 +24,11 @@ Naming_Rules :: struct {
     enum_member: Name_Styles,
 }
 
-DEFAULT_NAMING_RULES :: Naming_Rules {
-    type        = {.Ada_Case},
-    procedure   = {.Snake_Case},
-    variable    = {.Snake_Case},
-    constant    = {.Screaming_Snake_Case, .Ada_Case, .Snake_Case},
+DEFAULT_NAMING_RULES :: Naming_Rules{
+    type = {.Ada_Case},
+    procedure = {.Snake_Case},
+    variable = {.Snake_Case},
+    constant = {.Screaming_Snake_Case, .Ada_Case, .Snake_Case},
     enum_member = {.Ada_Case, .Snake_Case},
 }
 
@@ -42,9 +42,12 @@ Naming_Problem :: struct {
 // The name of a style as the user writes it in a config file.
 style_key :: proc(style: Name_Style) -> string {
     switch style {
-    case .Snake_Case:           return "snake_case"
-    case .Ada_Case:             return "ada_case"
-    case .Screaming_Snake_Case: return "screaming_snake_case"
+    case .Snake_Case:
+        return "snake_case"
+    case .Ada_Case:
+        return "ada_case"
+    case .Screaming_Snake_Case:
+        return "screaming_snake_case"
     }
     return ""
 }
@@ -61,7 +64,7 @@ style_from_key :: proc(key: string) -> (style: Name_Style, ok: bool) {
 
 // `styles` as the text of a message: "Ada_Case or SCREAMING_SNAKE_CASE".
 styles_text :: proc(styles: Name_Styles, allocator := context.allocator) -> string {
-    b := strings.builder_make(allocator)
+    b     := strings.builder_make(allocator)
     first := true
     for s in Name_Style {
         if s not_in styles {
@@ -72,9 +75,12 @@ styles_text :: proc(styles: Name_Styles, allocator := context.allocator) -> stri
         }
         first = false
         switch s {
-        case .Snake_Case:           strings.write_string(&b, "snake_case")
-        case .Ada_Case:             strings.write_string(&b, "Ada_Case")
-        case .Screaming_Snake_Case: strings.write_string(&b, "SCREAMING_SNAKE_CASE")
+        case .Snake_Case:
+            strings.write_string(&b, "snake_case")
+        case .Ada_Case:
+            strings.write_string(&b, "Ada_Case")
+        case .Screaming_Snake_Case:
+            strings.write_string(&b, "SCREAMING_SNAKE_CASE")
         }
     }
     return strings.to_string(b)
@@ -142,7 +148,7 @@ naming_problems_checked :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax
 @(private = "file")
 naming_problems_of :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, rules: Naming_Rules, allocator := context.allocator) -> []Naming_Problem {
     out := make([dynamic]Naming_Problem, allocator)
-    n := n
+    n   := n
     #partial switch n.green.kind {
     case .Value_Decl:
         value_decl_naming(c, file, &n, rules, &out)
@@ -158,7 +164,7 @@ naming_problems_of :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node
         }
     case .Enum_Type:
         et, _ := odinsyntax.as_enum_type(n)
-        it := odinsyntax.enum_type_members(&et)
+        it    := odinsyntax.enum_type_members(&et)
         for member in odinsyntax.child_iter_next(&it) {
             member := member
             if fv, ok := odinsyntax.as_field_value(member); ok {
@@ -175,7 +181,7 @@ value_decl_naming :: proc(c: ^Checker, file: File_Id, n: ^odinsyntax.Syntax_Node
     if in_foreign_block(n^) {
         return
     }
-    v, _ := odinsyntax.as_value_decl(n^)
+    v, _  := odinsyntax.as_value_decl(n^)
     attrs := odinsyntax.value_decl_attributes(&v)
     for attr in odinsyntax.child_iter_next(&attrs) {
         text := odinsyntax.node_text(attr)
@@ -200,7 +206,7 @@ value_decl_naming :: proc(c: ^Checker, file: File_Id, n: ^odinsyntax.Syntax_Node
         if !vok {
             return
         }
-        it := odinsyntax.expr_list_items(&values)
+        it         := odinsyntax.expr_list_items(&values)
         first, fok := odinsyntax.child_iter_next(&it)
         if !fok {
             return
@@ -233,8 +239,8 @@ alias_styles :: proc(c: ^Checker, file: File_Id, names: odinsyntax.Name_List, va
     if c == nil {
         return {}, false
     }
-    names := names
-    it := odinsyntax.name_list_names(&names)
+    names          := names
+    it             := odinsyntax.name_list_names(&names)
     name, has_name := odinsyntax.child_iter_next(&it)
     if !has_name {
         return {}, false
@@ -289,7 +295,7 @@ field_naming :: proc(n: ^odinsyntax.Syntax_Node, rules: Naming_Rules, out: ^[dyn
     if colon_count(n^) == 0 || in_foreign_block(n^) {
         return
     }
-    f, _ := odinsyntax.as_field(n^)
+    f, _       := odinsyntax.as_field(n^)
     names, has := odinsyntax.field_names(&f)
     if !has {
         return

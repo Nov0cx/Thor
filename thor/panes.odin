@@ -8,15 +8,15 @@ import "../editview"
 import "../setting"
 import ui "../vendor/loom/loom"
 
-MAX_PANES :: 6
+MAX_PANES          :: 6
 LAYOUT_MAX_COLUMNS :: 3
-LAYOUT_MAX_ROWS :: 2
+LAYOUT_MAX_ROWS    :: 2
 // Smallest pane a layout change may leave.
-PANE_MIN_W :: f32(240)
-PANE_MIN_H :: f32(120)
-PANE_HANDLE_WIDTH :: f32(3)
+PANE_MIN_W         :: f32(240)
+PANE_MIN_H         :: f32(120)
+PANE_HANDLE_WIDTH  :: f32(3)
 // Smallest share of its group a pane keeps while a handle is dragged.
-PANE_MIN_WEIGHT :: f32(0.1)
+PANE_MIN_WEIGHT    :: f32(0.1)
 
 // The editor area's arrangement. Panes number down each column, then across.
 Pane_Layout :: enum u8 {
@@ -30,35 +30,35 @@ Pane_Layout :: enum u8 {
 }
 
 // Row count of each column; 0 ends the list.
-LAYOUT_ROWS := [Pane_Layout][LAYOUT_MAX_COLUMNS]int {
-    .Single     = {1, 0, 0},
-    .Columns2   = {1, 1, 0},
-    .Columns3   = {1, 1, 1},
-    .Rows2      = {2, 0, 0},
+LAYOUT_ROWS := [Pane_Layout][LAYOUT_MAX_COLUMNS]int{
+    .Single = {1, 0, 0},
+    .Columns2 = {1, 1, 0},
+    .Columns3 = {1, 1, 1},
+    .Rows2 = {2, 0, 0},
     .Main_Stack = {1, 2, 0},
-    .Grid4      = {2, 2, 0},
-    .Grid6      = {2, 2, 2},
+    .Grid4 = {2, 2, 0},
+    .Grid6 = {2, 2, 2},
 }
 
 // Session spelling of each layout.
-LAYOUT_NAMES := [Pane_Layout]string {
-    .Single     = "single",
-    .Columns2   = "columns2",
-    .Columns3   = "columns3",
-    .Rows2      = "rows2",
+LAYOUT_NAMES := [Pane_Layout]string{
+    .Single = "single",
+    .Columns2 = "columns2",
+    .Columns3 = "columns3",
+    .Rows2 = "rows2",
     .Main_Stack = "main_stack",
-    .Grid4      = "grid4",
-    .Grid6      = "grid6",
+    .Grid4 = "grid4",
+    .Grid6 = "grid6",
 }
 
-LAYOUT_TITLES := [Pane_Layout]string {
-    .Single     = "Single",
-    .Columns2   = "2 Columns",
-    .Columns3   = "3 Columns",
-    .Rows2      = "2 Rows",
+LAYOUT_TITLES := [Pane_Layout]string{
+    .Single = "Single",
+    .Columns2 = "2 Columns",
+    .Columns3 = "3 Columns",
+    .Rows2 = "2 Rows",
     .Main_Stack = "Main + Stack",
-    .Grid4      = "2x2 Grid",
-    .Grid6      = "3x2 Grid",
+    .Grid4 = "2x2 Grid",
+    .Grid6 = "3x2 Grid",
 }
 
 PANE_NUMBERS := [MAX_PANES]string{"1", "2", "3", "4", "5", "6"}
@@ -110,10 +110,14 @@ layout_max_rows :: proc(layout: Pane_Layout) -> int {
 // Smallest layout with at least `count` panes, side by side where it can be.
 layout_for_count :: proc(count: int) -> Pane_Layout {
     switch {
-    case count <= 1: return .Single
-    case count == 2: return .Columns2
-    case count == 3: return .Columns3
-    case count == 4: return .Grid4
+    case count <= 1:
+        return .Single
+    case count == 2:
+        return .Columns2
+    case count == 3:
+        return .Columns3
+    case count == 4:
+        return .Grid4
     }
     return .Grid6
 }
@@ -176,8 +180,7 @@ thor_layout_fits :: proc(thor: ^Thor, layout: Pane_Layout) -> bool {
     }
     cols := f32(layout_columns(layout))
     rows := f32(layout_max_rows(layout))
-    return area.w >= cols * PANE_MIN_W + (cols - 1) * PANE_HANDLE_WIDTH &&
-        area.h >= rows * PANE_MIN_H + (rows - 1) * PANE_HANDLE_WIDTH
+    return area.w >= cols * PANE_MIN_W + (cols - 1) * PANE_HANDLE_WIDTH && area.h >= rows * PANE_MIN_H + (rows - 1) * PANE_HANDLE_WIDTH
 }
 
 // Whether open file `index` shows in one of the first `count` panes.
@@ -219,7 +222,7 @@ thor_set_layout :: proc(thor: ^Thor, layout: Pane_Layout) -> bool {
         thor_flash_status(thor, fmt.tprintf("No space for the %s layout", LAYOUT_TITLES[layout]), is_error = true)
         return false
     }
-    old := thor_pane_count(thor)
+    old   := thor_pane_count(thor)
     count := layout_pane_count(layout)
     thor.layout = layout
     if layout != .Single {
@@ -276,7 +279,7 @@ thor_toggle_split :: proc(thor: ^Thor) {
 
 // Steps through the layouts in declaration order.
 thor_cycle_layout :: proc(thor: ^Thor, step: int) {
-    n := len(Pane_Layout)
+    n      := len(Pane_Layout)
     layout := thor.layout
     // A layout that does not fit is skipped, not stopped at.
     for _ in 0 ..< n {
@@ -389,7 +392,7 @@ thor_digit_bind_matches :: proc(bind: setting.Keybind, event: ui.Key_Event) -> b
         return true
     }
     want, want_ok := thor_key_digit(bind.key)
-    got, got_ok := thor_key_digit(event.key)
+    got, got_ok   := thor_key_digit(event.key)
     return want_ok && got_ok && want == got && setting.keybind_matches(bind, bind.key, event.mods)
 }
 
@@ -403,7 +406,7 @@ thor_pane_drag_weights :: proc(weights: []f32, i: int, grab: [2]f32, moved, avai
     for w in weights {
         total += w
     }
-    pair := grab[0] + grab[1]
+    pair  := grab[0] + grab[1]
     least := PANE_MIN_WEIGHT * total
     if pair <= 2 * least {
         return
@@ -503,33 +506,33 @@ thor_restore_weights :: proc(thor: ^Thor, cols: [LAYOUT_MAX_COLUMNS]f32, rows: [
     }
 }
 
-thor_cmd_next_layout :: proc(data: rawptr) {thor_cycle_layout(cast(^Thor) data, 1)}
-thor_cmd_focus_next_pane :: proc(data: rawptr) {thor_focus_next_pane(cast(^Thor) data, 1)}
-thor_cmd_focus_previous_pane :: proc(data: rawptr) {thor_focus_next_pane(cast(^Thor) data, -1)}
-thor_cmd_pick_pane :: proc(data: rawptr) {thor_pane_pick_begin(cast(^Thor) data, "")}
+thor_cmd_next_layout         :: proc(data: rawptr) {
+    thor_cycle_layout(cast(^Thor)data, 1)
+}
+thor_cmd_focus_next_pane     :: proc(data: rawptr) {
+    thor_focus_next_pane(cast(^Thor)data, 1)
+}
+thor_cmd_focus_previous_pane :: proc(data: rawptr) {
+    thor_focus_next_pane(cast(^Thor)data, -1)
+}
+thor_cmd_pick_pane           :: proc(data: rawptr) {
+    thor_pane_pick_begin(cast(^Thor)data, "")
+}
 
 thor_cmd_open_to_side :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_file_to_pane(thor, thor_side_pane(thor))
 }
 
 // Lists the layouts. No live preview: a layout passed over would drop the
 // files of the panes it cuts.
 thor_cmd_pick_layout :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     titles: [len(Pane_Layout)]string
     for title, layout in LAYOUT_TITLES {
         titles[int(layout)] = title
     }
-    thor_select_open(
-        thor,
-        "Pane Layout",
-        titles[:],
-        LAYOUT_TITLES[thor.layout],
-        thor_pick_layout_preview,
-        thor_pick_layout_commit,
-        thor,
-    )
+    thor_select_open(thor, "Pane Layout", titles[:], LAYOUT_TITLES[thor.layout], thor_pick_layout_preview, thor_pick_layout_commit, thor)
 }
 
 @(private = "file")
@@ -547,7 +550,7 @@ thor_pick_layout_preview :: proc(_: rawptr, _: string) {}
 
 @(private = "file")
 thor_pick_layout_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if layout, ok := thor_layout_of_title(choice); ok {
         thor_set_layout(thor, layout)
     }

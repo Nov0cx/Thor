@@ -8,12 +8,12 @@ import lang ".."
 // Runs a Signature_Help request at the first `needle` in `source`, plus `skip` bytes.
 @(private = "file")
 sig_at :: proc(e: ^Engine, source, needle: string, skip := 0, workspace := "", path := "buffer.odin") -> lang.Result {
-    req := lang.Request {
-        kind      = .Signature_Help,
-        path      = path,
-        ext       = ".odin",
-        source    = source,
-        offset    = strings.index(source, needle) + skip,
+    req := lang.Request{
+        kind = .Signature_Help,
+        path = path,
+        ext = ".odin",
+        source = source,
+        offset = strings.index(source, needle) + skip,
         workspace = workspace,
     }
     res := lang.Result{kind = .Signature_Help}
@@ -45,7 +45,17 @@ sig_active :: proc(res: ^lang.Result) -> (label, param: string) {
 
 // Expects the active entry `label` with the active parameter `param` at the first `needle` plus `skip`.
 @(private = "file")
-expect_sig :: proc(t: ^testing.T, e: ^Engine, src, needle: string, skip: int, label, param: string, entries := 1, workspace := "", path := "buffer.odin", loc := #caller_location) {
+expect_sig :: proc(
+    t: ^testing.T,
+    e: ^Engine,
+    src, needle: string,
+    skip: int,
+    label, param: string,
+    entries := 1,
+    workspace := "",
+    path := "buffer.odin",
+    loc := #caller_location,
+) {
     res := sig_at(e, src, needle, skip, workspace, path)
     defer sig_free(&res)
     if !testing.expectf(t, res.ok, "%q+%d: expected signature help", needle, skip, loc = loc) {
@@ -264,15 +274,25 @@ test_signature_builtin_group :: proc(t: ^testing.T) {
 test_signature_cross_package :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
-    lib_src := "package lib\n\nscale :: proc(v: int, by: int) -> int {\n\treturn v * by\n}\n\nsized_one :: proc(a: int) {}\nsized_two :: proc(a: int, b: int) {}\nsizes :: proc{sized_one, sized_two}\n"
-    sib_src := "package app\n\nhelper :: proc(\n\tname: string, // the name\n\tcount := 2,\n) {}\n"
-    root := fixture(t, "signature_packages", {{"lib/lib.odin", lib_src}, {"app/sibling.odin", sib_src}})
-    main_src := "package app\n\nimport \"../lib\"\n\nmain :: proc() {\n\t_ = lib.scale(2, 3)\n\tlib.sizes(1, 2)\n\thelper(\"a\", 3)\n}\n"
+    lib_src   := "package lib\n\nscale :: proc(v: int, by: int) -> int {\n\treturn v * by\n}\n\nsized_one :: proc(a: int) {}\nsized_two :: proc(a: int, b: int) {}\nsizes :: proc{sized_one, sized_two}\n"
+    sib_src   := "package app\n\nhelper :: proc(\n\tname: string, // the name\n\tcount := 2,\n) {}\n"
+    root      := fixture(t, "signature_packages", {{"lib/lib.odin", lib_src}, {"app/sibling.odin", sib_src}})
+    main_src  := "package app\n\nimport \"../lib\"\n\nmain :: proc() {\n\t_ = lib.scale(2, 3)\n\tlib.sizes(1, 2)\n\thelper(\"a\", 3)\n}\n"
     main_path := fixture_path(root, "app/main.odin")
     expect_sig(t, e, main_src, "scale(2, 3)", len("scale(2, "), "scale :: proc(v: int, by: int) -> int", "by: int", workspace = root, path = main_path)
     expect_sig(t, e, main_src, "sizes(1, 2)", len("sizes("), "sized_two :: proc(a: int, b: int)", "a: int", entries = 2, workspace = root, path = main_path)
     // A multi-line parameter list is one line, comments and the trailing comma dropped.
-    expect_sig(t, e, main_src, "helper(\"a\", 3)", len("helper(\"a\", "), "helper :: proc(name: string, count := 2)", "count := 2", workspace = root, path = main_path)
+    expect_sig(
+        t,
+        e,
+        main_src,
+        "helper(\"a\", 3)",
+        len("helper(\"a\", "),
+        "helper :: proc(name: string, count := 2)",
+        "count := 2",
+        workspace = root,
+        path = main_path,
+    )
 }
 
 @(test)

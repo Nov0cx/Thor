@@ -26,10 +26,10 @@ foreign libc {
 // numbers come from each kernel's own header.
 when ODIN_OS == .Linux {
     TIOCSWINSZ :: c.ulong(0x5414)
-    TIOCSCTTY :: c.ulong(0x540e)
+    TIOCSCTTY  :: c.ulong(0x540e)
 } else {
     TIOCSWINSZ :: c.ulong(0x80087467)
-    TIOCSCTTY :: c.ulong(0x20007461)
+    TIOCSCTTY  :: c.ulong(0x20007461)
 }
 
 @(private = "file")
@@ -74,7 +74,7 @@ pty_start :: proc(profile: Profile, cwd: string, cols, rows: int) -> (^Pty, bool
         return nil, false
     }
 
-    limit := fd_limit()
+    limit  := fd_limit()
     master := posix.posix_openpt({.RDWR, .NOCTTY})
     if master < 0 {
         return nil, false
@@ -101,10 +101,10 @@ pty_start :: proc(profile: Profile, cwd: string, cols, rows: int) -> (^Pty, bool
     // server would hold the terminal open after its shell is gone. pty_read
     // selects on two of them, which limits their numbers.
     if posix.fcntl(master, .SETFD, posix.FD_CLOEXEC) < 0 ||
-       posix.fcntl(wake[0], .SETFD, posix.FD_CLOEXEC) < 0 ||
-       posix.fcntl(wake[1], .SETFD, posix.FD_CLOEXEC) < 0 ||
-       master >= posix.FD_SETSIZE ||
-       wake[0] >= posix.FD_SETSIZE {
+        posix.fcntl(wake[0], .SETFD, posix.FD_CLOEXEC) < 0 ||
+        posix.fcntl(wake[1], .SETFD, posix.FD_CLOEXEC) < 0 ||
+        master >= posix.FD_SETSIZE ||
+        wake[0] >= posix.FD_SETSIZE {
         posix.close(master)
         posix.close(wake[0])
         posix.close(wake[1])
@@ -120,10 +120,7 @@ pty_start :: proc(profile: Profile, cwd: string, cols, rows: int) -> (^Pty, bool
         return nil, false
     }
 
-    size := Winsize {
-        ws_row = u16(rows),
-        ws_col = u16(cols),
-    }
+    size := Winsize{ws_row = u16(rows), ws_col = u16(cols)}
     ioctl(master, TIOCSWINSZ, &size)
 
     pid := posix.fork()
@@ -197,7 +194,7 @@ pty_write :: proc(pty: ^Pty, data: string) -> bool {
     if len(data) == 0 {
         return true
     }
-    bytes := transmute([]u8) data
+    bytes := transmute([]u8)data
     for sent := 0; sent < len(bytes); {
         // Waits on the wake pipe too, so pty_terminate ends a write the shell
         // does not read.
@@ -219,7 +216,7 @@ pty_write :: proc(pty: ^Pty, data: string) -> bool {
         if !posix.FD_ISSET(pty.master, &writable) {
             continue
         }
-        rest := bytes[sent:]
+        rest    := bytes[sent:]
         written := posix.write(pty.master, raw_data(rest), c.size_t(len(rest)))
         if written < 0 {
             if errno := posix.errno(); errno == .EINTR || errno == .EAGAIN {
@@ -276,10 +273,7 @@ pty_resize :: proc(pty: ^Pty, cols, rows: int) -> bool {
     }
     cols, rows := cols, rows
     cols, rows = pty_clamp_size(cols, rows)
-    size := Winsize {
-        ws_row = u16(rows),
-        ws_col = u16(cols),
-    }
+    size := Winsize{ws_row = u16(rows), ws_col = u16(cols)}
     return ioctl(pty.master, TIOCSWINSZ, &size) == 0
 }
 
@@ -300,8 +294,7 @@ pty_terminate :: proc(pty: ^Pty) {
     // The master stays open until the reader is joined. The byte is what ends
     // the read: a job the shell put in its own group survives the kill.
     wake := [1]u8{1}
-    for posix.write(pty.wake_w, &wake[0], 1) < 0 && posix.errno() == .EINTR {
-    }
+    for posix.write(pty.wake_w, &wake[0], 1) < 0 && posix.errno() == .EINTR {}
 }
 
 // Releases the descriptors and reaps the shell. Only legal once the reader is
@@ -314,7 +307,6 @@ pty_destroy :: proc(pty: ^Pty) {
     posix.close(pty.wake_r)
     posix.close(pty.wake_w)
     status: c.int
-    for posix.waitpid(pty.pid, &status, {}) < 0 && posix.errno() == .EINTR {
-    }
+    for posix.waitpid(pty.pid, &status, {}) < 0 && posix.errno() == .EINTR {}
     free(pty)
 }

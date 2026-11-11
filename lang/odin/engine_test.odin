@@ -120,7 +120,7 @@ add :: proc(a: int, b: int) -> int {
 
     testing.expect(t, res.ok, "expected a document symbols result")
     names := symbol_names(&res)
-    want := []string{"Color", "Red", "Green", "Point", "x", "y", "MAX", "add"}
+    want  := []string{"Color", "Red", "Green", "Point", "x", "y", "MAX", "add"}
     kinds := []string{"enum", "enum_member", "enum_member", "type", "field", "field", "constant", "function"}
     testing.expectf(t, len(names) == len(want), "got %v, want %v", names, want)
     if len(names) != len(want) {
@@ -167,7 +167,7 @@ last :: proc() {}
 
     testing.expect(t, res.ok, "expected a document symbols result")
     names := symbol_names(&res)
-    want := []string{"outer", "Local", "a", "inner", "deepest", "last"}
+    want  := []string{"outer", "Local", "a", "inner", "deepest", "last"}
     kinds := []string{"function", "type", "field", "function", "function", "function"}
     testing.expectf(t, slice.equal(names, want), "got %v, want %v", names, want)
     if len(names) != len(want) {
@@ -206,7 +206,7 @@ Word :: int
 
     testing.expect(t, res.ok, "expected a document symbols result")
     names := symbol_names(&res)
-    want := []string{"Color", "Red", "Point", "x", "MAX", "add", "Alias", "Hue", "run", "N", "Word"}
+    want  := []string{"Color", "Red", "Point", "x", "MAX", "add", "Alias", "Hue", "run", "N", "Word"}
     kinds := []string{"enum", "enum_member", "type", "field", "constant", "function", "type", "enum", "function", "constant", "type"}
     testing.expectf(t, slice.equal(names, want), "got %v, want %v", names, want)
     if len(names) != len(want) {
@@ -227,17 +227,20 @@ test_workspace_symbols_inactive :: proc(t: ^testing.T) {
     _ = os.remove_all(root)
     defer os.remove_all(root)
     testing.expect_value(t, os.make_directory(root), nil)
-    host_os := ODIN_OS == .Windows ? "Windows" : ODIN_OS == .Darwin ? "Darwin" : "Linux"
-    other_os := ODIN_OS == .Windows ? "Linux" : "Windows"
-    disk := strings.concatenate({"package app\n\nwhen ODIN_OS == .", other_os, " {\n\tapple :: proc() {}\n}\n\nzebra :: proc() {}\n"}, context.temp_allocator)
+    host_os   := ODIN_OS == .Windows ? "Windows" : ODIN_OS == .Darwin ? "Darwin" : "Linux"
+    other_os  := ODIN_OS == .Windows ? "Linux" : "Windows"
+    disk      := strings.concatenate(
+        {"package app\n\nwhen ODIN_OS == .", other_os, " {\n\tapple :: proc() {}\n}\n\nzebra :: proc() {}\n"},
+        context.temp_allocator,
+    )
     disk_path := strings.concatenate({root, "/disk.odin"}, context.temp_allocator)
     testing.expect_value(t, os.write_entire_file(disk_path, transmute([]byte)disk), nil)
 
-    req := lang.Request {
-        kind      = .Workspace_Symbols,
-        path      = strings.concatenate({root, "/live.odin"}, context.temp_allocator),
-        ext       = ".odin",
-        source    = strings.concatenate({"package app\n\nwhen ODIN_OS == .", host_os, " {\n\tbanana :: 1\n} else {\n\tcherry :: 2\n}\n"}, context.temp_allocator),
+    req := lang.Request{
+        kind = .Workspace_Symbols,
+        path = strings.concatenate({root, "/live.odin"}, context.temp_allocator),
+        ext = ".odin",
+        source = strings.concatenate({"package app\n\nwhen ODIN_OS == .", host_os, " {\n\tbanana :: 1\n} else {\n\tcherry :: 2\n}\n"}, context.temp_allocator),
         workspace = root,
     }
     res := lang.Result{kind = .Workspace_Symbols}
@@ -245,7 +248,7 @@ test_workspace_symbols_inactive :: proc(t: ^testing.T) {
     defer free_symbols(&res)
     testing.expect(t, res.ok, "expected a workspace symbols result")
     names := symbol_names(&res)
-    want := []string{"banana", "zebra", "apple", "cherry"}
+    want  := []string{"banana", "zebra", "apple", "cherry"}
     testing.expectf(t, slice.equal(names, want), "got %v, want %v", names, want)
     if len(names) != len(want) {
         return
@@ -265,15 +268,15 @@ test_workspace_symbols :: proc(t: ^testing.T) {
     root := "thor_lang_ws_syms"
     _ = os.remove_all(root)
     defer os.remove_all(root)
-    app := strings.concatenate({root, "/app"}, context.temp_allocator)
-    lib := strings.concatenate({root, "/lib"}, context.temp_allocator)
+    app    := strings.concatenate({root, "/app"}, context.temp_allocator)
+    lib    := strings.concatenate({root, "/lib"}, context.temp_allocator)
     hidden := strings.concatenate({root, "/.git"}, context.temp_allocator)
     for dir in ([]string{root, app, lib, hidden}) {
         testing.expect_value(t, os.make_directory(dir), nil)
     }
     // A file of another OS is out of the host build.
     other_os := ODIN_OS == .Windows ? "linux" : "windows"
-    files := [][2]string {
+    files    := [][2]string{
         {strings.concatenate({lib, "/thing.odin"}, context.temp_allocator), "package lib\n\nthing :: proc() {}\n"},
         {strings.concatenate({app, "/util.odin"}, context.temp_allocator), "package app\n\nUtil :: struct { inner: int }\n"},
         {strings.concatenate({app, "/main.odin"}, context.temp_allocator), "package app\n\nstale :: proc() {}\n"},
@@ -285,18 +288,12 @@ test_workspace_symbols :: proc(t: ^testing.T) {
     }
 
     // The live buffer stands in for main.odin on disk.
-    req := lang.Request {
-        kind      = .Workspace_Symbols,
-        path      = files[2][0],
-        ext       = ".odin",
-        source    = "package app\n\nlive :: proc() {}\n",
-        workspace = root,
-    }
+    req := lang.Request{kind = .Workspace_Symbols, path = files[2][0], ext = ".odin", source = "package app\n\nlive :: proc() {}\n", workspace = root}
     res := lang.Result{kind = .Workspace_Symbols}
     resolve(e, &req, &res)
     testing.expect(t, res.ok, "expected a workspace symbols result")
     names := symbol_names(&res)
-    want := []string{"Util", "live", "thing"}
+    want  := []string{"Util", "live", "thing"}
     testing.expectf(t, slice.equal(names, want), "got %v, want %v", names, want)
     free_symbols(&res)
 
@@ -323,18 +320,22 @@ test_workspace_symbols :: proc(t: ^testing.T) {
 // again when the target is cleared. Its neighbour keeps the host target.
 @(test)
 test_engine_file_target :: proc(t: ^testing.T) {
-    other_os := ODIN_OS == .Linux ? "windows" : "linux"
+    other_os     := ODIN_OS == .Linux ? "windows" : "linux"
     other_triple := ODIN_OS == .Linux ? "windows_amd64" : "linux_amd64"
-    root := fixture(t, "lang_file_target", {
-        {fmt.tprintf("x_%s.odin", other_os), "package app\n\nonly_other :: proc() {}\n"},
-        {"main.odin", "package app\n\nrun :: proc() {\n\tonly_other()\n}\n"},
-        {"side.odin", "package app\n\nside :: proc() {}\n"},
-    })
+    root         := fixture(
+        t,
+        "lang_file_target",
+        {
+            {fmt.tprintf("x_%s.odin", other_os), "package app\n\nonly_other :: proc() {}\n"},
+            {"main.odin", "package app\n\nrun :: proc() {\n\tonly_other()\n}\n"},
+            {"side.odin", "package app\n\nside :: proc() {}\n"},
+        },
+    )
     defer os.remove_all(root)
-    main_path := strings.concatenate({root, "/main.odin"}, context.temp_allocator)
-    side_path := strings.concatenate({root, "/side.odin"}, context.temp_allocator)
+    main_path  := strings.concatenate({root, "/main.odin"}, context.temp_allocator)
+    side_path  := strings.concatenate({root, "/side.odin"}, context.temp_allocator)
     other_path := fmt.tprintf("%s/x_%s.odin", root, other_os)
-    source := "package app\n\nrun :: proc() {\n\tonly_other()\n}\n"
+    source     := "package app\n\nrun :: proc() {\n\tonly_other()\n}\n"
 
     e := engine_create()
     defer engine_destroy(e)
@@ -351,7 +352,7 @@ test_engine_file_target :: proc(t: ^testing.T) {
         }
         return n
     }
-    in_build :: proc(e: ^Engine, path: string) -> bool {
+    in_build   :: proc(e: ^Engine, path: string) -> bool {
         src, ok := lang.source_read(path, context.temp_allocator)
         if !ok {
             return false

@@ -38,28 +38,19 @@ transport_child :: proc(spec: shell.Child_Spec) -> (Transport, bool) {
     if !ok {
         return {}, false
     }
-    return Transport {
-        data = child,
-        write = proc(data: rawptr, bytes: []u8) -> bool {
-            return shell.child_write((^shell.Child)(data), bytes)
-        },
-        read_out = proc(data: rawptr, buf: []u8) -> int {
-            return shell.child_read_out((^shell.Child)(data), buf)
-        },
-        read_err = proc(data: rawptr, buf: []u8) -> int {
-            return shell.child_read_err((^shell.Child)(data), buf)
-        },
-        close = proc(data: rawptr) {
-            shell.child_close_in((^shell.Child)(data))
-        },
-        terminate = proc(data: rawptr) {
-            shell.child_terminate((^shell.Child)(data))
-        },
-        kill = proc(data: rawptr) {
-            shell.child_kill((^shell.Child)(data))
-        },
-        destroy = proc(data: rawptr) {
-            shell.child_destroy((^shell.Child)(data))
-        },
-    }, true
+    return Transport{data = child, write = proc(data: rawptr, bytes: []u8) -> bool {
+        return shell.child_write((^shell.Child)(data), bytes)
+    }, read_out = proc(data: rawptr, buf: []u8) -> int {
+        return shell.child_read_out((^shell.Child)(data), buf)
+    }, read_err = proc(data: rawptr, buf: []u8) -> int {
+        return shell.child_read_err((^shell.Child)(data), buf)
+    }, close = proc(data: rawptr) {
+        shell.child_close_in((^shell.Child)(data))
+    }, terminate = proc(data: rawptr) {
+        shell.child_terminate((^shell.Child)(data))
+    }, kill = proc(data: rawptr) {
+        shell.child_kill((^shell.Child)(data))
+    }, destroy = proc(data: rawptr) {
+        shell.child_destroy((^shell.Child)(data))
+    }}, true
 }

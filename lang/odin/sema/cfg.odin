@@ -44,11 +44,11 @@ Cfg_Block :: struct {
 // Where a `break` or `continue` goes.
 @(private = "file")
 Cfg_Target :: struct {
-    label:     string,
-    brk:       Block_Id,
-    cont:      Block_Id, // NO_BLOCK for a switch or a labelled block
-    depth:     int,      // the scope count outside the statement
-    implicit:  bool,     // an unlabelled `break` can reach it
+    label:    string,
+    brk:      Block_Id,
+    cont:     Block_Id, // NO_BLOCK for a switch or a labelled block
+    depth:    int,      // the scope count outside the statement
+    implicit: bool,     // an unlabelled `break` can reach it
 }
 
 @(private = "file")
@@ -127,13 +127,7 @@ Cfg_Key :: struct {
 
 @(private = "file")
 cfg_fill :: proc(g: ^Cfg, c: ^Checker, file: File_Id, body: odinsyntax.Syntax_Node, alloc: mem.Allocator) -> (err: mem.Allocator_Error) {
-    b := Cfg_Builder {
-        g     = g,
-        c     = c,
-        file  = file,
-        alloc = alloc,
-        fall  = NO_BLOCK,
-    }
+    b := Cfg_Builder{g = g, c = c, file = file, alloc = alloc, fall = NO_BLOCK}
     g.blocks = make([dynamic]Cfg_Block, b.alloc)
     g.stmt_block = make(map[u32]Block_Id, b.alloc)
     b.scopes = make([dynamic][dynamic]odinsyntax.Syntax_Node, b.alloc)
@@ -156,7 +150,7 @@ cfg_destroy :: proc(g: ^Cfg, allocator := context.allocator) {
 
 // Which blocks a path from the entry reaches.
 cfg_reachable :: proc(g: ^Cfg, allocator := context.allocator) -> []bool {
-    seen := make([]bool, len(g.blocks), allocator)
+    seen  := make([]bool, len(g.blocks), allocator)
     stack := make([dynamic]Block_Id, context.temp_allocator)
     append(&stack, g.entry)
     seen[g.entry] = true
@@ -187,10 +181,7 @@ note :: proc(b: ^Cfg_Builder, err: mem.Allocator_Error) {
 
 @(private = "file")
 new_block :: proc(b: ^Cfg_Builder) -> Block_Id {
-    blk := Cfg_Block {
-        steps = make([dynamic]Cfg_Step, b.alloc),
-        succs = make([dynamic]Block_Id, b.alloc),
-    }
+    blk    := Cfg_Block{steps = make([dynamic]Cfg_Step, b.alloc), succs = make([dynamic]Block_Id, b.alloc)}
     _, err := append(&b.g.blocks, blk)
     note(b, err)
     return Block_Id(len(b.g.blocks) - 1)
@@ -278,12 +269,12 @@ split :: proc(b: ^Cfg_Builder) {
 
 @(private = "file")
 label_of :: proc(n: odinsyntax.Syntax_Node) -> string {
-    n := n
+    n     := n
     l, ok := odinsyntax.find_child_node(&n, {kinds = {.Label}})
     if !ok {
         return ""
     }
-    lv, _ := odinsyntax.as_label(l)
+    lv, _          := odinsyntax.as_label(l)
     name, has_name := odinsyntax.label_name(&lv)
     return has_name ? odinsyntax.node_text(odinsyntax.Syntax_Node(name)) : ""
 }
@@ -351,8 +342,8 @@ build_stmt :: proc(b: ^Cfg_Builder, n: odinsyntax.Syntax_Node) {
     #partial switch n.green.kind {
     case .Block:
         blk, _ := odinsyntax.as_block(n)
-        label := label_of(n)
-        after := NO_BLOCK
+        label  := label_of(n)
+        after  := NO_BLOCK
         if label != "" {
             after = new_block(b)
             push_target(b, label, after, NO_BLOCK, false)
@@ -377,7 +368,7 @@ build_stmt :: proc(b: ^Cfg_Builder, n: odinsyntax.Syntax_Node) {
         jump(b, b.g.exit, 0)
         dead_end(b)
     case .Branch_Stmt:
-        bs, _ := odinsyntax.as_branch_stmt(n)
+        bs, _  := odinsyntax.as_branch_stmt(n)
         kw, ok := odinsyntax.branch_stmt_keyword(&bs)
         if !ok {
             return
@@ -444,7 +435,7 @@ build_if :: proc(b: ^Cfg_Builder, n: odinsyntax.Syntax_Node) {
         step(b, cond, .Expr)
         flow_expr(b, cond)
     }
-    head := b.cur
+    head           := b.cur
     cond, has_cond := odinsyntax.if_stmt_cond(&is)
     on_true, on_false := NO_BLOCK, after
     if body, ok := odinsyntax.if_stmt_body(&is); ok {
@@ -478,15 +469,15 @@ build_if :: proc(b: ^Cfg_Builder, n: odinsyntax.Syntax_Node) {
 // another branch.
 @(private = "file")
 build_when :: proc(b: ^Cfg_Builder, n: odinsyntax.Syntax_Node) {
-    ws, _ := odinsyntax.as_when_stmt(n)
-    cond, has_cond := odinsyntax.when_stmt_cond(&ws)
-    body, has_body := odinsyntax.when_stmt_body(&ws)
+    ws, _           := odinsyntax.as_when_stmt(n)
+    cond, has_cond  := odinsyntax.when_stmt_cond(&ws)
+    body, has_body  := odinsyntax.when_stmt_body(&ws)
     other, has_else := odinsyntax.when_stmt_else_branch(&ws)
-    state := Tri.Unknown
+    state           := Tri.Unknown
     if has_cond {
         state = when_state(b.c, b.file, cond)
     }
-    head := b.cur
+    head  := b.cur
     after := new_block(b)
     edge(b, head, after)
     if has_body && state != .False {
@@ -532,8 +523,8 @@ build_for :: proc(b: ^Cfg_Builder, n: odinsyntax.Syntax_Node) {
     head := new_block(b)
     edge(b, b.cur, head)
     b.cur = head
-    body := new_block(b)
-    post := new_block(b)
+    body  := new_block(b)
+    post  := new_block(b)
     after := new_block(b)
     if cond, ok := odinsyntax.for_stmt_cond(&fs); ok {
         step(b, cond, .Expr)
@@ -571,7 +562,7 @@ build_range :: proc(b: ^Cfg_Builder, n: odinsyntax.Syntax_Node) {
     }
     head := new_block(b)
     edge(b, b.cur, head)
-    body := new_block(b)
+    body  := new_block(b)
     after := new_block(b)
     edge(b, head, body)
     edge(b, head, after)
@@ -609,13 +600,13 @@ build_switch :: proc(b: ^Cfg_Builder, n: odinsyntax.Syntax_Node) {
         }
         body, has_body = odinsyntax.type_switch_stmt_body(&ts)
     }
-    head := b.cur
+    head  := b.cur
     after := new_block(b)
     push_target(b, label_of(n), after, NO_BLOCK, true)
     has_default := false
     if has_body {
         clauses := make([dynamic]odinsyntax.Syntax_Node, context.temp_allocator)
-        it := odinsyntax.child_iter((^odinsyntax.Syntax_Node)(&body), {kinds = {.Case_Clause}})
+        it      := odinsyntax.child_iter((^odinsyntax.Syntax_Node)(&body), {kinds = {.Case_Clause}})
         for clause in odinsyntax.child_iter_next(&it) {
             append(&clauses, clause)
             cc, _ := odinsyntax.as_case_clause(clause)
@@ -655,7 +646,7 @@ build_switch :: proc(b: ^Cfg_Builder, n: odinsyntax.Syntax_Node) {
 // the current block. A nested procedure literal is not followed.
 @(private = "file")
 flow_children :: proc(b: ^Cfg_Builder, n: odinsyntax.Syntax_Node) {
-    n := n
+    n  := n
     it := odinsyntax.child_iter(&n, {kinds = ALL_KINDS})
     for child in odinsyntax.child_iter_next(&it) {
         flow_expr(b, child)
@@ -675,7 +666,7 @@ flow_expr :: proc(b: ^Cfg_Builder, n: odinsyntax.Syntax_Node) {
         return
     case .Or_Branch_Expr:
         flow_children(b, n)
-        ob, _ := odinsyntax.as_or_branch_expr(n)
+        ob, _  := odinsyntax.as_or_branch_expr(n)
         kw, ok := odinsyntax.or_branch_expr_keyword(&ob)
         if !ok {
             return
@@ -696,7 +687,7 @@ flow_expr :: proc(b: ^Cfg_Builder, n: odinsyntax.Syntax_Node) {
 diverges_known :: proc(c: ^Checker, file: File_Id, expr: odinsyntax.Syntax_Node) -> bool {
     expr := expr
     for expr.green.kind == .Paren_Expr {
-        pe, _ := odinsyntax.as_paren_expr(expr)
+        pe, _     := odinsyntax.as_paren_expr(expr)
         inner, ok := odinsyntax.paren_expr_expr(&pe)
         if !ok {
             return false
@@ -766,7 +757,10 @@ Report_Walker :: struct {
 
 // The unreachable code of the procedure literal `lit`. A branch of a `when` the target may not take
 // is not walked; a `defer` body counts for `never_executed` and `defers` only.
-unreachable_code :: proc(c: ^Checker, file: File_Id, lit: odinsyntax.Syntax_Node, allocator := context.allocator) -> (out: Unreachable_Report, err: mem.Allocator_Error) {
+unreachable_code :: proc(c: ^Checker, file: File_Id, lit: odinsyntax.Syntax_Node, allocator := context.allocator) -> (
+    out: Unreachable_Report,
+    err: mem.Allocator_Error,
+) {
     out.never_executed = make([dynamic]Never_Executed, allocator)
     out.defers = make([dynamic]int, allocator)
     out.dead = make([dynamic]int, allocator)
@@ -774,13 +768,7 @@ unreachable_code :: proc(c: ^Checker, file: File_Id, lit: odinsyntax.Syntax_Node
     if g == nil {
         return
     }
-    w := Report_Walker {
-        c         = c,
-        file      = file,
-        g         = g,
-        reachable = cfg_reachable(g, context.temp_allocator),
-        out       = &out,
-    }
+    w     := Report_Walker{c = c, file = file, g = g, reachable = cfg_reachable(g, context.temp_allocator), out = &out}
     pl, _ := odinsyntax.as_proc_lit(lit)
     if body, ok := odinsyntax.proc_lit_body(&pl); ok {
         report_stmt(&w, body, true)
@@ -816,7 +804,7 @@ report_stmt :: proc(w: ^Report_Walker, n: odinsyntax.Syntax_Node, live: bool) {
             report_stmt(w, other, live)
         }
     case .When_Stmt:
-        ws, _ := odinsyntax.as_when_stmt(n)
+        ws, _          := odinsyntax.as_when_stmt(n)
         cond, has_cond := odinsyntax.when_stmt_cond(&ws)
         if !has_cond {
             return
@@ -865,7 +853,7 @@ report_stmt :: proc(w: ^Report_Walker, n: odinsyntax.Syntax_Node, live: bool) {
 
 @(private = "file")
 report_list :: proc(w: ^Report_Walker, stmts: odinsyntax.Child_Iter, live: bool) {
-    list := make([dynamic]odinsyntax.Syntax_Node, context.temp_allocator)
+    list  := make([dynamic]odinsyntax.Syntax_Node, context.temp_allocator)
     stmts := stmts
     for s in odinsyntax.child_iter_next(&stmts) {
         if s.green.kind == .Value_Decl && is_constant_decl(s) {
@@ -924,7 +912,7 @@ terminator_kind :: proc(w: ^Report_Walker, s: odinsyntax.Syntax_Node) -> (Never_
     case .Return_Stmt:
         return .Return, true
     case .Branch_Stmt:
-        bs, _ := odinsyntax.as_branch_stmt(s)
+        bs, _  := odinsyntax.as_branch_stmt(s)
         kw, ok := odinsyntax.branch_stmt_keyword(&bs)
         if !ok {
             return {}, false

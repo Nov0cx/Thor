@@ -9,5 +9,4 @@ dinput_suppress :: proc() -> bool {
     return false
 }
 
-dinput_restore :: proc() {
-}
+dinput_restore :: proc() {}

@@ -11,7 +11,7 @@ Item_Kind :: enum {
     Text,
     Rect,
     Image,
-    Copy, // a code block: `text` is its code, `url` its language
+    Copy,   // a code block: `text` is its code, `url` its language
     Toggle, // a `<details>` summary row: `ref` is the block, `size` 1 when open
 }
 
@@ -21,7 +21,7 @@ Style_Flag :: enum u8 {
     Italic,
 }
 
-Style :: bit_set[Style_Flag;u8]
+Style :: bit_set[Style_Flag; u8]
 
 // One laid-out primitive, relative to the content origin. `text` and `url`
 // borrow from the source `layout` was given or from the page, so that source
@@ -73,17 +73,17 @@ Metrics :: struct {
 }
 
 Page :: struct {
-    items:          [dynamic]Item, // owned
+    items:          [dynamic]Item,   // owned
     owned:          [dynamic]string, // strings the items borrow that are not slices of the source
-    anchors:        map[string]f32, // owned keys; heading slug or `^label` to its y
-    open:           map[int]bool, // the `<details>` blocks the reader opened; kept across layouts
+    anchors:        map[string]f32,  // owned keys; heading slug or `^label` to its y
+    open:           map[int]bool,    // the `<details>` blocks the reader opened; kept across layouts
     content_height: f32,
 }
 
-PAD_X :: f32(28)
-PAD_TOP :: f32(22)
+PAD_X      :: f32(28)
+PAD_TOP    :: f32(22)
 PAD_BOTTOM :: f32(28)
-MAX_WIDTH :: f32(860)
+MAX_WIDTH  :: f32(860)
 
 page_destroy :: proc(page: ^Page) {
     page_clear(page)
@@ -164,7 +164,7 @@ item_at :: proc(page: ^Page, kind: Item_Kind, x, y: f32) -> int {
 // The source offset nearest a content-relative point: in the text item under
 // it, else at the end of the nearest item on that row, else -1.
 offset_at :: proc(page: ^Page, m: Metrics, x, y: f32) -> int {
-    best := -1
+    best    := -1
     best_dx := max(f32)
     for item in page.items {
         if item.kind != .Text || item.src < 0 || y < item.y || y >= item.y + item.h {
@@ -235,7 +235,7 @@ item_selection :: proc(item: Item, lo, hi: int) -> (from, to: int, ok: bool) {
 // change is a line break and a gap between two items is a space. In
 // `allocator`.
 selection_text :: proc(page: ^Page, lo, hi: int, allocator := context.allocator) -> string {
-    sb := strings.builder_make(allocator)
+    sb   := strings.builder_make(allocator)
     have := false
     last: Item
     for item in page.items {

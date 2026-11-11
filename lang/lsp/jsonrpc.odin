@@ -78,8 +78,8 @@ Frame :: struct {
 // with no lock, so the owner sets them before the connection starts and never
 // changes them.
 Conn_Answers :: struct {
-    settings: string, // the configured `settings` object; "" answers null
-    folders:  string, // the workspaceFolders array; "" answers null
+    settings:        string, // the configured `settings` object; "" answers null
+    folders:         string, // the workspaceFolders array; "" answers null
     // workspace/applyEdit: decodes params["edit"] and routes it through the
     // Manager's push channel for a main-thread apply. Runs on the reader
     // thread and may block for a bounded wait; nil answers every edit refused
@@ -94,23 +94,23 @@ Conn_Answers :: struct {
 Conn :: struct {
     transport:     Transport,
     allocator:     runtime.Allocator,
-    answers:       Conn_Answers, // borrowed; immutable for the connection's life
-    reader:        ^thread.Thread, // owned
-    draining:      ^thread.Thread, // owned; stderr
-    writer:        ^thread.Thread, // owned
-    stopped:       bool,           // main thread only; conn_close has run
+    answers:       Conn_Answers,          // borrowed; immutable for the connection's life
+    reader:        ^thread.Thread,        // owned
+    draining:      ^thread.Thread,        // owned; stderr
+    writer:        ^thread.Thread,        // owned
+    stopped:       bool,                  // main thread only; conn_close has run
     outgoing:      lockfree.Stack(Frame), // owned; pushed by any thread, taken by the writer
     outgoing_size: int,                   // atomic; bytes queued and not yet written
     write_ready:   sync.Sema,             // posted for every message and for the finish
-    write_finish:  bool,                 // atomic; the writer leaves once outgoing is empty
+    write_finish:  bool,                  // atomic; the writer leaves once outgoing is empty
     pending_mutex: sync.Mutex,
     pending:       map[i64]^Pending, // owned
     next_id:       i64,
     notifications: lockfree.Stack(Note_Node), // owned; pushed by the reader
-    inbox:         ^Note_Node, // owned; taken from `notifications`, oldest first; consumer only
+    inbox:         ^Note_Node,                // owned; taken from `notifications`, oldest first; consumer only
     stderr_mutex:  sync.Mutex,
     stderr_tail:   [dynamic]u8, // owned
-    state:         Conn_State,   // atomic
+    state:         Conn_State,  // atomic
 }
 
 // Takes ownership of `transport` and starts both threads.
@@ -137,16 +137,7 @@ conn_state :: proc(c: ^Conn) -> Conn_State {
 // of the stream. The returned value is the reply's "result", or its "error"
 // object when the error is .Server_Error, and is the caller's to free with
 // conn_free_value.
-conn_call :: proc(
-    c: ^Conn,
-    method: string,
-    params: string,
-    deadline: time.Duration,
-    cancel: ^bool = nil,
-) -> (
-    json.Value,
-    Rpc_Error,
-) {
+conn_call :: proc(c: ^Conn, method: string, params: string, deadline: time.Duration, cancel: ^bool = nil) -> (json.Value, Rpc_Error) {
     p := new(Pending, c.allocator)
 
     // The registration and the state are read under one lock, so a connection
@@ -180,10 +171,7 @@ conn_call :: proc(
         }
         if cancel != nil && sync.atomic_load(cancel) {
             digits: [32]u8
-            cancel_params := strings.concatenate(
-                {`{"id":`, string(strconv.write_int(digits[:], p.id, 10)), `}`},
-                c.allocator,
-            )
+            cancel_params := strings.concatenate({`{"id":`, string(strconv.write_int(digits[:], p.id, 10)), `}`}, c.allocator)
             // A cancellation that does not reach a dead server changes nothing:
             // the caller gave up either way.
             _ = conn_notify(c, "$/cancelRequest", cancel_params)
@@ -569,7 +557,7 @@ conn_route :: proc(c: ^Conn, body: []u8) {
     }
 
     method, has_method := object["method"].(json.String)
-    id_value, has_id := object["id"]
+    id_value, has_id   := object["id"]
     switch {
     case has_method && has_id:
         conn_answer(c, method, id_value, object["params"])
@@ -616,10 +604,7 @@ conn_reply :: proc(c: ^Conn, id_value: json.Value, object: ^json.Object) {
 // detached from the tree, so the queue owns them and the rest is freed.
 @(private = "file")
 conn_push :: proc(c: ^Conn, object: ^json.Object) {
-    note := Notification {
-        method = object["method"].(json.String),
-        params = object["params"],
-    }
+    note := Notification{method = object["method"].(json.String), params = object["params"]}
     object["method"] = nil
     object["params"] = nil
     node, err := new(Note_Node, c.allocator)
@@ -720,7 +705,7 @@ configuration_section :: proc(root: json.Value, section: string) -> json.Value {
         return root
     }
     value := root
-    rest := section
+    rest  := section
     first := true
     for name in strings.split_iterator(&rest, ".") {
         object, is_object := value.(json.Object)

@@ -14,7 +14,7 @@ import "../textedit"
 // too, or a workspace rename is only half undoable.
 @(test)
 test_undo_edits_in_closed_files :: proc(t: ^testing.T) {
-    PATH :: "thor_edit_undo.tmp"
+    PATH     :: "thor_edit_undo.tmp"
     ORIGINAL :: "alpha :: 1\nbeta :: alpha\n"
 
     testing.expect(t, os.write_entire_file(PATH, ORIGINAL) == nil, "could not create test file")
@@ -28,7 +28,7 @@ test_undo_edits_in_closed_files :: proc(t: ^testing.T) {
     defer thor_clear_edit_redo(thor)
     defer delete(thor.status_message)
 
-    edits := []lang.Text_Edit {
+    edits                      := []lang.Text_Edit{
         {path = PATH, start = 0, end = 5, old_text = "alpha", new_text = "gamma"},
         {path = PATH, start = 19, end = 24, old_text = "alpha", new_text = "gamma"},
     }
@@ -52,9 +52,9 @@ test_undo_edits_in_closed_files :: proc(t: ^testing.T) {
 // across the files it touched — including those that were never open.
 @(test)
 test_redo_edits_in_closed_files :: proc(t: ^testing.T) {
-    PATH :: "thor_edit_redo.tmp"
+    PATH     :: "thor_edit_redo.tmp"
     ORIGINAL :: "alpha :: 1\nbeta :: alpha\n"
-    RENAMED :: "gamma :: 1\nbeta :: gamma\n"
+    RENAMED  :: "gamma :: 1\nbeta :: gamma\n"
 
     testing.expect(t, os.write_entire_file(PATH, ORIGINAL) == nil, "could not create test file")
     defer thor_remove_settled(PATH)
@@ -65,7 +65,7 @@ test_redo_edits_in_closed_files :: proc(t: ^testing.T) {
     defer thor_clear_edit_redo(thor)
     defer delete(thor.status_message)
 
-    edits := []lang.Text_Edit {
+    edits            := []lang.Text_Edit{
         {path = PATH, start = 0, end = 5, old_text = "alpha", new_text = "gamma"},
         {path = PATH, start = 19, end = 24, old_text = "alpha", new_text = "gamma"},
     }
@@ -108,9 +108,9 @@ test_backend_gate_resolves_stated_over_default :: proc(t: ^testing.T) {
     testing.expect_value(t, features, lang.FEATURES_ALL)
 
     // A layer that names one feature and nothing else: only that key is owned.
-    thor.config.general.language_backends[strings.clone(ODIN_BACKEND_ID)] = setting.Backend_Setting {
-        enabled      = false,
-        features     = lang.FEATURES_ALL - {.Format},
+    thor.config.general.language_backends[strings.clone(ODIN_BACKEND_ID)] = setting.Backend_Setting{
+        enabled = false,
+        features = lang.FEATURES_ALL - {.Format},
         features_set = {.Format},
     }
     on, features = thor_backend_gate(thor, &thor.config, ODIN_BACKEND_ID)
@@ -118,10 +118,10 @@ test_backend_gate_resolves_stated_over_default :: proc(t: ^testing.T) {
     testing.expect_value(t, features, lang.FEATURES_ALL - {.Format})
 
     // The same entry, now stating the switch too.
-    thor.config.general.language_backends[ODIN_BACKEND_ID] = setting.Backend_Setting {
-        enabled      = false,
-        enabled_set  = true,
-        features     = lang.FEATURES_ALL,
+    thor.config.general.language_backends[ODIN_BACKEND_ID] = setting.Backend_Setting{
+        enabled = false,
+        enabled_set = true,
+        features = lang.FEATURES_ALL,
         features_set = {},
     }
     on, features = thor_backend_gate(thor, &thor.config, ODIN_BACKEND_ID)
@@ -133,9 +133,9 @@ test_backend_gate_resolves_stated_over_default :: proc(t: ^testing.T) {
 // is no longer what the undo put there.
 @(test)
 test_redo_edits_refuses_changed_file :: proc(t: ^testing.T) {
-    PATH :: "thor_edit_redo_changed.tmp"
+    PATH     :: "thor_edit_redo_changed.tmp"
     ORIGINAL :: "alpha :: 1\n"
-    TOUCHED :: "something else entirely\n"
+    TOUCHED  :: "something else entirely\n"
 
     testing.expect(t, os.write_entire_file(PATH, ORIGINAL) == nil, "could not create test file")
     defer thor_remove_settled(PATH)
@@ -146,9 +146,7 @@ test_redo_edits_refuses_changed_file :: proc(t: ^testing.T) {
     defer thor_clear_edit_redo(thor)
     defer delete(thor.status_message)
 
-    edits := []lang.Text_Edit {
-        {path = PATH, start = 0, end = 5, old_text = "alpha", new_text = "gamma"},
-    }
+    edits       := []lang.Text_Edit{{path = PATH, start = 0, end = 5, old_text = "alpha", new_text = "gamma"}}
     _, _, ok, _ := thor_apply_edits(thor, edits, "", 0)
     testing.expect(t, ok, "apply refused the edit")
     testing.expect(t, thor_undo_last_edits(thor), "undo refused the file")
@@ -164,7 +162,7 @@ test_redo_edits_refuses_changed_file :: proc(t: ^testing.T) {
 // own redo stack.
 @(test)
 test_new_edit_set_clears_redo :: proc(t: ^testing.T) {
-    PATH :: "thor_edit_redo_cleared.tmp"
+    PATH     :: "thor_edit_redo_cleared.tmp"
     ORIGINAL :: "alpha :: 1\n"
 
     testing.expect(t, os.write_entire_file(PATH, ORIGINAL) == nil, "could not create test file")
@@ -176,17 +174,13 @@ test_new_edit_set_clears_redo :: proc(t: ^testing.T) {
     defer thor_clear_edit_redo(thor)
     defer delete(thor.status_message)
 
-    first := []lang.Text_Edit {
-        {path = PATH, start = 0, end = 5, old_text = "alpha", new_text = "gamma"},
-    }
+    first       := []lang.Text_Edit{{path = PATH, start = 0, end = 5, old_text = "alpha", new_text = "gamma"}}
     _, _, ok, _ := thor_apply_edits(thor, first, "", 0)
     testing.expect(t, ok, "apply refused the first edit")
     testing.expect(t, thor_undo_last_edits(thor), "undo refused the file")
     testing.expect_value(t, len(thor.edit_redo), 1)
 
-    second := []lang.Text_Edit {
-        {path = PATH, start = 0, end = 5, old_text = "alpha", new_text = "delta"},
-    }
+    second             := []lang.Text_Edit{{path = PATH, start = 0, end = 5, old_text = "alpha", new_text = "delta"}}
     _, _, second_ok, _ := thor_apply_edits(thor, second, "", 0)
     testing.expect(t, second_ok, "apply refused the second edit")
     testing.expect_value(t, len(thor.edit_redo), 0)
@@ -217,9 +211,7 @@ test_redo_edits_in_an_open_buffer :: proc(t: ^testing.T) {
     }
     append(&thor.open_files, file)
 
-    edits := []lang.Text_Edit {
-        {path = "D:/w/pkg/a.odin", start = 0, end = 5, old_text = "alpha", new_text = "gamma"},
-    }
+    edits            := []lang.Text_Edit{{path = "D:/w/pkg/a.odin", start = 0, end = 5, old_text = "alpha", new_text = "gamma"}}
     _, _, ok, reason := thor_apply_edits(thor, edits, "", 0)
     testing.expectf(t, ok, "apply refused the edits: %s", reason)
     testing.expect_value(t, textedit.text(&file.state), "gamma :: 1\n")
@@ -242,9 +234,9 @@ test_redo_edits_in_an_open_buffer :: proc(t: ^testing.T) {
 // would be written back is no longer what the edits were computed against.
 @(test)
 test_undo_edits_refuses_changed_file :: proc(t: ^testing.T) {
-    PATH :: "thor_edit_undo_changed.tmp"
+    PATH     :: "thor_edit_undo_changed.tmp"
     ORIGINAL :: "alpha :: 1\n"
-    EDITED :: "gamma :: 1\nextra :: 2\n"
+    EDITED   :: "gamma :: 1\nextra :: 2\n"
 
     testing.expect(t, os.write_entire_file(PATH, ORIGINAL) == nil, "could not create test file")
     defer thor_remove_settled(PATH)
@@ -255,9 +247,7 @@ test_undo_edits_refuses_changed_file :: proc(t: ^testing.T) {
     defer thor_clear_edit_redo(thor)
     defer delete(thor.status_message)
 
-    edits := []lang.Text_Edit {
-        {path = PATH, start = 0, end = 5, old_text = "alpha", new_text = "gamma"},
-    }
+    edits       := []lang.Text_Edit{{path = PATH, start = 0, end = 5, old_text = "alpha", new_text = "gamma"}}
     _, _, ok, _ := thor_apply_edits(thor, edits, "", 0)
     testing.expect(t, ok, "apply refused the edit")
 
@@ -300,9 +290,7 @@ test_apply_edits_matches_origin_regardless_of_path_spelling :: proc(t: ^testing.
     }
     append(&thor.open_files, file)
 
-    edits := []lang.Text_Edit {
-        {path = EDIT_PATH, start = 0, end = 3, old_text = "foo", new_text = "baz"},
-    }
+    edits                      := []lang.Text_Edit{{path = EDIT_PATH, start = 0, end = 3, old_text = "foo", new_text = "baz"}}
     applied, files, ok, reason := thor_apply_edits(thor, edits, file.path, file.state.revision)
     testing.expectf(t, ok, "apply refused an edit against its own origin buffer: %s", reason)
     testing.expect_value(t, applied, 1)
@@ -421,7 +409,7 @@ test_lang_key_prefers_a_claimed_file_name :: proc(t: ^testing.T) {
     defer free(thor)
     lang.manager_init(&thor.lang_manager)
     defer lang.manager_destroy(&thor.lang_manager)
-    lang.manager_register(&thor.lang_manager, lang.Backend {name = "key-probe", handles = key_handles, resolve = key_resolve})
+    lang.manager_register(&thor.lang_manager, lang.Backend{name = "key-probe", handles = key_handles, resolve = key_resolve})
 
     testing.expect_value(t, thor_lang_key(thor, "src/Makefile"), "Makefile")
     testing.expect_value(t, thor_lang_key(thor, "src/main.key"), ".key")
@@ -437,8 +425,8 @@ test_lang_key_prefers_a_claimed_file_name :: proc(t: ^testing.T) {
 @(test)
 test_undo_and_redo_resource_ops :: proc(t: ^testing.T) {
     MADE :: "thor_resource_made.tmp"
-    OLD :: "thor_resource_old.tmp"
-    NEW :: "thor_resource_new.tmp"
+    OLD  :: "thor_resource_old.tmp"
+    NEW  :: "thor_resource_new.tmp"
     GONE :: "thor_resource_gone.tmp"
 
     testing.expect(t, os.write_entire_file(OLD, "moved") == nil, "could not create test file")
@@ -456,11 +444,7 @@ test_undo_and_redo_resource_ops :: proc(t: ^testing.T) {
     defer thor_clear_edit_redo(thor)
     defer delete(thor.status_message)
 
-    ops := []lang.Resource_Op {
-        {kind = .Create, path = MADE},
-        {kind = .Rename, path = OLD, new_path = NEW},
-        {kind = .Delete, path = GONE},
-    }
+    ops              := []lang.Resource_Op{{kind = .Create, path = MADE}, {kind = .Rename, path = OLD, new_path = NEW}, {kind = .Delete, path = GONE}}
     _, _, ok, reason := thor_apply_edits(thor, nil, "", 0, ops)
     testing.expectf(t, ok, "apply refused the resource ops: %s", reason)
     testing.expect(t, os.exists(MADE), "Create never wrote its file")
@@ -497,10 +481,7 @@ test_resource_ops_run_in_sequence_order :: proc(t: ^testing.T) {
     defer thor_clear_edit_redo(thor)
     defer delete(thor.status_message)
 
-    ops := []lang.Resource_Op {
-        {seq = 0, kind = .Delete, path = SAME},
-        {seq = 1, kind = .Create, path = SAME},
-    }
+    ops              := []lang.Resource_Op{{seq = 0, kind = .Delete, path = SAME}, {seq = 1, kind = .Create, path = SAME}}
     _, _, ok, reason := thor_apply_edits(thor, nil, "", 0, ops)
     testing.expectf(t, ok, "apply refused the resource ops: %s", reason)
     data, rerr := os.read_entire_file(SAME, context.temp_allocator)
@@ -524,7 +505,7 @@ test_resource_op_on_a_directory_is_not_undoable :: proc(t: ^testing.T) {
     defer thor_clear_edit_redo(thor)
     defer delete(thor.status_message)
 
-    ops := []lang.Resource_Op{{kind = .Delete, path = DIR}}
+    ops              := []lang.Resource_Op{{kind = .Delete, path = DIR}}
     _, _, ok, reason := thor_apply_edits(thor, nil, "", 0, ops)
     testing.expectf(t, ok, "apply refused a directory delete: %s", reason)
     testing.expect(t, !os.exists(DIR), "the directory was not removed")
@@ -560,7 +541,7 @@ test_undo_rename_retargets_the_open_tab :: proc(t: ^testing.T) {
     }
     append(&thor.open_files, file)
 
-    ops := []lang.Resource_Op{{kind = .Rename, path = OLD, new_path = NEW}}
+    ops         := []lang.Resource_Op{{kind = .Rename, path = OLD, new_path = NEW}}
     _, _, ok, _ := thor_apply_edits(thor, nil, "", 0, ops)
     testing.expect(t, ok, "apply refused the rename")
     testing.expect(t, thor_same_path(file.path, NEW), "the tab did not follow the rename")

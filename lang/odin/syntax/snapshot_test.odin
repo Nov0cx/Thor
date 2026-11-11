@@ -58,7 +58,7 @@ test_snapshots :: proc(t: ^testing.T) {
             continue
         }
         count += 1
-        name := strings.trim_suffix(info.name, ".odin.txt")
+        name    := strings.trim_suffix(info.name, ".odin.txt")
         src, ok := read_lf(info.fullpath)
         if !testing.expectf(t, ok, "cannot read %s", info.fullpath) {
             continue

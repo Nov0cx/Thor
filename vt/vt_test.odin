@@ -6,7 +6,7 @@ import "core:testing"
 
 @(private = "file")
 feed :: proc(t: ^Term, text: string) {
-    term_feed(t, transmute([]u8) text)
+    term_feed(t, transmute([]u8)text)
 }
 
 @(private = "file")
@@ -223,7 +223,7 @@ test_utf8_split_across_feeds :: proc(h: ^testing.T) {
     t := term_make(4, 2)
     defer term_destroy(t)
 
-    bytes := transmute([]u8) string("ä")
+    bytes := transmute([]u8)string("ä")
     term_feed(t, bytes[:1])
     term_feed(t, bytes[1:])
     testing.expect_value(h, row_text(t, 0), "ä")

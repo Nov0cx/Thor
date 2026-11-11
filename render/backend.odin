@@ -9,7 +9,7 @@ import "../font"
 import ui "../vendor/loom/loom"
 
 DEFAULT_ARC_SEGMENTS :: 6
-MAX_SHADOW_STEPS :: 12
+MAX_SHADOW_STEPS     :: 12
 
 Options :: struct {
     arc_segments: int,
@@ -31,19 +31,19 @@ Family_Handle :: struct {
 }
 
 Backend :: struct {
-    opts:     Options,
-    families: [dynamic]Family_Handle, // the font package owns the names
-    textures: map[u32]rl.Texture2D,
-    clip:     [dynamic]rl.Rectangle,
-    path_a:   [dynamic]rl.Vector2,
-    path_b:   [dynamic]rl.Vector2,
-    scratch:  [dynamic]byte,
-    held:     [dynamic]Held_Key,
-    key_evs:  [dynamic]ui.Key_Event,
-    text_buf: [64]byte,
-    text_len: int,
-    dpi:      f32,
-    cursor:   ui.Cursor,
+    opts:      Options,
+    families:  [dynamic]Family_Handle, // the font package owns the names
+    textures:  map[u32]rl.Texture2D,
+    clip:      [dynamic]rl.Rectangle,
+    path_a:    [dynamic]rl.Vector2,
+    path_b:    [dynamic]rl.Vector2,
+    scratch:   [dynamic]byte,
+    held:      [dynamic]Held_Key,
+    key_evs:   [dynamic]ui.Key_Event,
+    text_buf:  [64]byte,
+    text_len:  int,
+    dpi:       f32,
+    cursor:    ui.Cursor,
     // When poll_input last ran; 0 before the first call.
     last_poll: f64,
 }
@@ -66,7 +66,7 @@ init :: proc(b: ^Backend, opts: Options = {}) -> ui.Backend {
 
     b.dpi = opts.dpi > 0 ? opts.dpi : 1
 
-    return ui.Backend {
+    return ui.Backend{
         measure_run = measure_run,
         font_metrics = font_metrics,
         offset_x = offset_x,

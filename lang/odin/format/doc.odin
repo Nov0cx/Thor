@@ -309,7 +309,7 @@ render_doc :: proc(rs: ^Render_State, d: Doc, mode: Render_Mode) {
         // to the continuation line, and padding it to a width measured from the
         // previous line's start is only trailing whitespace.
         start := rs.column
-        at := rs.lines
+        at    := rs.lines
         for c in v.children {
             render_doc(rs, c, mode)
         }

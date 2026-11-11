@@ -16,30 +16,30 @@ import "../prof"
 import "../treecache"
 import ts "../vendor/odin-tree-sitter"
 import ts_c "../vendor/odin-tree-sitter/parsers/c"
+import ts_csharp "../vendor/odin-tree-sitter/parsers/c_sharp"
+import ts_commonlisp "../vendor/odin-tree-sitter/parsers/commonlisp"
 import ts_cpp "../vendor/odin-tree-sitter/parsers/cpp"
 import ts_go "../vendor/odin-tree-sitter/parsers/go"
+import ts_haskell "../vendor/odin-tree-sitter/parsers/haskell"
+import ts_hcl "../vendor/odin-tree-sitter/parsers/hcl"
 import ts_jai "../vendor/odin-tree-sitter/parsers/jai"
+import ts_java "../vendor/odin-tree-sitter/parsers/java"
 import ts_js "../vendor/odin-tree-sitter/parsers/javascript"
+import ts_kotlin "../vendor/odin-tree-sitter/parsers/kotlin"
 import ts_lua "../vendor/odin-tree-sitter/parsers/lua"
+import ts_nim "../vendor/odin-tree-sitter/parsers/nim"
+import ts_nix "../vendor/odin-tree-sitter/parsers/nix"
+import ts_ocaml "../vendor/odin-tree-sitter/parsers/ocaml"
 import ts_odin "../vendor/odin-tree-sitter/parsers/odin"
-import ts_ts "../vendor/odin-tree-sitter/parsers/typescript"
-import ts_tsx "../vendor/odin-tree-sitter/parsers/tsx"
-import ts_rust "../vendor/odin-tree-sitter/parsers/rust"
+import ts_pascal "../vendor/odin-tree-sitter/parsers/pascal"
+import ts_php "../vendor/odin-tree-sitter/parsers/php"
 import ts_python "../vendor/odin-tree-sitter/parsers/python"
 import ts_ruby "../vendor/odin-tree-sitter/parsers/ruby"
-import ts_java "../vendor/odin-tree-sitter/parsers/java"
-import ts_kotlin "../vendor/odin-tree-sitter/parsers/kotlin"
-import ts_zig "../vendor/odin-tree-sitter/parsers/zig"
-import ts_csharp "../vendor/odin-tree-sitter/parsers/c_sharp"
-import ts_php "../vendor/odin-tree-sitter/parsers/php"
-import ts_haskell "../vendor/odin-tree-sitter/parsers/haskell"
-import ts_ocaml "../vendor/odin-tree-sitter/parsers/ocaml"
+import ts_rust "../vendor/odin-tree-sitter/parsers/rust"
 import ts_starlark "../vendor/odin-tree-sitter/parsers/starlark"
-import ts_hcl "../vendor/odin-tree-sitter/parsers/hcl"
-import ts_nix "../vendor/odin-tree-sitter/parsers/nix"
-import ts_pascal "../vendor/odin-tree-sitter/parsers/pascal"
-import ts_nim "../vendor/odin-tree-sitter/parsers/nim"
-import ts_commonlisp "../vendor/odin-tree-sitter/parsers/commonlisp"
+import ts_tsx "../vendor/odin-tree-sitter/parsers/tsx"
+import ts_ts "../vendor/odin-tree-sitter/parsers/typescript"
+import ts_zig "../vendor/odin-tree-sitter/parsers/zig"
 
 // A resolved highlight span. `capture` is the tree-sitter capture name that won
 // this byte range (e.g. "keyword.return", "type.builtin", "function.call").
@@ -81,32 +81,32 @@ Query_Key :: struct {
 }
 
 Highlighter :: struct {
-    parser:    ts.Parser,
-    languages: map[string]Language_Entry,
+    parser:       ts.Parser,
+    languages:    map[string]Language_Entry,
     // Compiled queries, keyed by (lang_id, source); keys are owned.
-    queries:   map[Query_Key]ts.Query,
+    queries:      map[Query_Key]ts.Query,
     // The highlights query in force per language, so the per-keystroke path
     // never rebuilds a key out of the multi-kilobyte query source. Keys are
     // owned, values borrowed from `queries`; an entry is dropped when an
     // override replaces the query.
-    resolved:  map[string]ts.Query,
+    resolved:     map[string]ts.Query,
     // Highlights query a plugin supplied for a grammar, replacing the compiled-in
     // one. Keys and values are owned.
-    overrides: map[string]string,
-    lang_id:   string, // language currently set on the parser
+    overrides:    map[string]string,
+    lang_id:      string, // language currently set on the parser
     // Compiled #match? patterns, keyed by the pattern source; keys are owned.
     // Compiling one per match is far too slow for the per-keystroke path.
-    regexes:   map[string]Compiled_Regex,
+    regexes:      map[string]Compiled_Regex,
     // Scratch capture for #match?, allocated once so a test allocates nothing.
-    captures:  regex.Capture,
+    captures:     regex.Capture,
     // Predicate operators already reported as unhandled; keys are owned. Keeps
     // one report per operator instead of one per match.
-    reported:  map[string]bool,
+    reported:     map[string]bool,
     // Resident per-buffer trees, so a keystroke re-parses only the subtrees it
     // invalidated rather than the whole file. Highlighting and folding ask for
     // the same buffer back to back, and the second call re-parses nothing at
     // all — the source is unchanged.
-    trees:     treecache.Cache,
+    trees:        treecache.Cache,
     // Highlights queries that compile on a worker thread (query_ready). Owned.
     compiling:    [dynamic]^Query_Job,
     // Languages whose query failed on the worker; keys are owned.
@@ -225,26 +225,21 @@ highlight :: proc(h: ^Highlighter, path, source, lang_id: string, allocator := c
 // opens before the range — a block comment, a raw string — is still reported
 // with its real extent; only the query is windowed. Cost follows the range, not
 // the document, which is what keeps a large buffer's per-keystroke work bounded.
-highlight_range :: proc(
-    h: ^Highlighter,
-    path, source, lang_id: string,
-    range_start, range_end: int,
-    allocator := context.allocator,
-) -> []Span {
+highlight_range :: proc(h: ^Highlighter, path, source, lang_id: string, range_start, range_end: int, allocator := context.allocator) -> []Span {
     entry, ok := h.languages[lang_id]
     if !ok {
         return nil
     }
 
     query_zone := prof.zone_begin("highlight query")
-    query := highlighter_query(h, lang_id, entry)
+    query      := highlighter_query(h, lang_id, entry)
     prof.zone_end(query_zone)
     if query == nil {
         return nil
     }
 
     parse_zone := prof.zone_begin("highlight parse")
-    tree := parse_tree(h, path, source, lang_id, entry)
+    tree       := parse_tree(h, path, source, lang_id, entry)
     prof.zone_end(parse_zone)
     if tree == nil {
         return nil
@@ -252,7 +247,7 @@ highlight_range :: proc(
     defer ts.tree_delete(tree)
     prof.scope("highlight captures")
 
-    root := ts.tree_root_node(tree)
+    root     := ts.tree_root_node(tree)
     packages := package_names(root, source, lang_id)
 
     cursor := ts.query_cursor_new()
@@ -272,13 +267,13 @@ highlight_range :: proc(
             continue
         }
         for i in 0 ..< int(match.capture_count) {
-            c := match.captures[i]
+            c    := match.captures[i]
             name := ts.query_capture_name_for_id(query, c.index)
             if capture_head(name) == "variable" && is_qualifier(c.node) && ts.node_text(c.node, source) in packages {
                 name = "namespace"
             }
             start := int(ts.node_start_byte(c.node))
-            end := int(ts.node_end_byte(c.node))
+            end   := int(ts.node_end_byte(c.node))
             if end > start && !is_ignored_capture(name) {
                 append(&caps, Capture{start, end, name, int(match.pattern_index)})
             }
@@ -311,7 +306,7 @@ fold_ranges :: proc(h: ^Highlighter, path, source, lang_id: string, allocator :=
     root := ts.tree_root_node(tree)
 
     // start line -> widest end line seen for a node starting there.
-    ends := make(map[int]int, context.temp_allocator)
+    ends   := make(map[int]int, context.temp_allocator)
     // Cursor DFS over the root's descendants, pruned at every single-line node:
     // a node's extent contains its children's, so nothing under a node that sits
     // on one line can span two. That skips every token and leaf expression,
@@ -323,8 +318,8 @@ fold_ranges :: proc(h: ^Highlighter, path, source, lang_id: string, allocator :=
         depth = 1
         walk: for {
             node := ts.tree_cursor_current_node(&cursor)
-            sr := int(ts.node_start_point(node).row)
-            er := int(ts.node_end_point(node).row)
+            sr   := int(ts.node_start_point(node).row)
+            er   := int(ts.node_end_point(node).row)
             if er > sr {
                 if cur, has := ends[sr]; !has || er > cur {
                     ends[sr] = er
@@ -393,7 +388,7 @@ package_names :: proc(root: ts.Node, source, lang_id: string) -> map[string]bool
     if lang_id != "odin" {
         return nil
     }
-    names := make(map[string]bool, context.temp_allocator)
+    names  := make(map[string]bool, context.temp_allocator)
     // A cursor walk, not an indexed one: node_named_child restarts from the
     // first child and node_next_named_sibling re-searches the parent, so both
     // cost the document's declaration count per step. A cursor steps in O(1).
@@ -522,12 +517,14 @@ resolve_spans :: proc(caps: []Capture, allocator: runtime.Allocator) -> []Span {
         append(&events, Event{c.start, true, idx})
         append(&events, Event{c.end, false, idx})
     }
-    slice.sort_by(events[:], proc(a, b: Event) -> bool {return a.pos < b.pos})
+    slice.sort_by(events[:], proc(a, b: Event) -> bool {
+        return a.pos < b.pos
+    })
 
-    spans := make([dynamic]Span, allocator)
+    spans  := make([dynamic]Span, allocator)
     active := make([dynamic]int, context.temp_allocator)
-    i := 0
-    prev := events[0].pos
+    i      := 0
+    prev   := events[0].pos
     for i < len(events) {
         pos := events[i].pos
         if pos > prev && len(active) > 0 {
@@ -604,8 +601,8 @@ predicates_ok :: proc(h: ^Highlighter, query: ts.Query, match: ts.Query_Match, s
 @(private)
 predicates_satisfied :: proc(h: ^Highlighter, query: ts.Query, match: ts.Query_Match, source: string) -> bool {
     steps := ts.query_predicates_for_pattern(query, u32(match.pattern_index))
-    args := make([dynamic]Predicate_Arg, context.temp_allocator)
-    i := 0
+    args  := make([dynamic]Predicate_Arg, context.temp_allocator)
+    i     := 0
     for i < len(steps) {
         op := ts.query_string_value_for_id(query, steps[i].value_id)
         clear(&args)
@@ -614,7 +611,7 @@ predicates_satisfied :: proc(h: ^Highlighter, query: ts.Query, match: ts.Query_M
             step := steps[j]
             if step.type == .Capture {
                 node, found := capture_node(match, step.value_id)
-                text := found ? ts.node_text(node, source) : ""
+                text        := found ? ts.node_text(node, source) : ""
                 append(&args, Predicate_Arg{text, node, true})
             } else {
                 append(&args, Predicate_Arg{text = ts.query_string_value_for_id(query, step.value_id)})
@@ -658,7 +655,7 @@ eval_predicate :: proc(h: ^Highlighter, op: string, args: []Predicate_Arg) -> bo
         return false
     }
     subject := args[0]
-    rest := args[1:]
+    rest    := args[1:]
     switch op {
     case "eq?":
         return subject.text == rest[0].text
@@ -749,7 +746,7 @@ has_parent :: proc(subject: Predicate_Arg, types: []Predicate_Arg) -> bool {
 // search, not a full match; the shipped queries anchor with ^ and $ themselves.
 @(private)
 regex_matches :: proc(h: ^Highlighter, text, pattern: string) -> bool {
-    expr := match_regex(h, pattern) or_return
+    expr       := match_regex(h, pattern) or_return
     _, matched := regex.match_with_preallocated_capture(expr, text, &h.captures)
     return matched
 }
@@ -802,7 +799,7 @@ escape_hashes :: proc(pattern: string, allocator: runtime.Allocator) -> string {
 // not valid and is reported once for `op`. An empty match is a match.
 @(private)
 lua_pattern_matches :: proc(h: ^Highlighter, op, text, pattern: string) -> (matched, valid: bool) {
-    matcher := text_match.matcher_init(text, pattern)
+    matcher     := text_match.matcher_init(text, pattern)
     _, _, found := text_match.matcher_find(&matcher)
     #partial switch matcher.err {
     case .OK:

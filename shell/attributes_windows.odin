@@ -22,8 +22,16 @@ foreign import kernel32 "system:Kernel32.lib"
 @(default_calling_convention = "system")
 foreign kernel32 {
     InitializeProcThreadAttributeList :: proc(lpAttributeList: rawptr, dwAttributeCount, dwFlags: win32.DWORD, lpSize: ^win32.SIZE_T) -> win32.BOOL ---
-    UpdateProcThreadAttribute :: proc(lpAttributeList: rawptr, dwFlags: win32.DWORD, Attribute: win32.DWORD_PTR, lpValue: rawptr, cbSize: win32.SIZE_T, lpPreviousValue: rawptr, lpReturnSize: ^win32.SIZE_T) -> win32.BOOL ---
-    DeleteProcThreadAttributeList :: proc(lpAttributeList: rawptr) ---
+    UpdateProcThreadAttribute         :: proc(
+        lpAttributeList: rawptr,
+        dwFlags: win32.DWORD,
+        Attribute: win32.DWORD_PTR,
+        lpValue: rawptr,
+        cbSize: win32.SIZE_T,
+        lpPreviousValue: rawptr,
+        lpReturnSize: ^win32.SIZE_T,
+    ) -> win32.BOOL ---
+    DeleteProcThreadAttributeList     :: proc(lpAttributeList: rawptr) ---
 }
 
 // A proc-thread attribute list with room for one attribute. Its size is asked

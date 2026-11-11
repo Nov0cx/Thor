@@ -9,15 +9,7 @@ import lang ".."
 // Runs an Inlay_Hints request over `source`. Free with inlays_free.
 @(private = "file")
 inlays_at :: proc(e: ^Engine, source: string, workspace := "", path := "buffer.odin", offset := 0, end := 0) -> lang.Result {
-    req := lang.Request {
-        kind      = .Inlay_Hints,
-        path      = path,
-        ext       = ".odin",
-        source    = source,
-        offset    = offset,
-        end       = end,
-        workspace = workspace,
-    }
+    req := lang.Request{kind = .Inlay_Hints, path = path, ext = ".odin", source = source, offset = offset, end = end, workspace = workspace}
     res := lang.Result{kind = .Inlay_Hints}
     resolve(e, &req, &res)
     return res
@@ -171,8 +163,8 @@ test_inlay_parameters :: proc(t: ^testing.T) {
 test_inlay_range :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
-    lo := strings.index(INLAY_SRC, "\tn, label")
-    hi := strings.index(INLAY_SRC, "\tp := ")
+    lo  := strings.index(INLAY_SRC, "\tn, label")
+    hi  := strings.index(INLAY_SRC, "\tp := ")
     res := inlays_at(e, INLAY_SRC, offset = lo, end = hi)
     defer inlays_free(&res)
 

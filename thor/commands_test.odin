@@ -145,17 +145,17 @@ test_terminal_lets_the_settings_chord_through :: proc(t: ^testing.T) {
     thor: Thor
     defer delete(thor.app_binds)
     thor.console_focused = true
-    append(&thor.app_binds, App_Bind {action = "open_settings_gui", key = setting.Keybind {key = .Comma, mods = {.Ctrl}}})
+    append(&thor.app_binds, App_Bind{action = "open_settings_gui", key = setting.Keybind{key = .Comma, mods = {.Ctrl}}})
 
-    testing.expect(t, !thor_terminal_owns_key(&thor, ui.Key_Event {key = .Comma, mods = {.Ctrl}}), "the settings chord reaches the app")
-    testing.expect(t, thor_terminal_owns_key(&thor, ui.Key_Event {key = .A, mods = {.Ctrl}}), "another chord belongs to the shell")
-    testing.expect(t, thor_terminal_owns_key(&thor, ui.Key_Event {key = .Comma}), "a bare comma belongs to the shell")
+    testing.expect(t, !thor_terminal_owns_key(&thor, ui.Key_Event{key = .Comma, mods = {.Ctrl}}), "the settings chord reaches the app")
+    testing.expect(t, thor_terminal_owns_key(&thor, ui.Key_Event{key = .A, mods = {.Ctrl}}), "another chord belongs to the shell")
+    testing.expect(t, thor_terminal_owns_key(&thor, ui.Key_Event{key = .Comma}), "a bare comma belongs to the shell")
 }
 
 // The title bar button names the install step, and the percent follows the bytes on disk.
 @(test)
 test_update_button_shows_the_install_step :: proc(t: ^testing.T) {
-    job := Update_Job {}
+    job := Update_Job{}
     thor: Thor
     thor.update_state = .Installing
     thor.update_job = &job

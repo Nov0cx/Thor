@@ -9,13 +9,7 @@ import lang ".."
 // The live report of `source` as the buffer of `path` in `workspace`.
 @(private)
 live_check :: proc(e: ^Engine, source, workspace, path: string) -> lang.Result {
-    req := lang.Request {
-        kind      = .Syntax_Diagnostics,
-        path      = path,
-        ext       = ".odin",
-        source    = source,
-        workspace = workspace,
-    }
+    req := lang.Request{kind = .Syntax_Diagnostics, path = path, ext = ".odin", source = source, workspace = workspace}
     res: lang.Result
     syntax_diagnostics(e, &req, &res)
     return res
@@ -43,7 +37,16 @@ Want :: struct {
 @(private)
 is_vet_code :: proc(code: string) -> bool {
     switch code {
-    case CODE_UNUSED_VAR, CODE_DEAD_STORE, CODE_UNUSED_IMPORT, CODE_SHADOWING, CODE_WHEN_SHADOWING, CODE_CAST, CODE_UNUSED_PROC, CODE_STYLE, CODE_SEMICOLON, CODE_TABS:
+    case CODE_UNUSED_VAR,
+        CODE_DEAD_STORE,
+        CODE_UNUSED_IMPORT,
+        CODE_SHADOWING,
+        CODE_WHEN_SHADOWING,
+        CODE_CAST,
+        CODE_UNUSED_PROC,
+        CODE_STYLE,
+        CODE_SEMICOLON,
+        CODE_TABS:
         return true
     }
     return false
@@ -56,7 +59,13 @@ expect_errors :: proc(t: ^testing.T, res: ^lang.Result, source: string, wants: [
     // Vet and liveness warnings are compared only when a want names one.
     vet := false
     for w in wants {
-        vet ||= strings.has_suffix(w.message, "declared but not used") || strings.has_suffix(w.message, "is never used") || strings.contains(w.message, " shadows ") || strings.has_prefix(w.message, "Unneeded ") || w.message == "Found unneeded semicolon" || w.message == "Expected a comma, got a newline" || strings.has_prefix(w.message, "With '-vet-tabs'")
+        vet ||= strings.has_suffix(w.message, "declared but not used") ||
+            strings.has_suffix(w.message, "is never used") ||
+            strings.contains(w.message, " shadows ") ||
+            strings.has_prefix(w.message, "Unneeded ") ||
+            w.message == "Found unneeded semicolon" ||
+            w.message == "Expected a comma, got a newline" ||
+            strings.has_prefix(w.message, "With '-vet-tabs'")
     }
     // A nil dereference is compared only when a want names one.
     nil_wanted := false
@@ -72,7 +81,7 @@ expect_errors :: proc(t: ^testing.T, res: ^lang.Result, source: string, wants: [
     }
     want := make([dynamic]string, context.temp_allocator)
     for w in wants {
-        at := -1
+        at   := -1
         from := 0
         for _ in 0 ..= w.skip {
             i := strings.index(source[from:], w.needle)
@@ -88,7 +97,7 @@ expect_errors :: proc(t: ^testing.T, res: ^lang.Result, source: string, wants: [
             return
         }
         line := strings.count(source[:at], "\n") + 1
-        col := at - (strings.last_index_byte(source[:at], '\n') + 1) + 1
+        col  := at - (strings.last_index_byte(source[:at], '\n') + 1) + 1
         append(&want, fmt.tprintf("%d:%d %s", line, col, w.message))
     }
     testing.expectf(t, len(got) == len(want), "got %v, want %v", got[:], want[:], loc = loc)

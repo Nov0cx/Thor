@@ -31,7 +31,7 @@ child_start :: proc(spec: Child_Spec) -> (^Child, bool) {
         close_handles(out_r, out_w, err_r, err_w)
         return nil, false
     }
-    inherited := [3]win32.HANDLE{in_r, out_w, err_w}
+    inherited                 := [3]win32.HANDLE{in_r, out_w, err_w}
     attributes, attributes_ok := inherit_only(inherited[:])
     if !attributes_ok {
         close_handles(out_r, out_w, err_r, err_w, in_r, in_w)
@@ -39,14 +39,8 @@ child_start :: proc(spec: Child_Spec) -> (^Child, bool) {
     }
     defer attribute_list_free(attributes)
 
-    si := STARTUPINFOEXW {
-        StartupInfo = {
-            cb         = size_of(STARTUPINFOEXW),
-            dwFlags    = win32.STARTF_USESTDHANDLES,
-            hStdInput  = in_r,
-            hStdOutput = out_w,
-            hStdError  = err_w,
-        },
+    si := STARTUPINFOEXW{
+        StartupInfo = {cb = size_of(STARTUPINFOEXW), dwFlags = win32.STARTF_USESTDHANDLES, hStdInput = in_r, hStdOutput = out_w, hStdError = err_w},
         lpAttributeList = raw_data(attributes),
     }
     pi: win32.PROCESS_INFORMATION
@@ -106,8 +100,7 @@ child_write :: proc(child: ^Child, bytes: []u8) -> bool {
     }
     for sent := 0; sent < len(bytes); {
         written: win32.DWORD
-        if !win32.WriteFile(child.stdin_w, &bytes[sent], win32.DWORD(len(bytes) - sent), &written, nil) ||
-           written == 0 {
+        if !win32.WriteFile(child.stdin_w, &bytes[sent], win32.DWORD(len(bytes) - sent), &written, nil) || written == 0 {
             return false
         }
         sent += int(written)

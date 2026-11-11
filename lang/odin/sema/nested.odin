@@ -17,7 +17,7 @@ nested_decls :: proc(parsed: odinsyntax.Parse, item: ^Item, allocator: mem.Alloc
     if item.kind != .Proc || parsed.tree == nil || parsed.tree.root == nil {
         return nil, nil
     }
-    root := odinsyntax.node_root(parsed.tree)
+    root      := odinsyntax.node_root(parsed.tree)
     found, ok := odinsyntax.node_covering(root, u32(item.start), u32(item.end), context.temp_allocator)
     if !ok {
         return nil, nil
@@ -30,10 +30,7 @@ nested_decls :: proc(parsed: odinsyntax.Parse, item: ^Item, allocator: mem.Alloc
     if !has_value {
         return nil, nil
     }
-    b := Builder {
-        alloc = allocator,
-        text  = parsed.tree.text,
-    }
+    b   := Builder{alloc = allocator, text = parsed.tree.text}
     out := make([dynamic]Nested_Decl, allocator)
     walk_proc_body(&b, value, -1, &out)
     if b.err != nil {
@@ -62,7 +59,7 @@ decl_value :: proc(n: ^odinsyntax.Syntax_Node, name_offset: int) -> (value: odin
         return {}, -1, false
     }
     values := 0
-    it := odinsyntax.expr_list_items(&value_list)
+    it     := odinsyntax.expr_list_items(&value_list)
     for item in odinsyntax.child_iter_next(&it) {
         if values == index || (values == 0 && count > 1) {
             value, ok = item, true

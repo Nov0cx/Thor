@@ -39,11 +39,11 @@ key_from_layout_name :: proc(name: string, fallback: rl.KeyboardKey) -> rl.Keybo
     // The letter, digit and punctuation keys hold their ASCII value.
     switch r {
     case 'a' ..= 'z':
-        return cast(rl.KeyboardKey) (r - 'a' + 'A')
+        return cast(rl.KeyboardKey)(r - 'a' + 'A')
     case 'A' ..= 'Z', '0' ..= '9':
-        return cast(rl.KeyboardKey) r
+        return cast(rl.KeyboardKey)r
     case '\'', ',', '-', '.', '/', ';', '=', '[', '\\', ']', '`':
-        return cast(rl.KeyboardKey) r
+        return cast(rl.KeyboardKey)r
     }
     return fallback
 }

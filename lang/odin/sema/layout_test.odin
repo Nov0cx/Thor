@@ -88,7 +88,7 @@ Pong :: struct {p: Ping}
 `
 
 @(private = "file")
-AMD64_CASES := [?]Layout_Case {
+AMD64_CASES := [?]Layout_Case{
     {"string", 16, 8},
     {"cstring", 8, 8},
     {"any", 16, 8},
@@ -197,7 +197,7 @@ AMD64_CASES := [?]Layout_Case {
 }
 
 @(private = "file")
-OFFSET_CASES := [?]Offset_Case {
+OFFSET_CASES := [?]Offset_Case{
     {"offset_of(S1, b)", 4},
     {"offset_of(S1, c)", 8},
     {"offset_of(S2, c)", 5},
@@ -246,7 +246,7 @@ expect_layouts :: proc(t: ^testing.T, target: Target, cases: []Layout_Case, offs
         return is_int ? v : -1
     }
     for k, i in cases {
-        size := value_of(t, &env.c, fmt.tprintf("Z%d", i), loc)
+        size  := value_of(t, &env.c, fmt.tprintf("Z%d", i), loc)
         align := value_of(t, &env.c, fmt.tprintf("A%d", i), loc)
         testing.expectf(t, size == k.size && align == k.align, "%s: got %d/%d, want %d/%d", k.type, size, align, k.size, k.align, loc = loc)
     }
@@ -263,7 +263,7 @@ test_layout_amd64 :: proc(t: ^testing.T) {
 
 @(test)
 test_layout_32_bit :: proc(t: ^testing.T) {
-    i386 := [?]Layout_Case {
+    i386 := [?]Layout_Case{
         {"any", 16, 8},
         {"i64", 8, 8},
         {"i128", 16, 16},
@@ -276,7 +276,7 @@ test_layout_32_bit :: proc(t: ^testing.T) {
         {"#simd[32]f64", 256, 256},
     }
     expect_layouts(t, Target{os = .Windows, arch = .i386}, i386[:], nil)
-    wasm := [?]Layout_Case {
+    wasm := [?]Layout_Case{
         {"string", 16, 8},
         {"cstring", 4, 4},
         {"[]u8", 16, 8},
@@ -289,10 +289,6 @@ test_layout_32_bit :: proc(t: ^testing.T) {
         {"bit_set[0..<128]", 16, 16},
     }
     expect_layouts(t, Target{os = .JS, arch = .wasm64p32}, wasm[:], nil)
-    arm32 := [?]Layout_Case {
-        {"i128", 16, 8},
-        {"#simd[4]f32", 16, 8},
-        {"union {i128, u8}", 24, 8},
-    }
+    arm32 := [?]Layout_Case{{"i128", 16, 8}, {"#simd[4]f32", 16, 8}, {"union {i128, u8}", 24, 8}}
     expect_layouts(t, Target{os = .Linux, arch = .arm32}, arm32[:], nil)
 }

@@ -9,9 +9,9 @@ import "core:strings"
 import "../theme"
 import ui "../vendor/loom/loom"
 
-THEME_EDITOR_WIDTH :: f32(920)
+THEME_EDITOR_WIDTH  :: f32(920)
 THEME_EDITOR_HEIGHT :: f32(660)
-THEME_EDITOR_ROW_H :: f32(34)
+THEME_EDITOR_ROW_H  :: f32(34)
 THEME_PREVIEW_WIDTH :: f32(380)
 
 // WCAG contrast a text role needs against the background, and the floor under
@@ -35,7 +35,7 @@ Theme_Editor :: struct {
     filter:          [dynamic]u8, // owned; ui.input edits it in place
     focus_filter:    bool,
     filter_id:       ui.Id, // the filter field of the last frame
-    selected:        int, // index into theme.COLORS
+    selected:        int,   // index into theme.COLORS
     scroll_pending:  bool,
     collapsed:       [theme.Color_Group]bool,
     edit_index:      int,
@@ -72,8 +72,7 @@ theme_editor_matches :: proc(thor: ^Thor, index: int) -> bool {
     }
     query := strings.to_lower(string(e.filter[:]), context.temp_allocator)
     entry := theme.COLORS[index]
-    if strings.contains(strings.to_lower(entry.key, context.temp_allocator), query) ||
-       strings.contains(entry.role, query) {
+    if strings.contains(strings.to_lower(entry.key, context.temp_allocator), query) || strings.contains(entry.role, query) {
         return true
     }
     hex := strings.to_lower(theme.to_hex(theme.color_at(&thor.theme, index)^), context.temp_allocator)
@@ -84,8 +83,8 @@ theme_editor_matches :: proc(thor: ^Thor, index: int) -> bool {
 // unless a filter is set.
 @(private = "file")
 theme_editor_visible :: proc(thor: ^Thor) -> []int {
-    e := &thor.theme_editor
-    out := make([dynamic]int, context.temp_allocator)
+    e         := &thor.theme_editor
+    out       := make([dynamic]int, context.temp_allocator)
     filtering := len(e.filter) > 0
     for entry, i in theme.COLORS {
         if !theme_editor_matches(thor, i) {
@@ -183,7 +182,7 @@ theme_editor_keys :: proc(thor: ^Thor) {
         return
     }
 
-    visible := theme_editor_visible(thor)
+    visible  := theme_editor_visible(thor)
     position := -1
     for index, i in visible {
         if index == e.selected {
@@ -247,25 +246,13 @@ theme_editor_box :: proc(thor: ^Thor) {
     theme_editor_header(thor)
     theme_editor_toolbar(thor)
     {
-        ui.scope(
-            {
-                key = "body",
-                props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Row},
-            },
-        )
+        ui.scope({key = "body", props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Row}})
         {
             ui.scope(
                 {
                     key = "preview-column",
                     flags = {.Clip, .Scroll_Y},
-                    props = {
-                        w = ui.Px(THEME_PREVIEW_WIDTH),
-                        min_w = THEME_PREVIEW_WIDTH,
-                        h = ui.Grow(1),
-                        dir = .Column,
-                        gap = {0, 8},
-                        pad = ui.all(12),
-                    },
+                    props = {w = ui.Px(THEME_PREVIEW_WIDTH), min_w = THEME_PREVIEW_WIDTH, h = ui.Grow(1), dir = .Column, gap = {0, 8}, pad = ui.all(12)},
                 },
             )
             palette := e.tab == .Generate ? &e.generated_theme : &thor.theme
@@ -356,15 +343,7 @@ theme_editor_header :: proc(thor: ^Thor) {
         {
             key = "close",
             flags = {.Clickable},
-            props = {
-                w = ui.Px(26),
-                h = ui.Px(26),
-                dir = .Row,
-                justify = .Center,
-                align = .Center,
-                radius = ui.rad(4),
-                cursor = .Pointer,
-            },
+            props = {w = ui.Px(26), h = ui.Px(26), dir = .Row, justify = .Center, align = .Center, radius = ui.rad(4), cursor = .Pointer},
             hover = {bg = thor.theme.buttons},
         },
     )
@@ -378,7 +357,7 @@ theme_editor_header :: proc(thor: ^Thor) {
 
 @(private = "file")
 theme_editor_toolbar :: proc(thor: ^Thor) {
-    e := &thor.theme_editor
+    e     := &thor.theme_editor
     dirty := thor_theme_dirty(thor)
 
     ui.scope(
@@ -409,7 +388,7 @@ theme_editor_toolbar :: proc(thor: ^Thor) {
     if theme_button(thor, "duplicate", "copy", "", true, false, "Duplicate as a new theme", "theme_duplicate") {
         thor_cmd_theme_duplicate(thor)
     }
-    user := thor_theme_is_user(e.file)
+    user    := thor_theme_is_user(e.file)
     shipped := thor_theme_is_shipped(e.file)
     if user && shipped {
         if theme_button(thor, "reset", "restore", "", !e.generated, false, "Reset to the shipped colors", "theme_reset") {
@@ -459,13 +438,7 @@ theme_tab :: proc(thor: ^Thor, key, label: string, active: bool) -> bool {
 // A toolbar button with an icon, a label or both. `action` names the command,
 // so the tooltip shows its chord; `chord` is the window key when it has one.
 @(private = "file")
-theme_button :: proc(
-    thor: ^Thor,
-    key, icon, label: string,
-    enabled, primary: bool,
-    tip, action: string,
-    chord := "",
-) -> bool {
+theme_button :: proc(thor: ^Thor, key, icon, label: string, enabled, primary: bool, tip, action: string, chord := "") -> bool {
     bg := primary && enabled ? thor.theme.accent_color : thor.theme.buttons
     fg := primary && enabled ? theme.color_on(thor.theme.accent_color) : thor.theme.foreground
     if !enabled {
@@ -505,19 +478,9 @@ theme_button :: proc(
 theme_editor_colors :: proc(thor: ^Thor) {
     e := &thor.theme_editor
 
-    ui.scope(
-        {
-            key = "colors",
-            props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column},
-        },
-    )
+    ui.scope({key = "colors", props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column}})
     {
-        ui.scope(
-            {
-                key = "filter-row",
-                props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {8, 0}, pad = {l = 12, r = 12, t = 10, b = 6}},
-            },
-        )
+        ui.scope({key = "filter-row", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {8, 0}, pad = {l = 12, r = 12, t = 10, b = 6}}})
         thor_icon_label(thor, "search", thor.theme.muted_color, size = 15)
         it := ui.input(
             &e.filter,
@@ -540,17 +503,11 @@ theme_editor_colors :: proc(thor: ^Thor) {
         }
     }
 
-    ui.scope(
-        {
-            key = "list",
-            flags = {.Clip, .Scroll_Y},
-            props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column, pad = ui.xy(10, 4), gap = {0, 2}},
-        },
-    )
+    ui.scope({key = "list", flags = {.Clip, .Scroll_Y}, props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column, pad = ui.xy(10, 4), gap = {0, 2}}})
     filtering := len(e.filter) > 0
-    shown := 0
+    shown     := 0
     for group in theme.Color_Group {
-        count := 0
+        count   := 0
         changed := 0
         for entry, i in theme.COLORS {
             if entry.group == group && theme_editor_matches(thor, i) {
@@ -585,9 +542,9 @@ theme_editor_colors :: proc(thor: ^Thor) {
 
 @(private = "file")
 theme_group_row :: proc(thor: ^Thor, group: theme.Color_Group, count, changed: int, filtering: bool) {
-    e := &thor.theme_editor
+    e    := &thor.theme_editor
     open := filtering || !e.collapsed[group]
-    it := ui.begin(
+    it   := ui.begin(
         {
             key = "group",
             flags = {.Clickable},
@@ -620,11 +577,11 @@ theme_group_row :: proc(thor: ^Thor, group: theme.Color_Group, count, changed: i
 
 @(private = "file")
 theme_color_row :: proc(thor: ^Thor, index: int) {
-    e := &thor.theme_editor
-    entry := theme.COLORS[index]
-    color := theme.color_at(&thor.theme, index)^
-    saved := theme.color_at(&e.saved, index)^
-    changed := !e.generated && color != saved
+    e        := &thor.theme_editor
+    entry    := theme.COLORS[index]
+    color    := theme.color_at(&thor.theme, index)^
+    saved    := theme.color_at(&e.saved, index)^
+    changed  := !e.generated && color != saved
     selected := e.selected == index
 
     it := ui.begin(
@@ -645,18 +602,7 @@ theme_color_row :: proc(thor: ^Thor, index: int) {
             hover = {bg = selected ? thor.theme.active : thor.theme.second_background},
         },
     )
-    ui.leaf(
-        {
-            key = "swatch",
-            props = {
-                w = ui.Px(30),
-                h = ui.Px(20),
-                radius = ui.rad(4),
-                bg = color,
-                border = {width = ui.all(1), color = thor.theme.border},
-            },
-        },
-    )
+    ui.leaf({key = "swatch", props = {w = ui.Px(30), h = ui.Px(20), radius = ui.rad(4), bg = color, border = {width = ui.all(1), color = thor.theme.border}}})
     ui.label(entry.key, {key = "label", props = {color = thor.theme.foreground, text_wrap = .None}})
     ui.label(entry.role, {key = "role", props = {w = ui.Grow(1), color = thor.theme.disabled, text_wrap = .Ellipsis}})
     if entry.group != .Surfaces {
@@ -668,21 +614,18 @@ theme_color_row :: proc(thor: ^Thor, index: int) {
             {
                 key = "reset",
                 flags = {.Clickable},
-                props = {
-                    w = ui.Px(24),
-                    h = ui.Px(24),
-                    dir = .Row,
-                    justify = .Center,
-                    align = .Center,
-                    radius = ui.rad(4),
-                    cursor = .Pointer,
-                },
+                props = {w = ui.Px(24), h = ui.Px(24), dir = .Row, justify = .Center, align = .Center, radius = ui.rad(4), cursor = .Pointer},
                 hover = {bg = thor.theme.buttons},
             },
         )
         thor_icon_label(thor, "arrow-back-up", thor.theme.warning_color, size = 14)
         ui.end()
-        thor_tip(thor, reset.id, strings.concatenate({"Reset to the saved color ", theme.to_hex(saved)}, context.temp_allocator), thor_action_shortcut(thor, "theme_reset_color"))
+        thor_tip(
+            thor,
+            reset.id,
+            strings.concatenate({"Reset to the saved color ", theme.to_hex(saved)}, context.temp_allocator),
+            thor_action_shortcut(thor, "theme_reset_color"),
+        )
         if reset.clicked {
             thor_theme_reset_color(thor, index)
         }
@@ -707,7 +650,7 @@ theme_color_row :: proc(thor: ^Thor, index: int) {
 theme_contrast_badge :: proc(thor: ^Thor, fg, bg: ui.Color) {
     ratio := theme.color_contrast_ratio(fg, bg)
     color := thor.theme.muted_color
-    tip := "Reads well on the background"
+    tip   := "Reads well on the background"
     if ratio < THEME_CONTRAST_POOR {
         color = thor.theme.error_color
         tip = "Hard to read on the background. Text needs 4.5:1"
@@ -717,29 +660,14 @@ theme_contrast_badge :: proc(thor: ^Thor, fg, bg: ui.Color) {
     }
     it := ui.label(
         fmt.tprintf("%.1f:1", ratio),
-        {
-            key = "contrast",
-            props = {
-                color = color,
-                text_wrap = .None,
-                pad = ui.xy(6, 2),
-                radius = ui.rad(4),
-                bg = thor.theme.second_background,
-            },
-        },
+        {key = "contrast", props = {color = color, text_wrap = .None, pad = ui.xy(6, 2), radius = ui.rad(4), bg = thor.theme.second_background}},
     )
     thor_tip(thor, it.id, tip)
 }
 
 @(private = "file")
 theme_editor_generate :: proc(thor: ^Thor) {
-    ui.scope(
-        {
-            key = "generate",
-            flags = {.Clip, .Scroll_Y},
-            props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column, gap = {0, 12}, pad = ui.all(16)},
-        },
-    )
+    ui.scope({key = "generate", flags = {.Clip, .Scroll_Y}, props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column, gap = {0, 12}, pad = ui.all(16)}})
     ui.label(
         "Build a whole palette from a background and an accent color. Text and syntax colors are lifted to a contrast of 4.5:1, so any pair stays readable.",
         {key = "intro", props = {w = ui.Grow(1), color = thor.theme.muted_color, text_wrap = .Words}},
@@ -797,12 +725,7 @@ theme_seed_row :: proc(thor: ^Thor, key, label: string, color: ui.Color) -> bool
             hover = {bg = thor.theme.active},
         },
     )
-    ui.leaf(
-        {
-            key = "swatch",
-            props = {w = ui.Px(30), h = ui.Px(20), radius = ui.rad(4), bg = color, border = {width = ui.all(1), color = thor.theme.border}},
-        },
-    )
+    ui.leaf({key = "swatch", props = {w = ui.Px(30), h = ui.Px(20), radius = ui.rad(4), bg = color, border = {width = ui.all(1), color = thor.theme.border}}})
     ui.label(label, {key = "label", props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .None}})
     ui.label(theme.to_hex(color), {key = "hex", props = {color = thor.theme.muted_color, text_wrap = .None}})
     ui.end()
@@ -828,10 +751,7 @@ theme_editor_footer :: proc(thor: ^Thor) {
             },
         },
     )
-    ui.label(
-        e.note,
-        {key = "note", props = {w = ui.Grow(1), color = e.note_error ? thor.theme.error_color : thor.theme.muted_color, text_wrap = .Ellipsis}},
-    )
+    ui.label(e.note, {key = "note", props = {w = ui.Grow(1), color = e.note_error ? thor.theme.error_color : thor.theme.muted_color, text_wrap = .Ellipsis}})
     hints := e.tab == .Colors ? "Up/Down select · Enter edit · Ctrl+C/V hex · Del reset · Ctrl+S save" : "Ctrl+S save · Esc close"
     ui.label(hints, {key = "hints", props = {color = thor.theme.disabled, text_wrap = .None}})
 }
@@ -845,20 +765,40 @@ Preview_Token :: struct {
 
 // The sample code of the preview, one token list per line.
 @(private = "file")
-PREVIEW_CODE := [?][]Preview_Token {
+PREVIEW_CODE := [?][]Preview_Token{
     {{"// Greets each user in turn.", "comments"}},
     {{"@(private)", "attributes"}},
     {
-        {"greet", "functions"}, {" :: ", "operators"}, {"proc", "keywords"}, {"(", "operators"},
-        {"name", "parameters"}, {": ", "operators"}, {"string", "tags"}, {") {", "operators"},
+        {"greet", "functions"},
+        {" :: ", "operators"},
+        {"proc", "keywords"},
+        {"(", "operators"},
+        {"name", "parameters"},
+        {": ", "operators"},
+        {"string", "tags"},
+        {") {", "operators"},
     },
     {
-        {"    ", "text"}, {"for", "keywords"}, {" ", "text"}, {"i", "variables"}, {" in ", "keywords"},
-        {"0", "numbers"}, {" ..< ", "operators"}, {"3", "numbers"}, {" {", "operators"},
+        {"    ", "text"},
+        {"for", "keywords"},
+        {" ", "text"},
+        {"i", "variables"},
+        {" in ", "keywords"},
+        {"0", "numbers"},
+        {" ..< ", "operators"},
+        {"3", "numbers"},
+        {" {", "operators"},
     },
     {
-        {"        ", "text"}, {"fmt", "variables"}, {".", "operators"}, {"println", "functions"},
-        {"(", "operators"}, {"\"Hello,\"", "strings"}, {", ", "operators"}, {"name", "parameters"}, {")", "operators"},
+        {"        ", "text"},
+        {"fmt", "variables"},
+        {".", "operators"},
+        {"println", "functions"},
+        {"(", "operators"},
+        {"\"Hello,\"", "strings"},
+        {", ", "operators"},
+        {"name", "parameters"},
+        {")", "operators"},
     },
     {{"    }", "operators"}},
     {{"}", "operators"}},
@@ -878,14 +818,7 @@ theme_preview :: proc(thor: ^Thor, p: ^theme.Theme) {
         {
             key = "mock",
             flags = {.Clip},
-            props = {
-                w = ui.Grow(1),
-                h = ui.FIT,
-                dir = .Column,
-                radius = ui.rad(8),
-                bg = p.background,
-                border = {width = ui.all(1), color = p.border},
-            },
+            props = {w = ui.Grow(1), h = ui.FIT, dir = .Column, radius = ui.rad(8), bg = p.background, border = {width = ui.all(1), color = p.border}},
         },
     )
 
@@ -912,7 +845,7 @@ theme_preview :: proc(thor: ^Thor, p: ^theme.Theme) {
         for line, n in PREVIEW_CODE {
             ui.push_id_int(i64(n))
             current := n == PREVIEW_CURRENT_LINE
-            row := ui.begin(
+            row     := ui.begin(
                 {
                     key = "line",
                     flags = current ? {.Clickable} : {},
@@ -923,7 +856,7 @@ theme_preview :: proc(thor: ^Thor, p: ^theme.Theme) {
             ui.spacer(ui.Px(12), {key = "gutter", props = {h = ui.Px(1)}})
             for token, k in line {
                 ui.push_id_int(i64(k))
-                bg := ui.Color {}
+                bg := ui.Color{}
                 if n == PREVIEW_SELECTED_LINE && token.role == "strings" {
                     bg = p.selection_background
                 }
@@ -948,7 +881,15 @@ theme_preview :: proc(thor: ^Thor, p: ^theme.Theme) {
             {
                 key = "tree",
                 flags = {.Clickable},
-                props = {w = ui.Grow(1), h = ui.FIT, dir = .Column, pad = ui.xy(10, 4), gap = {0, 1}, bg = p.second_background, border = {width = {t = 1, b = 1}, color = p.border}},
+                props = {
+                    w = ui.Grow(1),
+                    h = ui.FIT,
+                    dir = .Column,
+                    pad = ui.xy(10, 4),
+                    gap = {0, 1},
+                    bg = p.second_background,
+                    border = {width = {t = 1, b = 1}, color = p.border},
+                },
             },
         )
         preview_part(thor, "folder", "src", p.foreground, {}, "foreground")
@@ -992,7 +933,20 @@ theme_preview :: proc(thor: ^Thor, p: ^theme.Theme) {
 
     // Buttons.
     {
-        ui.scope({key = "buttons", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = {6, 0}, align = .Center, pad = ui.xy(10, 8), border = {width = {t = 1}, color = p.border}}})
+        ui.scope(
+            {
+                key = "buttons",
+                props = {
+                    w = ui.Grow(1),
+                    h = ui.FIT,
+                    dir = .Row,
+                    gap = {6, 0},
+                    align = .Center,
+                    pad = ui.xy(10, 8),
+                    border = {width = {t = 1}, color = p.border},
+                },
+            },
+        )
         preview_part(thor, "cancel", "Cancel", p.foreground, p.buttons, "buttons", pad = 10)
         preview_part(thor, "delete", "Delete", theme.color_on(p.danger_color), p.danger_color, "danger", pad = 10)
         preview_part(thor, "ok", "OK", theme.color_on(p.accent_color), p.accent_color, "accent", pad = 10)
@@ -1017,7 +971,7 @@ preview_part :: proc(
     // A label is measured without its trailing spaces, so they are made
     // non-breaking.
     shown, _ := strings.replace_all(text, " ", " ", context.temp_allocator)
-    props := ui.Props {
+    props    := ui.Props{
         color = fg,
         bg = bg,
         text_wrap = .None,
@@ -1032,7 +986,7 @@ preview_part :: proc(
     if grow_h {
         props.h = ui.Grow(1)
     }
-    it := ui.label(shown, {key = key, flags = {.Clickable}, props = props})
+    it    := ui.label(shown, {key = key, flags = {.Clickable}, props = props})
     index := theme.color_index(role)
     if index >= 0 {
         thor_tip(thor, it.id, theme.COLORS[index].key)

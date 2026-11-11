@@ -62,7 +62,7 @@ holds_kind :: proc(n: odinsyntax.Syntax_Node, kinds: odinsyntax.Kind_Set) -> boo
     if n.green.kind in kinds {
         return true
     }
-    n := n
+    n  := n
     it := odinsyntax.child_iter(&n, {kinds = ALL_NODES})
     for c in odinsyntax.child_iter_next(&it) {
         if holds_kind(c, kinds) {
@@ -78,8 +78,8 @@ breaks_out :: proc(n: odinsyntax.Syntax_Node, in_loop := false) -> bool {
     n := n
     #partial switch n.green.kind {
     case .Branch_Stmt:
-        b := odinsyntax.Branch_Stmt(n)
-        kw, _ := odinsyntax.branch_stmt_keyword(&b)
+        b           := odinsyntax.Branch_Stmt(n)
+        kw, _       := odinsyntax.branch_stmt_keyword(&b)
         _, labelled := odinsyntax.branch_stmt_label(&b)
         if kw.green.kind == .Fallthrough {
             return true
@@ -89,7 +89,7 @@ breaks_out :: proc(n: odinsyntax.Syntax_Node, in_loop := false) -> bool {
         return false
     }
     inner := in_loop || n.green.kind in odinsyntax.Kind_Set{.For_Stmt, .Range_Stmt, .Switch_Stmt, .Type_Switch_Stmt}
-    it := odinsyntax.child_iter(&n, {kinds = ALL_NODES})
+    it    := odinsyntax.child_iter(&n, {kinds = ALL_NODES})
     for c in odinsyntax.child_iter_next(&it) {
         if breaks_out(c, inner) {
             return true
@@ -101,7 +101,7 @@ breaks_out :: proc(n: odinsyntax.Syntax_Node, in_loop := false) -> bool {
 // `text` with the indent its lines share replaced by `indent`; blank lines stay empty.
 @(private)
 reindent :: proc(text, indent: string) -> string {
-    lines := strings.split_lines(text, context.temp_allocator)
+    lines  := strings.split_lines(text, context.temp_allocator)
     common := -1
     for l in lines {
         if strings.trim_space(l) == "" {
@@ -132,8 +132,8 @@ reindent :: proc(text, indent: string) -> string {
 // The statements of a block as lines indented by `indent`, each line ended by a newline.
 @(private = "file")
 block_lines :: proc(src: string, block: odinsyntax.Syntax_Node, indent: string) -> (string, bool) {
-    b := block
-    open, has_open := odinsyntax.find_child_token(&b, {tokens = {.Open_Brace}})
+    b                := block
+    open, has_open   := odinsyntax.find_child_token(&b, {tokens = {.Open_Brace}})
     close, has_close := odinsyntax.find_child_token(&b, {tokens = {.Close_Brace}, last = true})
     if !has_open || !has_close {
         return "", false
@@ -148,7 +148,7 @@ body_lines :: proc(src: string, lo, hi: int, indent: string) -> string {
     if text == "" {
         return ""
     }
-    first := lo + strings.index(src[lo:hi], text)
+    first  := lo + strings.index(src[lo:hi], text)
     prefix := src[line_start(src, first):first]
     if strings.trim_space(prefix) != "" {
         prefix = line_indent(src, first)
@@ -159,7 +159,7 @@ body_lines :: proc(src: string, lo, hi: int, indent: string) -> string {
 // Inlines the local at the caret into each of its uses and removes its declaration.
 @(private = "file")
 inline_variable :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, caret: Caret, res: ^lang.Result) {
-    src := rc.req.source
+    src     := rc.req.source
     ref, ok := odinsema.ref_at(m, caret.offset)
     if !ok || ref.kind != .Local {
         return
@@ -180,7 +180,7 @@ inline_variable :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, caret: Car
     if !has_name || name_node.parent == nil || name_node.parent.green.kind != .Name_List || name_node.parent.parent == nil {
         return
     }
-    decl_node := name_node.parent.parent^
+    decl_node   := name_node.parent.parent^
     vd, is_decl := odinsyntax.as_value_decl(decl_node)
     if !is_decl {
         return
@@ -188,15 +188,15 @@ inline_variable :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, caret: Car
     if _, has_attrs := odinsyntax.find_child_node(&decl_node, {kinds = {.Attribute}}); has_attrs {
         return
     }
-    names, _ := odinsyntax.value_decl_names(&vd)
+    names, _           := odinsyntax.value_decl_names(&vd)
     values, has_values := odinsyntax.value_decl_values(&vd)
     if !has_values || count_children(odinsyntax.Syntax_Node(names)) != 1 || count_children(odinsyntax.Syntax_Node(values)) != 1 {
         return
     }
-    vit := odinsyntax.expr_list_items(&values)
+    vit      := odinsyntax.expr_list_items(&values)
     value, _ := odinsyntax.child_iter_next(&vit)
-    vs, ve := odinsyntax.node_range(value)
-    uses := make([dynamic]odinsema.Name_Ref, context.temp_allocator)
+    vs, ve   := odinsyntax.node_range(value)
+    uses     := make([dynamic]odinsema.Name_Ref, context.temp_allocator)
     for r in m.refs {
         if r.kind != .Local || r.decl != decl || r.is_decl {
             continue
@@ -231,10 +231,11 @@ inline_variable :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, caret: Car
             return
         }
     }
-    text := src[vs:ve]
-    compound := value.green.kind in odinsyntax.Kind_Set{.Binary_Expr, .Ternary_Expr, .Ternary_If_Expr, .Ternary_When_Expr, .Or_Else_Expr, .Or_Return_Expr, .Or_Branch_Expr}
-    specs := make([dynamic]Edit_Spec, context.temp_allocator)
-    ds, de := odinsyntax.node_range(decl_node)
+    text     := src[vs:ve]
+    compound := value.green.kind in
+        odinsyntax.Kind_Set{.Binary_Expr, .Ternary_Expr, .Ternary_If_Expr, .Ternary_When_Expr, .Or_Else_Expr, .Or_Return_Expr, .Or_Branch_Expr}
+    specs    := make([dynamic]Edit_Spec, context.temp_allocator)
+    ds, de   := odinsyntax.node_range(decl_node)
     append(&specs, line_deletion(src, int(ds), int(de)))
     for u in uses {
         t := text
@@ -249,9 +250,9 @@ inline_variable :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, caret: Car
 
 @(private)
 count_children :: proc(n: odinsyntax.Syntax_Node) -> int {
-    n := n
+    n     := n
     count := 0
-    it := odinsyntax.child_iter(&n, {kinds = ALL_NODES})
+    it    := odinsyntax.child_iter(&n, {kinds = ALL_NODES})
     for _ in odinsyntax.child_iter_next(&it) {
         count += 1
     }
@@ -269,18 +270,18 @@ plain_read :: proc(rc: ^Request_Context, offset: int) -> bool {
     for p := ident.parent; p != nil; p = p.parent {
         #partial switch p.green.kind {
         case .Unary_Expr:
-            u := odinsyntax.Unary_Expr(p^)
+            u     := odinsyntax.Unary_Expr(p^)
             op, _ := odinsyntax.unary_expr_op(&u)
             if op.green.kind == .And {
                 return false
             }
             return true
         case .Slice_Expr:
-            s := odinsyntax.Slice_Expr(p^)
+            s            := odinsyntax.Slice_Expr(p^)
             operand, has := odinsyntax.slice_expr_operand(&s)
             return !(has && same_node(operand, child))
         case .Selector_Expr:
-            s := odinsyntax.Selector_Expr(p^)
+            s            := odinsyntax.Selector_Expr(p^)
             operand, has := odinsyntax.selector_expr_operand(&s)
             if !has || !same_node(operand, child) {
                 return true
@@ -291,7 +292,7 @@ plain_read :: proc(rc: ^Request_Context, offset: int) -> bool {
         case .Index_Expr:
         case .Expr_List:
             if p.parent != nil && p.parent.green.kind == .Assign_Stmt {
-                as := odinsyntax.Assign_Stmt(p.parent^)
+                as       := odinsyntax.Assign_Stmt(p.parent^)
                 lhs, has := odinsyntax.assign_stmt_lhs(&as)
                 return !(has && lhs.offset == p.offset)
             }
@@ -337,7 +338,7 @@ needs_parens :: proc(rc: ^Request_Context, offset: int) -> bool {
 equality_values :: proc(cond: odinsyntax.Syntax_Node, out: ^[dynamic]string, subject: ^string) -> bool {
     cond := cond
     if cond.green.kind == .Paren_Expr {
-        p := odinsyntax.Paren_Expr(cond)
+        p         := odinsyntax.Paren_Expr(cond)
         inner, ok := odinsyntax.paren_expr_expr(&p)
         return ok && equality_values(inner, out, subject)
     }
@@ -345,7 +346,7 @@ equality_values :: proc(cond: odinsyntax.Syntax_Node, out: ^[dynamic]string, sub
     if !is_binary {
         return false
     }
-    op, _ := odinsyntax.binary_expr_op(&b)
+    op, _        := odinsyntax.binary_expr_op(&b)
     lhs, has_lhs := odinsyntax.binary_expr_lhs(&b)
     rhs, has_rhs := odinsyntax.binary_expr_rhs(&b)
     if !has_lhs || !has_rhs {
@@ -391,14 +392,14 @@ pure_subject :: proc(n: odinsyntax.Syntax_Node) -> bool {
 // Turns `if s == a {} else if s == b || s == c {} else {}` into a `switch s`.
 @(private = "file")
 if_to_switch :: proc(rc: ^Request_Context, head: odinsyntax.Syntax_Node, res: ^lang.Result) {
-    src := rc.req.source
-    indent := line_indent(src, int(head.offset))
-    unit := indent_unit(rc.req)
-    subject := ""
-    init := ""
-    sb := strings.builder_make(context.temp_allocator)
+    src      := rc.req.source
+    indent   := line_indent(src, int(head.offset))
+    unit     := indent_unit(rc.req)
+    subject  := ""
+    init     := ""
+    sb       := strings.builder_make(context.temp_allocator)
     branches := 0
-    node := head
+    node     := head
     for {
         s := odinsyntax.If_Stmt(node)
         if _, labelled := odinsyntax.if_stmt_label(&s); labelled {
@@ -452,8 +453,8 @@ if_to_switch :: proc(rc: ^Request_Context, head: odinsyntax.Syntax_Node, res: ^l
     if branches < 2 {
         return
     }
-    head_text := strings.concatenate({"switch ", init, "; " if init != "" else "", subject, " {\n"}, context.temp_allocator)
-    text := strings.concatenate({head_text, strings.to_string(sb), indent, "}"}, context.temp_allocator)
+    head_text  := strings.concatenate({"switch ", init, "; " if init != "" else "", subject, " {\n"}, context.temp_allocator)
+    text       := strings.concatenate({head_text, strings.to_string(sb), indent, "}"}, context.temp_allocator)
     start, end := odinsyntax.node_range(head)
     push_kind_action(res, rc.req, "refactor", "Convert to switch", Edit_Spec{int(start), int(end), text})
 }
@@ -462,7 +463,7 @@ if_to_switch :: proc(rc: ^Request_Context, head: odinsyntax.Syntax_Node, res: ^l
 @(private = "file")
 switch_to_if :: proc(rc: ^Request_Context, sw: odinsyntax.Syntax_Node, res: ^lang.Result) {
     src := rc.req.source
-    s := odinsyntax.Switch_Stmt(sw)
+    s   := odinsyntax.Switch_Stmt(sw)
     if _, labelled := odinsyntax.switch_stmt_label(&s); labelled {
         return
     }
@@ -481,33 +482,33 @@ switch_to_if :: proc(rc: ^Request_Context, sw: odinsyntax.Syntax_Node, res: ^lan
     if !has_body {
         return
     }
-    indent := line_indent(src, int(sw.offset))
-    unit := indent_unit(rc.req)
-    conds := make([dynamic]string, context.temp_allocator)
-    bodies := make([dynamic]string, context.temp_allocator)
-    fallback := ""
+    indent      := line_indent(src, int(sw.offset))
+    unit        := indent_unit(rc.req)
+    conds       := make([dynamic]string, context.temp_allocator)
+    bodies      := make([dynamic]string, context.temp_allocator)
+    fallback    := ""
     has_default := false
-    block := odinsyntax.Syntax_Node(body)
-    it := odinsyntax.child_iter(&block, {kinds = {.Case_Clause}})
+    block       := odinsyntax.Syntax_Node(body)
+    it          := odinsyntax.child_iter(&block, {kinds = {.Case_Clause}})
     for clause in odinsyntax.child_iter_next(&it) {
         if breaks_out(clause) {
             return
         }
-        clause := clause
-        cc := odinsyntax.Case_Clause(clause)
+        clause           := clause
+        cc               := odinsyntax.Case_Clause(clause)
         colon, has_colon := odinsyntax.find_child_token(&clause, {tokens = {.Colon}})
         if !has_colon {
             return
         }
-        _, ce := odinsyntax.node_range(clause)
-        lines := body_lines(src, int(colon.offset) + 1, int(ce), strings.concatenate({indent, unit}, context.temp_allocator))
+        _, ce              := odinsyntax.node_range(clause)
+        lines              := body_lines(src, int(colon.offset) + 1, int(ce), strings.concatenate({indent, unit}, context.temp_allocator))
         values, has_values := odinsyntax.case_clause_values(&cc)
         if !has_values {
             fallback, has_default = lines, true
             continue
         }
         parts := make([dynamic]string, context.temp_allocator)
-        vit := odinsyntax.expr_list_items(&values)
+        vit   := odinsyntax.expr_list_items(&values)
         for v in odinsyntax.child_iter_next(&vit) {
             part, ok := case_condition(subject, v)
             if !ok {
@@ -562,7 +563,7 @@ case_condition :: proc(subject: string, v: odinsyntax.Syntax_Node) -> (string, b
         return odinsyntax.node_text(v), true
     }
     if b, is_binary := odinsyntax.as_binary_expr(v); is_binary {
-        op, _ := odinsyntax.binary_expr_op(&b)
+        op, _      := odinsyntax.binary_expr_op(&b)
         lo, has_lo := odinsyntax.binary_expr_lhs(&b)
         hi, has_hi := odinsyntax.binary_expr_rhs(&b)
         if op.green.kind == .Range_Half || op.green.kind == .Range_Full || op.green.kind == .Ellipsis {

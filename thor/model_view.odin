@@ -12,9 +12,9 @@ import "core:fmt"
 import "core:math"
 import rl "vendor:raylib"
 
+import "../prof"
 import "../render"
 import ui "../vendor/loom/loom"
-import "../prof"
 
 @(private = "file")
 MODEL_FOV :: f32(45)
@@ -73,42 +73,42 @@ Model_Drag :: enum {
 }
 
 Model_View :: struct {
-    file:           ^Open_File, // borrowed, the identity the camera belongs to
+    file:            ^Open_File, // borrowed, the identity the camera belongs to
     // Framing taken from the model bounds: the orbit pivot, and the size that
     // sets the start distance, the grid step and the zoom limits.
-    pivot:          rl.Vector3,
-    radius:         f32,
-    floor:          f32, // world Y of the model's lowest point; the grid sits here
-    mesh_count:     int,
-    vertex_count:   int,
-    triangle_count: int,
+    pivot:           rl.Vector3,
+    radius:          f32,
+    floor:           f32, // world Y of the model's lowest point; the grid sits here
+    mesh_count:      int,
+    vertex_count:    int,
+    triangle_count:  int,
     // Orbit around `pivot + pan` at `distance`.
-    yaw:            f32,
-    pitch:          f32,
-    distance:       f32,
-    pan:            rl.Vector3,
-    drag:           Model_Drag,
+    yaw:             f32,
+    pitch:           f32,
+    distance:        f32,
+    pan:             rl.Vector3,
+    drag:            Model_Drag,
     // Auto-orbit, toggled by the corner button. Paused while a drag is held so
     // the user's own orbit is not fought.
-    spinning:       bool,
+    spinning:        bool,
     // The pane rect and the crop the 3D pass renders for, both stated by the
     // view and read by thor_render_model after the tree is laid out.
-    rect:           ui.Rect,
-    need_w, need_h: i32,
+    rect:            ui.Rect,
+    need_w, need_h:  i32,
     // Set by the frame that declared the pane, cleared by the pass it asks for;
     // `live` says the target holds a scene the view can show.
-    showing:        bool,
-    live:           bool,
+    showing:         bool,
+    live:            bool,
     // Off-screen target the 3D pass renders into. Owned, grown with slack so a
     // splitter drag does not reallocate every frame.
-    target:         rl.RenderTexture2D,
+    target:          rl.RenderTexture2D,
     // rl.GetTime() when the target first read as bigger than the pane needs, or
     // 0 while it fits. Debounces a shrink.
-    shrink_since:   f64,
+    shrink_since:    f64,
     // Headlight shader, loaded on the first render (it needs the GL context).
     // Without it an untextured mesh draws as a flat silhouette. Owned.
-    shader:         rl.Shader,
-    shader_tried:   bool,
+    shader:          rl.Shader,
+    shader_tried:    bool,
     shader_view_dir: i32,
 }
 
@@ -116,22 +116,14 @@ Model_View :: struct {
 thor_model_view :: proc(thor: ^Thor, view: ^Model_View, file: ^Open_File, key: string) {
     thor_model_bind(view, file)
 
-    pane := ui.begin(
-        {
-            key = key,
-            flags = {.Clip, .Clickable, .Draggable, .Wheel},
-            // Relative, so it is the containing block of the overlays: Loom
-            // resolves an absolute inset against the nearest positioned
-            // ancestor, which would otherwise be the window.
-            props = {
-                position = .Relative,
-                w = ui.Grow(1),
-                h = ui.Grow(1),
-                bg = thor.theme.background,
-                cursor = .Grab,
-            },
-        },
-    )
+    pane := ui.begin({
+        key = key,
+        flags = {.Clip, .Clickable, .Draggable, .Wheel},
+        // Relative, so it is the containing block of the overlays: Loom
+        // resolves an absolute inset against the nearest positioned
+        // ancestor, which would otherwise be the window.
+        props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), bg = thor.theme.background, cursor = .Grab},
+    })
     defer ui.end()
 
     view.rect = pane.rect
@@ -147,17 +139,13 @@ thor_model_view :: proc(thor: ^Thor, view: ^Model_View, file: ^Open_File, key: s
         // A render target is stored bottom-up and may be larger than the pane
         // needs: a centred crop of exactly need_w x need_h, flipped by the
         // negative height.
-        u := (tex_w - f32(view.need_w)) * 0.5 / tex_w
-        v := (tex_h - f32(view.need_h)) * 0.5 / tex_h
-        uw := f32(view.need_w) / tex_w
-        vh := f32(view.need_h) / tex_h
+        u     := (tex_w - f32(view.need_w)) * 0.5 / tex_w
+        v     := (tex_h - f32(view.need_h)) * 0.5 / tex_h
+        uw    := f32(view.need_w) / tex_w
+        vh    := f32(view.need_h) / tex_h
         ui.image(
             render.register_texture(&thor.backend, view.target.texture),
-            {
-                key = "scene",
-                props = {position = .Absolute, inset = {}, w = ui.Grow(1), h = ui.Grow(1)},
-                uv = {u, v + vh, uw, -vh},
-            },
+            {key = "scene", props = {position = .Absolute, inset = {}, w = ui.Grow(1), h = ui.Grow(1)}, uv = {u, v + vh, uw, -vh}},
         )
     }
 
@@ -207,11 +195,7 @@ thor_model_input :: proc(view: ^Model_View, pane: ui.Interaction) {
     if pane.wheel.y != 0 {
         // Loom counts a wheel notch down as positive.
         factor := pane.wheel.y < 0 ? 1 / MODEL_ZOOM_STEP : MODEL_ZOOM_STEP
-        view.distance = clamp(
-            view.distance * factor,
-            view.radius * MODEL_DIST_MIN,
-            view.radius * MODEL_DIST_MAX,
-        )
+        view.distance = clamp(view.distance * factor, view.radius * MODEL_DIST_MIN, view.radius * MODEL_DIST_MAX)
     }
 
     if pane.pressed {
@@ -232,11 +216,7 @@ thor_model_input :: proc(view: ^Model_View, pane: ui.Interaction) {
     #partial switch view.drag {
     case .Orbit:
         view.yaw -= pane.drag_delta.x * MODEL_ORBIT_SPEED
-        view.pitch = clamp(
-            view.pitch + pane.drag_delta.y * MODEL_ORBIT_SPEED,
-            -MODEL_PITCH_LIMIT,
-            MODEL_PITCH_LIMIT,
-        )
+        view.pitch = clamp(view.pitch + pane.drag_delta.y * MODEL_ORBIT_SPEED, -MODEL_PITCH_LIMIT, MODEL_PITCH_LIMIT)
     case .Pan:
         thor_model_pan(view, pane.drag_delta)
     }
@@ -249,7 +229,7 @@ thor_model_pan :: proc(view: ^Model_View, delta: ui.Vec2) {
     if view.rect.h <= 0 {
         return
     }
-    per_pixel := 2 * view.distance * math.tan(math.to_radians(MODEL_FOV) * 0.5) / view.rect.h
+    per_pixel    := 2 * view.distance * math.tan(math.to_radians(MODEL_FOV) * 0.5) / view.rect.h
     _, right, up := thor_model_basis(view)
     view.pan -= right * (delta.x * per_pixel)
     view.pan += up * (delta.y * per_pixel)
@@ -268,13 +248,7 @@ thor_model_spin :: proc(thor: ^Thor, view: ^Model_View) {
 // Bottom-left overlay: file name and the mesh, vertex and triangle totals.
 @(private = "file")
 thor_model_info :: proc(thor: ^Thor, view: ^Model_View) {
-    text := fmt.tprintf(
-        "%s   %d meshes   %d verts   %d tris",
-        view.file.name,
-        view.mesh_count,
-        view.vertex_count,
-        view.triangle_count,
-    )
+    text := fmt.tprintf("%s   %d meshes   %d verts   %d tris", view.file.name, view.mesh_count, view.vertex_count, view.triangle_count)
     ui.label(
         text,
         {
@@ -374,11 +348,7 @@ thor_render_model :: proc(thor: ^Thor, view: ^Model_View) {
 // Unit vector from the orbit target to the camera, for the current angles.
 @(private = "file")
 thor_model_offset :: proc(view: ^Model_View) -> rl.Vector3 {
-    return {
-        math.cos(view.pitch) * math.sin(view.yaw),
-        math.sin(view.pitch),
-        math.cos(view.pitch) * math.cos(view.yaw),
-    }
+    return {math.cos(view.pitch) * math.sin(view.yaw), math.sin(view.pitch), math.cos(view.pitch) * math.cos(view.yaw)}
 }
 
 // Camera axes for the current orbit angles: where it looks, and the screen
@@ -407,7 +377,7 @@ thor_model_fovy :: proc(target_h, need_h: i32) -> f32 {
 @(private = "file")
 thor_model_camera :: proc(view: ^Model_View, target_h, need_h: i32) -> rl.Camera3D {
     target := view.pivot + view.pan
-    return rl.Camera3D {
+    return rl.Camera3D{
         position = target + thor_model_offset(view) * view.distance,
         target = target,
         up = {0, 1, 0},
@@ -448,12 +418,8 @@ thor_model_ensure_target :: proc(thor: ^Thor, view: ^Model_View) -> (need_w, nee
     want_w := thor_model_target_size(need_w)
     want_h := thor_model_target_size(need_h)
 
-    fits :=
-        view.target.id != 0 &&
-        view.target.texture.width >= need_w &&
-        view.target.texture.height >= need_h
-    oversized :=
-        fits && (view.target.texture.width > want_w || view.target.texture.height > want_h)
+    fits      := view.target.id != 0 && view.target.texture.width >= need_w && view.target.texture.height >= need_h
+    oversized := fits && (view.target.texture.width > want_w || view.target.texture.height > want_h)
 
     if fits && !oversized {
         view.shrink_since = 0
@@ -493,17 +459,17 @@ thor_model_drop_target :: proc(thor: ^Thor, view: ^Model_View) {
 // round number near a third of the model, so the lines read as a scale.
 @(private = "file")
 thor_model_draw_grid :: proc(thor: ^Thor, view: ^Model_View) {
-    step := thor_model_grid_step(view.radius)
+    step   := thor_model_grid_step(view.radius)
     extent := step * MODEL_GRID_HALF
-    cx := math.round(view.pivot.x / step) * step
-    cz := math.round(view.pivot.z / step) * step
-    y := view.floor - view.radius * 0.001 // just under, so a flat model does not z-fight
+    cx     := math.round(view.pivot.x / step) * step
+    cz     := math.round(view.pivot.z / step) * step
+    y      := view.floor - view.radius * 0.001 // just under, so a flat model does not z-fight
 
     grid := render.raylib_color(thor.theme.highlight)
     axis := render.raylib_color(thor.theme.disabled)
     for i in -MODEL_GRID_HALF ..= MODEL_GRID_HALF {
         offset := f32(i) * step
-        color := i == 0 ? axis : grid
+        color  := i == 0 ? axis : grid
         rl.DrawLine3D({cx - extent, y, cz + offset}, {cx + extent, y, cz + offset}, color)
         rl.DrawLine3D({cx + offset, y, cz - extent}, {cx + offset, y, cz + extent}, color)
     }
@@ -515,9 +481,9 @@ thor_model_grid_step :: proc(radius: f32) -> f32 {
     if radius <= 0 {
         return 1
     }
-    raw := radius / 3
+    raw  := radius / 3
     base := math.pow(f32(10), math.floor(math.log10(raw)))
-    n := raw / base
+    n    := raw / base
     switch {
     case n < 1.5:
         return base

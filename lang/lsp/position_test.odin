@@ -157,7 +157,7 @@ test_position_utf8_encoding :: proc(t: ^testing.T) {
 // implementation's own idea of the answer.
 @(test)
 test_lf_offset_crlf :: proc(t: ^testing.T) {
-    raw := "let a = 1\r\nlet b = 2\r\nlet c = 3"
+    raw                  := "let a = 1\r\nlet b = 2\r\nlet c = 3"
     collapsed, allocated := strings.replace_all(raw, "\r\n", "\n")
     defer if allocated {
         delete(collapsed)
@@ -184,7 +184,7 @@ test_lf_offset_crlf :: proc(t: ^testing.T) {
 // nor a byte that disappears.
 @(test)
 test_lf_offset_lone_cr :: proc(t: ^testing.T) {
-    raw := "a\rb\r\nc"
+    raw                  := "a\rb\r\nc"
     collapsed, allocated := strings.replace_all(raw, "\r\n", "\n")
     defer if allocated {
         delete(collapsed)
@@ -205,7 +205,7 @@ test_lf_offset_lone_cr :: proc(t: ^testing.T) {
 // lines before it.
 @(test)
 test_lf_offset_mixed_terminators :: proc(t: ^testing.T) {
-    raw := "a\r\nb\nc\r\nd"
+    raw                  := "a\r\nb\nc\r\nd"
     collapsed, allocated := strings.replace_all(raw, "\r\n", "\n")
     defer if allocated {
         delete(collapsed)
@@ -240,11 +240,11 @@ test_position_bom :: proc(t: ^testing.T) {
 @(test)
 test_position_signature_label_span :: proc(t: ^testing.T) {
     label := "f(a: 😀) -> int"
-    idx := line_index_build(label, .Utf16)
+    idx   := line_index_build(label, .Utf16)
     defer line_index_destroy(&idx)
 
     start := offset_from_position(&idx, 0, 5)
-    end := offset_from_position(&idx, 0, 7)
+    end   := offset_from_position(&idx, 0, 7)
     testing.expect_value(t, start, 5)
     testing.expect_value(t, end, 9)
     testing.expect_value(t, label[start:end], "😀")
@@ -257,7 +257,7 @@ test_position_signature_label_span :: proc(t: ^testing.T) {
 @(test)
 test_position_utf16_offset :: proc(t: ^testing.T) {
     label := "f(a: 😀) -> int"
-    idx := line_index_build(label, .Utf16)
+    idx   := line_index_build(label, .Utf16)
     defer line_index_destroy(&idx)
 
     for units in 0 ..= 16 {

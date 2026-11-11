@@ -22,7 +22,7 @@ checksums_find :: proc(sums: string, asset: string) -> (digest: string, ok: bool
     lines := sums
     for line in strings.split_lines_iterator(&lines) {
         trimmed := strings.trim_space(line)
-        cut := strings.index_byte(trimmed, ' ')
+        cut     := strings.index_byte(trimmed, ' ')
         if cut <= 0 {
             continue
         }
@@ -44,7 +44,7 @@ checksums_find :: proc(sums: string, asset: string) -> (digest: string, ok: bool
 // fold, since the two common writers disagree on it.
 digest_matches :: proc(digest: [sha2.DIGEST_SIZE_256]byte, expected: string) -> bool {
     bytes := digest
-    text := hex.encode(bytes[:], context.temp_allocator)
+    text  := hex.encode(bytes[:], context.temp_allocator)
     return strings.equal_fold(string(text), strings.trim_space(expected))
 }
 

@@ -85,7 +85,7 @@ unneeded_cast_fix :: proc(rc: ^Request_Context, offset: int, is_transmute: bool,
         }
         keyword := odinsyntax.cast_expr_keyword(&ce) or_continue
         operand := odinsyntax.cast_expr_operand(&ce) or_continue
-        at := is_transmute ? int(n.offset) : int(operand.offset)
+        at      := is_transmute ? int(n.offset) : int(operand.offset)
         if at != offset || (keyword.green.kind == .Transmute) != is_transmute {
             continue
         }
@@ -114,7 +114,21 @@ operand_text :: proc(n: odinsyntax.Syntax_Node) -> string {
 @(private = "file")
 atomic_expr :: proc(kind: odinsyntax.Syntax_Kind) -> bool {
     #partial switch kind {
-    case .Ident, .Literal, .Context_Expr, .Paren_Expr, .Selector_Expr, .Implicit_Selector, .Selector_Call_Expr, .Index_Expr, .Matrix_Index_Expr, .Slice_Expr, .Deref_Expr, .Call_Expr, .Comp_Lit, .Cast_Expr, .Auto_Cast_Expr:
+    case .Ident,
+        .Literal,
+        .Context_Expr,
+        .Paren_Expr,
+        .Selector_Expr,
+        .Implicit_Selector,
+        .Selector_Call_Expr,
+        .Index_Expr,
+        .Matrix_Index_Expr,
+        .Slice_Expr,
+        .Deref_Expr,
+        .Call_Expr,
+        .Comp_Lit,
+        .Cast_Expr,
+        .Auto_Cast_Expr:
         return true
     }
     return false
@@ -126,8 +140,8 @@ SPACED_INDENT :: "With '-vet-tabs', tabs must be used for indentation"
 // Replaces the indentation before `offset` with tabs, one for each started indent unit.
 @(private = "file")
 tabs_fix :: proc(rc: ^Request_Context, offset: int, res: ^lang.Result) {
-    src := rc.req.source
-    ls := line_start(src, offset)
+    src   := rc.req.source
+    ls    := line_start(src, offset)
     width := rc.req.tab_size
     if width <= 0 {
         unit := indent_unit(rc.req)
@@ -136,9 +150,12 @@ tabs_fix :: proc(rc: ^Request_Context, offset: int, res: ^lang.Result) {
     col := 0
     for i in ls ..< offset {
         switch src[i] {
-        case ' ':  col += 1
-        case '\t': col += width - col % width
-        case:      return
+        case ' ':
+            col += 1
+        case '\t':
+            col += width - col % width
+        case:
+            return
         }
     }
     if col == 0 {
@@ -201,14 +218,14 @@ message_quotes :: proc(message, prefix: string) -> bool {
 @(private = "file")
 immutable_fix :: proc(rc: ^Request_Context, offset: int, res: ^lang.Result) {
     src := rc.req.source
-    at := offset
+    at  := offset
     if src[at] == '&' {
         at += 1
         for at < len(src) && (src[at] == ' ' || src[at] == '\t') {
             at += 1
         }
     }
-    root := odinsyntax.node_root(rc.parsed.tree)
+    root       := odinsyntax.node_root(rc.parsed.tree)
     tok, found := odinsyntax.node_token_at(root, u32(at), context.temp_allocator)
     if !found || tok.green.kind != .Ident || int(tok.offset) != at {
         return
@@ -219,8 +236,8 @@ immutable_fix :: proc(rc: ^Request_Context, offset: int, res: ^lang.Result) {
     }
     file := rc.live.id
     name := odinsyntax.syntax_token_text(tok)
-    r := odinsema.lookup_name(c, file, name, at)
-    l := r.local
+    r    := odinsema.lookup_name(c, file, name, at)
+    l    := r.local
     if r.kind != .Local || (l.kind != .Loop_Var && l.kind != .Switch_Var) {
         return
     }
@@ -241,11 +258,11 @@ immutable_fix :: proc(rc: ^Request_Context, offset: int, res: ^lang.Result) {
     }
     ok := false
     if stmt.green.kind == .Type_Switch_Stmt {
-        ts, _ := odinsyntax.as_type_switch_stmt(stmt^)
+        ts, _        := odinsyntax.as_type_switch_stmt(stmt^)
         subject, has := odinsyntax.type_switch_stmt_subject(&ts)
         ok = has && addressable(c, file, subject)
     } else {
-        rs, _ := odinsyntax.as_range_stmt(stmt^)
+        rs, _         := odinsyntax.as_range_stmt(stmt^)
         iterated, has := odinsyntax.range_stmt_expr(&rs)
         ok = has && element_addressable(c, file, iterated, l.value_index)
     }
@@ -258,7 +275,7 @@ immutable_fix :: proc(rc: ^Request_Context, offset: int, res: ^lang.Result) {
 // True when the `index`th variable of a `for ... in iterated` can be declared with `&`.
 @(private = "file")
 element_addressable :: proc(c: ^odinsema.Checker, file: odinsema.File_Id, iterated: odinsyntax.Syntax_Node, index: int) -> bool {
-    t := &c.table
+    t    := &c.table
     base := odinsema.type_base(t, odinsema.expr_type(c, file, iterated).type)
     #partial switch v in odinsema.type_get(t, base) {
     case odinsema.Slice_Type, odinsema.Dynamic_Array_Type:
@@ -283,7 +300,7 @@ addressable :: proc(c: ^odinsema.Checker, file: odinsema.File_Id, n: odinsyntax.
     t := &c.table
     #partial switch n.green.kind {
     case .Paren_Expr:
-        pe := odinsyntax.Paren_Expr(n)
+        pe    := odinsyntax.Paren_Expr(n)
         inner := odinsyntax.paren_expr_expr(&pe) or_return
         return addressable(c, file, inner)
     case .Deref_Expr:
@@ -298,14 +315,14 @@ addressable :: proc(c: ^odinsema.Checker, file: odinsema.File_Id, n: odinsyntax.
         case .None, .Import, .Basic, .Builtin:
         }
     case .Selector_Expr:
-        se := odinsyntax.Selector_Expr(n)
+        se      := odinsyntax.Selector_Expr(n)
         operand := odinsyntax.selector_expr_operand(&se) or_return
         if _, is_ptr := odinsema.type_get(t, odinsema.type_base(t, odinsema.expr_type(c, file, operand).type)).(odinsema.Pointer_Type); is_ptr {
             return true
         }
         return addressable(c, file, operand)
     case .Index_Expr:
-        ie := odinsyntax.Index_Expr(n)
+        ie      := odinsyntax.Index_Expr(n)
         operand := odinsyntax.index_expr_operand(&ie) or_return
         #partial switch _ in odinsema.type_get(t, odinsema.type_base(t, odinsema.expr_type(c, file, operand).type)) {
         case odinsema.Slice_Type, odinsema.Dynamic_Array_Type, odinsema.Multi_Pointer_Type, odinsema.Pointer_Type:
@@ -324,7 +341,7 @@ message_name :: proc(message, prefix, suffix: string) -> (string, bool) {
         return "", false
     }
     rest := message[len(prefix):]
-    end := strings.index_byte(rest, '\'')
+    end  := strings.index_byte(rest, '\'')
     if end <= 0 || !strings.has_prefix(rest[end:], suffix) {
         return "", false
     }
@@ -343,18 +360,18 @@ param_body :: proc(rc: ^Request_Context, offset: int, name: string) -> (open: od
         if n.green.kind != .Proc_Lit {
             continue
         }
-        pl, _ := odinsyntax.as_proc_lit(n^)
-        pt := odinsyntax.proc_lit_type(&pl) or_return
-        params := odinsyntax.proc_type_params(&pt) or_return
+        pl, _     := odinsyntax.as_proc_lit(n^)
+        pt        := odinsyntax.proc_lit_type(&pl) or_return
+        params    := odinsyntax.proc_type_params(&pt) or_return
         has_param := false
-        fields := odinsyntax.param_list_fields(&params)
+        fields    := odinsyntax.param_list_fields(&params)
         for field in odinsyntax.child_iter_next(&fields) {
             f, is_field := odinsyntax.as_field(field)
             if !is_field {
                 continue
             }
             names := odinsyntax.field_names(&f) or_continue
-            it := odinsyntax.name_list_names(&names)
+            it    := odinsyntax.name_list_names(&names)
             for param in odinsyntax.child_iter_next(&it) {
                 has_param ||= odinsyntax.node_text(param) == name
             }
@@ -365,7 +382,7 @@ param_body :: proc(rc: ^Request_Context, offset: int, name: string) -> (open: od
         }
         block := body
         open = odinsyntax.find_child_token(&block, {tokens = {.Open_Brace}}) or_return
-        src := rc.req.source
+        src   := rc.req.source
         after := int(open.offset) + 1
         if strings.trim_space(src[after:line_end(src, after)]) != "" {
             return
@@ -382,8 +399,8 @@ shadow_parameter_fix :: proc(rc: ^Request_Context, offset: int, name: string, re
     if !ok {
         return
     }
-    src := rc.req.source
-    block := body
+    src    := rc.req.source
+    block  := body
     indent := ""
     if first, has := odinsyntax.find_child_node(&block, {kinds = ~odinsyntax.Kind_Set{}}); has {
         indent = line_indent(src, int(first.offset))
@@ -397,7 +414,7 @@ shadow_parameter_fix :: proc(rc: ^Request_Context, offset: int, name: string, re
 // Turns the `name := value` that declares the name again into the assignment `name = value`.
 @(private = "file")
 redeclaration_fix :: proc(rc: ^Request_Context, offset: int, name: string, res: ^lang.Result) {
-    root := odinsyntax.node_root(rc.parsed.tree)
+    root       := odinsyntax.node_root(rc.parsed.tree)
     tok, found := odinsyntax.node_token_at(root, u32(offset), context.temp_allocator)
     if !found || !strings.has_prefix(rc.req.source[offset:], name) {
         return
@@ -409,21 +426,21 @@ redeclaration_fix :: proc(rc: ^Request_Context, offset: int, name: string, res: 
     if list == nil || list.parent == nil || list.parent.green.kind != .Value_Decl {
         return
     }
-    nl := odinsyntax.Name_List(list^)
+    nl    := odinsyntax.Name_List(list^)
     count := 0
-    it := odinsyntax.name_list_names(&nl)
+    it    := odinsyntax.name_list_names(&nl)
     for _ in odinsyntax.child_iter_next(&it) {
         count += 1
     }
-    decl := list.parent
-    v, _ := odinsyntax.as_value_decl(decl^)
+    decl               := list.parent
+    v, _               := odinsyntax.as_value_decl(decl^)
     values, has_values := odinsyntax.value_decl_values(&v)
     if count != 1 || !has_values || !inside_procedure(decl) {
         return
     }
-    src := rc.req.source
+    src  := rc.req.source
     from := offset + len(name)
-    to := int(values.offset)
+    to   := int(values.offset)
     if from > to || strings.trim_space(src[from:to]) != ":=" {
         return
     }

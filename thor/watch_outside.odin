@@ -30,10 +30,10 @@ Outside_Entry :: struct {
 
 Outside_Stat_Job :: struct {
     queue_next: ^Outside_Stat_Job, // link in Thor.finished_outside_stats
-    owner:     ^Thor,
-    allocator: runtime.Allocator,
-    worker:    ^thread.Thread,
-    entries:   [dynamic]Outside_Entry, // owned, with the paths in it
+    owner:      ^Thor,
+    allocator:  runtime.Allocator,
+    worker:     ^thread.Thread,
+    entries:    [dynamic]Outside_Entry, // owned, with the paths in it
 }
 
 // True for an open file no watcher event can name.
@@ -67,7 +67,7 @@ thor_poll_outside_files :: proc(thor: ^Thor) {
             job.allocator = context.allocator
             job.entries = make([dynamic]Outside_Entry)
         }
-        append(&job.entries, Outside_Entry {path = strings.clone(file.path)})
+        append(&job.entries, Outside_Entry{path = strings.clone(file.path)})
     }
     if job == nil {
         return

@@ -38,7 +38,7 @@ Markdown_View :: struct {
     built_family: string, // borrowed from the font package
     hovered:      int,
     // The folder of the document, which a relative image source is read against.
-    dir:          string, // owned
+    dir:          string,              // owned
     images:       map[string]Md_Image, // owned, with its keys; by absolute path
     // The selection, as source byte offsets. Empty when anchor == cursor.
     sel_anchor:   int,
@@ -136,7 +136,7 @@ thor_markdown_set_source :: proc(view: ^Markdown_View, text: string, revision: u
 
 @(private = "file")
 thor_markdown_palette :: proc(thor: ^Thor) -> markdown.Palette {
-    return markdown.Palette {
+    return markdown.Palette{
         text = thor.theme.foreground,
         strong = thor.theme.primary_text_color,
         heading = thor.theme.primary_text_color,
@@ -230,7 +230,7 @@ thor_markdown_highlight :: proc(lang, code: string, user: rawptr) -> []markdown.
         return nil
     }
     spans := plugin.highlight(&thor.plugins, "", code, key, context.temp_allocator)
-    out := make([]markdown.Color_Span, len(spans), context.temp_allocator)
+    out   := make([]markdown.Color_Span, len(spans), context.temp_allocator)
     for span, i in spans {
         out[i] = {start = span.start, end = span.end, color = theme.role_color(thor.theme, span.role)}
     }
@@ -239,17 +239,11 @@ thor_markdown_highlight :: proc(lang, code: string, user: rawptr) -> []markdown.
 
 // The face the page draws in, answered for the parser.
 thor_markdown_metrics :: proc(view: ^Markdown_View) -> markdown.Metrics {
-    return markdown.Metrics {
-        measure = proc(text: string, size: i32, style: markdown.Style, user: rawptr) -> f32 {
-            return f32(font.measure(text, size, "", 0, thor_font_style(style)))
-        },
-        line_height = proc(size: i32, user: rawptr) -> f32 {
-            return f32(font.line_height(size))
-        },
-        image_size = thor_markdown_image_size,
-        highlight = thor_markdown_highlight,
-        user = view,
-    }
+    return markdown.Metrics{measure = proc(text: string, size: i32, style: markdown.Style, user: rawptr) -> f32 {
+        return f32(font.measure(text, size, "", 0, thor_font_style(style)))
+    }, line_height = proc(size: i32, user: rawptr) -> f32 {
+        return f32(font.line_height(size))
+    }, image_size = thor_markdown_image_size, highlight = thor_markdown_highlight, user = view}
 }
 
 // Rebuilds the page when the source, the column, the font or the theme has
@@ -257,11 +251,7 @@ thor_markdown_metrics :: proc(view: ^Markdown_View) -> markdown.Metrics {
 thor_markdown_ensure :: proc(thor: ^Thor, view: ^Markdown_View, avail: f32, base: i32) {
     view.thor = thor
     family := font.default_family()
-    if view.built &&
-       view.built_rev == view.source_rev &&
-       view.built_font == base &&
-       view.built_family == family &&
-       abs(view.built_width - avail) < 0.5 {
+    if view.built && view.built_rev == view.source_rev && view.built_font == base && view.built_family == family && abs(view.built_width - avail) < 0.5 {
         return
     }
     for _, &image in view.images {
@@ -316,13 +306,7 @@ thor_markdown_pane :: proc(thor: ^Thor, file: ^Open_File, key: string) {
         {
             key = key,
             flags = {.Clip, .Clickable, .Focusable, .Draggable, .Scroll_Y, .Wheel},
-            props = {
-                position = .Relative,
-                w = ui.Grow(1),
-                h = ui.Grow(1),
-                bg = thor.theme.background,
-                cursor = .Text,
-            },
+            props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), bg = thor.theme.background, cursor = .Text},
         },
     )
     defer ui.end()
@@ -351,7 +335,7 @@ thor_markdown_pane :: proc(thor: ^Thor, file: ^Open_File, key: string) {
     ui.leaf({key = "content", props = {w = ui.Px(0), h = ui.Px(view.page.content_height)}})
 
     left := markdown.content_left(pane.rect.w, avail)
-    top := markdown.PAD_TOP - view.scroll
+    top  := markdown.PAD_TOP - view.scroll
 
     thor_markdown_interact(thor, view, pane, left, top)
     thor_markdown_draw(thor, view, {pane.rect.x, pane.rect.y, pane.rect.w, pane.rect.h}, left, top, true)
@@ -362,9 +346,9 @@ thor_markdown_pane :: proc(thor: ^Thor, file: ^Open_File, key: string) {
 @(private = "file")
 thor_markdown_interact :: proc(thor: ^Thor, view: ^Markdown_View, pane: ui.Interaction, left, top: f32) {
     view.hovered = -1
-    mouse := ui.mouse_pos()
-    mx := mouse.x - pane.rect.x - left
-    my := mouse.y - pane.rect.y - top
+    mouse   := ui.mouse_pos()
+    mx      := mouse.x - pane.rect.x - left
+    my      := mouse.y - pane.rect.y - top
     metrics := thor_markdown_metrics(view)
 
     // A label over the page takes the hover from the pane, so the pointer is
@@ -507,19 +491,18 @@ thor_markdown_copy_button_at :: proc(view: ^Markdown_View, mx, my: f32) -> int {
 thor_markdown_draw :: proc(thor: ^Thor, view: ^Markdown_View, rect: ui.Rect, left, top: f32, controls: bool) {
     lo, hi := min(view.sel_anchor, view.sel_cursor), max(view.sel_anchor, view.sel_cursor)
     metrics := thor_markdown_metrics(view)
-    mouse := ui.mouse_pos()
-    mx := mouse.x - rect.x - left
-    my := mouse.y - rect.y - top
+    mouse   := ui.mouse_pos()
+    mx      := mouse.x - rect.x - left
+    my      := mouse.y - rect.y - top
 
     for item, index in view.page.items {
         y := top + item.y
         if y + item.h < 0 || y > rect.h {
             continue
         }
-        x := left + item.x
+        x     := left + item.x
         // A link lights with the underline that follows its text.
-        lit := view.hovered >= 0 &&
-            (index == view.hovered || (index == view.hovered + 1 && view.page.items[view.hovered].kind == .Text))
+        lit   := view.hovered >= 0 && (index == view.hovered || (index == view.hovered + 1 && view.page.items[view.hovered].kind == .Text))
         color := lit ? thor.theme.accent_color : item.color
         switch item.kind {
         case .Rect:
@@ -569,15 +552,7 @@ thor_markdown_draw :: proc(thor: ^Thor, view: ^Markdown_View, rect: ui.Rect, lef
             ui.push_id_int(i64(index))
             ui.image(
                 render.register_texture(&thor.backend, image.texture),
-                {
-                    key = "md",
-                    props = {
-                        position = .Absolute,
-                        inset = {l = x, t = y},
-                        w = ui.Px(item.w),
-                        h = ui.Px(item.h),
-                    },
-                },
+                {key = "md", props = {position = .Absolute, inset = {l = x, t = y}, w = ui.Px(item.w), h = ui.Px(item.h)}},
             )
             ui.pop_id()
         case .Toggle:
@@ -598,22 +573,15 @@ thor_markdown_draw :: proc(thor: ^Thor, view: ^Markdown_View, rect: ui.Rect, lef
 // A code block's language tag and, while the mouse is over the block, its
 // copy button.
 @(private = "file")
-thor_markdown_code_chrome :: proc(
-    thor: ^Thor,
-    view: ^Markdown_View,
-    item: markdown.Item,
-    index: int,
-    x, y, mx, my: f32,
-    controls: bool,
-) {
+thor_markdown_code_chrome :: proc(thor: ^Thor, view: ^Markdown_View, item: markdown.Item, index: int, x, y, mx, my: f32, controls: bool) {
     over := mx >= item.x && mx < item.x + item.w && my >= item.y && my < item.y + item.h
     size := f32(max(item.size - 3, 9))
     ui.push_id_int(i64(index))
     defer ui.pop_id()
     if controls && over {
         bx, by, bw, bh := thor_markdown_copy_box(item)
-        hot := mx >= bx && mx < bx + bw && my >= by && my < by + bh
-        copied := view.copied == index && time.tick_since(view.copied_at) < MD_COPIED_FOR
+        hot            := mx >= bx && mx < bx + bw && my >= by && my < by + bh
+        copied         := view.copied == index && time.tick_since(view.copied_at) < MD_COPIED_FOR
         ui.scope(
             {
                 key = "copy",

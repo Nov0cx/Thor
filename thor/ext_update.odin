@@ -60,7 +60,7 @@ Ext_Update :: struct {
     path:      string, // owned; live path with '/' separators, the hold key
     bundled:   bool,   // shipped with Thor, so an app update replaces it unless held
     workspace: bool,
-    updatable: bool,   // a release source or a git upstream is known
+    updatable: bool, // a release source or a git upstream is known
     target:    update.Ext_Kind,
     repo:      string, // owned; Git: the clone
     version:   string, // owned; Release: the local version
@@ -182,7 +182,7 @@ thor_ext_clear :: proc(thor: ^Thor) {
 @(private = "file")
 thor_theme_info :: proc(path: string) -> (version, source: string) {
     parsed, status, _ := luaconf.eval_file(path)
-    root, is_object := parsed.(json.Object)
+    root, is_object   := parsed.(json.Object)
     if status != .Ok || !is_object {
         return "", ""
     }
@@ -213,11 +213,7 @@ thor_ext_add :: proc(
     version, source, repo: string,
     held: []string,
 ) {
-    item := Ext_Update {
-        kind      = kind,
-        bundled   = bundled,
-        workspace = workspace,
-    }
+    item := Ext_Update{kind = kind, bundled = bundled, workspace = workspace}
     switch {
     case repo != "":
         item.updatable = true
@@ -246,24 +242,24 @@ thor_ext_scan :: proc(thor: ^Thor) {
 
     for p in plugin.manager_scan(&thor.plugins) {
         version, source := plugin.manifest_info(p.dir)
-        repo := thor_is_clone(p.dir) ? p.dir : ""
+        repo            := thor_is_clone(p.dir) ? p.dir : ""
         thor_ext_add(&list, .Plugin, p.id, p.dir, true, false, version, source, repo, held)
     }
     for p in thor_scan_workspace_plugins(thor) {
         version, source := plugin.manifest_info(p.dir)
-        repo := thor_is_clone(p.dir) ? p.dir : ""
+        repo            := thor_is_clone(p.dir) ? p.dir : ""
         thor_ext_add(&list, .Plugin, p.id, p.dir, false, true, version, source, repo, held)
     }
     user_repo := thor_is_clone(USER_THEME_DIR) ? USER_THEME_DIR : ""
     for dir in ([]string{USER_THEME_DIR, SHIPPED_THEME_DIR}) {
-        pattern := strings.concatenate({dir, "/*", THEME_EXT}, context.temp_allocator)
+        pattern      := strings.concatenate({dir, "/*", THEME_EXT}, context.temp_allocator)
         matches, err := filepath.glob(pattern, context.temp_allocator)
         if err != nil {
             continue
         }
         bundled := dir == SHIPPED_THEME_DIR
         for path in matches {
-            name := strings.trim_suffix(filepath.base(path), THEME_EXT)
+            name            := strings.trim_suffix(filepath.base(path), THEME_EXT)
             version, source := thor_theme_info(path)
             thor_ext_add(&list, .Theme, name, path, bundled, false, version, source, bundled ? "" : user_repo, held)
         }
@@ -319,11 +315,11 @@ thor_ext_theme_pending :: proc(thor: ^Thor, name: string) -> bool {
 @(private = "file")
 thor_ext_job_target :: proc(item: Ext_Update) -> update.Ext_Target {
     return {
-        kind    = item.target,
-        path    = strings.clone(item.path),
-        repo    = strings.clone(item.repo),
+        kind = item.target,
+        path = strings.clone(item.path),
+        repo = strings.clone(item.repo),
         version = strings.clone(item.version),
-        source  = strings.clone(item.source),
+        source = strings.clone(item.source),
     }
 }
 
@@ -386,13 +382,7 @@ thor_install_ext_update :: proc(thor: ^Thor, path: string) {
         }
         items := make([]Ext_Job_Item, 1)
         items[0].target = thor_ext_job_target(item)
-        items[0].result = {
-            status = item.status,
-            latest = strings.clone(item.latest),
-            tag    = strings.clone(item.tag),
-            behind = item.behind,
-            dirty  = item.dirty,
-        }
+        items[0].result = {status = item.status, latest = strings.clone(item.latest), tag = strings.clone(item.tag), behind = item.behind, dirty = item.dirty}
         thor_ext_start(thor, .Install, true, items)
         thor_flash_status(thor, fmt.tprintf("Updating %s...", item.name))
         return
@@ -562,12 +552,12 @@ thor_ext_set_held :: proc(thor: ^Thor, path: string, hold: bool) {
 // The Help menu and palette entry. An explicit request beats the throttle and
 // the check_for_plugin_updates setting.
 thor_cmd_check_for_plugin_updates :: proc(data: rawptr) {
-    thor_check_ext_updates(cast(^Thor) data, manual = true)
+    thor_check_ext_updates(cast(^Thor)data, manual = true)
 }
 
 // The titlebar badge: opens the update rows.
 thor_click_ext_updates :: proc(data: rawptr) {
-    thor_open_settings_view(cast(^Thor) data, EXT_SETTINGS_CATEGORY)
+    thor_open_settings_view(cast(^Thor)data, EXT_SETTINGS_CATEGORY)
 }
 
 // What an item's row reads.
@@ -617,13 +607,18 @@ thor_populate_ext_category :: proc(thor: ^Thor, config: ^setting.Settings) {
     }
     thor_settings_begin_category(view, EXT_SETTINGS_CATEGORY, "Plugin & Theme Updates", "refresh")
     thor_settings_add_choice(view, "check_for_plugin_updates", "Check Automatically", thor_on_off_label(setting.check_for_plugin_updates(config)))
-    pending := thor_ext_pending_count(thor)
+    pending   := thor_ext_pending_count(thor)
     now_value := thor.ext_inflight ? "Checking..." : pending > 0 ? fmt.tprintf("%d available", pending) : "Check"
     thor_settings_add_choice(view, EXT_CHECK_NOW_ROW, "Check Now", now_value)
 
     for item in thor.ext_updates {
         if item.updatable {
-            thor_settings_add_choice(view, strings.concatenate({EXT_ROW_PREFIX, item.path}, context.temp_allocator), thor_ext_row_label(item), thor_ext_value_label(thor, item))
+            thor_settings_add_choice(
+                view,
+                strings.concatenate({EXT_ROW_PREFIX, item.path}, context.temp_allocator),
+                thor_ext_row_label(item),
+                thor_ext_value_label(thor, item),
+            )
         }
     }
     groups := [?]struct {
@@ -634,7 +629,12 @@ thor_populate_ext_category :: proc(thor: ^Thor, config: ^setting.Settings) {
         thor_settings_begin_group(view, group.id, group.label, collapsed = true)
         for item in thor.ext_updates {
             if item.bundled && !item.updatable && item.kind == group.kind {
-                thor_settings_add_choice(view, strings.concatenate({EXT_ROW_PREFIX, item.path}, context.temp_allocator), thor_ext_row_label(item), thor_ext_value_label(thor, item))
+                thor_settings_add_choice(
+                    view,
+                    strings.concatenate({EXT_ROW_PREFIX, item.path}, context.temp_allocator),
+                    thor_ext_row_label(item),
+                    thor_ext_value_label(thor, item),
+                )
             }
         }
         thor_settings_end_group(view)
@@ -649,9 +649,13 @@ thor_ext_on_setting_choice :: proc(thor: ^Thor, id: string) -> bool {
     }
     if id == "check_for_plugin_updates" {
         thor_select_open(
-            thor, "Check Plugins and Themes Automatically", ON_OFF_LABELS[:],
+            thor,
+            "Check Plugins and Themes Automatically",
+            ON_OFF_LABELS[:],
             thor_on_off_label(setting.check_for_plugin_updates(&thor.config)),
-            thor_no_preview, thor_ext_auto_commit, thor,
+            thor_no_preview,
+            thor_ext_auto_commit,
+            thor,
         )
         return true
     }
@@ -681,7 +685,7 @@ thor_ext_on_setting_choice :: proc(thor: ^Thor, id: string) -> bool {
 
 @(private = "file")
 thor_ext_auto_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if err := setting.persist_bool(thor_active_settings_path(thor), "check_for_plugin_updates", choice == ON_OFF_LABELS[0]); err != .None {
         thor_settings_save_failed(thor, thor_active_settings_path(thor), err)
         return
@@ -691,7 +695,7 @@ thor_ext_auto_commit :: proc(data: rawptr, choice: string) {
 
 @(private = "file")
 thor_ext_row_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     path := thor.ext_setting_target
     switch choice {
     case EXT_UPDATE_NOW:

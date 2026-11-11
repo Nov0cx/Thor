@@ -20,14 +20,14 @@ Palette_Command :: struct {
 }
 
 // Single-line text prompt (New File/Folder name, ...): fires on Enter.
-Palette_Prompt_Proc :: #type proc(data: rawptr, text: string)
+Palette_Prompt_Proc        :: #type proc(data: rawptr, text: string)
 // Yes/no confirmation (delete a file, ...): fires on Enter, cancels on Escape.
-Palette_Confirm_Proc :: #type proc(data: rawptr)
+Palette_Confirm_Proc       :: #type proc(data: rawptr)
 // Fuzzy pick from a caller-supplied list (theme, font, branch, ...).
-Palette_Pick_Proc :: #type proc(data: rawptr, choice: string)
+Palette_Pick_Proc          :: #type proc(data: rawptr, choice: string)
 // Rich fuzzy pick (symbol lists): fires with the chosen item's index into the
 // caller's own slice, so the caller maps it back to its own data.
-Palette_Pick_Index_Proc :: #type proc(data: rawptr, index: int)
+Palette_Pick_Index_Proc    :: #type proc(data: rawptr, index: int)
 // Rich Pick mode only: fires after user input changes the query, so a picker
 // whose rows come from a server can re-dispatch instead of only re-filtering.
 Palette_Query_Changed_Proc :: #type proc(data: rawptr, query: string)
@@ -57,11 +57,11 @@ Palette_Match :: struct {
     score: int,
 }
 
-PALETTE_WIDTH :: f32(720)
-PALETTE_ROW_H :: f32(30)
-PALETTE_INPUT_H :: f32(44)
+PALETTE_WIDTH    :: f32(720)
+PALETTE_ROW_H    :: f32(30)
+PALETTE_INPUT_H  :: f32(44)
 PALETTE_MAX_ROWS :: 10
-PALETTE_TOP :: f32(90)
+PALETTE_TOP      :: f32(90)
 // Matched characters marked in one row. A longer query still filters and scores
 // in full; only the marks past this stop.
 PALETTE_MARK_MAX :: 64
@@ -125,20 +125,10 @@ thor_palette_destroy :: proc(thor: ^Thor) {
 
 // Appends a command. `title` and `action` must outlive the palette; the chord
 // label comes from `action`, else `shortcut`, which is copied.
-thor_palette_add :: proc(
-    thor: ^Thor,
-    title: string,
-    run: proc(data: rawptr),
-    data: rawptr,
-    shortcut := "",
-    action := "",
-) {
+thor_palette_add :: proc(thor: ^Thor, title: string, run: proc(data: rawptr), data: rawptr, shortcut := "", action := "") {
     label := action != "" ? thor_action_shortcut(thor, action) : shortcut
-    sc := label == "" ? "" : strings.clone(label)
-    append(
-        &thor.palette.commands,
-        Palette_Command{title = title, shortcut = sc, action = action, run = run, data = data},
-    )
+    sc    := label == "" ? "" : strings.clone(label)
+    append(&thor.palette.commands, Palette_Command{title = title, shortcut = sc, action = action, run = run, data = data})
 }
 
 // Labels every command with the chord its action is bound to now.
@@ -202,13 +192,7 @@ thor_palette_close :: proc(thor: ^Thor) {
 
 // Opens the palette as a single-line text prompt. `label` is the placeholder
 // (borrowed); `run` fires with the typed text on Enter. `initial` prefills it.
-thor_palette_prompt :: proc(
-    thor: ^Thor,
-    label: string,
-    run: Palette_Prompt_Proc,
-    data: rawptr,
-    initial := "",
-) {
+thor_palette_prompt :: proc(thor: ^Thor, label: string, run: Palette_Prompt_Proc, data: rawptr, initial := "") {
     p := &thor.palette
     p.prompt_label = label
     p.prompt_run = run
@@ -222,13 +206,7 @@ thor_palette_prompt :: proc(
 
 // Opens the palette as a yes/no confirmation. `run` fires on Enter; Escape or an
 // outside click dismisses, firing `on_cancel` when one is given.
-thor_palette_confirm :: proc(
-    thor: ^Thor,
-    message: string,
-    run: Palette_Confirm_Proc,
-    data: rawptr,
-    on_cancel: Palette_Confirm_Proc = nil,
-) {
+thor_palette_confirm :: proc(thor: ^Thor, message: string, run: Palette_Confirm_Proc, data: rawptr, on_cancel: Palette_Confirm_Proc = nil) {
     p := &thor.palette
     palette_show(thor, .Confirm)
     p.prompt_label = message
@@ -239,13 +217,7 @@ thor_palette_confirm :: proc(
 
 // Opens a fuzzy picker over `items`; `run` fires with the chosen string. Items
 // are copied, so the caller keeps ownership of its slice.
-thor_palette_pick :: proc(
-    thor: ^Thor,
-    label: string,
-    items: []string,
-    run: Palette_Pick_Proc,
-    data: rawptr,
-) {
+thor_palette_pick :: proc(thor: ^Thor, label: string, items: []string, run: Palette_Pick_Proc, data: rawptr) {
     p := &thor.palette
     palette_clear_files(p)
     for item in items {
@@ -262,13 +234,7 @@ thor_palette_pick :: proc(
 
 // Opens a rich fuzzy picker (symbol rows); `run` fires with the chosen item's
 // index into `items`. Items are deep-copied.
-thor_palette_pick_rich :: proc(
-    thor: ^Thor,
-    label: string,
-    items: []Pick_Item,
-    run: Palette_Pick_Index_Proc,
-    data: rawptr,
-) {
+thor_palette_pick_rich :: proc(thor: ^Thor, label: string, items: []Pick_Item, run: Palette_Pick_Index_Proc, data: rawptr) {
     p := &thor.palette
     palette_set_pick_items(p, items)
     p.prompt_label = label
@@ -435,7 +401,7 @@ palette_set_pick_items :: proc(p: ^Palette, items: []Pick_Item) {
     for item in items {
         append(
             &p.pick_items,
-            Pick_Item {
+            Pick_Item{
                 text = strings.clone(item.text),
                 name_len = item.name_len,
                 color = item.color,
@@ -529,7 +495,7 @@ palette_query_changed :: proc(thor: ^Thor) {
 
 @(private = "file")
 palette_move :: proc(thor: ^Thor, delta: int) {
-    p := &thor.palette
+    p     := &thor.palette
     count := len(p.matches)
     if count == 0 {
         return
@@ -578,14 +544,14 @@ palette_activate :: proc(thor: ^Thor) {
         // Copy and close first: the callback may open the next prompt, which
         // resets the query the text points into.
         text := strings.clone(strings.trim_space(string(p.query[:])), context.temp_allocator)
-        run := p.prompt_run
+        run  := p.prompt_run
         data := p.prompt_data
         thor_palette_close(thor)
         if text != "" && run != nil {
             run(data, text)
         }
     case .Confirm:
-        run := p.confirm_run
+        run  := p.confirm_run
         data := p.confirm_data
         p.confirm_cancel = nil // answered: the dismissal hook must not fire
         thor_palette_close(thor)
@@ -598,7 +564,7 @@ palette_activate :: proc(thor: ^Thor) {
         }
         index := p.matches[p.selected].index
         if p.pick_rich {
-            run := p.pick_index_run
+            run  := p.pick_index_run
             data := p.pick_data
             thor_palette_close(thor)
             if run != nil {
@@ -607,8 +573,8 @@ palette_activate :: proc(thor: ^Thor) {
             return
         }
         choice := strings.clone(p.files[index], context.temp_allocator)
-        run := p.pick_run
-        data := p.pick_data
+        run    := p.pick_run
+        data   := p.pick_data
         thor_palette_close(thor)
         if run != nil {
             run(data, choice)
@@ -692,26 +658,12 @@ palette_box :: proc(thor: ^Thor) {
             ui.set_focus(box.id)
             p.focus_pending = false
         }
-        ui.label(
-            p.prompt_label,
-            {key = "msg", props = {pad = ui.xy(8, 10), color = thor.theme.foreground}},
-        )
-        ui.label(
-            "Enter to confirm, Escape to cancel",
-            {key = "hint", props = {pad = ui.xy(8, 2), color = thor.theme.muted_color}},
-        )
+        ui.label(p.prompt_label, {key = "msg", props = {pad = ui.xy(8, 10), color = thor.theme.foreground}})
+        ui.label("Enter to confirm, Escape to cancel", {key = "hint", props = {pad = ui.xy(8, 2), color = thor.theme.muted_color}})
     } else {
         it := ui.input(
             &p.query,
-            {
-                key = "query",
-                props = {
-                    h = ui.Px(PALETTE_INPUT_H - 12),
-                    align = .Center,
-                    bg = thor.theme.background,
-                    color = thor.theme.foreground,
-                },
-            },
+            {key = "query", props = {h = ui.Px(PALETTE_INPUT_H - 12), align = .Center, bg = thor.theme.background, color = thor.theme.foreground}},
             palette_placeholder(p),
         )
         if p.focus_pending {
@@ -803,23 +755,14 @@ palette_list :: proc(thor: ^Thor) {
 
     if len(p.matches) == 0 {
         if p.pick_rich && (p.pick_loading || p.pick_hint != "") {
-            ui.label(
-                p.pick_loading ? "Loading" : p.pick_hint,
-                {key = "loading", props = {pad = ui.xy(10, 6), color = thor.theme.muted_color}},
-            )
+            ui.label(p.pick_loading ? "Loading" : p.pick_hint, {key = "loading", props = {pad = ui.xy(10, 6), color = thor.theme.muted_color}})
         }
         return
     }
 
     activate := false
     {
-        list := ui.scope(
-            {
-                key = "list",
-                flags = {.Clickable},
-                props = {w = ui.Grow(1), h = ui.FIT, dir = .Column},
-            },
-        )
+        list := ui.scope({key = "list", flags = {.Clickable}, props = {w = ui.Grow(1), h = ui.FIT, dir = .Column}})
         if list.wheel.y != 0 {
             palette_move(thor, list.wheel.y > 0 ? 1 : -1)
         }
@@ -840,17 +783,7 @@ palette_list :: proc(thor: ^Thor) {
     if p.mode == .Pick && p.pick_rich && p.selected < len(p.matches) {
         item := p.pick_items[p.matches[p.selected].index]
         if item.detail != "" {
-            ui.label(
-                item.detail,
-                {
-                    key = "detail",
-                    props = {
-                        pad = ui.xy(10, 4),
-                        color = thor.theme.muted_color,
-                        text_wrap = .Ellipsis,
-                    },
-                },
-            )
+            ui.label(item.detail, {key = "detail", props = {pad = ui.xy(10, 4), color = thor.theme.muted_color, text_wrap = .Ellipsis}})
         }
     }
 
@@ -862,9 +795,9 @@ palette_list :: proc(thor: ^Thor) {
 // One list row. Reports whether it was clicked.
 @(private = "file")
 palette_row :: proc(thor: ^Thor, index: int) -> bool {
-    p := &thor.palette
+    p      := &thor.palette
     source := p.matches[index].index
-    on := index == p.selected
+    on     := index == p.selected
 
     it := ui.scope(
         {
@@ -888,28 +821,17 @@ palette_row :: proc(thor: ^Thor, index: int) -> bool {
     // The selected row is already accent-tinted, so its marks take the selection
     // foreground instead.
     query := string(p.query[:])
-    mark := on ? thor.theme.selection_foreground : thor.theme.accent_color
+    mark  := on ? thor.theme.selection_foreground : thor.theme.accent_color
 
     if p.mode == .Pick && p.pick_rich {
-        item := p.pick_items[source]
+        item  := p.pick_items[source]
         spans := palette_split_spans(item.text, item.name_len, item.color, query, mark)
-        ui.leaf(
-            {
-                key = "text",
-                text = item.text,
-                spans = spans,
-                props = {
-                    w = ui.Grow(1),
-                    color = thor.theme.muted_color,
-                    text_wrap = .Ellipsis,
-                },
-            },
-        )
+        ui.leaf({key = "text", text = item.text, spans = spans, props = {w = ui.Grow(1), color = thor.theme.muted_color, text_wrap = .Ellipsis}})
         return it.clicked
     }
 
-    label := palette_display(thor, source)
-    base := on ? thor.theme.foreground : thor.theme.muted_color
+    label    := palette_display(thor, source)
+    base     := on ? thor.theme.foreground : thor.theme.muted_color
     name_len := 0
 
     // A file reads name first, with its folder dim beside it, behind the icon of
@@ -931,20 +853,10 @@ palette_row :: proc(thor: ^Thor, index: int) -> bool {
         spans = palette_match_spans(query, label, mark)
     }
 
-    ui.label(
-        label,
-        {
-            key = "text",
-            spans = spans,
-            props = {w = ui.Grow(1), color = base, text_wrap = .Ellipsis},
-        },
-    )
+    ui.label(label, {key = "text", spans = spans, props = {w = ui.Grow(1), color = base, text_wrap = .Ellipsis}})
     if p.mode == .Commands {
         if shortcut := p.commands[source].shortcut; shortcut != "" {
-            ui.label(
-                shortcut,
-                {key = "sc", props = {color = thor.theme.disabled, text_wrap = .None}},
-            )
+            ui.label(shortcut, {key = "sc", props = {color = thor.theme.disabled, text_wrap = .None}})
         }
     }
     return it.clicked
@@ -965,8 +877,8 @@ fuzzy_match :: proc(query, text: string, out: []int) -> (score: int, count: int,
         return 0, 0, true
     }
 
-    qi := 0
-    streak := 0
+    qi       := 0
+    streak   := 0
     prev_sep := true
     for i in 0 ..< len(text) {
         if qi >= len(query) {
@@ -1018,16 +930,12 @@ palette_match_spans :: proc(query, text: string, color: ui.Color) -> []ui.Text_S
     runs := make([dynamic]ui.Text_Span, 0, count, context.temp_allocator)
     for i := 0; i < count; i += 1 {
         first := hits[i]
-        end := hits[i] + 1
+        end   := hits[i] + 1
         for i + 1 < count && hits[i + 1] == end {
             i += 1
             end = hits[i] + 1
         }
-        span := ui.Text_Span {
-            start = palette_rune_start(text, first),
-            end   = palette_rune_end(text, end),
-            color = color,
-        }
+        span := ui.Text_Span{start = palette_rune_start(text, first), end = palette_rune_end(text, end), color = color}
         if len(runs) > 0 && runs[len(runs) - 1].end >= span.start {
             runs[len(runs) - 1].end = max(runs[len(runs) - 1].end, span.end)
             continue
@@ -1041,15 +949,9 @@ palette_match_spans :: proc(query, text: string, color: ui.Color) -> []ui.Text_S
 // the node's own dim colour, the matched characters marked over both halves.
 // Sorted and non-overlapping, as ui.Text_Span asks. Temp-allocated.
 @(private = "file")
-palette_split_spans :: proc(
-    text: string,
-    name_len: int,
-    color: ui.Color,
-    query: string,
-    mark: ui.Color,
-) -> []ui.Text_Span {
+palette_split_spans :: proc(text: string, name_len: int, color: ui.Color, query: string, mark: ui.Color) -> []ui.Text_Span {
     name_end := clamp(name_len, 0, len(text))
-    marks := palette_match_spans(query, text, mark)
+    marks    := palette_match_spans(query, text, mark)
     if len(marks) == 0 {
         if name_end <= 0 {
             return nil
@@ -1060,7 +962,7 @@ palette_split_spans :: proc(
     }
 
     runs := make([dynamic]ui.Text_Span, 0, len(marks) * 2 + 1, context.temp_allocator)
-    at := 0
+    at   := 0
     for m in marks {
         if at < m.start && at < name_end {
             append(&runs, ui.Text_Span{start = at, end = min(m.start, name_end), color = color})

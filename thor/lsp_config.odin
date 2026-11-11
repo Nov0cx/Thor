@@ -14,18 +14,13 @@ import "../luaconf"
 // entry is not asked for a field at a time: a form for `command`, `args` and
 // `env` would be a worse editor than the one Thor already is.
 thor_lsp_prompt_new_server :: proc(thor: ^Thor) {
-    thor_palette_prompt(
-        thor,
-        "Server id (for example: ruff)",
-        thor_lsp_new_server_submit,
-        thor,
-    )
+    thor_palette_prompt(thor, "Server id (for example: ruff)", thor_lsp_new_server_submit, thor)
 }
 
 @(private = "file")
 thor_lsp_new_server_submit :: proc(data: rawptr, text: string) {
-    thor := cast(^Thor) data
-    id := strings.trim_space(text)
+    thor := cast(^Thor)data
+    id   := strings.trim_space(text)
     if id == "" {
         return
     }

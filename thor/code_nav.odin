@@ -11,8 +11,8 @@ import "../textedit"
 
 // The state of the navigation commands of Thor.
 Nav_State :: struct {
-    list_request_id: u64,    // the symbol-list picker's request
-    list_empty:      string, // static; what to flash when the list is empty
+    list_request_id:  u64,                      // the symbol-list picker's request
+    list_empty:       string,                   // static; what to flash when the list is empty
     // Expand and shrink selection. `chain` was computed over `chain_path` at `chain_revision` for a
     // selection of `origin`; `expanded` is the range the last expand selected.
     chain:            [dynamic]lang.Text_Range, // owned
@@ -24,10 +24,10 @@ Nav_State :: struct {
     history:          [dynamic]lang.Text_Range, // owned; the selections an expand left
     chain_request_id: u64,
     // Reference counts above declarations.
-    lens_on:         bool,
-    lens_request_id: u64,
-    lens_path:       string, // owned; the file of the request
-    lens_source:     string, // owned; the text it was computed over
+    lens_on:          bool,
+    lens_request_id:  u64,
+    lens_path:        string, // owned; the file of the request
+    lens_source:      string, // owned; the text it was computed over
 }
 
 // The reference counts of one file, as lens rows above the declaration lines.
@@ -35,7 +35,7 @@ File_Lens :: struct {
     items:         [dynamic]editview.Inlay, // owned labels
     source:        string,                  // owned; the text `items` were computed over
     ready:         bool,
-    asked:         u64,                     // the revision last requested
+    asked:         u64, // the revision last requested
     asked_valid:   bool,
     view:          [dynamic]editview.Inlay, // `items` rebased onto the live text; labels borrowed
     view_revision: u64,
@@ -136,11 +136,10 @@ thor_expand_selection :: proc(thor: ^Thor) {
     if file == nil || !file.loaded {
         return
     }
-    nav := &thor.nav
-    lo, hi := textedit.selection_range(textedit.primary_cursor(&file.state))
+    nav     := &thor.nav
+    lo, hi  := textedit.selection_range(textedit.primary_cursor(&file.state))
     current := lang.Text_Range{lo, hi}
-    if nav.chain_valid && nav.chain_path == file.path && nav.chain_revision == file.state.revision &&
-       (current == nav.origin || current == nav.expanded) {
+    if nav.chain_valid && nav.chain_path == file.path && nav.chain_revision == file.state.revision && (current == nav.origin || current == nav.expanded) {
         thor_step_selection(thor, file, current)
         return
     }
@@ -170,10 +169,13 @@ thor_shrink_selection :: proc(thor: ^Thor) {
     if file == nil || !file.loaded {
         return
     }
-    nav := &thor.nav
+    nav    := &thor.nav
     lo, hi := textedit.selection_range(textedit.primary_cursor(&file.state))
-    if !nav.chain_valid || nav.chain_path != file.path || nav.chain_revision != file.state.revision ||
-       (lang.Text_Range{lo, hi}) != nav.expanded || len(nav.history) == 0 {
+    if !nav.chain_valid ||
+        nav.chain_path != file.path ||
+        nav.chain_revision != file.state.revision ||
+        (lang.Text_Range{lo, hi}) != nav.expanded ||
+        len(nav.history) == 0 {
         return
     }
     previous := pop(&nav.history)
@@ -258,7 +260,7 @@ thor_lens_view :: proc(thor: ^Thor, file: ^Open_File) -> []editview.Inlay {
 
 @(private = "file")
 thor_request_lens :: proc(thor: ^Thor, file: ^Open_File) {
-    nav := &thor.nav
+    nav  := &thor.nav
     lens := &file.lens
     if nav.lens_request_id != 0 || thor_big_file(file) || (lens.asked_valid && lens.asked == file.state.revision) {
         return
@@ -268,7 +270,7 @@ thor_request_lens :: proc(thor: ^Thor, file: ^Open_File) {
         return
     }
     source := textedit.text(&file.state)
-    id := lang.manager_request_debounced(
+    id     := lang.manager_request_debounced(
         &thor.lang_manager,
         .Code_Lens,
         file.path,

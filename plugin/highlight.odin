@@ -125,12 +125,7 @@ tree_ready :: proc(m: ^Manager, path, source, grammar: string) -> bool {
 // declare `line_based` answers for the whole source. A caller that caches the
 // spans must record the covered range, or it re-highlights a buffer it already
 // holds in full every time the view moves.
-highlight_range :: proc(
-    m: ^Manager,
-    path, source, ext: string,
-    range_start, range_end: int,
-    allocator := context.allocator,
-) -> (
+highlight_range :: proc(m: ^Manager, path, source, ext: string, range_start, range_end: int, allocator := context.allocator) -> (
     spans: []Span,
     covered_start: int,
     covered_end: int,
@@ -140,8 +135,8 @@ highlight_range :: proc(
         return nil, 0, 0
     }
     lang := &m.languages[idx]
-    lo := clamp(range_start, 0, len(source))
-    hi := clamp(range_end, lo, len(source))
+    lo   := clamp(range_start, 0, len(source))
+    hi   := clamp(range_end, lo, len(source))
 
     if lang.grammar != "" {
         if !syntax.supports(&m.highlighter, lang.grammar) {
@@ -159,7 +154,7 @@ highlight_range :: proc(
             range_lo, range_hi = 0, max(int)
         }
         caps := syntax.highlight_range(&m.highlighter, tree_path, text, lang.grammar, range_lo, range_hi, context.temp_allocator)
-        out := make([dynamic]Span, allocator)
+        out  := make([dynamic]Span, allocator)
         for cap in caps {
             append(&out, Span{cap.start + base, cap.end + base, role_for_capture(lang, cap.capture)})
         }
@@ -236,7 +231,7 @@ fold_ranges :: proc(m: ^Manager, path, source, ext: string, allocator := context
         return nil
     }
     ranges := syntax.fold_ranges(&m.highlighter, path, source, lang.grammar, context.temp_allocator)
-    out := make([dynamic]Fold_Range, 0, len(ranges), allocator)
+    out    := make([dynamic]Fold_Range, 0, len(ranges), allocator)
     for r in ranges {
         append(&out, Fold_Range{r.start_line, r.end_line})
     }
@@ -291,13 +286,7 @@ capture_head :: proc(name: string) -> string {
 // to the end of the one before it: the editor draws them with a single
 // forward-only cursor, which needs them ascending and non-overlapping.
 @(private)
-run_lexer :: proc(
-    m: ^Manager,
-    lang: ^Language,
-    source: string,
-    offset: int,
-    allocator: runtime.Allocator,
-) -> []Span {
+run_lexer :: proc(m: ^Manager, lang: ^Language, source: string, offset: int, allocator: runtime.Allocator) -> []Span {
     L := m.state
     if lang.lexer.ref == NOREF {
         return nil
@@ -319,7 +308,7 @@ run_lexer :: proc(
     }
 
     tbl := lua.gettop(L)
-    n := list_len(L, tbl)
+    n   := list_len(L, tbl)
     out := make([dynamic]Span, allocator)
     cut := 0
     for i in 1 ..= n {
@@ -330,8 +319,8 @@ run_lexer :: proc(
         }
         if lua.istable(L, -1) {
             elem := lua.gettop(L)
-            s := clamp(elem_int(L, elem, 1), cut, len(source))
-            e := clamp(elem_int(L, elem, 2), s, len(source))
+            s    := clamp(elem_int(L, elem, 1), cut, len(source))
+            e    := clamp(elem_int(L, elem, 2), s, len(source))
             role := elem_string(L, elem, 3)
             if e > s {
                 append(&out, Span{s + offset, e + offset, strings.clone(role, allocator)})

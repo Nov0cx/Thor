@@ -4,11 +4,11 @@ import "core:path/filepath"
 import "core:strings"
 import rl "vendor:raylib"
 
+import "../editview"
 import "../lang"
 import "../plugin"
 import "../setting"
 import "../textedit"
-import "../editview"
 // Keeps the two dock sizes usable. The panels themselves are declared from the
 // visibility signals each frame, so there is nothing else to push here.
 thor_apply_layout_state :: proc(thor: ^Thor) {
@@ -18,11 +18,11 @@ thor_apply_layout_state :: proc(thor: ^Thor) {
 
 EXPLORER_MIN_W :: f32(160)
 EXPLORER_MAX_W :: f32(640)
-CONSOLE_MIN_H :: f32(110)
-CONSOLE_MAX_H :: f32(720)
+CONSOLE_MIN_H  :: f32(110)
+CONSOLE_MAX_H  :: f32(720)
 
 thor_on_visibility_changed :: proc(data: rawptr, value: bool) {
-    thor_apply_layout_state(cast(^Thor) data)
+    thor_apply_layout_state(cast(^Thor)data)
 }
 
 // Widget for a pane index.
@@ -87,13 +87,17 @@ thor_bind_editor :: proc(thor: ^Thor, editor: ^editview.Editor, file: ^Open_File
         editor.placeholder = "No file open"
         if file != nil {
             switch {
-            case file.load_failed: editor.placeholder = "Could not open file"
+            case file.load_failed:
+                editor.placeholder = "Could not open file"
             // A model loads synchronously (thor_load_model), so this text is
             // never actually seen mid-load; an image loads on the async
             // worker now (thor_apply_image), so it can be.
-            case file.is_image:    editor.placeholder = file.texture_loaded ? "Image" : "Loading image..."
-            case file.is_model:    editor.placeholder = "3D Model"
-            case:                  editor.placeholder = "Loading..."
+            case file.is_image:
+                editor.placeholder = file.texture_loaded ? "Image" : "Loading image..."
+            case file.is_model:
+                editor.placeholder = "3D Model"
+            case:
+                editor.placeholder = "Loading..."
             }
         }
         editview.editor_set_state(editor, nil)
@@ -144,7 +148,7 @@ thor_apply_file_highlights :: proc(thor: ^Thor, file: ^Open_File) {
 // moved past the revision they were checked at (so squiggles never sit at stale
 // offsets). Called every frame — pushing a borrowed slice is just a pointer set.
 thor_sync_pane_diagnostics :: proc(thor: ^Thor, pane: int) {
-    index := thor.pane_file[pane]
+    index  := thor.pane_file[pane]
     editor := thor_pane_editor(thor, pane)
     if index < 0 || index >= len(thor.open_files) {
         // An empty pane must drop what it holds: the slice belongs to a
@@ -159,7 +163,7 @@ thor_sync_pane_diagnostics :: proc(thor: ^Thor, pane: int) {
 // Pushes a pane's git diff lines to its editor. Called every frame alongside
 // thor_sync_pane_diagnostics — pushing a borrowed slice is just a pointer set.
 thor_sync_pane_diff :: proc(thor: ^Thor, pane: int) {
-    index := thor.pane_file[pane]
+    index  := thor.pane_file[pane]
     editor := thor_pane_editor(thor, pane)
     if index < 0 || index >= len(thor.open_files) {
         // An empty pane must drop what it holds: the slice belongs to a
@@ -204,7 +208,7 @@ Workspace_View :: struct {
 // switches, splits, toggles and closes without each having to poke it.
 thor_workspace_view :: proc(thor: ^Thor) -> Workspace_View {
     file := thor_active_open_file(thor)
-    out := Workspace_View{file = file}
+    out  := Workspace_View{file = file}
     out.welcome = thor.workspace_dir == ""
 
     for pane in 0 ..< thor_pane_count(thor) {
@@ -216,8 +220,7 @@ thor_workspace_view :: proc(thor: ^Thor) -> Workspace_View {
         out.pane[pane] = thor_pane_content(out.files[pane])
     }
 
-    show_md := thor.markdown_preview &&
-        file != nil && file.loaded && thor_is_markdown(file.name)
+    show_md := thor.markdown_preview && file != nil && file.loaded && thor_is_markdown(file.name)
 
     // The preview needs a second pane to sit beside the source; open the split
     // first if it is not already on, without moving focus off the source.
@@ -272,7 +275,7 @@ thor_sync_active_pane :: proc(thor: ^Thor) {
     // pane and the menu takes the focus straight after, so `focus_owner` would
     // name the menu.
     named := thor.focus_request != "" ? thor.focus_request : thor.focus_owner
-    pane := thor.active_pane
+    pane  := thor.active_pane
     if p := thor_pane_of_key(named); p >= 0 {
         pane = p
     }
@@ -286,7 +289,7 @@ thor_sync_active_pane :: proc(thor: ^Thor) {
 }
 
 thor_status_info :: proc(data: rawptr) -> Status_Info {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
 
     info: Status_Info
     info.branch = thor.git_branch
@@ -305,8 +308,7 @@ thor_status_info :: proc(data: rawptr) -> Status_Info {
     }
     // Only the focused editor's jump count is being typed; a count another pane
     // was left holding is not shown.
-    if editor := thor_pane_editor(thor, thor.active_pane);
-       editor.focused {
+    if editor := thor_pane_editor(thor, thor.active_pane); editor.focused {
         info.jump_count, info.jump_up, info.jump_active = editview.editor_pending_jump(editor)
     }
 
@@ -335,8 +337,8 @@ thor_status_info :: proc(data: rawptr) -> Status_Info {
         info.line_ending = thor_line_ending_label(file.line_ending)
         info.encoding = thor_encoding_label(file.encoding, file.bom)
 
-        text := textedit.text(&file.state)
-        caret := textedit.primary_cursor(&file.state).caret
+        text       := textedit.text(&file.state)
+        caret      := textedit.primary_cursor(&file.state).caret
         caret_line := textedit.state_line_index(&file.state, caret)
         info.line = caret_line + 1
         // Counted from the logical line start, so on a soft-wrapped continuation
@@ -379,8 +381,7 @@ thor_refresh_indent :: proc(file: ^Open_File) {
         return
     }
     now := rl.GetTime()
-    if file.indent_ready &&
-       (file.indent_revision == file.state.revision || now - file.indent_time < INDENT_SCAN_INTERVAL) {
+    if file.indent_ready && (file.indent_revision == file.state.revision || now - file.indent_time < INDENT_SCAN_INTERVAL) {
         return
     }
     file.indent = textedit.detect_indent(&file.state)
@@ -438,12 +439,7 @@ thor_apply_indent :: proc(thor: ^Thor, file: ^Open_File) {
 // are borrowed from the settings, so a settings reload must call this again.
 thor_apply_lexical :: proc(thor: ^Thor, file: ^Open_File) {
     style := setting.comment_style(&thor.config, file.name)
-    textedit.set_lexical(&file.state, {
-        line_comment = style.line,
-        block_open   = style.block_open,
-        block_close  = style.block_close,
-        quotes       = style.quotes,
-    })
+    textedit.set_lexical(&file.state, {line_comment = style.line, block_open = style.block_open, block_close = style.block_close, quotes = style.quotes})
 }
 
 // Language label for the status bar: the registered plugin's own name first, so
@@ -471,7 +467,8 @@ thor_language_name :: proc(thor: ^Thor, file: ^Open_File) -> string {
 thor_builtin_language_name :: proc(name: string) -> (string, bool) {
     // Named after the whole file, so the extension says nothing.
     switch name {
-    case "CMakeLists.txt": return "CMake", true
+    case "CMakeLists.txt":
+        return "CMake", true
     }
 
     dot := strings.last_index_byte(name, '.')
@@ -480,31 +477,56 @@ thor_builtin_language_name :: proc(name: string) -> (string, bool) {
     }
 
     switch name[dot:] {
-    case ".odin": return "Odin", true
-    case ".c", ".h": return "C", true
-    case ".cpp", ".cc", ".cxx", ".c++", ".hpp", ".hh", ".hxx", ".h++", ".ipp": return "C++", true
-    case ".rs": return "Rust", true
-    case ".go": return "Go", true
-    case ".jai": return "Jai", true
-    case ".py": return "Python", true
-    case ".js", ".jsx", ".mjs", ".cjs": return "JavaScript", true
-    case ".lua": return "Lua", true
-    case ".ts", ".mts", ".cts": return "TypeScript", true
-    case ".tsx": return "TSX", true
-    case ".zig": return "Zig", true
-    case ".md": return "Markdown", true
-    case ".json": return "JSON", true
-    case ".toml": return "TOML", true
-    case ".yml", ".yaml": return "YAML", true
-    case ".xml": return "XML", true
-    case ".html": return "HTML", true
-    case ".css": return "CSS", true
-    case ".glsl", ".vert", ".frag": return "GLSL", true
-    case ".slang", ".slangh": return "Slang", true
-    case ".cmake": return "CMake", true
-    case ".bat", ".cmd": return "Batch", true
-    case ".sh", ".bash", ".zsh", ".ksh", ".bashrc", ".zshrc": return "Shell", true
-    case ".txt": return "Plain Text", true
+    case ".odin":
+        return "Odin", true
+    case ".c", ".h":
+        return "C", true
+    case ".cpp", ".cc", ".cxx", ".c++", ".hpp", ".hh", ".hxx", ".h++", ".ipp":
+        return "C++", true
+    case ".rs":
+        return "Rust", true
+    case ".go":
+        return "Go", true
+    case ".jai":
+        return "Jai", true
+    case ".py":
+        return "Python", true
+    case ".js", ".jsx", ".mjs", ".cjs":
+        return "JavaScript", true
+    case ".lua":
+        return "Lua", true
+    case ".ts", ".mts", ".cts":
+        return "TypeScript", true
+    case ".tsx":
+        return "TSX", true
+    case ".zig":
+        return "Zig", true
+    case ".md":
+        return "Markdown", true
+    case ".json":
+        return "JSON", true
+    case ".toml":
+        return "TOML", true
+    case ".yml", ".yaml":
+        return "YAML", true
+    case ".xml":
+        return "XML", true
+    case ".html":
+        return "HTML", true
+    case ".css":
+        return "CSS", true
+    case ".glsl", ".vert", ".frag":
+        return "GLSL", true
+    case ".slang", ".slangh":
+        return "Slang", true
+    case ".cmake":
+        return "CMake", true
+    case ".bat", ".cmd":
+        return "Batch", true
+    case ".sh", ".bash", ".zsh", ".ksh", ".bashrc", ".zshrc":
+        return "Shell", true
+    case ".txt":
+        return "Plain Text", true
     }
     return "", false
 }
@@ -518,9 +540,9 @@ thor_file_ready :: proc(file: ^Open_File) -> bool {
 }
 
 thor_tab_info :: proc(data: rawptr, index: int) -> Tab_Info {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     file := thor.open_files[index]
-    return Tab_Info {
+    return Tab_Info{
         name = len(file.tab_label) > 0 ? file.tab_label : file.name,
         path = file.path,
         tooltip = file.path,

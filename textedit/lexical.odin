@@ -48,19 +48,19 @@ skip_ranges :: proc(txt: string, lex: Lexical) -> []Skip_Range {
         switch {
         case lex.line_comment != "" && strings.has_prefix(txt[i:], lex.line_comment):
             end := line_end(txt, i)
-            append(&ranges, Skip_Range {i, end, .Comment})
+            append(&ranges, Skip_Range{i, end, .Comment})
             i = end
         case lex.block_open != "" && strings.has_prefix(txt[i:], lex.block_open):
             body := i + len(lex.block_open)
-            end := len(txt)
+            end  := len(txt)
             if at := strings.index(txt[body:], lex.block_close); at >= 0 {
                 end = body + at + len(lex.block_close)
             }
-            append(&ranges, Skip_Range {i, end, .Comment})
+            append(&ranges, Skip_Range{i, end, .Comment})
             i = end
         case is_quote(rune(b)):
             if end, ok := string_end(txt, i, strings.index_byte(quotes, b) >= 0); ok {
-                append(&ranges, Skip_Range {i, end, .String})
+                append(&ranges, Skip_Range{i, end, .String})
                 i = end
             } else {
                 i += 1
@@ -189,7 +189,7 @@ bracket_partner :: proc(txt: string, ranges: []Skip_Range, p: int) -> (match: in
         return 0, false, false
     }
     lo, hi, within := scan_bounds(txt, ranges, p)
-    depth := 1
+    depth          := 1
     if fwd {
         for i := scan_step(ranges, p, 1, within); i < hi; i = scan_step(ranges, i, 1, within) {
             if txt[i] == open {
@@ -219,7 +219,7 @@ bracket_partner :: proc(txt: string, ranges: []Skip_Range, p: int) -> (match: in
 // Looks for a bracket at `pos` (or just before it) and finds its match.
 @(private)
 find_matching_bracket :: proc(txt: string, ranges: []Skip_Range, pos: int) -> (bracket_pos, match_pos: int, forward, found: bool) {
-    candidates := [2]int {pos, pos - 1}
+    candidates := [2]int{pos, pos - 1}
     for p in candidates {
         if p < 0 || p >= len(txt) {
             continue
@@ -278,7 +278,7 @@ enclosing_pair :: proc(txt: string, ranges: []Skip_Range, pos: int) -> (open_pos
 // Partner of a quote at or just before pos: the other end of its string.
 @(private)
 find_matching_quote :: proc(txt: string, ranges: []Skip_Range, pos: int) -> (quote_pos, match_pos: int, forward, found: bool) {
-    candidates := [2]int {pos, pos - 1}
+    candidates := [2]int{pos, pos - 1}
     for p in candidates {
         if p < 0 || p >= len(txt) || !is_quote(rune(txt[p])) {
             continue
@@ -333,12 +333,18 @@ enclosing_bracket_in :: proc(txt: string, ranges: []Skip_Range, pos, within: int
     for i := scan_step(ranges, min(pos, len(txt)), -1, within); i >= lo; i = scan_step(ranges, i, -1, within) {
         slot := -1
         switch txt[i] {
-        case ')': pending[0] += 1
-        case ']': pending[1] += 1
-        case '}': pending[2] += 1
-        case '(': slot = 0
-        case '[': slot = 1
-        case '{': slot = 2
+        case ')':
+            pending[0] += 1
+        case ']':
+            pending[1] += 1
+        case '}':
+            pending[2] += 1
+        case '(':
+            slot = 0
+        case '[':
+            slot = 1
+        case '{':
+            slot = 2
         }
         if slot < 0 {
             continue

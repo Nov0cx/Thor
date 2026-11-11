@@ -62,11 +62,7 @@ trimmed_end :: proc(line: ^Line, limit: int) -> int {
 
 // The text between two cells, `end` not included. A row that wrapped joins the
 // next with no newline between them, since the two are one line of output.
-term_text_range :: proc(
-    t: ^Term,
-    start, end: Position,
-    allocator := context.temp_allocator,
-) -> string {
+term_text_range :: proc(t: ^Term, start, end: Position, allocator := context.temp_allocator) -> string {
     start, end := start, end
     if end.line < start.line || (end.line == start.line && end.col < start.col) {
         start, end = end, start
@@ -78,7 +74,7 @@ term_text_range :: proc(
             continue
         }
         from := index == start.line ? start.col : 0
-        to := index == end.line ? end.col : len(line.cells)
+        to   := index == end.line ? end.col : len(line.cells)
         line_write(t, line, &builder, from, to)
         if index < end.line && !line.wrapped {
             strings.write_byte(&builder, '\n')
@@ -94,12 +90,7 @@ term_text_all :: proc(t: ^Term, allocator := context.temp_allocator) -> string {
         return ""
     }
     last := term_line(t, total - 1)
-    return term_text_range(
-        t,
-        {line = 0, col = 0},
-        {line = total - 1, col = last == nil ? 0 : len(last.cells)},
-        allocator,
-    )
+    return term_text_range(t, {line = 0, col = 0}, {line = total - 1, col = last == nil ? 0 : len(last.cells)}, allocator)
 }
 
 // The column a byte offset of `line_text` falls in, which is how a host that

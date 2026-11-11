@@ -77,28 +77,39 @@ vet_option_flags :: proc(word: string) -> (flags: Vet_Flags, ok: bool) {
 @(private = "file")
 vet_tag_flags :: proc(name: string) -> Vet_Flags {
     switch name {
-    case "unused":           return {.Unused_Variables, .Unused_Imports}
-    case "unused-variables": return {.Unused_Variables}
-    case "unused-imports":   return {.Unused_Imports}
-    case "shadowing":        return {.Shadowing}
-    case "using-stmt":       return {.Using_Stmt}
-    case "when-shadowing":   return {.When_Shadowing}
-    case "cast":             return {.Cast}
-    case "unused-procedures": return {.Unused_Procedures}
-    case "style":            return {.Style}
-    case "semicolon":        return {.Semicolon}
-    case "tabs":             return {.Tabs}
+    case "unused":
+        return {.Unused_Variables, .Unused_Imports}
+    case "unused-variables":
+        return {.Unused_Variables}
+    case "unused-imports":
+        return {.Unused_Imports}
+    case "shadowing":
+        return {.Shadowing}
+    case "using-stmt":
+        return {.Using_Stmt}
+    case "when-shadowing":
+        return {.When_Shadowing}
+    case "cast":
+        return {.Cast}
+    case "unused-procedures":
+        return {.Unused_Procedures}
+    case "style":
+        return {.Style}
+    case "semicolon":
+        return {.Semicolon}
+    case "tabs":
+        return {.Tabs}
     }
     return {}
 }
 
 // A variable that shadows a variable of an enclosing scope.
 Vet_Shadow :: struct {
-    offset:   int, // the name of the shadowing declaration
-    name:     string,
-    shadowed: int, // the name of the shadowed declaration
-    item:     int, // the index of a shadowed package variable in Item_Tree.items; -1 for a local
-    kind:     Decl_Kind, // of the shadowing declaration
+    offset:        int, // the name of the shadowing declaration
+    name:          string,
+    shadowed:      int,       // the name of the shadowed declaration
+    item:          int,       // the index of a shadowed package variable in Item_Tree.items; -1 for a local
+    kind:          Decl_Kind, // of the shadowing declaration
     shadowed_kind: Decl_Kind,
 }
 
@@ -106,12 +117,15 @@ Vet_Shadow :: struct {
 // procedure, or an earlier package variable of the same file, as `-vet-shadowing` reports them when
 // both have one type. `x := x` and `x := &x` are not reported. A declaration in `skip` is left out, and so is a name whose
 // nearest declaration is in `skip`. `tree` is the item tree of the file.
-vet_shadowing :: proc(m: ^Scope_Map, parsed: odinsyntax.Parse, tree: ^Item_Tree, skip: []Offset_Span, allocator := context.allocator) -> (out: [dynamic]Vet_Shadow, err: mem.Allocator_Error) {
+vet_shadowing :: proc(m: ^Scope_Map, parsed: odinsyntax.Parse, tree: ^Item_Tree, skip: []Offset_Span, allocator := context.allocator) -> (
+    out: [dynamic]Vet_Shadow,
+    err: mem.Allocator_Error,
+) {
     out = make([dynamic]Vet_Shadow, allocator) or_return
     if m == nil || len(m.locals) == 0 || parsed.tree == nil || parsed.tree.root == nil {
         return
     }
-    self_init := make(map[int]struct{}, 16, context.temp_allocator) or_return
+    self_init := make(map[int]struct {}, 16, context.temp_allocator) or_return
     collect_self_init(odinsyntax.node_root(parsed.tree), &self_init)
     for l in m.locals {
         #partial switch l.kind {
@@ -128,7 +142,9 @@ vet_shadowing :: proc(m: ^Scope_Map, parsed: odinsyntax.Parse, tree: ^Item_Tree,
         }
         append(&out, Vet_Shadow{l.name_offset, l.name, shadowed, item, l.kind, kind}) or_return
     }
-    slice.sort_by(out[:], proc(a, b: Vet_Shadow) -> bool {return a.offset < b.offset})
+    slice.sort_by(out[:], proc(a, b: Vet_Shadow) -> bool {
+        return a.offset < b.offset
+    })
     return
 }
 
@@ -186,17 +202,17 @@ nearest_decl :: proc(m: ^Scope_Map, tree: ^Item_Tree, l: Local) -> (shadowed, it
 
 // Adds the name offsets of `x := x` and `x := &x` declarations under `n`.
 @(private = "file")
-collect_self_init :: proc(n: odinsyntax.Syntax_Node, out: ^map[int]struct{}) {
+collect_self_init :: proc(n: odinsyntax.Syntax_Node, out: ^map[int]struct {}) {
     n := n
     if n.green.kind == .Value_Decl && !is_constant_decl(n) {
-        v, _ := odinsyntax.as_value_decl(n)
-        names, has_names := odinsyntax.value_decl_names(&v)
+        v, _               := odinsyntax.as_value_decl(n)
+        names, has_names   := odinsyntax.value_decl_names(&v)
         values, has_values := odinsyntax.value_decl_values(&v)
         if has_names && has_values {
             ni := odinsyntax.name_list_names(&names)
             vi := odinsyntax.expr_list_items(&values)
             for {
-                name, nok := odinsyntax.child_iter_next(&ni)
+                name, nok  := odinsyntax.child_iter_next(&ni)
                 value, vok := odinsyntax.child_iter_next(&vi)
                 if !nok || !vok {
                     break
@@ -221,8 +237,8 @@ same_ident :: proc(name, value: odinsyntax.Syntax_Node) -> bool {
     }
     v := value
     if v.green.kind == .Unary_Expr {
-        u, _ := odinsyntax.as_unary_expr(v)
-        op, has_op := odinsyntax.unary_expr_op(&u)
+        u, _                 := odinsyntax.as_unary_expr(v)
+        op, has_op           := odinsyntax.unary_expr_op(&u)
         operand, has_operand := odinsyntax.unary_expr_operand(&u)
         if !has_op || !has_operand || op.green.kind != .And {
             return false
@@ -236,12 +252,15 @@ same_ident :: proc(name, value: odinsyntax.Syntax_Node) -> bool {
 // A use in `dead` does not count. `_`, `@(require)`, foreign and unresolved imports, base:intrinsics
 // and base:builtin are never reported. `tree` is
 // the item tree the imports come from.
-vet_unused_imports :: proc(tree: ^Item_Tree, imports: []File_Import, m: ^Scope_Map, dead: []Offset_Span, allocator := context.allocator) -> (out: [dynamic]int, err: mem.Allocator_Error) {
+vet_unused_imports :: proc(tree: ^Item_Tree, imports: []File_Import, m: ^Scope_Map, dead: []Offset_Span, allocator := context.allocator) -> (
+    out: [dynamic]int,
+    err: mem.Allocator_Error,
+) {
     out = make([dynamic]int, allocator) or_return
     if m == nil {
         return
     }
-    used := make(map[string]struct{}, len(imports), context.temp_allocator) or_return
+    used := make(map[string]struct {}, len(imports), context.temp_allocator) or_return
     for r in m.refs {
         if r.is_decl || in_offset_spans(dead, r.start) {
             continue
@@ -297,7 +316,7 @@ switch_var_types :: proc(c: ^Checker, file: File_Id, var_offset, at: int, alloca
     if !found {
         return out[:]
     }
-    ts, _ := odinsyntax.as_type_switch_stmt(sw)
+    ts, _          := odinsyntax.as_type_switch_stmt(sw)
     body, has_body := odinsyntax.type_switch_stmt_body(&ts)
     if !has_body {
         return out[:]
@@ -309,15 +328,15 @@ switch_var_types :: proc(c: ^Checker, file: File_Id, var_offset, at: int, alloca
         if at >= 0 && (at < int(start) || at >= int(end)) {
             continue
         }
-        cc, _ := odinsyntax.as_case_clause(clause)
+        cc, _              := odinsyntax.as_case_clause(clause)
         values, has_values := odinsyntax.case_clause_values(&cc)
         if !has_values {
             append(&out, subject)
             continue
         }
-        items := odinsyntax.expr_list_items(&values)
+        items            := odinsyntax.expr_list_items(&values)
         first, has_first := odinsyntax.child_iter_next(&items)
-        _, has_second := odinsyntax.child_iter_next(&items)
+        _, has_second    := odinsyntax.child_iter_next(&items)
         if !has_first || has_second {
             append(&out, subject)
             continue
@@ -338,7 +357,15 @@ Vet_Using_Shadow :: struct {
 // whose fields shadow an earlier variable of an enclosing scope, or an earlier package variable of
 // the file, of the identical type. The compiler reports one field per `using`: the one whose
 // shadowed declaration has the lowest line, then the first field. A `using` in `skip` is left out.
-vet_using_shadowing :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, parsed: odinsyntax.Parse, tree: ^Item_Tree, skip: []Offset_Span, allocator := context.allocator) -> (out: [dynamic]Vet_Using_Shadow, err: mem.Allocator_Error) {
+vet_using_shadowing :: proc(
+    c: ^Checker,
+    file: File_Id,
+    m: ^Scope_Map,
+    parsed: odinsyntax.Parse,
+    tree: ^Item_Tree,
+    skip: []Offset_Span,
+    allocator := context.allocator,
+) -> (out: [dynamic]Vet_Using_Shadow, err: mem.Allocator_Error) {
     out = make([dynamic]Vet_Using_Shadow, allocator) or_return
     if c == nil || m == nil || !m.has_using || parsed.tree == nil {
         return
@@ -373,8 +400,8 @@ vet_using_shadowing :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, parsed: o
         if in_offset_spans(skip, src.at) || proc_top_scope(m, src.scope) {
             continue
         }
-        fields := type_members(c, decl_type(c, local_symbol(file, l.name_offset)), context.temp_allocator)
-        best := Vet_Using_Shadow{offset = -1}
+        fields    := type_members(c, decl_type(c, local_symbol(file, l.name_offset)), context.temp_allocator)
+        best      := Vet_Using_Shadow{offset = -1}
         best_line := max(int)
         for f in fields {
             if f.kind != .Field || f.name == "_" || f.type == INVALID_TYPE {
@@ -397,7 +424,9 @@ vet_using_shadowing :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, parsed: o
             append(&out, best) or_return
         }
     }
-    slice.sort_by(out[:], proc(a, b: Vet_Using_Shadow) -> bool {return a.offset < b.offset})
+    slice.sort_by(out[:], proc(a, b: Vet_Using_Shadow) -> bool {
+        return a.offset < b.offset
+    })
     return
 }
 
@@ -506,7 +535,7 @@ vet_unused_candidates :: proc(tree: ^Item_Tree, allocator := context.allocator) 
 // Adds to `used` every name of `names` that an identifier of `src` spells, other than the identifier at
 // `skip` (the declaration itself). A lexical match: a field or a local of the same name counts as a
 // use, so the check errs toward silence.
-vet_note_names :: proc(src: string, names: map[string]int, used: ^map[string]struct{}, skip: []int) -> mem.Allocator_Error {
+vet_note_names :: proc(src: string, names: map[string]int, used: ^map[string]struct {}, skip: []int) -> mem.Allocator_Error {
     for tok in odinsyntax.lex_all(src, context.temp_allocator) {
         if tok.kind != .Ident {
             continue

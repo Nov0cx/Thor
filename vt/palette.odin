@@ -6,7 +6,7 @@ package vt
 palette_default :: proc() -> [256][3]u8 {
     p: [256][3]u8
 
-    system := [16][3]u8 {
+    system := [16][3]u8{
         {0x00, 0x00, 0x00},
         {0xcd, 0x00, 0x00},
         {0x00, 0xcd, 0x00},
@@ -29,7 +29,7 @@ palette_default :: proc() -> [256][3]u8 {
     }
 
     steps := [6]u8{0, 0x5f, 0x87, 0xaf, 0xd7, 0xff}
-    i := 16
+    i     := 16
     for r in 0 ..< 6 {
         for g in 0 ..< 6 {
             for b in 0 ..< 6 {
@@ -123,7 +123,7 @@ parse_hex :: proc(text: string) -> (int, bool) {
         return 0, false
     }
     value := 0
-    for c in transmute([]u8) text {
+    for c in transmute([]u8)text {
         digit: int
         switch {
         case c >= '0' && c <= '9':

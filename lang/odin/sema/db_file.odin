@@ -178,8 +178,8 @@ file_refresh :: proc(snap: ^Snapshot, slot: ^File_Slot) {
         return
     }
     modtime := info.modification_time._nsec
-    size := info.size
-    is_dir := info.type == .Directory
+    size    := info.size
+    is_dir  := info.type == .Directory
     os.file_info_delete(info, db.allocator)
     if is_dir {
         file_slot_drop_disk(db, slot)
@@ -206,7 +206,7 @@ file_refresh :: proc(snap: ^Snapshot, slot: ^File_Slot) {
 file_load :: proc(snap: ^Snapshot, slot: ^File_Slot, modtime, size: i64) {
     db := snap.db
     file_slot_drop_disk(db, slot)
-    rev := next_revision(db)
+    rev    := next_revision(db)
     stable := key_stable(snap, slot.key)
     if stable {
         if tree, lines, hit := cache_take(db, slot.key, modtime, size); hit {
@@ -268,7 +268,7 @@ file_set_disk :: proc(slot: ^File_Slot, data: ^File_Data, rev: u64) {
 // again. The caller holds the slot.
 @(private = "file")
 file_reload_body :: proc(snap: ^Snapshot, slot: ^File_Slot) {
-    db := snap.db
+    db        := snap.db
     info, err := os.stat(slot.path, db.allocator)
     if err != nil {
         return
@@ -302,12 +302,12 @@ file_reload_body :: proc(snap: ^Snapshot, slot: ^File_Slot) {
 
 @(private = "file")
 imports_new :: proc(snap: ^Snapshot, slot: ^File_Slot) -> ^Imports_Value {
-    db := snap.db
+    db     := snap.db
     v, err := new(Imports_Value, db.allocator)
     if err != nil {
         return nil
     }
-    dir := filepath.dir(slot.path)
+    dir        := filepath.dir(slot.path)
     list, ierr := file_imports(slot.disk.tree, dir == "" ? "." : dir, &snap.collections, db.allocator)
     if ierr != nil {
         free(v, db.allocator)
@@ -403,14 +403,14 @@ live_ensure :: proc(snap: ^Snapshot) -> bool {
 // Replaces the live memos of a slot with a parse of the snapshot's buffer. The caller holds the slot.
 @(private = "file")
 live_parse :: proc(snap: ^Snapshot, slot: ^File_Slot) -> bool {
-    db := snap.db
+    db   := snap.db
     text := snap.live.text
     parsed: odinsyntax.Parse
     reused := false
-    old := slot.live_body
+    old    := slot.live_body
     if old != nil && sync.atomic_load(&old.refs) == 1 && old.parse.tree != nil {
         // Only the slot holds the old parse, so the new tree can take it as its base.
-        base := old.parse
+        base             := old.parse
         result, how, err := odinsyntax.reparse(&base, text, db.allocator)
         if err == nil {
             parsed = result

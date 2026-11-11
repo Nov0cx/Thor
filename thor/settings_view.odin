@@ -9,15 +9,15 @@ import "core:strings"
 
 import ui "../vendor/loom/loom"
 
-SETTINGS_WIDTH :: f32(940)
-SETTINGS_HEIGHT :: f32(620)
-SETTINGS_SIDEBAR_W :: f32(210)
+SETTINGS_WIDTH        :: f32(940)
+SETTINGS_HEIGHT       :: f32(620)
+SETTINGS_SIDEBAR_W    :: f32(210)
 // Corner radius of the box, and the radius its edge children take: the same
 // curve one border width in.
-SETTINGS_RADIUS :: f32(10)
+SETTINGS_RADIUS       :: f32(10)
 SETTINGS_INNER_RADIUS :: SETTINGS_RADIUS - 1
-SETTINGS_ROW_H :: f32(34)
-SETTINGS_CATEGORY_H :: f32(32)
+SETTINGS_ROW_H        :: f32(34)
+SETTINGS_CATEGORY_H   :: f32(32)
 
 Settings_Row_Kind :: enum {
     Number,  // label + [-] value [+] stepper
@@ -156,14 +156,7 @@ thor_settings_clear :: proc(s: ^Settings_State) {
 // category, until the next call. It also ends an open group: a group never spans
 // two categories.
 thor_settings_begin_category :: proc(s: ^Settings_State, id, label, icon: string) {
-    append(
-        &s.categories,
-        Settings_Category {
-            id = strings.clone(id),
-            label = strings.clone(label),
-            icon = strings.clone(icon),
-        },
-    )
+    append(&s.categories, Settings_Category{id = strings.clone(id), label = strings.clone(label), icon = strings.clone(icon)})
     delete(s.current_category)
     s.current_category = strings.clone(id)
     thor_settings_end_group(s)
@@ -173,19 +166,13 @@ thor_settings_begin_category :: proc(s: ^Settings_State, id, label, icon: string
 // until thor_settings_end_group. `collapsed` is the state the group starts in;
 // once the user folds it, that answer wins over the default. `value` is a
 // summary at the header's right edge, so a folded group still says what is in it.
-thor_settings_begin_group :: proc(
-    s: ^Settings_State,
-    id, label: string,
-    collapsed := false,
-    value := "",
-    tone := Settings_Tone.Normal,
-) {
+thor_settings_begin_group :: proc(s: ^Settings_State, id, label: string, collapsed := false, value := "", tone := Settings_Tone.Normal) {
     if id not_in s.collapsed {
         s.collapsed[strings.clone(id)] = collapsed
     }
     append(
         &s.rows,
-        Settings_Row {
+        Settings_Row{
             kind = .Group,
             id = strings.clone(id),
             label = strings.clone(label),
@@ -208,7 +195,7 @@ thor_settings_add_number :: proc(s: ^Settings_State, id, label: string, value, m
     buf: [32]u8
     append(
         &s.rows,
-        Settings_Row {
+        Settings_Row{
             kind = .Number,
             id = strings.clone(id),
             label = strings.clone(label),
@@ -226,7 +213,7 @@ thor_settings_add_number :: proc(s: ^Settings_State, id, label: string, value, m
 thor_settings_add_choice :: proc(s: ^Settings_State, id, label, value: string) {
     append(
         &s.rows,
-        Settings_Row {
+        Settings_Row{
             kind = .Choice,
             id = strings.clone(id),
             label = strings.clone(label),
@@ -239,14 +226,10 @@ thor_settings_add_choice :: proc(s: ^Settings_State, id, label, value: string) {
 
 // A read-only row: a label and what it is. Nothing clicks it and the keyboard
 // steps over it, so it never reads as a control that does nothing.
-thor_settings_add_info :: proc(
-    s: ^Settings_State,
-    id, label, value: string,
-    tone := Settings_Tone.Normal,
-) {
+thor_settings_add_info :: proc(s: ^Settings_State, id, label, value: string, tone := Settings_Tone.Normal) {
     append(
         &s.rows,
-        Settings_Row {
+        Settings_Row{
             kind = .Info,
             id = strings.clone(id),
             label = strings.clone(label),
@@ -259,14 +242,10 @@ thor_settings_add_info :: proc(
 }
 
 // A row with one button at its right edge. `button` is the text on it.
-thor_settings_add_action :: proc(
-    s: ^Settings_State,
-    id, label, button: string,
-    tone := Settings_Tone.Normal,
-) {
+thor_settings_add_action :: proc(s: ^Settings_State, id, label, button: string, tone := Settings_Tone.Normal) {
     append(
         &s.rows,
-        Settings_Row {
+        Settings_Row{
             kind = .Action,
             id = strings.clone(id),
             label = strings.clone(label),
@@ -282,7 +261,7 @@ thor_settings_add_action :: proc(
 thor_settings_add_keybind :: proc(s: ^Settings_State, id, label, chord: string) {
     append(
         &s.rows,
-        Settings_Row {
+        Settings_Row{
             kind = .Keybind,
             id = strings.clone(id),
             label = strings.clone(label),
@@ -479,8 +458,7 @@ settings_capture_key :: proc(thor: ^Thor) {
             continue
         }
         #partial switch event.key {
-        case .Left_Ctrl, .Right_Ctrl, .Left_Shift, .Right_Shift, .Left_Alt, .Right_Alt,
-             .Left_Super, .Right_Super:
+        case .Left_Ctrl, .Right_Ctrl, .Left_Shift, .Right_Shift, .Left_Alt, .Right_Alt, .Left_Super, .Right_Super:
             continue
         }
         event.consumed = true
@@ -521,12 +499,7 @@ settings_box :: proc(thor: ^Thor) {
 
     settings_header(thor)
 
-    body := ui.scope(
-        {
-            key = "body",
-            props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Row},
-        },
-    )
+    body := ui.scope({key = "body", props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Row}})
     _ = body
 
     settings_sidebar(thor)
@@ -537,28 +510,20 @@ settings_box :: proc(thor: ^Thor) {
 settings_header :: proc(thor: ^Thor) {
     s := &thor.settings
 
-    ui.scope(
-        {
-            key = "header",
-            props = {
-                w = ui.Grow(1),
-                h = ui.FIT,
-                dir = .Row,
-                align = .Center,
-                gap = {10, 0},
-                pad = ui.xy(14, 12),
-                bg = thor.theme.second_background,
-                // The box's own corners, less its border: a square fill here
-                // would paint over the rounded corner it sits in.
-                radius = ui.rad4(SETTINGS_INNER_RADIUS, SETTINGS_INNER_RADIUS, 0, 0),
-            },
-        },
-    )
+    ui.scope({key = "header", props = {
+        w = ui.Grow(1),
+        h = ui.FIT,
+        dir = .Row,
+        align = .Center,
+        gap = {10, 0},
+        pad = ui.xy(14, 12),
+        bg = thor.theme.second_background,
+        // The box's own corners, less its border: a square fill here
+        // would paint over the rounded corner it sits in.
+        radius = ui.rad4(SETTINGS_INNER_RADIUS, SETTINGS_INNER_RADIUS, 0, 0),
+    }})
 
-    ui.label(
-        "Settings",
-        {key = "title", props = {color = thor.theme.foreground, text_wrap = .None}},
-    )
+    ui.label("Settings", {key = "title", props = {color = thor.theme.foreground, text_wrap = .None}})
 
     settings_scope_tab(thor, .General, "General")
     settings_scope_tab(thor, .Workspace, "Workspace")
@@ -586,15 +551,7 @@ settings_header :: proc(thor: ^Thor) {
         {
             key = "close",
             flags = {.Clickable},
-            props = {
-                w = ui.Px(26),
-                h = ui.Px(26),
-                dir = .Row,
-                justify = .Center,
-                align = .Center,
-                radius = ui.rad(4),
-                cursor = .Pointer,
-            },
+            props = {w = ui.Px(26), h = ui.Px(26), dir = .Row, justify = .Center, align = .Center, radius = ui.rad(4), cursor = .Pointer},
             hover = {bg = thor.theme.buttons},
         },
     )
@@ -606,7 +563,7 @@ settings_header :: proc(thor: ^Thor) {
 
 @(private = "file")
 settings_scope_tab :: proc(thor: ^Thor, scope: Settings_Scope, label: string) {
-    s := &thor.settings
+    s  := &thor.settings
     on := s.scope == scope
 
     it := ui.scope(
@@ -624,16 +581,7 @@ settings_scope_tab :: proc(thor: ^Thor, scope: Settings_Scope, label: string) {
             },
         },
     )
-    ui.label(
-        label,
-        {
-            key = "text",
-            props = {
-                color = on ? thor.theme.background : thor.theme.muted_color,
-                text_wrap = .None,
-            },
-        },
-    )
+    ui.label(label, {key = "text", props = {color = on ? thor.theme.background : thor.theme.muted_color, text_wrap = .None}})
     if it.clicked {
         settings_switch_scope(thor, scope)
     }
@@ -687,17 +635,7 @@ settings_sidebar :: proc(thor: ^Thor) {
                 },
             )
             thor_icon_label(thor, entry.icon, on ? thor.theme.foreground : thor.theme.muted_color)
-            ui.label(
-                entry.label,
-                {
-                    key = "label",
-                    props = {
-                        w = ui.Grow(1),
-                        color = on ? thor.theme.foreground : thor.theme.muted_color,
-                        text_wrap = .Ellipsis,
-                    },
-                },
-            )
+            ui.label(entry.label, {key = "label", props = {w = ui.Grow(1), color = on ? thor.theme.foreground : thor.theme.muted_color, text_wrap = .Ellipsis}})
         }
         ui.pop_id()
 
@@ -712,29 +650,14 @@ settings_sidebar :: proc(thor: ^Thor) {
 settings_content :: proc(thor: ^Thor) {
     s := &thor.settings
 
-    ui.scope(
-        {
-            key = "content",
-            flags = {.Clip, .Scroll_Y},
-            props = {
-                w = ui.Grow(1),
-                h = ui.Grow(1),
-                dir = .Column,
-                pad = ui.xy(14, 10),
-                gap = {0, 2},
-            },
-        },
-    )
+    ui.scope({key = "content", flags = {.Clip, .Scroll_Y}, props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column, pad = ui.xy(14, 10), gap = {0, 2}}})
 
     if s.scope == .Workspace && !s.workspace_available {
         settings_workspace_prompt(thor)
         return
     }
     if len(s.visible_rows) == 0 {
-        ui.label(
-            "Nothing here",
-            {key = "empty", props = {pad = ui.xy(4, 8), color = thor.theme.disabled}},
-        )
+        ui.label("Nothing here", {key = "empty", props = {pad = ui.xy(4, 8), color = thor.theme.disabled}})
         return
     }
 
@@ -748,14 +671,8 @@ settings_content :: proc(thor: ^Thor) {
 // The Workspace tab with no .thor/ folder yet: one button that makes it.
 @(private = "file")
 settings_workspace_prompt :: proc(thor: ^Thor) {
-    ui.label(
-        "This folder has no workspace settings yet.",
-        {key = "msg", props = {pad = ui.xy(4, 10), color = thor.theme.foreground}},
-    )
-    ui.label(
-        "Workspace settings live in .thor/ and override the general ones.",
-        {key = "hint", props = {pad = ui.xy(4, 2), color = thor.theme.muted_color}},
-    )
+    ui.label("This folder has no workspace settings yet.", {key = "msg", props = {pad = ui.xy(4, 10), color = thor.theme.foreground}})
+    ui.label("Workspace settings live in .thor/ and override the general ones.", {key = "hint", props = {pad = ui.xy(4, 2), color = thor.theme.muted_color}})
     if settings_button(thor, "cta", "Create Workspace Settings", thor.theme.accent_color) {
         thor_cmd_init_workspace(thor)
     }
@@ -763,7 +680,7 @@ settings_workspace_prompt :: proc(thor: ^Thor) {
 
 @(private = "file")
 settings_row :: proc(thor: ^Thor, row_index: int) {
-    s := &thor.settings
+    s   := &thor.settings
     row := &s.rows[row_index]
 
     if row.kind == .Group {
@@ -776,26 +693,12 @@ settings_row :: proc(thor: ^Thor, row_index: int) {
     ui.scope(
         {
             key = "row",
-            props = {
-                w = ui.Grow(1),
-                h = ui.Px(SETTINGS_ROW_H),
-                dir = .Row,
-                align = .Center,
-                gap = {12, 0},
-                pad = {l = 8 + indent, r = 8},
-                radius = ui.rad(6),
-            },
+            props = {w = ui.Grow(1), h = ui.Px(SETTINGS_ROW_H), dir = .Row, align = .Center, gap = {12, 0}, pad = {l = 8 + indent, r = 8}, radius = ui.rad(6)},
             hover = {bg = thor.theme.second_background},
         },
     )
 
-    ui.label(
-        row.label,
-        {
-            key = "label",
-            props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .Ellipsis},
-        },
-    )
+    ui.label(row.label, {key = "label", props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .Ellipsis}})
 
     switch row.kind {
     case .Number:
@@ -809,20 +712,14 @@ settings_row :: proc(thor: ^Thor, row_index: int) {
             thor_on_setting_action(thor, row.id)
         }
     case .Info:
-        ui.label(
-            row.value,
-            {
-                key = "value",
-                props = {color = settings_tone_color(thor, row.tone), text_wrap = .Ellipsis},
-            },
-        )
+        ui.label(row.value, {key = "value", props = {color = settings_tone_color(thor, row.tone), text_wrap = .Ellipsis}})
     case .Group:
     }
 }
 
 @(private = "file")
 settings_group_row :: proc(thor: ^Thor, row: ^Settings_Row) {
-    s := &thor.settings
+    s    := &thor.settings
     open := !settings_group_collapsed(s, row.id)
 
     it := ui.scope(
@@ -844,21 +741,9 @@ settings_group_row :: proc(thor: ^Thor, row: ^Settings_Row) {
         },
     )
     thor_icon_label(thor, open ? "chevron-down" : "chevron-right", thor.theme.muted_color)
-    ui.label(
-        row.label,
-        {
-            key = "label",
-            props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .Ellipsis},
-        },
-    )
+    ui.label(row.label, {key = "label", props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .Ellipsis}})
     if row.value != "" {
-        ui.label(
-            row.value,
-            {
-                key = "summary",
-                props = {color = settings_tone_color(thor, row.tone), text_wrap = .None},
-            },
-        )
+        ui.label(row.value, {key = "summary", props = {color = settings_tone_color(thor, row.tone), text_wrap = .None}})
     }
     if it.clicked {
         settings_toggle_group(s, row.id)
@@ -871,18 +756,7 @@ settings_number_control :: proc(thor: ^Thor, row: ^Settings_Row) {
     if settings_step_button(thor, "dec", "minus", row.number > row.min) {
         step = -row.step
     }
-    ui.label(
-        row.value,
-        {
-            key = "value",
-            props = {
-                w = ui.Px(56),
-                text_align = .Center,
-                color = thor.theme.foreground,
-                text_wrap = .None,
-            },
-        },
-    )
+    ui.label(row.value, {key = "value", props = {w = ui.Px(56), text_align = .Center, color = thor.theme.foreground, text_wrap = .None}})
     if settings_step_button(thor, "inc", "plus", row.number < row.max) {
         step = row.step
     }
@@ -933,10 +807,7 @@ settings_choice_control :: proc(thor: ^Thor, row: ^Settings_Row) {
             hover = {bg = thor.theme.active},
         },
     )
-    ui.label(
-        row.value,
-        {key = "value", props = {color = thor.theme.foreground, text_wrap = .None}},
-    )
+    ui.label(row.value, {key = "value", props = {color = thor.theme.foreground, text_wrap = .None}})
     thor_icon_label(thor, "chevron-down", thor.theme.muted_color, 14)
     if it.clicked {
         thor_on_setting_choice(thor, row.id)
@@ -945,11 +816,11 @@ settings_choice_control :: proc(thor: ^Thor, row: ^Settings_Row) {
 
 @(private = "file")
 settings_keybind_control :: proc(thor: ^Thor, row: ^Settings_Row, row_index: int) {
-    s := &thor.settings
+    s         := &thor.settings
     capturing := s.capturing == row_index
-    bound := row.value != ""
+    bound     := row.value != ""
 
-    it := ui.scope(
+    it   := ui.scope(
         {
             key = "chord",
             flags = {.Clickable},
@@ -962,10 +833,7 @@ settings_keybind_control :: proc(thor: ^Thor, row: ^Settings_Row, row_index: int
                 pad = ui.xy(10, 0),
                 radius = ui.rad(6),
                 bg = capturing ? thor.theme.selection_background : thor.theme.buttons,
-                border = {
-                    width = ui.all(1),
-                    color = capturing ? thor.theme.accent_color : thor.theme.border,
-                },
+                border = {width = ui.all(1), color = capturing ? thor.theme.accent_color : thor.theme.border},
                 cursor = .Pointer,
             },
             hover = {bg = capturing ? thor.theme.selection_background : thor.theme.active},
@@ -974,15 +842,7 @@ settings_keybind_control :: proc(thor: ^Thor, row: ^Settings_Row, row_index: int
     text := capturing ? "Press shortcut..." : (bound ? row.value : "Unbound")
     ui.label(
         text,
-        {
-            key = "text",
-            props = {
-                color = capturing \
-                ? thor.theme.accent_color \
-                : (bound ? thor.theme.foreground : thor.theme.disabled),
-                text_wrap = .None,
-            },
-        },
+        {key = "text", props = {color = capturing ? thor.theme.accent_color : (bound ? thor.theme.foreground : thor.theme.disabled), text_wrap = .None}},
     )
     if it.clicked && !capturing {
         settings_begin_capture(s, row_index)

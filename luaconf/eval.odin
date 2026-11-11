@@ -31,15 +31,12 @@ HOOK_STEP :: 10_000
 // Base functions a config cannot have: they run code the sandbox never saw,
 // reach the collector, catch the budget error or touch metatables.
 @(private)
-UNSAFE_BASE := []cstring {
-    "load", "loadstring", "dofile", "loadfile", "collectgarbage",
-    "pcall", "xpcall", "setmetatable", "getmetatable", "print", "require",
-}
+UNSAFE_BASE := []cstring{"load", "loadstring", "dofile", "loadfile", "collectgarbage", "pcall", "xpcall", "setmetatable", "getmetatable", "print", "require"}
 
 Status :: enum {
     Ok,
-    Missing,  // the file does not exist; a supported state
-    Failed,   // read, syntax, runtime or shape error; see the message
+    Missing, // the file does not exist; a supported state
+    Failed,  // read, syntax, runtime or shape error; see the message
 }
 
 // The state one evaluation runs under, read back through the Lua extraspace.
@@ -94,7 +91,7 @@ eval_text :: proc(text, name: string, allocator := context.temp_allocator) -> (v
     if lua.type(L, -1) != .TABLE {
         return nil, .Failed, fmt.aprintf("%s: the file must return a table", name, allocator = allocator)
     }
-    path := make([dynamic]string, context.temp_allocator)
+    path                := make([dynamic]string, context.temp_allocator)
     result, convert_err := to_value(L, lua.gettop(L), &path, allocator)
     if convert_err != "" {
         json.destroy_value(result, allocator)
@@ -133,7 +130,8 @@ open_config_libs :: proc(L: ^lua.State) {
 
 // The `thor.os` value: "windows", "linux", "darwin", ...
 @(private)
-OS_NAME :: "windows" when ODIN_OS == .Windows else "linux" when ODIN_OS == .Linux else "darwin" when ODIN_OS == .Darwin else "freebsd" when ODIN_OS == .FreeBSD else "openbsd" when ODIN_OS == .OpenBSD else "netbsd" when ODIN_OS == .NetBSD else "unknown"
+OS_NAME :: "windows" when ODIN_OS == .Windows else "linux" when ODIN_OS == .Linux else "darwin" when ODIN_OS == .Darwin else "freebsd" when ODIN_OS == .FreeBSD else "openbsd" when ODIN_OS ==
+    .OpenBSD else "netbsd" when ODIN_OS == .NetBSD else "unknown"
 
 // The `thor.arch` value: "amd64", "arm64", ...
 @(private)
@@ -141,11 +139,11 @@ ARCH_NAME :: "amd64" when ODIN_ARCH == .amd64 else "arm64" when ODIN_ARCH == .ar
 
 // thor.env(name): the environment variable, or nil when it is unset.
 @(private)
-thor_env :: proc "c" (L: ^lua.State) -> c.int {
+thor_env :: proc "c"(L: ^lua.State) -> c.int {
     context = runtime.default_context()
     n: c.size_t
-    name := lua.L_checkstring(L, 1, &n)
-    value, found := os.lookup_env(string((cast([^]u8) name)[:n]), context.allocator)
+    name         := lua.L_checkstring(L, 1, &n)
+    value, found := os.lookup_env(string((cast([^]u8)name)[:n]), context.allocator)
     if !found {
         lua.pushnil(L)
     } else {
@@ -156,7 +154,7 @@ thor_env :: proc "c" (L: ^lua.State) -> c.int {
 }
 
 @(private)
-eval_hook :: proc "c" (L: ^lua.State, _: ^lua.Debug) {
+eval_hook :: proc "c"(L: ^lua.State, _: ^lua.Debug) {
     context = runtime.default_context()
     st := (^Eval_State)((^rawptr)(lua.getextraspace(L))^)
     if time.tick_since(st.start) < BUDGET {
@@ -168,8 +166,8 @@ eval_hook :: proc "c" (L: ^lua.State, _: ^lua.Debug) {
 
 // Refuses a grow past MEMORY_CAP, which Lua raises as a memory error.
 @(private)
-eval_alloc :: proc "c" (ud: rawptr, ptr: rawptr, osize, nsize: c.size_t) -> rawptr {
-    st := (^Eval_State)(ud)
+eval_alloc :: proc "c"(ud: rawptr, ptr: rawptr, osize, nsize: c.size_t) -> rawptr {
+    st  := (^Eval_State)(ud)
     old := ptr == nil ? 0 : uint(osize)
     if nsize == 0 {
         runtime.heap_free(ptr)
@@ -219,7 +217,7 @@ to_value :: proc(L: ^lua.State, idx: c.int, path: ^[dynamic]string, allocator: r
     case .STRING:
         n: c.size_t
         s := lua.tolstring(L, idx, &n)
-        return json.String(strings.clone(string((cast([^]u8) s)[:n]), allocator)), ""
+        return json.String(strings.clone(string((cast([^]u8)s)[:n]), allocator)), ""
     case .TABLE:
         return table_value(L, idx, path, allocator)
     }
@@ -279,8 +277,8 @@ table_value :: proc(L: ^lua.State, at: c.int, path: ^[dynamic]string, allocator:
     lua.pushnil(L)
     for lua.next(L, idx) != 0 {
         n: c.size_t
-        k := lua.tolstring(L, -2, &n)
-        key := string((cast([^]u8) k)[:n])
+        k   := lua.tolstring(L, -2, &n)
+        key := string((cast([^]u8)k)[:n])
         append(path, key)
         elem, err := to_value(L, -1, path, allocator)
         pop(path)

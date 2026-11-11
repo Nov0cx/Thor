@@ -62,9 +62,9 @@ resolve_action :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
         return
     }
     defer odinsema.scope_map_destroy(m, context.temp_allocator)
-    src := req.source
-    lo := clamp(req.offset, 0, len(src))
-    hi := req.end < 0 ? lo : clamp(req.end, lo, len(src))
+    src  := req.source
+    lo   := clamp(req.offset, 0, len(src))
+    hi   := req.end < 0 ? lo : clamp(req.end, lo, len(src))
     name := strings.trim_space(req.new_name)
     // Holds what a reference visitor keeps past the temp guard of each file it reads.
     arena: virtual.Arena

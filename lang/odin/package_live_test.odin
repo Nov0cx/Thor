@@ -25,7 +25,7 @@ count_path :: proc(res: ^lang.Result, suffix: string) -> int {
 @(test)
 test_package_live_off_by_default :: proc(t: ^testing.T) {
     root := fixture(t, "pkg_live_off", {{"app/main.odin", MAIN}, {"app/other.odin", SIBLING}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     res := live_check(e, MAIN, root, fixture_path(root, "app/main.odin"))
@@ -40,14 +40,9 @@ test_package_live_reports_siblings :: proc(t: ^testing.T) {
     root := fixture(
         t,
         "pkg_live_on",
-        {
-            {"app/main.odin", MAIN},
-            {"app/other.odin", SIBLING},
-            {"app/notes.txt", "zork"},
-            {".thor/odin-analyzer.lua", "return { package_diagnostics = true }"},
-        },
+        {{"app/main.odin", MAIN}, {"app/other.odin", SIBLING}, {"app/notes.txt", "zork"}, {".thor/odin-analyzer.lua", "return { package_diagnostics = true }"}},
     )
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     res := live_check(e, MAIN, root, fixture_path(root, "app/main.odin"))
@@ -71,12 +66,12 @@ test_package_live_keeps_the_buffer_apart :: proc(t: ^testing.T) {
         "pkg_live_buffer",
         {{"app/main.odin", MAIN}, {"app/other.odin", SIBLING}, {".thor/odin-analyzer.lua", "return { package_diagnostics = true }"}},
     )
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     // The buffer of main.odin has its own error; the siblings come from disk.
     buffer := "package app\n\nmain :: proc() {\n\t_ = nope\n}\n"
-    res := live_check(e, buffer, root, fixture_path(root, "app/main.odin"))
+    res    := live_check(e, buffer, root, fixture_path(root, "app/main.odin"))
     defer free_live(&res)
     testing.expect_value(t, count_path(&res, "main.odin"), 1)
     testing.expect_value(t, count_path(&res, "other.odin"), 1)

@@ -10,14 +10,7 @@ import lang ".."
 // Runs a Definition request at `at` in `source`.
 @(private = "file")
 definition_offset :: proc(e: ^Engine, source: string, at: int, workspace := "", path := "buffer.odin") -> lang.Result {
-    req := lang.Request {
-        kind      = .Definition,
-        path      = path,
-        ext       = ".odin",
-        source    = source,
-        offset    = at,
-        workspace = workspace,
-    }
+    req := lang.Request{kind = .Definition, path = path, ext = ".odin", source = source, offset = at, workspace = workspace}
     res := lang.Result{kind = .Definition}
     resolve(e, &req, &res)
     return res
@@ -134,7 +127,7 @@ test_definition_use_before_short_declaration :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    src := `package demo
+    src  := `package demo
 
 limit :: 100
 
@@ -144,7 +137,7 @@ main :: proc() {
 	_ = limit
 }
 `
-    top := strings.index(src, "limit :: 100")
+    top  := strings.index(src, "limit :: 100")
     decl := strings.index(src, "limit := 5")
 
     res := definition_at(e, src, "_ = limit", skip = len("_ = "))
@@ -219,12 +212,12 @@ test_definition_cross_file :: proc(t: ^testing.T) {
     defer engine_destroy(e)
 
     other_src := "package demo\n\nhelper :: proc() -> int {\n\treturn 42\n}\n"
-    root := fixture(t, "def_cross_file", {{"helper.odin", other_src}})
+    root      := fixture(t, "def_cross_file", {{"helper.odin", other_src}})
     defer os.remove_all(root)
 
-    main_src := "package demo\n\nmain :: proc() {\n\t_ = helper()\n}\n"
+    main_src  := "package demo\n\nmain :: proc() {\n\t_ = helper()\n}\n"
     main_path := fixture_path(root, "main.odin")
-    res := definition_at(e, main_src, "helper()", root, main_path)
+    res       := definition_at(e, main_src, "helper()", root, main_path)
     expect_jump(t, &res, "helper.odin", strings.index(other_src, "helper ::"))
     free_definition(&res)
 
@@ -250,16 +243,12 @@ test_definition_multiple_candidates :: proc(t: ^testing.T) {
 
     a_src := "package demo\n\nshared :: proc() -> int {\n\treturn 1\n}\n"
     b_src := "package demo\n\nshared :: proc() -> int {\n\treturn 2\n}\n"
-    root := fixture(t, "def_multiple", {
-        {"a.odin", a_src},
-        {"b.odin", b_src},
-        {"other/other.odin", "package other\n\nshared :: 3\nonly_other :: 4\n"},
-    })
+    root  := fixture(t, "def_multiple", {{"a.odin", a_src}, {"b.odin", b_src}, {"other/other.odin", "package other\n\nshared :: 3\nonly_other :: 4\n"}})
     defer os.remove_all(root)
 
-    main_src := "package demo\n\nmain :: proc() {\n\t_ = shared()\n\t_ = only_other\n}\n"
+    main_src  := "package demo\n\nmain :: proc() {\n\t_ = shared()\n\t_ = only_other\n}\n"
     main_path := fixture_path(root, "main.odin")
-    res := definition_at(e, main_src, "shared()", root, main_path)
+    res       := definition_at(e, main_src, "shared()", root, main_path)
     testing.expect(t, res.ok, "expected candidates for shared")
     testing.expectf(t, len(res.symbols) == 2, "candidate count: got %d, want 2", len(res.symbols))
     if len(res.symbols) == 2 {
@@ -282,14 +271,12 @@ test_definition_file_private_other_file :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    root := fixture(t, "def_private", {
-        {"a.odin", "package demo\n\n@(private = \"file\")\nhidden :: 1\n@(private)\nshown :: 2\n"},
-    })
+    root := fixture(t, "def_private", {{"a.odin", "package demo\n\n@(private = \"file\")\nhidden :: 1\n@(private)\nshown :: 2\n"}})
     defer os.remove_all(root)
 
-    main_src := "package demo\n\nmain :: proc() {\n\t_ = hidden\n\t_ = shown\n}\n"
+    main_src  := "package demo\n\nmain :: proc() {\n\t_ = hidden\n\t_ = shown\n}\n"
     main_path := fixture_path(root, "main.odin")
-    res := definition_at(e, main_src, "hidden\n", root, main_path)
+    res       := definition_at(e, main_src, "hidden\n", root, main_path)
     testing.expect(t, !res.ok, "a file-private name of another file must not resolve")
     free_definition(&res)
 
@@ -304,12 +291,12 @@ test_definition_package_import :: proc(t: ^testing.T) {
     defer engine_destroy(e)
 
     lib_src := "package lib\n\nthing :: proc() -> int {\n\treturn 7\n}\n\n@(private)\nsecret :: 1\n"
-    root := fixture(t, "def_package_import", {{"lib/thing.odin", lib_src}})
+    root    := fixture(t, "def_package_import", {{"lib/thing.odin", lib_src}})
     defer os.remove_all(root)
 
-    main_src := "package app\n\nimport \"../lib\"\n\nmain :: proc() {\n\t_ = lib.thing()\n\t_ = lib.secret\n}\n"
+    main_src  := "package app\n\nimport \"../lib\"\n\nmain :: proc() {\n\t_ = lib.thing()\n\t_ = lib.secret\n}\n"
     main_path := fixture_path(root, "app/main.odin")
-    res := definition_at(e, main_src, "thing()", root, main_path)
+    res       := definition_at(e, main_src, "thing()", root, main_path)
     expect_jump(t, &res, "thing.odin", strings.index(lib_src, "thing ::"))
     free_definition(&res)
 
@@ -323,14 +310,11 @@ test_definition_package_operand :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    root := fixture(t, "def_package_operand", {
-        {"lib/lib.odin", "package lib\n"},
-        {"lib/extra.odin", "package lib\n\nextra :: 1\n"},
-    })
+    root := fixture(t, "def_package_operand", {{"lib/lib.odin", "package lib\n"}, {"lib/extra.odin", "package lib\n\nextra :: 1\n"}})
     defer os.remove_all(root)
 
     main_src := "package app\n\nimport \"lib\"\n\nmain :: proc() {\n\t_ = lib.extra\n}\n"
-    res := definition_at(e, main_src, "lib.extra", root, fixture_path(root, "main.odin"))
+    res      := definition_at(e, main_src, "lib.extra", root, fixture_path(root, "main.odin"))
     expect_jump(t, &res, "lib.odin", 0)
     free_definition(&res)
 }
@@ -344,7 +328,7 @@ test_definition_package_no_entry_file :: proc(t: ^testing.T) {
     defer os.remove_all(root)
 
     main_src := "package app\n\nimport \"lib\"\n\nmain :: proc() {\n\t_ = lib.extra\n}\n"
-    res := definition_at(e, main_src, "lib.extra", root, fixture_path(root, "main.odin"))
+    res      := definition_at(e, main_src, "lib.extra", root, fixture_path(root, "main.odin"))
     expect_jump(t, &res, "parts.odin", 0)
     free_definition(&res)
 }
@@ -354,14 +338,11 @@ test_definition_package_fuzzy_fallback :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    root := fixture(t, "def_package_fuzzy", {
-        {"lib/aardvark.odin", "package lib\n\naa :: 1\n"},
-        {"lib/lib_windows.odin", "package lib\n\nbb :: 2\n"},
-    })
+    root := fixture(t, "def_package_fuzzy", {{"lib/aardvark.odin", "package lib\n\naa :: 1\n"}, {"lib/lib_windows.odin", "package lib\n\nbb :: 2\n"}})
     defer os.remove_all(root)
 
     main_src := "package app\n\nimport \"lib\"\n\nmain :: proc() {\n\t_ = lib.bb\n}\n"
-    res := definition_at(e, main_src, "lib.bb", root, fixture_path(root, "main.odin"))
+    res      := definition_at(e, main_src, "lib.bb", root, fixture_path(root, "main.odin"))
     expect_jump(t, &res, "lib_windows.odin", 0)
     free_definition(&res)
 }
@@ -374,9 +355,9 @@ test_definition_on_import_line :: proc(t: ^testing.T) {
     root := fixture(t, "def_import_line", {{"lib/lib.odin", "package lib\n\nthing :: 1\n"}})
     defer os.remove_all(root)
 
-    main_src := "package app\n\nimport lib \"lib\"\nimport \"missing\"\n\nmain :: proc() {\n\t_ = lib.thing\n}\n"
+    main_src  := "package app\n\nimport lib \"lib\"\nimport \"missing\"\n\nmain :: proc() {\n\t_ = lib.thing\n}\n"
     main_path := fixture_path(root, "main.odin")
-    res := definition_at(e, main_src, "\"lib\"", root, main_path, skip = 1)
+    res       := definition_at(e, main_src, "\"lib\"", root, main_path, skip = 1)
     expect_jump(t, &res, "lib.odin", 0)
     free_definition(&res)
 
@@ -406,7 +387,12 @@ test_definition_stdlib :: proc(t: ^testing.T) {
     source, ok := lang.source_read(res.location.path)
     testing.expectf(t, ok, "could not read %q", res.location.path)
     if ok && res.location.start < len(source) {
-        testing.expectf(t, strings.has_prefix(source[res.location.start:], "println"), "landed on %q", source[res.location.start:][:min(20, len(source) - res.location.start)])
+        testing.expectf(
+            t,
+            strings.has_prefix(source[res.location.start:], "println"),
+            "landed on %q",
+            source[res.location.start:][:min(20, len(source) - res.location.start)],
+        )
     }
     testing.expectf(t, strings.contains(res.location.path, "fmt"), "path: got %q", res.location.path)
 }
@@ -567,19 +553,23 @@ test_definition_overload_package_qualified :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    one_src := "package lib\n\nsized_one :: proc(a: int) -> int {\n\treturn a\n}\n"
+    one_src   := "package lib\n\nsized_one :: proc(a: int) -> int {\n\treturn a\n}\n"
     three_src := "package extra\n\nsized_three :: proc(a: f32) -> int {\n\treturn 3\n}\n"
-    root := fixture(t, "def_overload_pkg", {
-        {"lib/one.odin", one_src},
-        {"lib/two.odin", "package lib\n\nsized_two :: proc(a, b: int) -> int {\n\treturn a + b\n}\n"},
-        {"lib/group.odin", "package lib\n\nimport \"../extra\"\n\nsizes :: proc{sized_one, sized_two, extra.sized_three}\n"},
-        {"extra/extra.odin", three_src},
-    })
+    root      := fixture(
+        t,
+        "def_overload_pkg",
+        {
+            {"lib/one.odin", one_src},
+            {"lib/two.odin", "package lib\n\nsized_two :: proc(a, b: int) -> int {\n\treturn a + b\n}\n"},
+            {"lib/group.odin", "package lib\n\nimport \"../extra\"\n\nsizes :: proc{sized_one, sized_two, extra.sized_three}\n"},
+            {"extra/extra.odin", three_src},
+        },
+    )
     defer os.remove_all(root)
 
-    main_src := "package app\n\nimport \"lib\"\n\nmain :: proc() {\n\t_ = lib.sizes(missing)\n\t_ = lib.sizes(1)\n\t_ = lib.sizes(1, 2)\n\t_ = lib.sizes(1.5)\n}\n"
+    main_src  := "package app\n\nimport \"lib\"\n\nmain :: proc() {\n\t_ = lib.sizes(missing)\n\t_ = lib.sizes(1)\n\t_ = lib.sizes(1, 2)\n\t_ = lib.sizes(1.5)\n}\n"
     main_path := fixture_path(root, "main.odin")
-    picked := definition_at(e, main_src, "sizes(1)", root, main_path)
+    picked    := definition_at(e, main_src, "sizes(1)", root, main_path)
     expect_jump(t, &picked, "one.odin", strings.index(one_src, "sized_one ::"))
     free_definition(&picked)
     picked = definition_at(e, main_src, "sizes(1, 2)", root, main_path)
@@ -610,15 +600,11 @@ test_definition_inactive_when_last :: proc(t: ^testing.T) {
     defer engine_destroy(e)
 
     a_src := "package demo\n\nwhen ODIN_ARCH == .wasm32 {\n\tthing :: 1\n}\n"
-    root := fixture(t, "def_inactive_when", {
-        {"a.odin", a_src},
-        {"b.odin", "package demo\n\nthing :: 2\n"},
-        {"c.odin", "package demo\n\nthing :: 3\n"},
-    })
+    root  := fixture(t, "def_inactive_when", {{"a.odin", a_src}, {"b.odin", "package demo\n\nthing :: 2\n"}, {"c.odin", "package demo\n\nthing :: 3\n"}})
     defer os.remove_all(root)
 
     main_src := "package demo\n\nmain :: proc() {\n\t_ = thing\n}\n"
-    res := definition_at(e, main_src, "thing\n", root, fixture_path(root, "main.odin"))
+    res      := definition_at(e, main_src, "thing\n", root, fixture_path(root, "main.odin"))
     testing.expect(t, res.ok, "expected candidates for thing")
     testing.expectf(t, len(res.symbols) == 3, "candidates: got %d, want 3", len(res.symbols))
     if len(res.symbols) == 3 {
@@ -702,11 +688,11 @@ test_definition_enum_member_cross_file :: proc(t: ^testing.T) {
     defer engine_destroy(e)
 
     color_src := "package demo\n\nColor :: enum {\n\tRed,\n\tGreen,\n}\n"
-    root := fixture(t, "def_enum_cross_file", {{"color.odin", color_src}})
+    root      := fixture(t, "def_enum_cross_file", {{"color.odin", color_src}})
     defer os.remove_all(root)
 
     main_src := "package demo\n\nmain :: proc() {\n\t_ = Color.Red\n}\n"
-    res := definition_at(e, main_src, "Red", root, fixture_path(root, "main.odin"))
+    res      := definition_at(e, main_src, "Red", root, fixture_path(root, "main.odin"))
     expect_jump(t, &res, "color.odin", strings.index(color_src, "Red"))
     free_definition(&res)
 }
@@ -718,12 +704,12 @@ test_definition_package_enum_member :: proc(t: ^testing.T) {
     defer engine_destroy(e)
 
     color_src := "package lib\n\nColor :: enum {\n\tRed,\n\tGreen,\n}\n"
-    root := fixture(t, "def_package_enum_member", {{"lib/color.odin", color_src}})
+    root      := fixture(t, "def_package_enum_member", {{"lib/color.odin", color_src}})
     defer os.remove_all(root)
 
-    main_src := "package app\n\nimport \"lib\"\n\nmain :: proc() {\n\t_ = lib.Color.Green\n\tlib := 1\n\t_ = lib.Color.Red\n}\n"
+    main_src  := "package app\n\nimport \"lib\"\n\nmain :: proc() {\n\t_ = lib.Color.Green\n\tlib := 1\n\t_ = lib.Color.Red\n}\n"
     main_path := fixture_path(root, "main.odin")
-    res := definition_at(e, main_src, "Green\n", root, main_path)
+    res       := definition_at(e, main_src, "Green\n", root, main_path)
     expect_jump(t, &res, "color.odin", strings.index(color_src, "Green"))
     free_definition(&res)
 
@@ -774,9 +760,11 @@ test_definition_builtin_type :: proc(t: ^testing.T) {
     if odin_root(&e.root) == "" {
         testing.fail_now(t, "no Odin root: ODIN_ROOT, `odin root` and the build root all failed")
     }
-    root := fixture(t, "def_builtin_type", {
-        {"vt/vtable.odin", "package vt\n\nTransport :: struct {\n\twrite: proc(data: rawptr) -> bool,\n\tread:  proc(data: rawptr) -> int,\n}\n"},
-    })
+    root := fixture(
+        t,
+        "def_builtin_type",
+        {{"vt/vtable.odin", "package vt\n\nTransport :: struct {\n\twrite: proc(data: rawptr) -> bool,\n\tread:  proc(data: rawptr) -> int,\n}\n"}},
+    )
     defer os.remove_all(root)
 
     src := "package app\n\nmain :: proc() {\n\tx: int\n\t_ = x\n}\n"
@@ -797,7 +785,7 @@ test_definition_builtin_group :: proc(t: ^testing.T) {
     if odin_root(&e.root) == "" {
         testing.fail_now(t, "no Odin root: ODIN_ROOT, `odin root` and the build root all failed")
     }
-    src := "package app\n\nadd :: proc(xs: ^[dynamic]int) {\n\tappend(xs, 1)\n\t_ = append\n}\n"
+    src  := "package app\n\nadd :: proc(xs: ^[dynamic]int) {\n\tappend(xs, 1)\n\t_ = append\n}\n"
     call := definition_at(e, src, "append(")
     testing.expect(t, call.ok, "expected the call of append to resolve")
     testing.expectf(t, len(call.symbols) == 0, "expected a jump, got %d candidates", len(call.symbols))
@@ -833,7 +821,7 @@ test_definition_builtin_shadowed :: proc(t: ^testing.T) {
     free_definition(&res)
 
     other_src := "package app\n\nmake :: proc() -> int {\n\treturn 1\n}\n"
-    root := fixture(t, "def_builtin_shadowed", {{"other.odin", other_src}})
+    root      := fixture(t, "def_builtin_shadowed", {{"other.odin", other_src}})
     defer os.remove_all(root)
     main_src := "package app\n\nmain :: proc() {\n\t_ = make()\n}\n"
     res = definition_at(e, main_src, "make()", root, fixture_path(root, "main.odin"))
@@ -856,7 +844,7 @@ test_definition_runtime_needs_import :: proc(t: ^testing.T) {
     testing.expectf(t, !res.ok, "expected no definition, got %q", res.location.path)
 
     qualified := "package app\n\nimport \"base:runtime\"\n\nmain :: proc() {\n\tx: runtime.Raw_Dynamic_Array\n\t_ = x\n}\n"
-    res2 := definition_at(e, qualified, "Raw_Dynamic_Array")
+    res2      := definition_at(e, qualified, "Raw_Dynamic_Array")
     defer free_definition(&res2)
     testing.expect(t, res2.ok, "expected runtime.Raw_Dynamic_Array to resolve")
 }
@@ -945,7 +933,7 @@ test_definition_typed_names :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    cases := [?]Typed_Case {
+    cases := [?]Typed_Case{
         {"pos", "_ = e.", "pos:", "Entity ::"},
         {"id", "_ = e.", "id:", "Base ::"},
         {"x", "_ = e.pos.", "x, y", "Point ::"},
@@ -969,14 +957,22 @@ test_definition_typed_names :: proc(t: ^testing.T) {
         {"Red", "ok := .", "Red", "Color ::"},
     }
     for k in cases {
-        at := offset_after(TYPED_SRC, k.at, k.after)
+        at   := offset_after(TYPED_SRC, k.at, k.after)
         want := offset_after(TYPED_SRC, k.decl, k.decl_after)
         if !testing.expectf(t, at >= 0 && want >= 0, "%q after %q: not in the source", k.at, k.after) {
             continue
         }
         res := definition_offset(e, TYPED_SRC, at)
-        testing.expectf(t, res.ok && len(res.symbols) == 0 && res.location.start == want,
-            "%q after %q: got ok=%v start=%d, want %d", k.at, k.after, res.ok, res.location.start, want)
+        testing.expectf(
+            t,
+            res.ok && len(res.symbols) == 0 && res.location.start == want,
+            "%q after %q: got ok=%v start=%d, want %d",
+            k.at,
+            k.after,
+            res.ok,
+            res.location.start,
+            want,
+        )
         free_definition(&res)
     }
 }
@@ -988,11 +984,11 @@ test_definition_typed_cross_package :: proc(t: ^testing.T) {
     defer engine_destroy(e)
 
     shape_src := "package app\n\nShape :: struct {\n\twidth: int,\n\tkind:  lib.Kind,\n}\n\nimport \"lib\"\n"
-    lib_src := "package lib\n\nKind :: enum {\n\tSquare,\n\tRound,\n}\n\nVec :: struct {\n\tlen: f32,\n}\n\norigin :: proc() -> Vec {\n\treturn {}\n}\n"
-    root := fixture(t, "def_typed_cross_package", {{"shape.odin", shape_src}, {"lib/lib.odin", lib_src}})
+    lib_src   := "package lib\n\nKind :: enum {\n\tSquare,\n\tRound,\n}\n\nVec :: struct {\n\tlen: f32,\n}\n\norigin :: proc() -> Vec {\n\treturn {}\n}\n"
+    root      := fixture(t, "def_typed_cross_package", {{"shape.odin", shape_src}, {"lib/lib.odin", lib_src}})
     defer os.remove_all(root)
 
-    main_src := "package app\n\nimport \"lib\"\n\nmain :: proc() {\n\ts: Shape\n\t_ = s.width\n\ts.kind = .Round\n\tv := lib.origin()\n\t_ = v.len\n\t_ = lib.Vec{len = 1}\n}\n"
+    main_src  := "package app\n\nimport \"lib\"\n\nmain :: proc() {\n\ts: Shape\n\t_ = s.width\n\ts.kind = .Round\n\tv := lib.origin()\n\t_ = v.len\n\t_ = lib.Vec{len = 1}\n}\n"
     main_path := fixture_path(root, "main.odin")
 
     res := definition_at(e, main_src, "width\n", root, main_path)

@@ -53,7 +53,7 @@ Watcher :: struct {
     // allocator-owned and freed after they are dispatched.
     incoming:    lockfree.Stack(Change_Node),
     pending:     [dynamic]Change,
-    head:        int, // first undispatched entry of `pending`; entries before it are freed
+    head:        int,      // first undispatched entry of `pending`; entries before it are freed
     platform:    Platform, // what the platform's worker needs
     worker:      ^thread.Thread,
     running:     bool,
@@ -95,7 +95,7 @@ watcher_subscribe :: proc(w: ^Watcher, callback: Callback, data: rawptr) {
     if !w.running {
         return
     }
-    append(&w.subscribers, Subscriber {callback = callback, data = data})
+    append(&w.subscribers, Subscriber{callback = callback, data = data})
 }
 
 // Cap on how many changes one watcher_poll dispatches. A burst larger than
@@ -127,7 +127,7 @@ watcher_poll :: proc(w: ^Watcher) {
     }
 
     changes := make([dynamic]Change, context.temp_allocator)
-    count := min(len(w.pending) - w.head, WATCH_DRAIN_MAX)
+    count   := min(len(w.pending) - w.head, WATCH_DRAIN_MAX)
     append(&changes, ..w.pending[w.head:][:count])
     w.head += count
     // Reclaim only once the queue is empty; a burst is dispatched by moving the
@@ -187,6 +187,6 @@ watch_emit :: proc(w: ^Watcher, kind: Change_Kind, path: string) {
     if err != nil {
         return
     }
-    node.change = Change {kind = kind, path = strings.clone(path, w.allocator)}
+    node.change = Change{kind = kind, path = strings.clone(path, w.allocator)}
     lockfree.stack_push(&w.incoming, node)
 }

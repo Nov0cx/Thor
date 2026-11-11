@@ -8,128 +8,128 @@ import "core:strings"
 import "core:time"
 import rl "vendor:raylib"
 
+import "../editview"
+import "../font"
 import "../lang"
 import "../lang/lsp"
 import "../lang/odin"
-import "../plugin"
-import "../setting"
-import "../shell"
-import "../update"
-import "../watch"
-import "../font"
-import "../theme"
-import "../editview"
 import "../lockfree"
+import "../plugin"
 import "../prof"
 import "../render"
+import "../setting"
+import "../shell"
+import "../theme"
+import "../update"
 import ui "../vendor/loom/loom"
+import "../watch"
 // A window creation slower than this is a machine fault, not normal work, and
 // gets an explanation in the log.
 SLOW_WINDOW_WARN_SECS :: 2.0
 
 Thor :: struct {
-    ui_context: ui.Context,
-    backend: render.Backend,
+    ui_context:                    ui.Context,
+    backend:                       render.Backend,
     // The editor panes, all MAX_PANES of them; the layout shows the first few.
     // Owned here: undo history and cursors outlive any one frame's tree.
-    editors: [MAX_PANES]editview.Editor,
+    editors:                       [MAX_PANES]editview.Editor,
     // Font handles the views style with.
-    font_ui: ui.Font,
-    font_mono: ui.Font,
-    font_icons: ui.Font,
+    font_ui:                       ui.Font,
+    font_mono:                     ui.Font,
+    font_icons:                    ui.Font,
     // Which overlay is up. Only one modal shows at a time; the palette and the
     // find bar sit above whatever else is open.
-    settings_open: bool,
+    settings_open:                 bool,
     // The settings modal's own rows, categories and capture; see settings_view.odin.
-    settings: Settings_State,
-    git_open: bool,
-    problems_open: bool,
-    problems: Problems_View, // see problems.odin
-    undo_open: bool,
-    undo_view: Undo_View, // see undo_history.odin
-    package_problems: [dynamic]Package_Problem, // owned; diagnostics of files that are not open
+    settings:                      Settings_State,
+    git_open:                      bool,
+    problems_open:                 bool,
+    problems:                      Problems_View, // see problems.odin
+    undo_open:                     bool,
+    undo_view:                     Undo_View,                // see undo_history.odin
+    package_problems:              [dynamic]Package_Problem, // owned; diagnostics of files that are not open
     // The git modal's own lists, diff and commit box; see git_view.odin.
-    git: Git_View,
-    theme_editor_open: bool,
+    git:                           Git_View,
+    theme_editor_open:             bool,
     // The theme window's own rows and fold state; see theme_editor.odin.
-    theme_editor: Theme_Editor,
-    color_picker_open: bool,
+    theme_editor:                  Theme_Editor,
+    color_picker_open:             bool,
     // The color picker's HSV state and hex field; see color_picker.odin.
-    color_picker: Color_Picker,
-    permission_open: bool,
+    color_picker:                  Color_Picker,
+    permission_open:               bool,
     // The plugin permission prompt's rows and answers; see permission.odin.
-    permission: Permission_Dialog,
-    select_open: bool,
+    permission:                    Permission_Dialog,
+    select_open:                   bool,
     // The select dialog's own state (title, options, live preview).
-    select: Select_Dialog,
+    select:                        Select_Dialog,
     // Copied, cut and pasted texts, newest first.
-    clipboard_history: [dynamic]Clipboard_Entry, // owned
-    find_open: bool,
-    find_replace_mode: bool,
+    clipboard_history:             [dynamic]Clipboard_Entry, // owned
+    find_open:                     bool,
+    find_replace_mode:             bool,
     // The find bar's query, matches and modifiers; see find.odin.
-    find: Find_Replace,
-    palette_open: bool,
+    find:                          Find_Replace,
+    palette_open:                  bool,
     // The palette's own state (modes, command list, matches); see palette.odin.
-    palette: Palette,
-    menu_open: bool,
+    palette:                       Palette,
+    menu_open:                     bool,
     // The popup menu's item list and anchor; see menu.odin.
-    menu: Menu,
-    menu_anchor: ui.Vec2,
+    menu:                          Menu,
+    menu_anchor:                   ui.Vec2,
     // Focus is a Loom node, so a command names the pane it wants and the view
     // hands the keyboard over on the next frame. `focus_owner` is what the view
     // saw last frame, which is what a command asking "where am I" reads.
-    focus_request: string,
-    focus_owner: string,
+    focus_request:                 string,
+    focus_owner:                   string,
     // The build pass of the frame, 0 first. Loom runs the build up to `max_passes`
     // times; work that advances with time runs only in pass 0.
-    frame_pass: int,
+    frame_pass:                    int,
     // A texture changed its pixels, so the next frame is drawn even when its draw list did not change.
-    redraw: bool,
+    redraw:                        bool,
     // The signature of the last draw list drawn, and when it was drawn (rl.GetTime).
-    frame_sig: u64,
-    frame_drawn: f64,
-    config: setting.Settings,
-    plugins: plugin.Manager,
+    frame_sig:                     u64,
+    frame_drawn:                   f64,
+    config:                        setting.Settings,
+    plugins:                       plugin.Manager,
     // Where a plugin's own data directory lives: user/plugins beside the binary,
     // so plugin state survives a workspace switch and an update.
-    plugin_data_root: string, // owned
-    theme: theme.Theme,
+    plugin_data_root:              string, // owned
+    theme:                         theme.Theme,
     // The theme picker's rows, cached so opening it does not re-parse every
     // palette. Parallel and aligned by index; see thor_available_theme_choices.
-    theme_labels: []string, // owned
-    theme_files: []string, // owned
-    theme_stamp: i64, // newest modification time the cache was built from
-    theme_file_sig: i64, // size and modification time of the loaded theme file
+    theme_labels:                  []string,        // owned
+    theme_files:                   []string,        // owned
+    theme_stamp:                   i64,             // newest modification time the cache was built from
+    theme_file_sig:                i64,             // size and modification time of the loaded theme file
     // Lua files this start converted from JSON, and the card that says so.
-    lua_converted: [dynamic]string, // owned
-    lua_notice_open: bool,
+    lua_converted:                 [dynamic]string, // owned
+    lua_notice_open:               bool,
     // The release notes card.
-    whats_new: Whats_New,
+    whats_new:                     Whats_New,
     // Generator seeds of the theme window's Generate tab.
-    theme_seed_background: ui.Color,
-    theme_seed_accent: ui.Color,
-    theme_seed_dark: bool,
+    theme_seed_background:         ui.Color,
+    theme_seed_accent:             ui.Color,
+    theme_seed_dark:               bool,
     // Zoom and pan of the image view, and the orbit camera and render target of
     // the model view. One per editor pane: a split can show two of either, and
     // each keeps its own camera.
-    image_view: [MAX_PANES]Image_View,
-    model_view: [MAX_PANES]Model_View,
+    image_view:                    [MAX_PANES]Image_View,
+    model_view:                    [MAX_PANES]Model_View,
     // Rendered markdown preview, shown in place of whichever pane is not
     // focused while preview is on and the active file is markdown. Toggled by
     // "View: Toggle Markdown Preview".
-    markdown_preview: bool,
-    markdown_view: Markdown_View,
-    tutorial: Tutorial,
+    markdown_preview:              bool,
+    markdown_view:                 Markdown_View,
+    tutorial:                      Tutorial,
     // Last frame's rect of each region a tutorial step can point at.
-    region_rects: [Tutorial_Region]ui.Rect,
+    region_rects:                  [Tutorial_Region]ui.Rect,
     // Tip of the day, floating over the editor. Opened on the first start of a
     // day with a workspace open, where the welcome page is not shown; the
     // welcome page shows the same tip inline.
-    tip_open: bool,
+    tip_open:                      bool,
     // The welcome page's recent folders, read at most once a second. Owned.
-    welcome_recent:       []string,
-    welcome_recent_at:    time.Tick,
-    welcome_recent_valid: bool,
+    welcome_recent:                []string,
+    welcome_recent_at:             time.Tick,
+    welcome_recent_valid:          bool,
     // The active terminal's console; nil when the last terminal is closed.
     // Modal picker for Preferences (theme/font), with live preview.
     // Modal prompt listing the plugins waiting on a permission answer.
@@ -140,372 +140,372 @@ Thor :: struct {
     // Modal git UI (changes, commit; more views to come). See git_ui.odin.
     // Auto-reload of the config files: a signature of their modification times,
     // refreshed after each load; the poll loop reloads when it changes on disk.
-    settings_sig: i64,
-    settings_poll_time: f64,
-    command_palette_key: setting.Keybind,
-    quick_open_key: setting.Keybind,
-    fullscreen_key: setting.Keybind,
-    console_toggle_key: setting.Keybind,
-    find_key: setting.Keybind,
-    replace_key: setting.Keybind,
-    focus_editor_key: setting.Keybind,
-    focus_explorer_key: setting.Keybind,
-    focus_terminal_key: setting.Keybind,
-    trim_whitespace_key: setting.Keybind,
-    format_key: setting.Keybind,
-    format_selection_key: setting.Keybind,
-    align_char_key: setting.Keybind,
-    goto_line_key: setting.Keybind,
-    last_file_key: setting.Keybind,
-    close_tab_key: setting.Keybind,
-    next_tab_key: setting.Keybind,
-    previous_tab_key: setting.Keybind,
-    toggle_explorer_key: setting.Keybind,
+    settings_sig:                  i64,
+    settings_poll_time:            f64,
+    command_palette_key:           setting.Keybind,
+    quick_open_key:                setting.Keybind,
+    fullscreen_key:                setting.Keybind,
+    console_toggle_key:            setting.Keybind,
+    find_key:                      setting.Keybind,
+    replace_key:                   setting.Keybind,
+    focus_editor_key:              setting.Keybind,
+    focus_explorer_key:            setting.Keybind,
+    focus_terminal_key:            setting.Keybind,
+    trim_whitespace_key:           setting.Keybind,
+    format_key:                    setting.Keybind,
+    format_selection_key:          setting.Keybind,
+    align_char_key:                setting.Keybind,
+    goto_line_key:                 setting.Keybind,
+    last_file_key:                 setting.Keybind,
+    close_tab_key:                 setting.Keybind,
+    next_tab_key:                  setting.Keybind,
+    previous_tab_key:              setting.Keybind,
+    toggle_explorer_key:           setting.Keybind,
     // Toggles the editor split: the "toggle_split" chord, f1 by default.
-    split_key: setting.Keybind,
-    focus_pane_keys: [MAX_PANES]setting.Keybind,
-    file_to_pane_keys: [MAX_PANES]setting.Keybind,
-    focus_next_pane_key: setting.Keybind,
-    focus_previous_pane_key: setting.Keybind,
-    next_layout_key: setting.Keybind,
-    active_file: Signal(int),
+    split_key:                     setting.Keybind,
+    focus_pane_keys:               [MAX_PANES]setting.Keybind,
+    file_to_pane_keys:             [MAX_PANES]setting.Keybind,
+    focus_next_pane_key:           setting.Keybind,
+    focus_previous_pane_key:       setting.Keybind,
+    next_layout_key:               setting.Keybind,
+    active_file:                   Signal(int),
     // Most-recently-active file before the current one, for the ctrl+e flip.
     // Cleared when that file is closed so the pointer never dangles.
-    last_active_file: ^Open_File,
+    last_active_file:              ^Open_File,
     // The file tree's node set, selection and drag state; see explorer.odin.
-    explorer: Explorer,
+    explorer:                      Explorer,
     // Last frame's editor column rect, the drop target of an explorer drag.
-    editor_rect: ui.Rect,
+    editor_rect:                   ui.Rect,
     // The dock is arranged once per workspace: the saved layout, or the starting
     // one. After that it keeps what the user dragged it into, and the session
     // writes that back.
-    dock_seeded: bool,
-    dock_id: ui.Dock_Id,
-    dock_layout: string, // owned, the restored layout, applied at the next arrange
-    explorer_visible: Signal(bool),
-    console_visible: Signal(bool),
+    dock_seeded:                   bool,
+    dock_id:                       ui.Dock_Id,
+    dock_layout:                   string, // owned, the restored layout, applied at the next arrange
+    explorer_visible:              Signal(bool),
+    console_visible:               Signal(bool),
     // What `ui.panel` reads and writes for those two. The dock keeps the pointer
     // across frames and writes through it when a tab's close button is hit, so it
     // must not be a local of the view.
-    explorer_open: bool,
-    console_open: bool,
+    explorer_open:                 bool,
+    console_open:                  bool,
     // A panel to raise the next time the dock holds its tab, since a panel
     // behind another tab is never declared and cannot take focus.
-    dock_focus_request: string, // borrowed, a panel-name constant
+    dock_focus_request:            string,       // borrowed, a panel-name constant
     // The hammer mark the titlebar and the welcome page draw.
-    top_logo_texture: rl.Texture2D, // owned, unloaded at shutdown
+    top_logo_texture:              rl.Texture2D, // owned, unloaded at shutdown
     // Top-bar buttons added by plugins via thor.button, in registration order.
-    plugin_buttons: [dynamic]^Plugin_Top_Button,
+    plugin_buttons:                [dynamic]^Plugin_Top_Button,
     // Panels plugins built (thor.panel) and the two docks holding them. A dock
     // shows only while one of its panels does (see plugin_panel.odin).
-    plugin_panels: [dynamic]^Plugin_Panel,
+    plugin_panels:                 [dynamic]^Plugin_Panel,
     // Plugins held until the user allows the permissions they ask for, and the
     // prompt that asks for one source of them (see plugin_trust.odin).
-    plugin_requests: [dynamic]Plugin_Request,
-    plugin_prompt_shown: bool,
-    plugin_prompt_source: Plugin_Source,
+    plugin_requests:               [dynamic]Plugin_Request,
+    plugin_prompt_shown:           bool,
+    plugin_prompt_source:          Plugin_Source,
     // An answer asked for the plugin VM to be rebuilt; done on the next frame.
-    plugin_reload_pending: bool,
+    plugin_reload_pending:         bool,
     // The release a check found (see update.odin). The titlebar button borrows
     // update_version as its label and the palette borrows update_prompt, so both
     // outlive the widgets. All owned; empty until a check finds something.
-    update_version: string,
-    update_notes: string,
-    update_url: string,
-    update_sums_url: string,
-    update_asset: string,
-    update_prompt: string,
-    update_size: i64,
-    update_state: Update_State,
-    update_installable: bool,
+    update_version:                string,
+    update_notes:                  string,
+    update_url:                    string,
+    update_sums_url:               string,
+    update_asset:                  string,
+    update_prompt:                 string,
+    update_size:                   i64,
+    update_state:                  Update_State,
+    update_installable:            bool,
     // The prompt is asked once per found version: a dismissal is remembered in
     // sessions/update.json and the button becomes the only way back to it.
-    update_prompt_shown: bool,
-    update_started: bool,
-    update_inflight: bool,
+    update_prompt_shown:           bool,
+    update_started:                bool,
+    update_inflight:               bool,
     // Bytes of the update archive on disk, read about four times a second while it downloads.
-    update_bytes: i64,
-    update_bytes_time: f64,
+    update_bytes:                  i64,
+    update_bytes_time:             f64,
     // The running check or install job, borrowed, so a quit can ask it to stop.
-    update_job: ^Update_Job,
+    update_job:                    ^Update_Job,
     // A staged update waiting to be swapped in. Owned; the swap runs from
     // thor_poll_update and never from the io drain, which shutdown also calls.
     // The root outlives a failed swap so a retry needs no second download, so
     // the flag and not the root is what says a swap is due.
-    update_swap_root: string,
-    update_swap_pending: bool,
+    update_swap_root:              string,
+    update_swap_pending:           bool,
     // Plugins and themes the update rows list (ext_update.odin). Owned.
-    ext_updates: [dynamic]Ext_Update,
-    ext_started: bool,
-    ext_inflight: bool,
+    ext_updates:                   [dynamic]Ext_Update,
+    ext_started:                   bool,
+    ext_inflight:                  bool,
     // The running plugin or theme job, borrowed, so a quit can ask it to stop.
-    ext_job: ^Ext_Job,
+    ext_job:                       ^Ext_Job,
     // Hold key of the item whose row opened the picker.
-    ext_setting_target: string, // owned
+    ext_setting_target:            string, // owned
     // Plugin whose permission row opened the picker (see settings_ui.odin).
-    plugin_setting_target: string,  // owned
-    plugin_setting_source: Plugin_Source,
+    plugin_setting_target:         string, // owned
+    plugin_setting_source:         Plugin_Source,
     // Backend id ("odin", or an lsp.lua server id) whose on/off picker is open;
     // see thor_cmd_change_language_backend. Shared with
     // thor_cmd_change_language_backend_feature, which additionally sets
     // language_backend_feature_kind — the two never have a picker open at once.
-    language_backend_target: string,  // owned
+    language_backend_target:       string, // owned
     language_backend_feature_kind: lang.Request_Kind,
-    should_close: bool,
+    should_close:                  bool,
     // Set once an update started the new build: the session file belongs to that
     // process now, so this one must not write over it on the way out.
-    relaunching: bool,
-    window_maximized: bool,
-    explorer_width: f32,
-    console_height: f32,
-    layout: Pane_Layout,
-    last_multi_layout: Pane_Layout, // what toggle_split returns to
+    relaunching:                   bool,
+    window_maximized:              bool,
+    explorer_width:                f32,
+    console_height:                f32,
+    layout:                        Pane_Layout,
+    last_multi_layout:             Pane_Layout, // what toggle_split returns to
     // Share of each column, and of each row inside a column.
-    col_weight: [LAYOUT_MAX_COLUMNS]f32,
-    row_weight: [LAYOUT_MAX_COLUMNS][LAYOUT_MAX_ROWS]f32,
-    pane_grab: [2]f32, // the two weights at the press that started a handle drag
+    col_weight:                    [LAYOUT_MAX_COLUMNS]f32,
+    row_weight:                    [LAYOUT_MAX_COLUMNS][LAYOUT_MAX_ROWS]f32,
+    pane_grab:                     [2]f32, // the two weights at the press that started a handle drag
     // Last frame's rect of each pane and of the area they share.
-    pane_rect: [MAX_PANES]ui.Rect,
-    panes_area: ui.Rect,
-    pane_pick: Pane_Pick,
-    tab_drag: int, // tab being dragged, -1 when none
+    pane_rect:                     [MAX_PANES]ui.Rect,
+    panes_area:                    ui.Rect,
+    pane_pick:                     Pane_Pick,
+    tab_drag:                      int, // tab being dragged, -1 when none
     // Each pane's open-files index (-1 = none); the two panes can show different
     // files. active_pane is the focused one, whose file the tabbar, status bar
     // and file commands act on (mirrored into the active_file signal).
-    pane_file: [MAX_PANES]int,
+    pane_file:                     [MAX_PANES]int,
     // The scroll each pane pushed to Loom last frame.
-    pane_scroll: [MAX_PANES]ui.Vec2,
-    active_pane: int,
+    pane_scroll:                   [MAX_PANES]ui.Vec2,
+    active_pane:                   int,
     // App/file/view commands that ship without a keybinding. Each carries its
     // config action name and resolved chord; unbound ones (KEY_NULL) never fire.
     // Dispatched globally, so only commands with no editor-local key belong here.
-    app_binds: [dynamic]App_Bind,
+    app_binds:                     [dynamic]App_Bind,
     // Palette entries of the plugins' thor.on_command names; see plugin_commands.odin.
-    plugin_commands: [dynamic]^Plugin_Command, // owned
-    plugin_commands_synced: int, // command count at the last sync, -1 to force one
-    workspace_dir: string,
-    workspace_prefix: string,  // workspace_dir + separator, for palette display
+    plugin_commands:               [dynamic]^Plugin_Command, // owned
+    plugin_commands_synced:        int,                      // command count at the last sync, -1 to force one
+    workspace_dir:                 string,
+    workspace_prefix:              string, // workspace_dir + separator, for palette display
     // True when workspace_dir has a .thor/ directory: its config overlays the
     // global settings, and it is treated as an initialized workspace.
-    workspace_initialized: bool,
+    workspace_initialized:         bool,
     // Directory a New File/Folder prompt creates into; set from the explorer
     // right-click target or the workspace root. Owned clone.
-    menu_target_dir: string,
+    menu_target_dir:               string,
     // Tab index a right-click context menu was opened on (editor tabs, terminal
     // tabs), consumed by the menu's own row callbacks.
-    menu_target_tab: int,
-    menu_target_terminal: int,
+    menu_target_tab:               int,
+    menu_target_terminal:          int,
     // Paths awaiting a delete confirmation (set when Delete is pressed in the
     // explorer, consumed when the confirm dialog is accepted). Owned clones; more
     // than one when the explorer selection spans several rows.
-    pending_delete_paths: [dynamic]string,
+    pending_delete_paths:          [dynamic]string,
     // Message shown in the delete confirmation dialog; borrowed by the palette
     // while it is open, so it must outlive the dialog. Owned clone.
-    delete_prompt: string,
+    delete_prompt:                 string,
     // File the open conflict prompt asks about (borrowed, nil when none is open),
     // and that prompt's message. The message is borrowed by the palette while the
     // prompt is open, so it must outlive it. Owned clone.
-    conflict_file: ^Open_File,
-    conflict_prompt: string,
+    conflict_file:                 ^Open_File,
+    conflict_prompt:               string,
     // Path awaiting a rename (set when a rename is started in the explorer or
     // the File menu, consumed when the name prompt is accepted). Owned clone.
-    pending_rename_path: string,
+    pending_rename_path:           string,
     // Folder awaiting a this-window/new-window choice, and the prompt title the
     // picker shows. The title is borrowed by the palette while it is open, so
     // both must outlive the pick. Owned clones, cleared once the pick lands.
-    pending_open_folder: string,
-    open_folder_prompt: string,
-    git_branch: string,
+    pending_open_folder:           string,
+    open_folder_prompt:            string,
+    git_branch:                    string,
     // Repo root + separator, the prefix every git status/diff key is built from.
     // Git prints paths relative to the repo root, which is not the workspace when
     // a subdirectory is opened. Owned; "" when the workspace is not in a repo.
-    git_prefix: string,
+    git_prefix:                    string,
     // Named shell commands from <workspace>/.thor/tasks.json, reloaded on a
     // workspace switch. active_task_name is what the selector shows and the run
     // button runs, held by name so a reload can re-resolve it and the session
     // can restore it; pending_task_name carries the name between the two prompts
     // of Add Task. Both owned clones.
-    tasks: [dynamic]^Task,
-    active_task_name: string,
-    pending_task_name: string,
-    open_files: [dynamic]^Open_File,
-    zombie_files: [dynamic]^Open_File,
+    tasks:                         [dynamic]^Task,
+    active_task_name:              string,
+    pending_task_name:             string,
+    open_files:                    [dynamic]^Open_File,
+    zombie_files:                  [dynamic]^Open_File,
     // Worker threads push finished jobs here; drained on the main thread every frame.
-    finished_loads: lockfree.Stack(Load_Job),
-    finished_saves: lockfree.Stack(Save_Job),
-    finished_git: lockfree.Stack(Git_Status_Job),
-    finished_git_ops: lockfree.Stack(Git_Op_Job),
-    finished_file_ops: lockfree.Stack(File_Op_Job),
-    finished_shells: lockfree.Stack(Shell_Detect_Job),
-    finished_file_index: lockfree.Stack(File_Index_Job),
-    finished_file_searches: lockfree.Stack(File_Search_Job),
-    finished_updates: lockfree.Stack(Update_Job),
-    finished_ext_updates: lockfree.Stack(Ext_Job),
-    finished_outside_stats: lockfree.Stack(Outside_Stat_Job),
-    finished_md_images: lockfree.Stack(Md_Image_Job),
-    finished_plugin_execs: lockfree.Stack(Plugin_Exec_Job),
+    finished_loads:                lockfree.Stack(Load_Job),
+    finished_saves:                lockfree.Stack(Save_Job),
+    finished_git:                  lockfree.Stack(Git_Status_Job),
+    finished_git_ops:              lockfree.Stack(Git_Op_Job),
+    finished_file_ops:             lockfree.Stack(File_Op_Job),
+    finished_shells:               lockfree.Stack(Shell_Detect_Job),
+    finished_file_index:           lockfree.Stack(File_Index_Job),
+    finished_file_searches:        lockfree.Stack(File_Search_Job),
+    finished_updates:              lockfree.Stack(Update_Job),
+    finished_ext_updates:          lockfree.Stack(Ext_Job),
+    finished_outside_stats:        lockfree.Stack(Outside_Stat_Job),
+    finished_md_images:            lockfree.Stack(Md_Image_Job),
+    finished_plugin_execs:         lockfree.Stack(Plugin_Exec_Job),
     // Reaped thor.exec results waiting for the run loop to call their plugin. Owned.
-    plugin_exec_results: [dynamic]^Plugin_Exec_Job,
+    plugin_exec_results:           [dynamic]^Plugin_Exec_Job,
     // The id the last thor.exec with a callback got; unique for the process.
-    plugin_exec_next: u64,
+    plugin_exec_next:              u64,
     // The tab a "could not be saved, close it?" prompt asks about, and the text
     // of the prompt. The file is borrowed; nil when the tab is gone.
-    close_prompt_file: ^Open_File,
-    close_prompt: string, // owned
+    close_prompt_file:             ^Open_File,
+    close_prompt:                  string, // owned
     // The look at the open files no watcher covers (watch_outside.odin).
-    outside_stat_inflight: bool,
-    outside_stat_at: time.Tick,
-    inflight_jobs: int,
+    outside_stat_inflight:         bool,
+    outside_stat_at:               time.Tick,
+    inflight_jobs:                 int,
     // Quick-open's cached file list, warmed off-thread at workspace open and
     // refreshed on watcher activity; thor_palette_list_files falls back to a
     // synchronous walk while !file_index_ready. Owned, with the strings in it.
     // file_index_inflight/dirty coalesce a burst the same way git status does.
-    file_index: [dynamic]string,
-    file_index_ready: bool,
-    file_index_inflight: bool,
-    file_index_dirty: bool,
-    file_index_at: time.Tick,
+    file_index:                    [dynamic]string,
+    file_index_ready:              bool,
+    file_index_inflight:           bool,
+    file_index_dirty:              bool,
+    file_index_at:                 time.Tick,
     // Find in files. `file_search_serial` names the newest query; a worker reads
     // it to stop a scan a newer query overtook. `file_search_waiting` is a query
     // with no scan yet, started when the typing rests and no scan runs.
-    file_search_serial: u64,
-    file_search_query: string, // owned
-    file_search_due: time.Tick,
-    file_search_waiting: bool,
-    file_search_inflight: bool,
+    file_search_serial:            u64,
+    file_search_query:             string, // owned
+    file_search_due:               time.Tick,
+    file_search_waiting:           bool,
+    file_search_inflight:          bool,
     // Plugin output printed while no terminal exists — shell detection is async,
     // so a plugin load body prints before the first one opens. Flushed into that
     // terminal when it opens. owned
-    console_backlog: strings.Builder,
+    console_backlog:               strings.Builder,
     // One terminal per console tab, each on its own shell. owned
-    terminals: [dynamic]^Terminal,
+    terminals:                     [dynamic]^Terminal,
     // True between thor_terminals_init and thor_terminals_shutdown. An empty
     // terminal list and a shut-down one are the same value, so the state is
     // held apart from it.
-    terminals_live: bool,
-    active_terminal: int,
+    terminals_live:                bool,
+    active_terminal:               int,
     // The terminal holds the keyboard, so a chord belongs to the shell and not
     // to the editor. Written by the console view every frame.
-    console_focused: bool,
+    console_focused:               bool,
     // The shells installed on this machine, best first. owned
-    shell_profiles: []shell.Profile,
-    shell_choices: []Shell_Choice,  // owned, one per profile
+    shell_profiles:                []shell.Profile,
+    shell_choices:                 []Shell_Choice, // owned, one per profile
     // Working-tree status keyed by absolute path (matches tree node paths),
     // recomputed off-thread; git_status_inflight guards against overlapping runs.
-    git_status: map[string]Git_Status,
-    git_status_inflight: bool,
+    git_status:                    map[string]Git_Status,
+    git_status_inflight:           bool,
     // The last git status failed and was logged; cleared by the next one that runs.
-    git_status_failed: bool,
-    git_status_dirty: bool,  // a refresh was requested while one was running
-    git_status_at: time.Tick,  // when the last refresh started; the watcher's rate limit
+    git_status_failed:             bool,
+    git_status_dirty:              bool,      // a refresh was requested while one was running
+    git_status_at:                 time.Tick, // when the last refresh started; the watcher's rate limit
     // Git view op state (see git_ops.odin): the generation stamps every job so
     // results from a closed view or an earlier workspace are dropped; the
     // serial does the same for a superseded file diff; the snapshot flags
     // coalesce like git_status_inflight/dirty; one mutation runs at a time.
-    git_ui_generation: int,
-    git_diff_serial: int,
-    git_ui_snapshot_inflight: bool,
-    git_ui_snapshot_dirty: bool,
-    git_mutation_inflight: bool,
+    git_ui_generation:             int,
+    git_diff_serial:               int,
+    git_ui_snapshot_inflight:      bool,
+    git_ui_snapshot_dirty:         bool,
+    git_mutation_inflight:         bool,
     // Commits the history view has asked for; "Load more" raises it.
-    git_log_count: int,
+    git_log_count:                 int,
     // What origin points at (owned strings; kind None while unknown), whether
     // the gh/glab CLIs answered a probe, and whether the open hosting view
     // already asked for its PR list.
-    git_host: Git_Host_Info,
-    git_has_gh: bool,
-    git_has_glab: bool,
-    git_cli_probed: bool,
-    git_prs_requested: bool,
+    git_host:                      Git_Host_Info,
+    git_has_gh:                    bool,
+    git_has_glab:                  bool,
+    git_cli_probed:                bool,
+    git_prs_requested:             bool,
     // Discard confirmation state: the path awaiting the answer and the prompt
     // the palette borrows while it is open. Owned clones.
-    git_discard_path: string,
-    git_discard_prompt: string,
+    git_discard_path:              string,
+    git_discard_prompt:            string,
     // Language intelligence: in-client analyzers (and, later, an LSP subprocess)
     // behind one seam. Requests run on worker threads and are reaped each frame.
-    lang_manager: lang.Manager,
-    odin_engine: ^odin.Engine,
+    lang_manager:                  lang.Manager,
+    odin_engine:                   ^odin.Engine,
     // The optional subprocess LSP backend. Owned by the manager, which destroys
     // every backend it holds, so shutdown frees nothing here.
-    lsp_client: ^lsp.Client,
+    lsp_client:                    ^lsp.Client,
     // Whether each configured server's program answers on PATH, kept between
     // Settings populates: the lookup stats every PATH directory and the table
     // holds dozens of servers. Keys and Lsp_Probe.exe owned; see thor/lsp_ui.odin.
-    lsp_probes: map[string]Lsp_Probe,
+    lsp_probes:                    map[string]Lsp_Probe,
     // The install command the Language Servers panel is asking about and the
     // prompt the palette borrows while it is open; owned.
-    lsp_install_command: string,
-    lsp_install_prompt: string,
+    lsp_install_command:           string,
+    lsp_install_prompt:            string,
     // Set when an lsp.lua layer changed or the user asked for a restart. Acted
     // on at the head of the run loop, never inside an event: thor_reload_lang
     // destroys the backend a dispatch may be standing on.
-    lang_reload_pending: bool,
+    lang_reload_pending:           bool,
     // Set by a settings reload: the file_targets setting reaches the Odin engine at the head of the run loop.
-    file_targets_pending: bool,
+    file_targets_pending:          bool,
     // The one server a row or the palette asked to restart, acted on at the same
     // point and for the same reason. Owned; "" when none is owed.
-    lang_restart_id: string,
+    lang_restart_id:               string,
     // The workspace's lsp.lua waits on an answer (see lsp_trust.odin). The key
     // is the workspace and file digest the question is about; owned.
-    lsp_trust_pending: bool,
-    lsp_trust_declined: bool,
-    lsp_trust_key: string,
+    lsp_trust_pending:             bool,
+    lsp_trust_declined:            bool,
+    lsp_trust_key:                 string,
     // Signature of the three lsp.lua layers, and the per-server states the
     // health poll last saw. Both owned; see thor/settings_watch.odin.
-    lsp_sig: i64,
-    lsp_health: [dynamic]Lsp_Health,
-    lsp_health_poll_time: f64,
+    lsp_sig:                       i64,
+    lsp_health:                    [dynamic]Lsp_Health,
+    lsp_health_poll_time:          f64,
     // Recursive async watch of the workspace tree. Its changes feed the explorer
     // (tree + git refresh) and the open buffers (reload on external edits) via
     // subscribers wired in thor_init_watcher. The two flags coalesce a burst of
     // events into a single explorer refresh per poll.
-    watcher: watch.Watcher,
-    watch_tree_dirty: bool,
-    explorer_refresh_at: time.Tick, // when the watcher last rebuilt the tree
-    watch_git_dirty: bool,
-    goto_def_key: setting.Keybind,
-    goto_type_def_key: setting.Keybind,
-    peek_def_key: setting.Keybind,
-    goto_symbol_key: setting.Keybind,
-    goto_workspace_symbol_key: setting.Keybind,
-    find_references_key: setting.Keybind,
-    signature_help_key: setting.Keybind,
-    package_doc_key: setting.Keybind,
-    code_actions_key: setting.Keybind,
+    watcher:                       watch.Watcher,
+    watch_tree_dirty:              bool,
+    explorer_refresh_at:           time.Tick, // when the watcher last rebuilt the tree
+    watch_git_dirty:               bool,
+    goto_def_key:                  setting.Keybind,
+    goto_type_def_key:             setting.Keybind,
+    peek_def_key:                  setting.Keybind,
+    goto_symbol_key:               setting.Keybind,
+    goto_workspace_symbol_key:     setting.Keybind,
+    find_references_key:           setting.Keybind,
+    signature_help_key:            setting.Keybind,
+    package_doc_key:               setting.Keybind,
+    code_actions_key:              setting.Keybind,
     // Go-to-symbol picker state: the jump targets (file + byte offset) for the
     // rows currently shown, in picker order. Rebuilt each time the picker opens;
     // the pick callback indexes into them on a later frame. Owned.
-    doc_symbols: [dynamic]Doc_Symbol,
+    doc_symbols:                   [dynamic]Doc_Symbol,
     // A go-to-definition whose target file is still loading; applied by
     // thor_update_files once the buffer lands. Path is an owned clone.
-    pending_goto_active: bool,
-    pending_goto_path: string,
-    pending_goto_offset: int,
+    pending_goto_active:           bool,
+    pending_goto_path:             string,
+    pending_goto_offset:           int,
     // When >0 the deferred jump targets this 1-based line/column (console error
     // output) and the offset is resolved once the buffer loads.
-    pending_goto_line: int,
-    pending_goto_col: int,
+    pending_goto_line:             int,
+    pending_goto_col:              int,
     // Where jumps came from, and where Go Back walked out of. Both owned, both
     // capped at JUMP_LIST_MAX; jump_navigating suppresses recording while those
     // two commands are the ones moving the caret.
-    jump_back_key: setting.Keybind,
-    jump_forward_key: setting.Keybind,
-    jump_back: [dynamic]Jump_Point,
-    jump_forward: [dynamic]Jump_Point,
-    jump_navigating: bool,
+    jump_back_key:                 setting.Keybind,
+    jump_forward_key:              setting.Keybind,
+    jump_back:                     [dynamic]Jump_Point,
+    jump_forward:                  [dynamic]Jump_Point,
+    jump_navigating:               bool,
     // In-flight hover request: the editor pane that asked and the request id, so
     // a result can be routed back to the right pane and stale ones dropped.
-    hover_editor: ^editview.Editor,
-    hover_request_id: u64,
+    hover_editor:                  ^editview.Editor,
+    hover_request_id:              u64,
     // In-flight workspace-symbols scan: its request id. The picker opens
     // immediately in a loading state; the matching result fills it in, and a
     // superseded (or already-replaced) result is dropped.
-    workspace_symbols_request_id: u64,
+    workspace_symbols_request_id:  u64,
     // True while that in-flight scan was re-dispatched by typing in the open
     // picker rather than by opening it: an empty result then means "no
     // matches for this text", not "nothing to show", so it must not close
     // the picker the way the initial empty-workspace case does.
-    workspace_symbols_typing: bool,
+    workspace_symbols_typing:      bool,
     // True when the dispatched scan targets a server-backed extension rather
     // than the native Odin engine: a server may answer an unfiltered (empty
     // query) scan with nothing until the user types (workspace/symbol on
@@ -515,144 +515,144 @@ Thor :: struct {
     // In-flight find-references scan: its request id. Like the workspace-symbols
     // picker, the results picker opens immediately (loading) and is filled when
     // the matching scan lands; a superseded result is dropped.
-    references_request_id: u64,
+    references_request_id:         u64,
     // Hierarchies, implementations, expand selection and reference counts.
-    nav: Nav_State,
+    nav:                           Nav_State,
     // In-flight signature-help request: the pane it came from and its request id,
     // so a superseded result (the caret moved on to another call, or a plain tab
     // switch with no new request) is dropped rather than routed to a stale pane.
-    signature_editor: ^editview.Editor,
-    signature_request_id: u64,
+    signature_editor:              ^editview.Editor,
+    signature_request_id:          u64,
     // Whether the in-flight signature request was auto-triggered (typing in a
     // call) rather than the explicit keybind. An auto request that resolves to no
     // call silently dismisses the popup; the explicit one flashes "No signature".
-    signature_auto: bool,
+    signature_auto:                bool,
     // In-flight completion request: the pane it came from and its request id, so a
     // superseded result (a later keystroke fired a newer request) is dropped and
     // the candidates route back to the right editor.
-    completion_editor: ^editview.Editor,
-    completion_request_id: u64,
+    completion_editor:             ^editview.Editor,
+    completion_request_id:         u64,
     // The candidates the last result offered, cloned: the Result is freed when
     // its handler returns, but the popup hands a row back on accept a keystroke
     // or more later. Path and revision are the buffer they were computed
     // against, which the applier validates their edits against.
-    completion_items: [dynamic]lang.Completion_Item,
-    completion_path: string, // owned
-    completion_revision: u64,
+    completion_items:              [dynamic]lang.Completion_Item,
+    completion_path:               string, // owned
+    completion_revision:           u64,
     // In-flight Resolve_Completion.
-    resolve_request_id: u64,
+    resolve_request_id:            u64,
     // The popup's documentation card: the row the selection rests on (owner id)
     // and since when, the row a resolve was sent for, and its request id.
-    completion_doc_owner: int,
-    completion_doc_since: time.Tick,
-    completion_doc_target: int,
-    completion_doc_request_id: u64,
-    completion_doc_view: Markdown_View, // owned; the card's page
+    completion_doc_owner:          int,
+    completion_doc_since:          time.Tick,
+    completion_doc_target:         int,
+    completion_doc_request_id:     u64,
+    completion_doc_view:           Markdown_View, // owned; the card's page
     // In-flight package-doc request: its request id, so a superseded result (a
     // newer F3 for another package) is dropped instead of overwriting the newer one.
-    package_doc_request_id: u64,
+    package_doc_request_id:        u64,
     // In-flight semantic-tokens request: its id and the classified buffer's path
     // (owned — the file may be closed and freed before the result lands, so it is
     // looked up by path, not held by pointer). One at a time, which throttles a
     // whole-file classification to its own round trip.
-    semantic_request_id: u64,
+    semantic_request_id:           u64,
     // In-flight live syntax check; one at a time for every file.
-    syntax_request_id: u64,
-    semantic_path: string,
+    syntax_request_id:             u64,
+    semantic_path:                 string,
     // The buffer snapshot that request carries (owned). It becomes the file's
     // semantic_source when the result lands, so the tokens can be rebased onto
     // later text; a request that never lands frees it instead, since tokens the
     // file already holds were classified over something else.
-    semantic_source: string,
+    semantic_source:               string,
     // In-flight inlay hints: one at a time for every file, over the window [inlay_start, inlay_end)
     // of `inlay_path` (owned), computed over `inlay_source` (owned).
     // Peek definition: the request for one, then the open peek and its editor.
-    peek:             Peek,
-    inlay_request_id: u64,
-    inlay_path:       string,
-    inlay_source:     string,
-    inlay_start:      int,
-    inlay_end:        int,
+    peek:                          Peek,
+    inlay_request_id:              u64,
+    inlay_path:                    string,
+    inlay_source:                  string,
+    inlay_start:                   int,
+    inlay_end:                     int,
     // In-flight document highlight: its id, and the file (owned), revision and caret it asked about.
-    occurrence_request_id:   u64,
-    occurrence_ask_path:     string,
-    occurrence_ask_revision: u64,
-    occurrence_ask_caret:    int,
+    occurrence_request_id:         u64,
+    occurrence_ask_path:           string,
+    occurrence_ask_revision:       u64,
+    occurrence_ask_caret:          int,
     // The uses of the symbol at the caret in `occurrence_path` (owned) at `occurrence_revision`.
-    occurrences:             [dynamic]editview.Occurrence,
-    occurrence_path:         string,
-    occurrence_revision:     u64,
+    occurrences:                   [dynamic]editview.Occurrence,
+    occurrence_path:               string,
+    occurrence_revision:           u64,
     // In-flight rename: its request id and the path of the buffer it was computed
     // against (owned), so its edits can be told apart from the ones landing in
     // other files — that buffer is validated against the snapshotted revision,
     // the others must be unmodified since the engine read them off disk.
-    rename_request_id: u64,
-    rename_path: string,
+    rename_request_id:             u64,
+    rename_path:                   string,
     // In-flight code-action request, and the fixes the last one offered. The
     // Result they came from is freed as soon as the handler returns, so the edits
     // are cloned here for the pick callback to apply on a later frame; the path
     // and revision are the buffer they were computed against, which the applier
     // validates them against exactly as it does a rename's.
-    code_action_request_id: u64,
-    code_action_path: string,
-    code_action_revision: u64,
-    code_action_lo: int, // the caret or selection the offer was made at
-    code_action_hi: int,
-    code_actions: [dynamic]Pending_Action,
+    code_action_request_id:        u64,
+    code_action_path:              string,
+    code_action_revision:          u64,
+    code_action_lo:                int, // the caret or selection the offer was made at
+    code_action_hi:                int,
+    code_actions:                  [dynamic]Pending_Action,
     // The action whose prompt is open, by index into code_actions; -1 when none.
     // Its Resolve_Action in flight, and the title to report when it answers.
-    code_action_prompted: int,
-    resolve_action_request_id: u64,
-    resolve_action_title: string, // owned
+    code_action_prompted:          int,
+    resolve_action_request_id:     u64,
+    resolve_action_title:          string, // owned
     // In-flight Execute_Command, and the title to report when it answers: a
     // command-only fix runs on the server, so the pick only reports whether it
     // was accepted — the changes arrive later as a pushed Apply_Edit.
-    execute_command_request_id: u64,
-    execute_command_title: string, // owned
+    execute_command_request_id:    u64,
+    execute_command_title:         string, // owned
     // In-flight format request: its id and the path of the buffer it was computed
     // against (owned). format_save_pending marks a save waiting on the result,
     // which thor_apply_format runs on every terminal outcome so a save is never
     // held hostage by formatting. format_save_queue is Save All's remaining files
     // (owned paths), taken one at a time since .Format has one consumer slot.
-    format_request_id: u64,
-    format_path: string,
-    format_save_pending: bool,
-    format_save_queue: [dynamic]string,
+    format_request_id:             u64,
+    format_path:                   string,
+    format_save_pending:           bool,
+    format_save_queue:             [dynamic]string,
     // In-flight Format_Range request (Format Selection): its id and the path of
     // the buffer it was computed against (owned). Its own slot rather than
     // sharing format_path — a document format and a selection format can be
     // dispatched moments apart and must not clobber each other's routing.
-    format_range_request_id: u64,
-    format_range_path: string,
+    format_range_request_id:       u64,
+    format_range_path:             string,
     // In-flight Format_On_Type request: its id and the buffer path (owned). No
     // save-pending bookkeeping — on-type formatting never blocks a save.
-    on_type_request_id: u64,
-    on_type_path: string,
+    on_type_request_id:            u64,
+    on_type_path:                  string,
     // How to move the last cross-file edit set (a rename, a code action), so
     // ctrl+z takes all of it back — files that were not open were rewritten on
     // disk and have no buffer history. Exactly one set is live in each direction:
     // undo hands its record to edit_redo and redo hands it back, so every string
     // is allocated once and freed once. owned
-    edit_undo: [dynamic]Edit_Undo_File,
-    edit_redo: [dynamic]Edit_Undo_File,
+    edit_undo:                     [dynamic]Edit_Undo_File,
+    edit_redo:                     [dynamic]Edit_Undo_File,
     // Statusline analyzer indicator: the request kinds in flight, when the
     // current busy stretch began, and whether it has lasted long enough to be
     // worth showing (see thor_lang_busy_update).
-    lang_busy_kinds: bit_set[lang.Request_Kind],
-    lang_busy_since: f64,
-    lang_busy_shown: bool,
+    lang_busy_kinds:               bit_set[lang.Request_Kind],
+    lang_busy_since:               f64,
+    lang_busy_shown:               bool,
     // The current $/progress message an LSP server is reporting (e.g.
     // "Indexing... (40%)"), owned and cloned; "" when nothing is in progress.
     // Shown in place of lang_busy_kinds' generic label when set.
-    lsp_progress_message: string,
+    lsp_progress_message:          string,
     // Transient statusline notice (e.g. "No definition found") and the time it
     // was posted; thor_status_info hides it once STATUS_MESSAGE_SECS elapse.
-    status_message: string,
-    status_message_time: f64,
-    status_message_error: bool,
+    status_message:                string,
+    status_message_time:           f64,
+    status_message_error:          bool,
     // True when the launch gave up a folder another window holds. That window
     // owns the last-workspace record.
-    launch_dropped_held: bool,
+    launch_dropped_held:           bool,
 }
 
 // Starts the editor. Returns nil when the launch only raised another window;
@@ -676,7 +676,7 @@ init :: proc() -> ^Thor {
     // Everything below loads relative to the CWD, which we then repoint at the
     // exe directory.
     workspace_dir: string
-    startup_files: [dynamic]string  // owned; opened once the UI and the session are up
+    startup_files: [dynamic]string // owned; opened once the UI and the session are up
     if len(os.args) > 1 {
         workspace_dir, startup_files = thor_startup_targets(thor_cli_paths(os.args, context.temp_allocator))
     }
@@ -734,21 +734,17 @@ init :: proc() -> ^Thor {
         append(&preload_families, fam)
     }
     preload_packs := make([dynamic]string, context.temp_allocator)
-    for pack in ([4]string {
-        setting.icon_pack_name(&thor.config), DEFAULT_ICON_PACK,
-        setting.file_icon_pack_name(&thor.config), DEFAULT_FILE_ICON_PACK,
-    }) {
+    for pack in ([4]string{setting.icon_pack_name(&thor.config), DEFAULT_ICON_PACK, setting.file_icon_pack_name(&thor.config), DEFAULT_FILE_ICON_PACK}) {
         if pack != "" && !slice.contains(preload_packs[:], pack) {
             append(&preload_packs, pack)
         }
     }
-    extra_sizes := [2]i32 {cast(i32) setting.font_size(&thor.config), WELCOME_TITLE_FONT_SIZE}
-    font.begin_async_load("assets/fonts/fonts.json", "assets/icons/icons.json", font.Preload {
-        families = preload_families[:],
-        icon_packs = preload_packs[:],
-        extra_sizes = extra_sizes[:],
-        user_manifest = USER_FONTS_PATH,
-    })
+    extra_sizes := [2]i32{cast(i32)setting.font_size(&thor.config), WELCOME_TITLE_FONT_SIZE}
+    font.begin_async_load(
+        "assets/fonts/fonts.json",
+        "assets/icons/icons.json",
+        font.Preload{families = preload_families[:], icon_packs = preload_packs[:], extra_sizes = extra_sizes[:], user_manifest = USER_FONTS_PATH},
+    )
     lap(&phase, &phase_zone, "text_begin_async_load", "InitWindow")
 
     when !ODIN_DEBUG {
@@ -763,10 +759,7 @@ init :: proc() -> ^Thor {
         dinput_restore()
     }
     if secs := time.duration_seconds(time.tick_since(phase)); secs > SLOW_WINDOW_WARN_SECS {
-        log.warnf(
-            "Window creation took %.1f s. A device or graphics driver that answers slowly delays it; see docs/troubleshooting.md.",
-            secs,
-        )
+        log.warnf("Window creation took %.1f s. A device or graphics driver that answers slowly delays it; see docs/troubleshooting.md.", secs)
     }
     lap(&phase, &phase_zone, "InitWindow", "lang init")
 
@@ -1001,7 +994,7 @@ run :: proc(thor: ^Thor) {
     for !rl.WindowShouldClose() && !thor.should_close {
         prof.scope("frame")
         frame_start := rl.GetTime()
-        poll_zone := prof.zone_begin("poll")
+        poll_zone   := prof.zone_begin("poll")
         thor_poll_dropped_files(thor)
         thor_poll_watcher(thor)
         thor_poll_outside_files(thor)
@@ -1089,13 +1082,8 @@ REDRAW_INTERVAL :: 1.0
 // signature of a frame that is drawn.
 thor_frame_unchanged :: proc(thor: ^Thor, list: ui.Draw_List) -> bool {
     sig, stable := render.list_signature(list)
-    now := rl.GetTime()
-    unchanged :=
-        stable &&
-        !thor.redraw &&
-        sig == thor.frame_sig &&
-        now - thor.frame_drawn < REDRAW_INTERVAL &&
-        !thor_models_showing(thor)
+    now         := rl.GetTime()
+    unchanged   := stable && !thor.redraw && sig == thor.frame_sig && now - thor.frame_drawn < REDRAW_INTERVAL && !thor_models_showing(thor)
     if !unchanged {
         thor.frame_sig = stable ? sig : 0
         thor.frame_drawn = now

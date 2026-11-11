@@ -161,7 +161,7 @@ offset_texts :: proc(src: string, offsets: []int) -> []string {
 @(private = "file")
 proc_lit_named :: proc(c: ^Checker, src, name: string) -> (odinsyntax.Syntax_Node, bool) {
     head := fmt.tprintf("\n%s :: proc", name)
-    at := strings.index(src, head)
+    at   := strings.index(src, head)
     if at < 0 {
         return {}, false
     }
@@ -176,9 +176,9 @@ proc_lit_named :: proc(c: ^Checker, src, name: string) -> (odinsyntax.Syntax_Nod
 
 @(private = "file")
 Unreachable_Case :: struct {
-    name:  string,
-    never: []string, // the terminators `odin check` reports
-    dead:  []string, // the first statement of each run only the graph finds
+    name:   string,
+    never:  []string, // the terminators `odin check` reports
+    dead:   []string, // the first statement of each run only the graph finds
     defer_: []string,
 }
 
@@ -189,8 +189,8 @@ test_cfg_unreachable :: proc(t: ^testing.T) {
         return
     }
     defer check_end(&env)
-    c := &env.c
-    cases := []Unreachable_Case {
+    c     := &env.c
+    cases := []Unreachable_Case{
         {name = "after_return", never = {"return"}},
         {name = "after_die", never = {"die()"}},
         {name = "after_loop", dead = {"c1()"}},
@@ -270,7 +270,7 @@ test_cfg_defer_runs :: proc(t: ^testing.T) {
         return
     }
     defer check_end(&env)
-    c := &env.c
+    c       := &env.c
     lit, ok := proc_lit_named(c, DEFER_SRC, "run")
     if !testing.expect(t, ok, "no procedure literal") {
         return

@@ -34,7 +34,7 @@ test_parse_hex_color :: proc(t: ^testing.T) {
     testing.expect(t, ok, "8 digits parse")
     testing.expect(t, color == ui.Color{0x7F, 0x80, 0xFF, 0x40}, "8-digit value")
 
-    for value in ([]string {"7f80ff", "#7f80f", "#7f80fg", "#ff_f00", "#+f0f0f"}) {
+    for value in ([]string{"7f80ff", "#7f80f", "#7f80fg", "#ff_f00", "#+f0f0f"}) {
         _, bad_ok := parse_hex(value)
         testing.expectf(t, !bad_ok, "%q must not parse", value)
     }
@@ -48,11 +48,11 @@ test_theme_color_table_covers_every_field :: proc(t: ^testing.T) {
     testing.expect(t, len(COLORS) == 37, "every color role is in the table")
 
     for _, i in COLORS {
-        color_at(&theme, i)^ = ui.Color {u8(i), u8(i), u8(i), u8(i)}
+        color_at(&theme, i)^ = ui.Color{u8(i), u8(i), u8(i), u8(i)}
     }
     for entry, i in COLORS {
         got := color_at(&theme, i)^
-        testing.expectf(t, got == ui.Color {u8(i), u8(i), u8(i), u8(i)}, "%q aliases another field", entry.key)
+        testing.expectf(t, got == ui.Color{u8(i), u8(i), u8(i), u8(i)}, "%q aliases another field", entry.key)
     }
     testing.expect(t, theme.name == "Mjolnir", "no entry lands on the name")
 }
@@ -61,7 +61,7 @@ test_theme_color_table_covers_every_field :: proc(t: ^testing.T) {
 test_theme_assign_and_read_roundtrip :: proc(t: ^testing.T) {
     theme := mjolnir()
     for entry, i in COLORS {
-        want := ui.Color {u8(i + 1), 0x20, 0x30, 0x40}
+        want := ui.Color{u8(i + 1), 0x20, 0x30, 0x40}
         testing.expectf(t, assign_color(&theme, entry.key, want), "%q assigns", entry.key)
         got, ok := color(&theme, entry.key)
         testing.expectf(t, ok && got == want, "%q reads back", entry.key)
@@ -74,13 +74,13 @@ test_theme_assign_and_read_roundtrip :: proc(t: ^testing.T) {
 
 @(test)
 test_color_to_hex :: proc(t: ^testing.T) {
-    opaque := to_hex(ui.Color {0x7F, 0x80, 0xFF, 0xFF})
+    opaque := to_hex(ui.Color{0x7F, 0x80, 0xFF, 0xFF})
     testing.expect(t, opaque == "#7F80FF", "an opaque color drops its alpha")
 
-    translucent := to_hex(ui.Color {0x7F, 0x80, 0xFF, 0x40})
+    translucent := to_hex(ui.Color{0x7F, 0x80, 0xFF, 0x40})
     testing.expect(t, translucent == "#7F80FF40", "a translucent color keeps its alpha")
 
-    for value in ([]string {opaque, translucent}) {
+    for value in ([]string{opaque, translucent}) {
         _, ok := parse_hex(value)
         testing.expectf(t, ok, "%q parses back", value)
     }
@@ -119,14 +119,14 @@ test_theme_load_missing_falls_back :: proc(t: ^testing.T) {
 // its own field.
 @(test)
 test_role_color_covers_every_color :: proc(t: ^testing.T) {
-    th := mjolnir()
+    th   := mjolnir()
     seen := make(map[string]bool, context.temp_allocator)
     for entry, i in COLORS {
         testing.expectf(t, entry.role != "", "%q has no role", entry.key)
         testing.expectf(t, !(entry.role in seen), "role %q names two colors", entry.role)
         seen[entry.role] = true
 
-        want := ui.Color {u8(i), 0x11, 0x22, 0x33}
+        want := ui.Color{u8(i), 0x11, 0x22, 0x33}
         color_at(&th, i)^ = want
         testing.expect_value(t, role_color(th, entry.role), want)
     }
@@ -163,8 +163,8 @@ test_theme_accepts_display_keys :: proc(t: ^testing.T) {
     defer destroy(&loaded)
     testing.expect(t, ok, "the theme loads")
     testing.expect_value(t, loaded.name, "Old \"keys\"")
-    testing.expect_value(t, loaded.keywords_color, ui.Color {0x11, 0x22, 0x33, 0xFF})
-    testing.expect_value(t, loaded.strings_color, ui.Color {0x44, 0x55, 0x66, 0xFF})
+    testing.expect_value(t, loaded.keywords_color, ui.Color{0x11, 0x22, 0x33, 0xFF})
+    testing.expect_value(t, loaded.strings_color, ui.Color{0x44, 0x55, 0x66, 0xFF})
 
     // The quote in the name survives a save.
     testing.expect(t, save(loaded, path))

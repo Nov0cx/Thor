@@ -108,8 +108,7 @@ child_start :: proc(spec: Child_Spec) -> (^Child, bool) {
     if !started {
         close_fds(in_fds[1], out_fds[0], err_fds[0])
         status: c.int
-        for posix.waitpid(pid, &status, {}) < 0 && posix.errno() == .EINTR {
-        }
+        for posix.waitpid(pid, &status, {}) < 0 && posix.errno() == .EINTR {}
         return nil, false
     }
 
@@ -131,7 +130,7 @@ child_write :: proc(child: ^Child, bytes: []u8) -> bool {
         return true
     }
     for sent := 0; sent < len(bytes); {
-        rest := bytes[sent:]
+        rest    := bytes[sent:]
         written := posix.write(child.stdin_w, raw_data(rest), c.size_t(len(rest)))
         if written < 0 {
             if posix.errno() == .EINTR {
@@ -219,8 +218,7 @@ child_destroy :: proc(child: ^Child) {
     // The wait reaps the child; a failure leaves it to init.
     if !child.reaped {
         status: c.int
-        for posix.waitpid(child.pid, &status, {}) < 0 && posix.errno() == .EINTR {
-        }
+        for posix.waitpid(child.pid, &status, {}) < 0 && posix.errno() == .EINTR {}
     }
     free(child)
 }
@@ -287,7 +285,7 @@ fd_limit :: proc() -> int {
 
 // Closes the descriptors in [low, high) except `keep`. Async-signal-safe.
 @(private)
-close_each :: proc "contextless" (low, high, keep: int) {
+close_each :: proc "contextless"(low, high, keep: int) {
     for fd in low ..< high {
         if fd != keep {
             posix.close(posix.FD(fd))

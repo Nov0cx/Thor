@@ -19,9 +19,9 @@ Recorder :: struct {
     panels:    [dynamic]string,
     kinds:     [dynamic]View_Kind,
     labels:    [dynamic]string,
-    depth:     int, // of the last rendered tree
-    count:     int, // nodes in the last rendered tree
-    exec_ids:  u64, // the last id rec_exec_async gave
+    depth:     int,    // of the last rendered tree
+    count:     int,    // nodes in the last rendered tree
+    exec_ids:  u64,    // the last id rec_exec_async gave
     command:   string, // owned; the last command rec_exec_async got
 }
 
@@ -60,7 +60,7 @@ recorder_destroy :: proc(r: ^Recorder) {
 
 @(private = "file")
 rec_exec_async :: proc(host: rawptr, command: string) -> u64 {
-    r := cast(^Recorder) host
+    r := cast(^Recorder)host
     delete(r.command)
     r.command = strings.clone(command)
     r.exec_ids += 1
@@ -69,24 +69,24 @@ rec_exec_async :: proc(host: rawptr, command: string) -> u64 {
 
 @(private = "file")
 rec_print :: proc(host: rawptr, text: string) {
-    r := cast(^Recorder) host
+    r := cast(^Recorder)host
     strings.write_string(&r.output, text)
     strings.write_byte(&r.output, '\n')
 }
 
 @(private = "file")
 rec_workspace :: proc(host: rawptr) -> string {
-    return (cast(^Recorder) host).workspace
+    return (cast(^Recorder)host).workspace
 }
 
 @(private = "file")
 rec_data_root :: proc(host: rawptr) -> string {
-    return (cast(^Recorder) host).data_root
+    return (cast(^Recorder)host).data_root
 }
 
 @(private = "file")
 rec_write :: proc(host: rawptr, path, text: string) {
-    r := cast(^Recorder) host
+    r := cast(^Recorder)host
     append(&r.written, strings.clone(path))
     delete(r.text)
     r.text = strings.clone(text)
@@ -95,18 +95,18 @@ rec_write :: proc(host: rawptr, path, text: string) {
 // Gives back the text of the last write, whatever the path.
 @(private = "file")
 rec_read :: proc(host: rawptr, path: string) -> (string, bool) {
-    return strings.clone((cast(^Recorder) host).text), true
+    return strings.clone((cast(^Recorder)host).text), true
 }
 
 @(private = "file")
 rec_panel :: proc(host: rawptr, id, title, dock: string) {
-    r := cast(^Recorder) host
+    r := cast(^Recorder)host
     append(&r.panels, strings.clone(id))
 }
 
 @(private = "file")
 rec_panel_render :: proc(host: rawptr, id: string, nodes: []View_Node) {
-    r := cast(^Recorder) host
+    r := cast(^Recorder)host
     for node in nodes {
         append(&r.kinds, node.kind)
         append(&r.labels, strings.clone(node.text))
@@ -132,17 +132,20 @@ tree_size :: proc(nodes: []View_Node) -> (depth, count: int) {
 @(private = "file")
 recording_manager :: proc(m: ^Manager, r: ^Recorder) {
     manager_init(m)
-    manager_set_host(m, Host {
-        data         = r,
-        print        = rec_print,
-        workspace    = rec_workspace,
-        data_root    = rec_data_root,
-        read         = rec_read,
-        write        = rec_write,
-        panel        = rec_panel,
-        panel_render = rec_panel_render,
-        exec_async   = rec_exec_async,
-    })
+    manager_set_host(
+        m,
+        Host{
+            data = r,
+            print = rec_print,
+            workspace = rec_workspace,
+            data_root = rec_data_root,
+            read = rec_read,
+            write = rec_write,
+            panel = rec_panel,
+            panel_render = rec_panel_render,
+            exec_async = rec_exec_async,
+        },
+    )
 }
 
 @(private = "file")
@@ -288,8 +291,8 @@ test_sandbox_refuses_lua_bytecode :: proc(t: ^testing.T) {
     testing.expect(t, lua.L_dostring(m.state, strings.clone_to_cstring(dumped, context.temp_allocator)) == 0, "dump runs")
     lua.getglobal(m.state, "blob")
     size: c.size_t
-    ptr := lua.tolstring(m.state, -1, &size)
-    bytes := cast([^]byte) ptr
+    ptr      := lua.tolstring(m.state, -1, &size)
+    bytes    := cast([^]byte)ptr
     bytecode := strings.clone(string(bytes[:size]), context.temp_allocator)
     lua.pop(m.state, 1)
     testing.expect(t, len(bytecode) > 0 && bytecode[0] == 0x1b, "string.dump did not produce a binary chunk")
@@ -300,7 +303,7 @@ test_sandbox_refuses_lua_bytecode :: proc(t: ^testing.T) {
     _ = os.make_directory(dir)
     path, join_err := filepath.join({dir, "mod.lua"}, context.temp_allocator)
     testing.expect(t, join_err == nil, "module path joined")
-    testing.expect(t, os.write_entire_file(path, transmute([]byte) bytecode) == nil, "module written")
+    testing.expect(t, os.write_entire_file(path, transmute([]byte)bytecode) == nil, "module written")
     defer os.remove(path)
 
     script := `local ok = pcall(require, "mod")
@@ -344,8 +347,8 @@ test_sandbox_stops_runaway_plugin :: proc(t: ^testing.T) {
     recording_manager(&m, &r)
     defer manager_destroy(&m)
 
-    start := time.tick_now()
-    ok := manager_load_source(&m, "spin", "plugins/spin", "while true do end", {})
+    start   := time.tick_now()
+    ok      := manager_load_source(&m, "spin", "plugins/spin", "while true do end", {})
     elapsed := time.tick_since(start)
     testing.expect(t, !ok, "runaway plugin reported as failed")
     testing.expectf(t, elapsed >= CALL_BUDGET, "stopped too early: %v", elapsed)
@@ -410,7 +413,7 @@ test_sandbox_stops_runaway_coroutine :: proc(t: ^testing.T) {
     wrapped := `local spin = coroutine.wrap(function() while true do end end)
 local ok, err = pcall(spin)
 thor.print("wrap ok=" .. tostring(ok) .. " err=" .. tostring(err))`
-    start := time.tick_now()
+    start   := time.tick_now()
     testing.expect(t, !manager_load_source(&m, "cowrap", "plugins/cowrap", wrapped, {}), "the budget error was caught")
     elapsed := time.tick_since(start)
     testing.expectf(t, elapsed >= CALL_BUDGET && elapsed < 4 * CALL_BUDGET, "stopped at %v", elapsed)
@@ -437,7 +440,7 @@ test_require_inside_coroutine :: proc(t: ^testing.T) {
     dir := "bin/test/require-coroutine-plugin"
     _ = os.make_directory(dir)
     path, _ := filepath.join({dir, "mod.lua"}, context.temp_allocator)
-    testing.expect(t, os.write_entire_file(path, transmute([]byte) string(`return { value = 42 }`)) == nil, "module written")
+    testing.expect(t, os.write_entire_file(path, transmute([]byte)string(`return { value = 42 }`)) == nil, "module written")
     defer os.remove(path)
 
     script := `local inner = coroutine.wrap(function() return require("mod") end)()
@@ -465,7 +468,7 @@ test_sandbox_budget_passes_through_pcall :: proc(t: ^testing.T) {
 
     script := `local function spin() while true do end end
 while true do pcall(spin) end`
-    start := time.tick_now()
+    start  := time.tick_now()
     testing.expect(t, !manager_load_source(&m, "catch", "plugins/catch", script, {}), "the plugin outran its budget")
     elapsed := time.tick_since(start)
     testing.expectf(t, elapsed >= CALL_BUDGET && elapsed < 4 * CALL_BUDGET, "stopped at %v", elapsed)
@@ -618,7 +621,7 @@ test_sandbox_refuses_a_link :: proc(t: ^testing.T) {
         return
     }
     target, _ := filepath.join({r.workspace, "bin"}, context.temp_allocator)
-    link, _ := filepath.join({dir, "out"}, context.temp_allocator)
+    link, _   := filepath.join({dir, "out"}, context.temp_allocator)
     _ = os.remove(link)
     if os.symlink(target, link) != nil {
         return
@@ -713,16 +716,10 @@ thor.print("end=" .. tostring(root.end_byte) .. " named=" .. tostring(root.named
 thor.print("child=" .. tostring(root:child(0)) .. " count=" .. tostring(root:child_count()))
 thor.print("eq=" .. tostring(root == other) .. " str=" .. tostring(root))
 thor.print("root=" .. tostring(tree:root()))`
-    testing.expect(t, load_chunk(&m, index, "", transmute([]byte) script), "plugin runs")
+    testing.expect(t, load_chunk(&m, index, "", transmute([]byte)script), "plugin runs")
 
     out := printed(&r)
-    for want in ([]string {
-        "type=nil text=[]",
-        "end=nil named=nil",
-        "child=nil",
-        "eq=false str=<node>",
-        "root=nil",
-    }) {
+    for want in ([]string{"type=nil text=[]", "end=nil named=nil", "child=nil", "eq=false str=<node>", "root=nil"}) {
         testing.expectf(t, strings.contains(out, want), "missing %q in %q", want, out)
     }
 }
@@ -754,13 +751,7 @@ thor.print("back=" .. comments("package p\n// one\n", "odin"))`
     testing.expect(t, manager_load_source(&m, "reparse", "plugins/reparse", script, {}), "plugin runs")
 
     out := printed(&r)
-    for want in ([]string {
-        "first=// one",
-        "edited=// one|// two",
-        "shrunk=// two",
-        "other=-- lua",
-        "back=// one",
-    }) {
+    for want in ([]string{"first=// one", "edited=// one|// two", "shrunk=// two", "other=-- lua", "back=// one"}) {
         testing.expectf(t, strings.contains(out, want), "missing %q in %q", want, out)
     }
 }
@@ -802,7 +793,7 @@ test_tree_query_reads_scm_file_once :: proc(t: ^testing.T) {
     dir := "bin/test/query-cache-plugin"
     _ = os.make_directory(dir)
     path, _ := filepath.join({dir, "highlights.scm"}, context.temp_allocator)
-    testing.expect(t, os.write_entire_file(path, transmute([]byte) string("(comment) @c")) == nil, "query file written")
+    testing.expect(t, os.write_entire_file(path, transmute([]byte)string("(comment) @c")) == nil, "query file written")
     defer os.remove(path)
 
     script := `local tree = thor.ts.parse("package p\n\n// note\n", "odin")
@@ -833,12 +824,7 @@ end
 thor.print("matches=" .. tostring(#last))`
     testing.expect(t, manager_load_source(&m, "querier", "plugins/querier", script, {}), "plugin runs")
 
-    testing.expectf(
-        t,
-        len(m.ts_state.queries) <= TS_QUERY_MAX,
-        "the query cache grew to %d entries",
-        len(m.ts_state.queries),
-    )
+    testing.expectf(t, len(m.ts_state.queries) <= TS_QUERY_MAX, "the query cache grew to %d entries", len(m.ts_state.queries))
     out := printed(&r)
     testing.expectf(t, strings.contains(out, "matches=2"), "a query after the cache was dropped: %q", out)
 }
@@ -917,7 +903,7 @@ test_plugin_supplied_highlights_query :: proc(t: ^testing.T) {
     }`
     testing.expect(t, manager_load_source(&m, "odin1", "plugins/odin1", inline_query, {}), "plugin runs")
 
-    src := "package p\n\n// note\nmain :: proc() {}\n"
+    src   := "package p\n\n// note\nmain :: proc() {}\n"
     spans := highlight(&m, "", src, ".odin", context.allocator)
     defer delete(spans)
     testing.expectf(t, len(spans) == 1, "expected only the comment, got %d spans", len(spans))
@@ -928,7 +914,7 @@ test_plugin_supplied_highlights_query :: proc(t: ^testing.T) {
     dir := "bin/test/query-plugin"
     _ = os.make_directory(dir)
     path, _ := filepath.join({dir, "highlights.scm"}, context.temp_allocator)
-    testing.expect(t, os.write_entire_file(path, transmute([]byte) string("(package_declaration) @keyword")) == nil, "query file written")
+    testing.expect(t, os.write_entire_file(path, transmute([]byte)string("(package_declaration) @keyword")) == nil, "query file written")
     defer os.remove(path)
 
     from_file := `thor.register_language {
@@ -1025,7 +1011,7 @@ p:render { n }`
 local n = { kind = "label" }
 for i = 1, 24 do n = { kind = "column", children = { n, n } } end
 p:render { n }`
-    start := time.tick_now()
+    start  := time.tick_now()
     testing.expect(t, manager_load_source(&m, "wide", "plugins/wide", shared, {.Ui}), "plugin runs")
     testing.expect_value(t, r.count, MAX_VIEW_NODES)
     testing.expectf(t, time.tick_since(start) < time.Second, "the parse ran for %v", time.tick_since(start))
@@ -1036,7 +1022,7 @@ p:render { n }`
 // indent folds with its block, and trailing blank lines do not.
 @(test)
 test_lexer_language_folds_by_indent :: proc(t: ^testing.T) {
-    src := "a:\n  b: 1\n\n  c:\n    d: 2\ne: 3\n\n"
+    src   := "a:\n  b: 1\n\n  c:\n    d: 2\ne: 3\n\n"
     folds := indent_fold_ranges(src, context.temp_allocator)
     testing.expect_value(t, len(folds), 2)
     if len(folds) == 2 {
@@ -1073,7 +1059,7 @@ thor.register_language { name = "Plain", extensions = { ".pl0" }, highlight = le
 `
     testing.expect(t, manager_load_source(&m, "fd", "plugins/fd", script, {}), "plugin runs")
 
-    src := "a\nb\nc\nd\n"
+    src   := "a\nb\nc\nd\n"
     folds := fold_ranges(&m, "", src, ".fd", context.temp_allocator)
     testing.expect_value(t, len(folds), 2)
     if len(folds) == 2 {

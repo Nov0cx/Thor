@@ -81,7 +81,7 @@ run_command_line :: proc(full: string, cwd: string, timeout: time.Duration, canc
         return strings.clone("[shell] could not create pipe\n"), -1, false
     }
     defer win32.CloseHandle(read_pipe)
-    inherited := [1]win32.HANDLE{write_pipe}
+    inherited                 := [1]win32.HANDLE{write_pipe}
     attributes, attributes_ok := inherit_only(inherited[:])
     if !attributes_ok {
         win32.CloseHandle(write_pipe)
@@ -89,13 +89,8 @@ run_command_line :: proc(full: string, cwd: string, timeout: time.Duration, canc
     }
     defer attribute_list_free(attributes)
 
-    si := STARTUPINFOEXW {
-        StartupInfo = {
-            cb         = size_of(STARTUPINFOEXW),
-            dwFlags    = win32.STARTF_USESTDHANDLES,
-            hStdOutput = write_pipe,
-            hStdError  = write_pipe,
-        },
+    si := STARTUPINFOEXW{
+        StartupInfo = {cb = size_of(STARTUPINFOEXW), dwFlags = win32.STARTF_USESTDHANDLES, hStdOutput = write_pipe, hStdError = write_pipe},
         lpAttributeList = raw_data(attributes),
     }
     pi: win32.PROCESS_INFORMATION
@@ -151,7 +146,7 @@ run_command_line :: proc(full: string, cwd: string, timeout: time.Duration, canc
         }
     }
 
-    start := time.tick_now()
+    start   := time.tick_now()
     stopped := false
     builder := strings.builder_make()
     buf: [4096]u8
@@ -240,13 +235,11 @@ exit_code :: proc(process: win32.HANDLE) -> (int, bool) {
 // working directory. Its own process group keeps a Ctrl+C in a debug console
 // from reaching it. Returns whether the process started.
 spawn :: proc(exe: string, arg: string, cwd: string) -> bool {
-    si := win32.STARTUPINFOW {
-        cb = size_of(win32.STARTUPINFOW),
-    }
+    si := win32.STARTUPINFOW{cb = size_of(win32.STARTUPINFOW)}
     pi: win32.PROCESS_INFORMATION
 
     // Both are quoted: a path with spaces would otherwise split into arguments.
-    full := arg != "" ? fmt.tprintf("\"%s\" \"%s\"", exe, arg) : fmt.tprintf("\"%s\"", exe)
+    full    := arg != "" ? fmt.tprintf("\"%s\" \"%s\"", exe, arg) : fmt.tprintf("\"%s\"", exe)
     // CreateProcessW writes into the command line buffer, so it must be writable.
     cmdline := win32.utf8_to_wstring(full, context.temp_allocator)
     wdir: win32.wstring

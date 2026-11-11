@@ -27,8 +27,28 @@ Key :: enum u8 {
     Page_Down,
     Insert,
     Delete,
-    F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
-    Pad_0, Pad_1, Pad_2, Pad_3, Pad_4, Pad_5, Pad_6, Pad_7, Pad_8, Pad_9,
+    F1,
+    F2,
+    F3,
+    F4,
+    F5,
+    F6,
+    F7,
+    F8,
+    F9,
+    F10,
+    F11,
+    F12,
+    Pad_0,
+    Pad_1,
+    Pad_2,
+    Pad_3,
+    Pad_4,
+    Pad_5,
+    Pad_6,
+    Pad_7,
+    Pad_8,
+    Pad_9,
     Pad_Decimal,
     Pad_Divide,
     Pad_Multiply,
@@ -44,7 +64,7 @@ Mod :: enum u8 {
     Ctrl,
 }
 
-Mods :: bit_set[Mod;u8]
+Mods :: bit_set[Mod; u8]
 
 Mouse_Button :: enum u8 {
     Left,
@@ -81,12 +101,7 @@ mod_param :: proc(mods: Mods) -> int {
 
 // The bytes `key` sends, or ok=false when this key sends nothing — a keypad
 // digit outside application mode, which arrives as typed text instead.
-encode_key :: proc(
-    t: ^Term,
-    key: Key,
-    mods: Mods = {},
-    allocator := context.temp_allocator,
-) -> (string, bool) {
+encode_key :: proc(t: ^Term, key: Key, mods: Mods = {}, allocator := context.temp_allocator) -> (string, bool) {
     m := mod_param(mods)
 
     switch key {
@@ -174,9 +189,22 @@ encode_key :: proc(
         }
         return alt_prefixed(t.newline_mode ? "\r\n" : "\r", mods, allocator), true
 
-    case .Pad_0, .Pad_1, .Pad_2, .Pad_3, .Pad_4, .Pad_5, .Pad_6, .Pad_7, .Pad_8,
-         .Pad_9, .Pad_Decimal, .Pad_Divide, .Pad_Multiply, .Pad_Subtract,
-         .Pad_Add, .Pad_Equal:
+    case .Pad_0,
+        .Pad_1,
+        .Pad_2,
+        .Pad_3,
+        .Pad_4,
+        .Pad_5,
+        .Pad_6,
+        .Pad_7,
+        .Pad_8,
+        .Pad_9,
+        .Pad_Decimal,
+        .Pad_Divide,
+        .Pad_Multiply,
+        .Pad_Subtract,
+        .Pad_Add,
+        .Pad_Equal:
         if !t.app_keypad {
             return "", false
         }
@@ -259,12 +287,7 @@ keypad_key :: proc(key: Key, allocator: runtime.Allocator) -> string {
 
 // One typed character. Ctrl folds a letter into its control code, and Alt puts
 // an escape in front, which is how a terminal spells a meta key.
-encode_rune :: proc(
-    t: ^Term,
-    r: rune,
-    mods: Mods = {},
-    allocator := context.temp_allocator,
-) -> (string, bool) {
+encode_rune :: proc(t: ^Term, r: rune, mods: Mods = {}, allocator := context.temp_allocator) -> (string, bool) {
     if .Ctrl in mods {
         if code, ok := control_code(r); ok {
             return alt_prefixed(string([]u8{code}), mods, allocator), true
@@ -343,14 +366,10 @@ encode_paste :: proc(t: ^Term, text: string, allocator := context.temp_allocator
 
 // A mouse report, or ok=false when the shell asked for none of this kind.
 // `col` and `row` are 0-based cells of the screen, not of the scrollback.
-encode_mouse :: proc(
-    t: ^Term,
-    button: Mouse_Button,
-    action: Mouse_Action,
-    col, row: int,
-    mods: Mods = {},
-    allocator := context.temp_allocator,
-) -> (string, bool) {
+encode_mouse :: proc(t: ^Term, button: Mouse_Button, action: Mouse_Action, col, row: int, mods: Mods = {}, allocator := context.temp_allocator) -> (
+    string,
+    bool,
+) {
     if t.mouse_track == .Off {
         return "", false
     }
@@ -418,8 +437,7 @@ encode_mouse :: proc(
 
 @(private = "file")
 is_wheel :: proc(button: Mouse_Button) -> bool {
-    return button == .Wheel_Up || button == .Wheel_Down || button == .Wheel_Left ||
-        button == .Wheel_Right
+    return button == .Wheel_Up || button == .Wheel_Down || button == .Wheel_Left || button == .Wheel_Right
 }
 
 @(private = "file")

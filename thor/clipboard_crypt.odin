@@ -32,13 +32,13 @@ clipboard_seal :: proc(key: ^Clipboard_Key, plain: []byte, allocator := context.
     out := make([]byte, CLIPBOARD_CRYPT_HEADER + len(plain), allocator)
     copy(out, CLIPBOARD_CRYPT_MAGIC)
     nonce := out[len(CLIPBOARD_CRYPT_MAGIC):][:chacha20poly1305.XIV_SIZE]
-    tag := out[len(CLIPBOARD_CRYPT_MAGIC) + chacha20poly1305.XIV_SIZE:][:chacha20poly1305.TAG_SIZE]
+    tag   := out[len(CLIPBOARD_CRYPT_MAGIC) + chacha20poly1305.XIV_SIZE:][:chacha20poly1305.TAG_SIZE]
     crypto.rand_bytes(nonce)
 
     ctx: chacha20poly1305.Context
     chacha20poly1305.init_xchacha(&ctx, key[:], CLIPBOARD_CHACHA_IMPL)
     defer chacha20poly1305.reset(&ctx)
-    chacha20poly1305.seal(&ctx, out[CLIPBOARD_CRYPT_HEADER:], tag, nonce, transmute([]byte) string(CLIPBOARD_CRYPT_MAGIC), plain)
+    chacha20poly1305.seal(&ctx, out[CLIPBOARD_CRYPT_HEADER:], tag, nonce, transmute([]byte)string(CLIPBOARD_CRYPT_MAGIC), plain)
     return out
 }
 
@@ -48,14 +48,14 @@ clipboard_open :: proc(key: ^Clipboard_Key, sealed: []byte, allocator := context
         return nil, false
     }
     nonce := sealed[len(CLIPBOARD_CRYPT_MAGIC):][:chacha20poly1305.XIV_SIZE]
-    tag := sealed[len(CLIPBOARD_CRYPT_MAGIC) + chacha20poly1305.XIV_SIZE:][:chacha20poly1305.TAG_SIZE]
-    body := sealed[CLIPBOARD_CRYPT_HEADER:]
+    tag   := sealed[len(CLIPBOARD_CRYPT_MAGIC) + chacha20poly1305.XIV_SIZE:][:chacha20poly1305.TAG_SIZE]
+    body  := sealed[CLIPBOARD_CRYPT_HEADER:]
     plain = make([]byte, len(body), allocator)
 
     ctx: chacha20poly1305.Context
     chacha20poly1305.init_xchacha(&ctx, key[:], CLIPBOARD_CHACHA_IMPL)
     defer chacha20poly1305.reset(&ctx)
-    if !chacha20poly1305.open(&ctx, plain, nonce, transmute([]byte) string(CLIPBOARD_CRYPT_MAGIC), body, tag) {
+    if !chacha20poly1305.open(&ctx, plain, nonce, transmute([]byte)string(CLIPBOARD_CRYPT_MAGIC), body, tag) {
         mem.zero_explicit(raw_data(plain), len(plain))
         delete(plain, allocator)
         return nil, false

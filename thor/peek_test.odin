@@ -26,7 +26,9 @@ peek_test_destroy :: proc(thor: ^Thor) {
         thor_close_file(thor, 0)
     }
     thor_drain_io(thor)
-    for &editor in thor.editors {editview.editor_destroy(&editor)}
+    for &editor in thor.editors {
+        editview.editor_destroy(&editor)
+    }
     thor_peek_destroy(thor)
     thor_clear_jump_list(thor)
     delete(thor.jump_back)
@@ -64,14 +66,14 @@ test_peek_takes_its_result :: proc(t: ^testing.T) {
     a := strings.concatenate({dir, "/a.odin"}, context.temp_allocator)
     b := strings.concatenate({dir, "/b.odin"}, context.temp_allocator)
     if os.write_entire_file(a, transmute([]byte)string("package p\nx := f()\n")) != nil ||
-       os.write_entire_file(b, transmute([]byte)string("package p\nf :: proc() -> int { return 1 }\n")) != nil {
+        os.write_entire_file(b, transmute([]byte)string("package p\nf :: proc() -> int { return 1 }\n")) != nil {
         testing.fail_now(t, "could not write the fixture files")
     }
 
     thor := peek_test_thor()
     defer peek_test_destroy(thor)
     target := peek_test_open(t, thor, b)
-    file := peek_test_open(t, thor, a)
+    file   := peek_test_open(t, thor, a)
     textedit.set_single_cursor(&file.state, 15)
 
     thor.peek.request_id = 42

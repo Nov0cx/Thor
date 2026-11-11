@@ -18,11 +18,11 @@ import ui "../vendor/loom/loom"
 // The Appearance row that opens the window.
 THEME_EDITOR_SETTING :: "theme_editor"
 
-THEME_MODE_LABELS := [?]string {"Dark", "Light"}
+THEME_MODE_LABELS := [?]string{"Dark", "Light"}
 
 // The answers to the unsaved-changes question.
 @(private = "file")
-THEME_UNSAVED_CHOICES := [?]string {"Save", "Discard", "Cancel"}
+THEME_UNSAVED_CHOICES := [?]string{"Save", "Discard", "Cancel"}
 
 // What runs once the unsaved-changes question is answered.
 Theme_Pending :: enum {
@@ -48,7 +48,7 @@ thor_theme_configured_name :: proc(thor: ^Thor) -> string {
 
 // Makes the configured theme and the palette on screen the clean state of the draft.
 thor_theme_editor_rebaseline :: proc(thor: ^Thor) {
-    e := &thor.theme_editor
+    e    := &thor.theme_editor
     file := strings.clone(thor_theme_configured_name(thor))
     delete(e.file)
     e.file = file
@@ -79,7 +79,7 @@ thor_theme_editor_sync :: proc(thor: ^Thor) {
 
 // Shows a message in the window footer and in the status bar.
 thor_theme_note :: proc(thor: ^Thor, message: string, is_error := false) {
-    e := &thor.theme_editor
+    e    := &thor.theme_editor
     text := strings.clone(message)
     delete(e.note)
     e.note = text
@@ -134,7 +134,7 @@ thor_theme_resolve_then :: proc(thor: ^Thor, next: Theme_Pending) {
 
 @(private = "file")
 thor_theme_unsaved_answer :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     switch choice {
     case "Save":
         // A generated draft asks for a name first; its prompt runs the pending step.
@@ -193,7 +193,7 @@ thor_theme_save :: proc(thor: ^Thor) -> bool {
         thor_theme_save_as_prompt(thor, thor.theme.name)
         return false
     }
-    path := thor_user_theme_path(e.file)
+    path    := thor_user_theme_path(e.file)
     shadows := !os.exists(path) && thor_theme_is_shipped(e.file)
     if !theme.save(thor.theme, path) {
         thor_theme_note(thor, "Could not write the theme file", is_error = true)
@@ -217,8 +217,8 @@ thor_theme_save_as_prompt :: proc(thor: ^Thor, initial: string) {
 // Name prompt accepted: writes the draft as a new theme and makes it the
 // configured one.
 thor_theme_save_as_confirm :: proc(data: rawptr, name: string) {
-    thor := cast(^Thor) data
-    e := &thor.theme_editor
+    thor    := cast(^Thor)data
+    e       := &thor.theme_editor
     trimmed := strings.trim_space(name)
     if trimmed == "" {
         return
@@ -277,7 +277,7 @@ thor_theme_delete :: proc(thor: ^Thor) {
 
 @(private = "file")
 thor_theme_delete_confirm :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     path := thor_user_theme_path(thor.theme_editor.file)
     if err := os.remove(path); err != nil {
         thor_theme_note(thor, "Could not delete the theme file", is_error = true)
@@ -302,7 +302,7 @@ thor_theme_reset_shipped :: proc(thor: ^Thor) {
 
 @(private = "file")
 thor_theme_reset_confirm :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if err := os.remove(thor_user_theme_path(thor.theme_editor.file)); err != nil {
         thor_theme_note(thor, "Could not remove the theme copy", is_error = true)
         return
@@ -354,28 +354,25 @@ thor_theme_edit_color :: proc(thor: ^Thor, index: int) {
     e.edit_index = index
     e.edit_original = theme.color_at(&thor.theme, index)^
     entry := theme.COLORS[index]
-    thor_color_picker_open(
-        thor, entry.key, entry.role, e.edit_original,
-        thor_theme_color_preview, thor_theme_color_commit, thor_theme_color_cancel, thor,
-    )
+    thor_color_picker_open(thor, entry.key, entry.role, e.edit_original, thor_theme_color_preview, thor_theme_color_commit, thor_theme_color_cancel, thor)
 }
 
 @(private = "file")
 thor_theme_color_preview :: proc(data: rawptr, _: string, color: ui.Color) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_theme_set_color(thor, thor.theme_editor.edit_index, color)
 }
 
 @(private = "file")
 thor_theme_color_commit :: proc(data: rawptr, _: string, color: ui.Color) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_theme_set_color(thor, thor.theme_editor.edit_index, color)
     thor_apply_theme(thor)
 }
 
 @(private = "file")
 thor_theme_color_cancel :: proc(data: rawptr, _: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_theme_set_color(thor, thor.theme_editor.edit_index, thor.theme_editor.edit_original)
     thor_apply_theme(thor)
 }
@@ -404,7 +401,7 @@ thor_theme_paste_color :: proc(thor: ^Thor, index: int) {
     if index < 0 || index >= len(theme.COLORS) {
         return
     }
-    text := strings.trim_space(string(rl.GetClipboardText()))
+    text      := strings.trim_space(string(rl.GetClipboardText()))
     color, ok := thor_theme_parse_color(text)
     if !ok {
         thor_theme_note(thor, "The clipboard holds no #RRGGBB or #RRGGBBAA color", is_error = true)
@@ -453,14 +450,20 @@ thor_theme_edit_seed :: proc(thor: ^Thor, accent: bool) {
     e.seed_accent = accent
     e.seed_original = accent ? thor.theme_seed_accent : thor.theme_seed_background
     thor_color_picker_open(
-        thor, accent ? "Accent Seed" : "Background Seed", "seed", e.seed_original,
-        thor_theme_seed_preview, thor_theme_seed_preview, thor_theme_seed_cancel, thor,
+        thor,
+        accent ? "Accent Seed" : "Background Seed",
+        "seed",
+        e.seed_original,
+        thor_theme_seed_preview,
+        thor_theme_seed_preview,
+        thor_theme_seed_cancel,
+        thor,
     )
 }
 
 @(private = "file")
 thor_theme_seed_preview :: proc(data: rawptr, _: string, color: ui.Color) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if thor.theme_editor.seed_accent {
         thor.theme_seed_accent = color
     } else {
@@ -471,7 +474,7 @@ thor_theme_seed_preview :: proc(data: rawptr, _: string, color: ui.Color) {
 
 @(private = "file")
 thor_theme_seed_cancel :: proc(data: rawptr, id: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_theme_seed_preview(thor, id, thor.theme_editor.seed_original)
 }
 
@@ -497,11 +500,11 @@ thor_theme_slug :: proc(name: string, allocator := context.temp_allocator) -> st
 }
 
 thor_cmd_theme_editor :: proc(data: rawptr) {
-    thor_open_theme_editor(cast(^Thor) data)
+    thor_open_theme_editor(cast(^Thor)data)
 }
 
 thor_cmd_theme_save :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_open_theme_editor(thor)
     thor.theme_editor.pending = .None
     if thor_theme_dirty(thor) {
@@ -512,39 +515,39 @@ thor_cmd_theme_save :: proc(data: rawptr) {
 }
 
 thor_cmd_theme_save_as :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_open_theme_editor(thor)
     thor.theme_editor.pending = .None
     thor_theme_save_as_prompt(thor, thor.theme.name)
 }
 
 thor_cmd_theme_duplicate :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_open_theme_editor(thor)
     thor.theme_editor.pending = .None
     thor_theme_save_as_prompt(thor, strings.concatenate({thor.theme.name, " Copy"}, context.temp_allocator))
 }
 
 thor_cmd_theme_revert :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_open_theme_editor(thor)
     thor_theme_revert(thor)
 }
 
 thor_cmd_theme_delete :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_open_theme_editor(thor)
     thor_theme_delete(thor)
 }
 
 thor_cmd_theme_reset :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_open_theme_editor(thor)
     thor_theme_reset_shipped(thor)
 }
 
 thor_cmd_theme_open_file :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if thor.theme_editor_open {
         thor_theme_resolve_then(thor, .Open_File)
     } else {
@@ -553,43 +556,43 @@ thor_cmd_theme_open_file :: proc(data: rawptr) {
 }
 
 thor_cmd_theme_switch :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_open_theme_editor(thor)
     thor_theme_resolve_then(thor, .Switch)
 }
 
 thor_cmd_theme_generate :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_open_theme_editor(thor)
     thor.theme_editor.tab = .Generate
 }
 
 thor_cmd_theme_use_generated :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_open_theme_editor(thor)
     thor_theme_use_generated(thor)
 }
 
 thor_cmd_theme_edit_color :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_open_theme_editor(thor)
     thor_theme_edit_color(thor, thor.theme_editor.selected)
 }
 
 thor_cmd_theme_reset_color :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_open_theme_editor(thor)
     thor_theme_reset_color(thor, thor.theme_editor.selected)
 }
 
 thor_cmd_theme_copy_color :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_open_theme_editor(thor)
     thor_theme_copy_color(thor, thor.theme_editor.selected)
 }
 
 thor_cmd_theme_paste_color :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_open_theme_editor(thor)
     thor_theme_paste_color(thor, thor.theme_editor.selected)
 }

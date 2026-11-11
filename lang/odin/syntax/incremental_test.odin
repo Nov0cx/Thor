@@ -102,7 +102,7 @@ test_reparse_paths :: proc(t: ^testing.T) {
         want:     Reparse_Kind,
     }
     BODY :: "package p\n\nf :: proc() {\n\tabc := \"ab\" // note\n\tswitch abc {\n\tcase \"x\":\n\t}\n\t#partial switch x {}\n}\n"
-    cases := []Case {
+    cases := []Case{
         {"same text", BODY, BODY, .Unchanged},
         {"inside an identifier", BODY, swap(BODY, "abc :=", "aXbc :="), .Token},
         {"end of an identifier", BODY, swap(BODY, "abc :=", "abcd :="), .Token},
@@ -142,14 +142,14 @@ test_reparse_typing_matches_cold :: proc(t: ^testing.T) {
         return
     }
     defer delete(src)
-    head := "find_next :: proc(p: ^Parser, from: int) {\n"
+    head       := "find_next :: proc(p: ^Parser, from: int) {\n"
     body_start := strings.index(src, head)
     if !testing.expect(t, body_start >= 0, "find_next not found") {
         return
     }
     body_start += len(head)
     body_end := body_start + strings.index(src[body_start:], "\n}\n") + 1
-    body := src[body_start:body_end]
+    body     := src[body_start:body_end]
 
     cur, err := parse(strings.concatenate({src[:body_start], src[body_end:]}, context.temp_allocator))
     if !testing.expect_value(t, err, nil) {
@@ -193,7 +193,7 @@ test_reparse_random_edits_match_cold :: proc(t: ^testing.T) {
     state := rand.create(REPARSE_SEED)
     context.random_generator = rand.default_random_generator(&state)
     alphabet := "\"'`/*\\\n\t {}()[].:;,#+-=xyz019"
-    paths := []string{"lang/odin/syntax/parser.odin", "lang/odin/syntax/parse_expr.odin", "lang/odin/syntax/lexer.odin"}
+    paths    := []string{"lang/odin/syntax/parser.odin", "lang/odin/syntax/parse_expr.odin", "lang/odin/syntax/lexer.odin"}
     counts: [Reparse_Kind]int
     for path in paths {
         src, ok := read_lf(path)
@@ -220,12 +220,12 @@ test_reparse_random_edits_match_cold :: proc(t: ^testing.T) {
                 inject_at(&buf, at, alphabet[rand.int_max(len(alphabet))])
             case 3:
                 if at < len(buf) {
-                    n := min(1 + rand.int_max(24), len(buf) - at)
+                    n     := min(1 + rand.int_max(24), len(buf) - at)
                     chunk := slice.clone(buf[at:][:n], context.temp_allocator)
                     inject_at(&buf, rand.int_max(len(buf) + 1), ..chunk)
                 }
             }
-            text := string(buf[:])
+            text            := string(buf[:])
             next, how, rerr := reparse(&cur, text)
             if !testing.expect_value(t, rerr, nil) {
                 return
@@ -245,7 +245,7 @@ test_reparse_random_edits_match_cold :: proc(t: ^testing.T) {
 // The base chain stops at MAX_GENERATIONS: the next edit parses the whole text.
 @(test)
 test_reparse_generation_bound :: proc(t: ^testing.T) {
-    text := "package p\nf :: proc() {\n\tx := 1\n}\n"
+    text     := "package p\nf :: proc() {\n\tx := 1\n}\n"
     cur, err := parse(text)
     if !testing.expect_value(t, err, nil) {
         return
@@ -291,10 +291,10 @@ test_reparse_speed :: proc(t: ^testing.T) {
     typed := "x := foo(bar, 1) // and a comment\n"
     times := make([dynamic]time.Duration, 0, len(typed), context.temp_allocator)
     for n in 1 ..= len(typed) {
-        text := strings.concatenate({src[:anchor + 1], typed[:n], src[anchor + 1:]}, context.temp_allocator)
-        start := time.tick_now()
+        text          := strings.concatenate({src[:anchor + 1], typed[:n], src[anchor + 1:]}, context.temp_allocator)
+        start         := time.tick_now()
         next, _, rerr := reparse(&cur, text)
-        elapsed := time.tick_since(start)
+        elapsed       := time.tick_since(start)
         if !testing.expect_value(t, rerr, nil) {
             return
         }
@@ -304,7 +304,9 @@ test_reparse_speed :: proc(t: ^testing.T) {
     slice.sort(times[:])
     log.infof(
         "editor.odin: %d keystrokes, median %.3f ms, p95 %.3f ms",
-        len(times), time.duration_milliseconds(times[len(times) / 2]), time.duration_milliseconds(times[len(times) * 95 / 100]),
+        len(times),
+        time.duration_milliseconds(times[len(times) / 2]),
+        time.duration_milliseconds(times[len(times) * 95 / 100]),
     )
 }
 
@@ -314,7 +316,7 @@ test_text_diff :: proc(t: ^testing.T) {
         old, new: string,
         want:     Text_Edit_Span,
     }
-    cases := []Case {
+    cases := []Case{
         {"abc", "abc", {3, 3, 3}},
         {"abc", "abXc", {2, 2, 3}},
         {"abc", "ac", {1, 2, 1}},
@@ -332,17 +334,17 @@ test_text_diff :: proc(t: ^testing.T) {
 
 @(test)
 test_splice_shares_siblings :: proc(t: ^testing.T) {
-    src := "package p\nf :: proc() {\n\tx := 1\n}\ng :: 2\n"
+    src      := "package p\nf :: proc() {\n\tx := 1\n}\ng :: 2\n"
     old, err := parse(src)
     if !testing.expect_value(t, err, nil) {
         return
     }
     // Lengthen the `1` token to `12` along the spine Root -> ... -> Literal.
-    path := make([dynamic]Spine_Step, context.temp_allocator)
-    node := old.tree.root
+    path   := make([dynamic]Spine_Step, context.temp_allocator)
+    node   := old.tree.root
     offset := u32(strings.index(src, "1\n}"))
-    pos := u32(0)
-    found := false
+    pos    := u32(0)
+    found  := false
     for !found {
         for child, i in green_children(node) {
             n := element_len(child)
@@ -358,7 +360,7 @@ test_splice_shares_siblings :: proc(t: ^testing.T) {
             pos += n
         }
     }
-    new_src := "package p\nf :: proc() {\n\tx := 12\n}\ng :: 2\n"
+    new_src    := "package p\nf :: proc() {\n\tx := 12\n}\ng :: 2\n"
     tree, terr := tree_create_on(old.tree)
     if !testing.expect_value(t, terr, nil) {
         parse_destroy(&old)
@@ -371,8 +373,8 @@ test_splice_shares_siblings :: proc(t: ^testing.T) {
     b: Green_Builder
     builder_init(&b, tree)
     defer builder_destroy(&b)
-    last := path[len(path) - 1]
-    tok, _ := element_token(green_children(last.node)[last.index])
+    last       := path[len(path) - 1]
+    tok, _     := element_token(green_children(last.node)[last.index])
     root, serr := builder_splice(&b, path[:], token_element(tok.kind, tok.flags, 2))
     if !testing.expect_value(t, serr, nil) {
         return
@@ -383,7 +385,6 @@ test_splice_shares_siblings :: proc(t: ^testing.T) {
     // The declaration after the edited one is the old node itself.
     old_kids, new_kids := green_children(old.tree.root), green_children(root)
     g_old, old_is_node := element_node(old_kids[len(old_kids) - 3])
-    g_new, _ := element_node(new_kids[len(new_kids) - 3])
+    g_new, _           := element_node(new_kids[len(new_kids) - 3])
     testing.expect(t, old_is_node && g_old.kind == .Value_Decl && g_new == g_old)
 }
-

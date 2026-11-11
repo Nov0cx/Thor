@@ -21,7 +21,7 @@ lexer_init :: proc(l: ^Lexer, src: string, offset := 0, state := Lex_State{}) {
     l.insert_semi = state.insert_semi
 }
 
-lexer_state :: #force_inline proc "contextless" (l: ^Lexer) -> Lex_State {
+lexer_state :: #force_inline proc "contextless"(l: ^Lexer) -> Lex_State {
     return {insert_semi = l.insert_semi}
 }
 
@@ -56,7 +56,7 @@ lex_rest :: proc(l: ^Lexer, allocator := context.allocator) -> []Token {
 // Returns the next token, trivia included. Never fails.
 lex_next :: proc(l: ^Lexer) -> Token {
     start := l.pos
-    tok := Token{offset = u32(start)}
+    tok   := Token{offset = u32(start)}
     if start >= len(l.src) {
         tok.kind = .EOF
         if l.insert_semi {
@@ -163,20 +163,34 @@ lex_next :: proc(l: ^Lexer) -> Token {
                 kind = .Range_Full
             }
         }
-    case '@': kind = .At
-    case '$': kind = .Dollar
-    case '?': kind = .Question
-    case '^': kind = .Pointer
-    case ';': kind = .Semicolon
-    case ',': kind = .Comma
-    case ':': kind = .Colon
-    case '(': kind = .Open_Paren
-    case ')': kind = .Close_Paren
-    case '[': kind = .Open_Bracket
-    case ']': kind = .Close_Bracket
-    case '{': kind = .Open_Brace
-    case '}': kind = .Close_Brace
-    case '#': kind = .Hash
+    case '@':
+        kind = .At
+    case '$':
+        kind = .Dollar
+    case '?':
+        kind = .Question
+    case '^':
+        kind = .Pointer
+    case ';':
+        kind = .Semicolon
+    case ',':
+        kind = .Comma
+    case ':':
+        kind = .Colon
+    case '(':
+        kind = .Open_Paren
+    case ')':
+        kind = .Close_Paren
+    case '[':
+        kind = .Open_Bracket
+    case ']':
+        kind = .Close_Bracket
+    case '{':
+        kind = .Open_Brace
+    case '}':
+        kind = .Close_Brace
+    case '#':
+        kind = .Hash
     case '%':
         kind = .Mod
         switch cur(l) {
@@ -273,7 +287,7 @@ lex_next :: proc(l: ^Lexer) -> Token {
 
 // Sets kind and length; a non-trivia token decides whether the next newline is a ';'.
 @(private)
-finish :: #force_inline proc "contextless" (l: ^Lexer, tok: ^Token, kind: Token_Kind, trivia := false) -> Token {
+finish :: #force_inline proc "contextless"(l: ^Lexer, tok: ^Token, kind: Token_Kind, trivia := false) -> Token {
     tok.kind = kind
     tok.len = u32(l.pos) - tok.offset
     if !trivia {
@@ -283,17 +297,17 @@ finish :: #force_inline proc "contextless" (l: ^Lexer, tok: ^Token, kind: Token_
 }
 
 @(private)
-cur :: #force_inline proc "contextless" (l: ^Lexer) -> byte {
+cur :: #force_inline proc "contextless"(l: ^Lexer) -> byte {
     return l.pos < len(l.src) ? l.src[l.pos] : 0
 }
 
 @(private)
-peek :: #force_inline proc "contextless" (l: ^Lexer, n: int) -> byte {
+peek :: #force_inline proc "contextless"(l: ^Lexer, n: int) -> byte {
     return l.pos + n < len(l.src) ? l.src[l.pos + n] : 0
 }
 
 @(private)
-accept :: #force_inline proc "contextless" (l: ^Lexer, b: byte) -> bool {
+accept :: #force_inline proc "contextless"(l: ^Lexer, b: byte) -> bool {
     if l.pos < len(l.src) && l.src[l.pos] == b {
         l.pos += 1
         return true
@@ -302,17 +316,20 @@ accept :: #force_inline proc "contextless" (l: ^Lexer, b: byte) -> bool {
 }
 
 @(private)
-digit_val :: #force_inline proc "contextless" (b: byte) -> int {
+digit_val :: #force_inline proc "contextless"(b: byte) -> int {
     switch b {
-    case '0' ..= '9': return int(b - '0')
-    case 'A' ..= 'F': return int(b - 'A' + 10)
-    case 'a' ..= 'f': return int(b - 'a' + 10)
+    case '0' ..= '9':
+        return int(b - '0')
+    case 'A' ..= 'F':
+        return int(b - 'A' + 10)
+    case 'a' ..= 'f':
+        return int(b - 'a' + 10)
     }
     return 16
 }
 
 @(private)
-scan_line_comment :: proc "contextless" (l: ^Lexer) {
+scan_line_comment :: proc "contextless"(l: ^Lexer) {
     for l.pos < len(l.src) && l.src[l.pos] != '\n' {
         l.pos += 1
     }
@@ -320,7 +337,7 @@ scan_line_comment :: proc "contextless" (l: ^Lexer) {
 
 // Scans a nested block comment; false when it runs to the end of the source.
 @(private)
-scan_block_comment :: proc "contextless" (l: ^Lexer) -> bool {
+scan_block_comment :: proc "contextless"(l: ^Lexer) -> bool {
     l.pos += 2
     depth := 1
     for l.pos < len(l.src) {
@@ -343,7 +360,7 @@ scan_block_comment :: proc "contextless" (l: ^Lexer) -> bool {
 
 // Scans a file tag to the end of the line or the start of a comment.
 @(private)
-scan_file_tag :: proc "contextless" (l: ^Lexer) {
+scan_file_tag :: proc "contextless"(l: ^Lexer) {
     l.pos += 2
     for l.pos < len(l.src) {
         b := l.src[l.pos]
@@ -375,7 +392,7 @@ scan_identifier :: proc(l: ^Lexer) {
 
 // Scans a string after its opening '"': one line, or `"""` to the next `"""` over lines.
 @(private)
-scan_string :: proc "contextless" (l: ^Lexer, flags: ^Token_Flags) {
+scan_string :: proc "contextless"(l: ^Lexer, flags: ^Token_Flags) {
     if peek(l, 0) == '"' && peek(l, 1) == '"' {
         l.pos += 2
         for {
@@ -412,7 +429,7 @@ scan_string :: proc "contextless" (l: ^Lexer, flags: ^Token_Flags) {
 
 // Scans a raw string after its opening '`', or after "```" to the next "```".
 @(private)
-scan_raw_string :: proc "contextless" (l: ^Lexer, flags: ^Token_Flags) {
+scan_raw_string :: proc "contextless"(l: ^Lexer, flags: ^Token_Flags) {
     triple := peek(l, 0) == '`' && peek(l, 1) == '`'
     if triple {
         l.pos += 2
@@ -435,7 +452,7 @@ scan_raw_string :: proc "contextless" (l: ^Lexer, flags: ^Token_Flags) {
 }
 
 @(private)
-scan_rune :: proc "contextless" (l: ^Lexer, flags: ^Token_Flags) {
+scan_rune :: proc "contextless"(l: ^Lexer, flags: ^Token_Flags) {
     n := 0
     for {
         if l.pos >= len(l.src) || l.src[l.pos] == '\n' {
@@ -467,7 +484,7 @@ scan_rune :: proc "contextless" (l: ^Lexer, flags: ^Token_Flags) {
 
 // Scans the escape after a backslash; false when it is not valid.
 @(private)
-scan_escape :: proc "contextless" (l: ^Lexer) -> bool {
+scan_escape :: proc "contextless"(l: ^Lexer) -> bool {
     n: int
     base, limit: u32
     switch cur(l) {
@@ -502,13 +519,13 @@ scan_escape :: proc "contextless" (l: ^Lexer) -> bool {
 
 // Scans a number literal; `seen_point` when a leading '.' is already consumed.
 @(private)
-scan_number :: proc "contextless" (l: ^Lexer, flags: ^Token_Flags, seen_point: bool) -> Token_Kind {
-    mantissa :: proc "contextless" (l: ^Lexer, base: int) {
+scan_number :: proc "contextless"(l: ^Lexer, flags: ^Token_Flags, seen_point: bool) -> Token_Kind {
+    mantissa :: proc "contextless"(l: ^Lexer, base: int) {
         for digit_val(cur(l)) < base || cur(l) == '_' {
             l.pos += 1
         }
     }
-    exponent :: proc "contextless" (l: ^Lexer, kind: ^Token_Kind, flags: ^Token_Flags) {
+    exponent :: proc "contextless"(l: ^Lexer, kind: ^Token_Kind, flags: ^Token_Flags) {
         if c := cur(l); c == 'e' || c == 'E' {
             kind^ = .Float
             l.pos += 1
@@ -528,7 +545,7 @@ scan_number :: proc "contextless" (l: ^Lexer, flags: ^Token_Flags, seen_point: b
         }
     }
     // Scans a fraction; true when the '.' starts a range instead.
-    fraction :: proc "contextless" (l: ^Lexer, kind: ^Token_Kind) -> bool {
+    fraction :: proc "contextless"(l: ^Lexer, kind: ^Token_Kind) -> bool {
         if cur(l) != '.' {
             return false
         }
@@ -552,11 +569,16 @@ scan_number :: proc "contextless" (l: ^Lexer, flags: ^Token_Flags, seen_point: b
         l.pos += 1
         base := 0
         switch cur(l) {
-        case 'b': base = 2
-        case 'o': base = 8
-        case 'd': base = 10
-        case 'z': base = 12
-        case 'x': base = 16
+        case 'b':
+            base = 2
+        case 'o':
+            base = 8
+        case 'd':
+            base = 10
+        case 'z':
+            base = 12
+        case 'x':
+            base = 16
         case 'h':
             kind = .Float
             prev := l.pos

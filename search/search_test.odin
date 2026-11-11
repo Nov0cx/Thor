@@ -87,9 +87,9 @@ test_zero_width_pattern_matches_each_line :: proc(t: ^testing.T) {
 
 @(test)
 test_expand_capture_groups :: proc(t: ^testing.T) {
-    out := make([dynamic]Match, context.temp_allocator)
+    out      := make([dynamic]Match, context.temp_allocator)
     captures := make([dynamic][2]int, context.temp_allocator)
-    text := "key = value"
+    text     := "key = value"
     testing.expect(t, scan(text, "(\\w+) = (\\w+)", {use_regex = true}, &out, &captures))
     testing.expect_value(t, len(out), 1)
     testing.expect_value(t, expand(text, out[0], captures[:], "$2: $1"), "value: key")

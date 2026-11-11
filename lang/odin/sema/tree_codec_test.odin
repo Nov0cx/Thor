@@ -29,7 +29,7 @@ encode_of :: proc(tree: ^Item_Tree, lines: []int) -> []byte {
 // Decoding an encoded item tree of each core:strings file gives the same tree.
 @(test)
 test_tree_codec_round_trip :: proc(t: ^testing.T) {
-    dir := fmt.tprintf("%s/core/strings", strings.trim_right(ODIN_ROOT, "/\\"))
+    dir          := fmt.tprintf("%s/core/strings", strings.trim_right(ODIN_ROOT, "/\\"))
     handle, oerr := os.open(dir)
     if !testing.expect_value(t, oerr, nil) {
         return
@@ -61,7 +61,7 @@ test_tree_codec_round_trip :: proc(t: ^testing.T) {
         }
         defer item_tree_destroy(tree)
         lines := line_starts(text, context.temp_allocator)
-        blob := encode_of(tree, lines)
+        blob  := encode_of(tree, lines)
         if !testing.expectf(t, blob != nil, "%s must encode", info.name) {
             continue
         }
@@ -90,7 +90,7 @@ test_tree_codec_round_trip :: proc(t: ^testing.T) {
 // A truncated or altered encoding is refused or decodes without fault.
 @(test)
 test_tree_codec_corrupt :: proc(t: ^testing.T) {
-    text := "package p\n\n// Doc.\nRec :: struct {\n    a: int,\n}\n\nwhen ODIN_OS == .Windows {\n    f :: proc(x: int) -> int { return x }\n}\n"
+    text         := "package p\n\n// Doc.\nRec :: struct {\n    a: int,\n}\n\nwhen ODIN_OS == .Windows {\n    f :: proc(x: int) -> int { return x }\n}\n"
     parsed, perr := odinsyntax.parse(text)
     if !testing.expect_value(t, perr, nil) {
         return
@@ -229,7 +229,7 @@ test_tree_cache_prune :: proc(t: ^testing.T) {
         return
     }
     defer os.remove_all(root)
-    pkg := fmt.tprintf("%s/core/p", root)
+    pkg   := fmt.tprintf("%s/core/p", root)
     other := fmt.tprintf("%s/core/q", root)
     testing.expect_value(t, os.make_directory_all(pkg), nil)
     testing.expect_value(t, os.make_directory_all(other), nil)

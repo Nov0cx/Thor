@@ -27,60 +27,60 @@ Keybind :: struct {
 
 // General editor preferences, overridable via settings.lua.
 General :: struct {
-    tab_width:         int,
-    font_size:         int,
-    autosave_delay_ms: int,
-    peek_height:       int, // rows of the peek definition editor
+    tab_width:                int,
+    font_size:                int,
+    autosave_delay_ms:        int,
+    peek_height:              int, // rows of the peek definition editor
     // Theme (assets/themes/ name), font family (fonts.json) and icon packs
     // (icons.json). Empty is the built-in default. Owned.
-    theme:             string,
-    font:              string,
-    icon_pack:         string,
-    file_icon_pack:    string,
+    theme:                    string,
+    font:                     string,
+    icon_pack:                string,
+    file_icon_pack:           string,
     // What opening a folder does: "ask" (default), "same" or "new" window. Owned.
-    open_folder_in:    string,
+    open_folder_in:           string,
     // Editor pane layout a workspace opens with: "remember" (default, from the
     // session) or a layout name ("single", "columns2", "grid4", ...). Owned.
-    pane_layout:       string,
+    pane_layout:              string,
     // What Right Alt is: "auto" (default, from the layout), "altgr" or "alt". Owned.
-    right_alt:         string,
+    right_alt:                string,
     // The profile id a new terminal starts ("pwsh", "git-bash", ...); empty picks the best one. Owned.
-    default_shell:     string,
+    default_shell:            string,
     // Let a program in a terminal set the clipboard (OSC 52). On by default.
-    terminal_clipboard: bool,
+    terminal_clipboard:       bool,
     // Keep the clipboard history between sessions. Text that looks like a secret is never saved.
-    clipboard_history_save: bool,
+    clipboard_history_save:   bool,
     // Draw the font's programming ligatures ("->" as one glyph). On by default.
-    ligatures:         bool,
+    ligatures:                bool,
     // Draw a guide at every indentation stop of a line's indent. On by default.
-    indent_guides:     bool,
+    indent_guides:            bool,
     // Indent with spaces. Off indents with a literal tab. On by default.
-    insert_spaces:     bool,
+    insert_spaces:            bool,
     // Take the indent style and width from the file's own text. On by default.
-    detect_indentation: bool,
+    detect_indentation:       bool,
     // Number the gutter by distance from the caret line. On by default.
-    relative_lines:    bool,
+    relative_lines:           bool,
     // Format the buffer before an explicit save, never an autosave. Off by default.
-    format_on_save:    bool,
+    format_on_save:           bool,
     // Format as a trigger character the backend asked for is typed. Off by default.
-    format_on_type:    bool,
+    format_on_type:           bool,
     // Check for a newer release after start, at most once a day. On by default.
-    check_for_updates: bool,
+    check_for_updates:        bool,
     check_for_plugin_updates: bool,
     // Show the hover explanation of a control after a short dwell. On by default.
-    tooltips:          bool,
+    tooltips:                 bool,
     // Show the tip of the day on the welcome page and at the first start of a day. On by default.
-    tip_of_the_day:    bool,
+    tip_of_the_day:           bool,
     // The "language_intelligence" switch and its allowed features. On by default.
-    language_enabled:  bool,
-    language_features: bit_set[lang.Request_Kind],
+    language_enabled:         bool,
+    language_features:        bit_set[lang.Request_Kind],
     // "language_backends": a switch and features per backend id ("clangd", "odin").
     // An absent id is fully on; ANDs with language_features. Owned keys.
-    language_backends: map[string]Backend_Setting,
+    language_backends:        map[string]Backend_Setting,
     // "file_languages": a workspace-relative path or glob -> language name. Owned keys and values.
-    file_languages:    map[string]string,
+    file_languages:           map[string]string,
     // "file_targets": a workspace-relative path or glob -> `-target:` value of the Odin analyzer. Owned keys and values.
-    file_targets:      map[string]string,
+    file_targets:             map[string]string,
 }
 
 // One backend's admin gate: mirrors General's own language_enabled/
@@ -131,20 +131,20 @@ USER_DIR :: "user"
 SETTINGS_FILE :: "settings.lua"
 KEYBINDS_FILE :: "keybinds.lua"
 COMMENTS_FILE :: "comments.lua"
-TIPS_FILE :: "tips.lua"
+TIPS_FILE     :: "tips.lua"
 
 // The settings.lua a GUI change writes when no workspace is set up.
 USER_SETTINGS :: USER_DIR + "/" + SETTINGS_FILE
 
 // The range each integer setting is held to, in a file and in the settings panel.
-TAB_WIDTH_MIN :: 1
-TAB_WIDTH_MAX :: 16
-FONT_SIZE_MIN :: 8
-FONT_SIZE_MAX :: 48
+TAB_WIDTH_MIN      :: 1
+TAB_WIDTH_MAX      :: 16
+FONT_SIZE_MIN      :: 8
+FONT_SIZE_MAX      :: 48
 AUTOSAVE_DELAY_MIN :: 0
 AUTOSAVE_DELAY_MAX :: 10000
-PEEK_HEIGHT_MIN :: 4
-PEEK_HEIGHT_MAX :: 40
+PEEK_HEIGHT_MIN    :: 4
+PEEK_HEIGHT_MAX    :: 40
 
 // Where an opened folder goes. Parsed from the open_folder_in setting.
 Open_Folder_In :: enum {
@@ -198,29 +198,29 @@ load :: proc(dir: string) -> Settings {
     s.comments = make(map[string]Comment_Style)
     s.keybinds = make(map[string]Keybind)
     s.tips = make([dynamic]Tip)
-    s.general = General {
-        tab_width         = 4,
-        font_size         = 18,
+    s.general = General{
+        tab_width = 4,
+        font_size = 18,
         autosave_delay_ms = 1500,
-        peek_height       = 12,
-        ligatures         = true,
-        indent_guides     = true,
-        insert_spaces     = true,
+        peek_height = 12,
+        ligatures = true,
+        indent_guides = true,
+        insert_spaces = true,
         detect_indentation = true,
-        relative_lines    = true,
-        format_on_save    = false,
-        format_on_type    = false,
+        relative_lines = true,
+        format_on_save = false,
+        format_on_type = false,
         check_for_updates = true,
         check_for_plugin_updates = true,
-        tooltips          = true,
-        tip_of_the_day    = true,
+        tooltips = true,
+        tip_of_the_day = true,
         terminal_clipboard = true,
         clipboard_history_save = true,
-        language_enabled  = true,
+        language_enabled = true,
         language_features = lang.FEATURES_ALL,
         language_backends = make(map[string]Backend_Setting),
-        file_languages    = make(map[string]string),
-        file_targets      = make(map[string]string),
+        file_languages = make(map[string]string),
+        file_targets = make(map[string]string),
     }
 
     load_dir(&s, dir)
@@ -297,7 +297,7 @@ comment_prefix :: proc(s: ^Settings, filename: string) -> string {
 // unknown. The strings are borrowed from the settings.
 comment_style :: proc(s: ^Settings, filename: string) -> Comment_Style {
     slash := max(strings.last_index_byte(filename, '/'), strings.last_index_byte(filename, '\\'))
-    base := filename[slash + 1:]
+    base  := filename[slash + 1:]
     // A whole-name entry ("CMakeLists.txt") wins over the extension it happens
     // to carry, and is the only key for a name that has none ("Makefile").
     if style, ok := s.comments[base]; ok {
@@ -558,7 +558,7 @@ remove_file_entry :: proc(path, setting_key, key: string) -> luaconf.Patch_Error
         return .Invalid
     case .Ok:
     }
-    obj, _ := root.(json.Object)
+    obj, _       := root.(json.Object)
     current, has := obj[setting_key].(json.Object)
     if !has || key not_in current {
         return .None
@@ -701,7 +701,7 @@ persist_double_nested_bool :: proc(path, group, subgroup, key: string, value: bo
 // it. An action not yet present lands in a "custom" group. An empty spec
 // persists as an explicit unbind.
 persist_keybind :: proc(path, action, spec: string) -> luaconf.Patch_Error {
-    group := "custom"
+    group           := "custom"
     root, status, _ := luaconf.eval_file(path)
     if status == .Failed {
         return .Invalid
@@ -758,104 +758,104 @@ Key_Name :: struct {
 
 // Every key a chord can name. A modifier key has none, so it cannot be bound alone.
 @(private)
-KEY_NAMES := #partial [ui.Key]Key_Name {
-    .A              = {"a", "A"},
-    .B              = {"b", "B"},
-    .C              = {"c", "C"},
-    .D              = {"d", "D"},
-    .E              = {"e", "E"},
-    .F              = {"f", "F"},
-    .G              = {"g", "G"},
-    .H              = {"h", "H"},
-    .I              = {"i", "I"},
-    .J              = {"j", "J"},
-    .K              = {"k", "K"},
-    .L              = {"l", "L"},
-    .M              = {"m", "M"},
-    .N              = {"n", "N"},
-    .O              = {"o", "O"},
-    .P              = {"p", "P"},
-    .Q              = {"q", "Q"},
-    .R              = {"r", "R"},
-    .S              = {"s", "S"},
-    .T              = {"t", "T"},
-    .U              = {"u", "U"},
-    .V              = {"v", "V"},
-    .W              = {"w", "W"},
-    .X              = {"x", "X"},
-    .Y              = {"y", "Y"},
-    .Z              = {"z", "Z"},
-    .Num_0          = {"0", "0"},
-    .Num_1          = {"1", "1"},
-    .Num_2          = {"2", "2"},
-    .Num_3          = {"3", "3"},
-    .Num_4          = {"4", "4"},
-    .Num_5          = {"5", "5"},
-    .Num_6          = {"6", "6"},
-    .Num_7          = {"7", "7"},
-    .Num_8          = {"8", "8"},
-    .Num_9          = {"9", "9"},
-    .F1             = {"f1", "F1"},
-    .F2             = {"f2", "F2"},
-    .F3             = {"f3", "F3"},
-    .F4             = {"f4", "F4"},
-    .F5             = {"f5", "F5"},
-    .F6             = {"f6", "F6"},
-    .F7             = {"f7", "F7"},
-    .F8             = {"f8", "F8"},
-    .F9             = {"f9", "F9"},
-    .F10            = {"f10", "F10"},
-    .F11            = {"f11", "F11"},
-    .F12            = {"f12", "F12"},
-    .Minus          = {"minus", "-"},
-    .Equal          = {"equal", "="},
-    .Left_Bracket   = {"left_bracket", "["},
-    .Right_Bracket  = {"right_bracket", "]"},
-    .Backslash      = {"backslash", "\\"},
-    .Semicolon      = {"semicolon", ";"},
-    .Apostrophe     = {"apostrophe", "'"},
-    .Grave          = {"grave", "`"},
-    .Comma          = {"comma", ","},
-    .Period         = {"period", "."},
-    .Slash          = {"slash", "/"},
-    .Tab            = {"tab", "Tab"},
-    .Left           = {"left", "Left"},
-    .Right          = {"right", "Right"},
-    .Up             = {"up", "Up"},
-    .Down           = {"down", "Down"},
-    .Home           = {"home", "Home"},
-    .End            = {"end", "End"},
-    .Page_Up        = {"page_up", "PgUp"},
-    .Page_Down      = {"page_down", "PgDn"},
-    .Insert         = {"insert", "Ins"},
-    .Backspace      = {"backspace", "Backspace"},
-    .Delete         = {"delete", "Del"},
-    .Enter          = {"enter", "Enter"},
-    .Escape         = {"escape", "Esc"},
-    .Space          = {"space", "Space"},
-    .Caps_Lock      = {"caps_lock", "CapsLock"},
-    .Num_Lock       = {"num_lock", "NumLock"},
-    .Scroll_Lock    = {"scroll_lock", "ScrollLock"},
-    .Print_Screen   = {"print_screen", "PrtSc"},
-    .Pause          = {"pause", "Pause"},
-    .Menu           = {"menu", "Menu"},
-    .Pad_0          = {"kp_0", "Num0"},
-    .Pad_1          = {"kp_1", "Num1"},
-    .Pad_2          = {"kp_2", "Num2"},
-    .Pad_3          = {"kp_3", "Num3"},
-    .Pad_4          = {"kp_4", "Num4"},
-    .Pad_5          = {"kp_5", "Num5"},
-    .Pad_6          = {"kp_6", "Num6"},
-    .Pad_7          = {"kp_7", "Num7"},
-    .Pad_8          = {"kp_8", "Num8"},
-    .Pad_9          = {"kp_9", "Num9"},
-    .Pad_Decimal    = {"kp_decimal", "Num."},
-    .Pad_Divide     = {"kp_divide", "Num/"},
-    .Pad_Multiply   = {"kp_multiply", "Num*"},
-    .Pad_Subtract   = {"kp_subtract", "-"},
-    .Pad_Add        = {"kp_add", "+"},
-    .Pad_Enter      = {"kp_enter", "NumEnter"},
-    .Pad_Equal      = {"kp_equal", "Num="},
+KEY_NAMES := #partial [ui.Key]Key_Name{
+    .A = {"a", "A"},
+    .B = {"b", "B"},
+    .C = {"c", "C"},
+    .D = {"d", "D"},
+    .E = {"e", "E"},
+    .F = {"f", "F"},
+    .G = {"g", "G"},
+    .H = {"h", "H"},
+    .I = {"i", "I"},
+    .J = {"j", "J"},
+    .K = {"k", "K"},
+    .L = {"l", "L"},
+    .M = {"m", "M"},
+    .N = {"n", "N"},
+    .O = {"o", "O"},
+    .P = {"p", "P"},
+    .Q = {"q", "Q"},
+    .R = {"r", "R"},
+    .S = {"s", "S"},
+    .T = {"t", "T"},
+    .U = {"u", "U"},
+    .V = {"v", "V"},
+    .W = {"w", "W"},
+    .X = {"x", "X"},
+    .Y = {"y", "Y"},
+    .Z = {"z", "Z"},
+    .Num_0 = {"0", "0"},
+    .Num_1 = {"1", "1"},
+    .Num_2 = {"2", "2"},
+    .Num_3 = {"3", "3"},
+    .Num_4 = {"4", "4"},
+    .Num_5 = {"5", "5"},
+    .Num_6 = {"6", "6"},
+    .Num_7 = {"7", "7"},
+    .Num_8 = {"8", "8"},
+    .Num_9 = {"9", "9"},
+    .F1 = {"f1", "F1"},
+    .F2 = {"f2", "F2"},
+    .F3 = {"f3", "F3"},
+    .F4 = {"f4", "F4"},
+    .F5 = {"f5", "F5"},
+    .F6 = {"f6", "F6"},
+    .F7 = {"f7", "F7"},
+    .F8 = {"f8", "F8"},
+    .F9 = {"f9", "F9"},
+    .F10 = {"f10", "F10"},
+    .F11 = {"f11", "F11"},
+    .F12 = {"f12", "F12"},
+    .Minus = {"minus", "-"},
+    .Equal = {"equal", "="},
+    .Left_Bracket = {"left_bracket", "["},
+    .Right_Bracket = {"right_bracket", "]"},
+    .Backslash = {"backslash", "\\"},
+    .Semicolon = {"semicolon", ";"},
+    .Apostrophe = {"apostrophe", "'"},
+    .Grave = {"grave", "`"},
+    .Comma = {"comma", ","},
+    .Period = {"period", "."},
+    .Slash = {"slash", "/"},
+    .Tab = {"tab", "Tab"},
+    .Left = {"left", "Left"},
+    .Right = {"right", "Right"},
+    .Up = {"up", "Up"},
+    .Down = {"down", "Down"},
+    .Home = {"home", "Home"},
+    .End = {"end", "End"},
+    .Page_Up = {"page_up", "PgUp"},
+    .Page_Down = {"page_down", "PgDn"},
+    .Insert = {"insert", "Ins"},
+    .Backspace = {"backspace", "Backspace"},
+    .Delete = {"delete", "Del"},
+    .Enter = {"enter", "Enter"},
+    .Escape = {"escape", "Esc"},
+    .Space = {"space", "Space"},
+    .Caps_Lock = {"caps_lock", "CapsLock"},
+    .Num_Lock = {"num_lock", "NumLock"},
+    .Scroll_Lock = {"scroll_lock", "ScrollLock"},
+    .Print_Screen = {"print_screen", "PrtSc"},
+    .Pause = {"pause", "Pause"},
+    .Menu = {"menu", "Menu"},
+    .Pad_0 = {"kp_0", "Num0"},
+    .Pad_1 = {"kp_1", "Num1"},
+    .Pad_2 = {"kp_2", "Num2"},
+    .Pad_3 = {"kp_3", "Num3"},
+    .Pad_4 = {"kp_4", "Num4"},
+    .Pad_5 = {"kp_5", "Num5"},
+    .Pad_6 = {"kp_6", "Num6"},
+    .Pad_7 = {"kp_7", "Num7"},
+    .Pad_8 = {"kp_8", "Num8"},
+    .Pad_9 = {"kp_9", "Num9"},
+    .Pad_Decimal = {"kp_decimal", "Num."},
+    .Pad_Divide = {"kp_divide", "Num/"},
+    .Pad_Multiply = {"kp_multiply", "Num*"},
+    .Pad_Subtract = {"kp_subtract", "-"},
+    .Pad_Add = {"kp_add", "+"},
+    .Pad_Enter = {"kp_enter", "NumEnter"},
+    .Pad_Equal = {"kp_equal", "Num="},
 }
 
 // Canonical lowercase token for a key, matching key_from_name so the spec round-trips.
@@ -956,7 +956,7 @@ load_comments :: proc(s: ^Settings, path: string) {
             style.line = string(line)
         }
         if block, block_ok := luaconf.as_array(entry["block"]); block_ok && len(block) == 2 {
-            open, open_ok := block[0].(json.String)
+            open, open_ok   := block[0].(json.String)
             close, close_ok := block[1].(json.String)
             if open_ok && close_ok {
                 style.block_open, style.block_close = string(open), string(close)
@@ -1011,17 +1011,13 @@ read_tips :: proc(s: ^Settings, root: json.Object, path: string) {
             continue
         }
         title, title_ok := entry["title"].(json.String)
-        body, body_ok := entry["body"].(json.String)
+        body, body_ok   := entry["body"].(json.String)
         if !title_ok || !body_ok || title == "" || body == "" {
             log.warnf("Settings %q: a tip has no \"title\" or no \"body\"", path)
             continue
         }
         action, _ := entry["action"].(json.String)
-        append(&s.tips, Tip {
-            title  = strings.clone(string(title)),
-            body   = strings.clone(string(body)),
-            action = strings.clone(string(action)),
-        })
+        append(&s.tips, Tip{title = strings.clone(string(title)), body = strings.clone(string(body)), action = strings.clone(string(action))})
     }
 }
 
@@ -1037,11 +1033,11 @@ comment_style_destroy :: proc(style: Comment_Style) {
 // overwrite keeps the owned key and frees the old value.
 @(private)
 put_comment :: proc(s: ^Settings, ext: string, style: Comment_Style) {
-    owned := Comment_Style {
-        line        = strings.clone(style.line),
-        block_open  = strings.clone(style.block_open),
+    owned := Comment_Style{
+        line = strings.clone(style.line),
+        block_open = strings.clone(style.block_open),
         block_close = strings.clone(style.block_close),
-        quotes      = strings.clone(style.quotes),
+        quotes = strings.clone(style.quotes),
     }
     if old, ok := s.comments[ext]; ok {
         comment_style_destroy(old)
@@ -1149,10 +1145,7 @@ read_backend_toggles :: proc(s: ^Settings, root: json.Object) {
     for id, value in obj {
         cfg, existed := s.general.language_backends[id]
         if !existed {
-            cfg = Backend_Setting {
-                enabled  = true,
-                features = lang.FEATURES_ALL,
-            }
+            cfg = Backend_Setting{enabled = true, features = lang.FEATURES_ALL}
         }
         #partial switch v in value {
         case json.Boolean:
@@ -1205,15 +1198,15 @@ read_int :: proc(obj: json.Object, key: string, dst: ^int, lo, hi: int) {
         value = v
     case json.Float:
         // A float outside the i64 range has no defined cast.
-        value = cast(i64) clamp(v, cast(f64) lo, cast(f64) hi)
+        value = cast(i64)clamp(v, cast(f64)lo, cast(f64)hi)
     case:
         return
     }
-    clamped := clamp(value, cast(i64) lo, cast(i64) hi)
+    clamped := clamp(value, cast(i64)lo, cast(i64)hi)
     if clamped != value {
         log.warnf("Setting %q: %d is outside %d..%d, using %d", key, value, lo, hi, clamped)
     }
-    dst^ = cast(int) clamped
+    dst^ = cast(int)clamped
 }
 
 // Reads a boolean field into dst, leaving the default in place if absent.

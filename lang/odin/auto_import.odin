@@ -24,10 +24,10 @@ PACKAGE_WALK_DEPTH :: 8
 // One package a buffer can import.
 @(private)
 Known_Package :: struct {
-    name:   string, // the last path element, the default import alias
+    name:        string, // the last path element, the default import alias
     import_path: string, // `core:encoding/json`
-    dir:    string, // the cleaned package directory
-    rank:   int,    // core, base, configured collections, then vendor
+    dir:         string, // the cleaned package directory
+    rank:        int,    // core, base, configured collections, then vendor
 }
 
 // The known packages for one set of collection roots, guarded by its own mutex.
@@ -38,7 +38,7 @@ Package_Index :: struct {
     key:      string, // owned; the roots the list was built for
     built:    bool,
     built_at: time.Tick,
-    ttl:      time.Duration, // PACKAGE_INDEX_TTL; 0 walks on every call
+    ttl:      time.Duration,          // PACKAGE_INDEX_TTL; 0 walks on every call
     packages: [dynamic]Known_Package, // owned, with their strings
 }
 
@@ -47,7 +47,7 @@ Package_Index :: struct {
 // `ttl`. Temp-allocated copies.
 @(private)
 known_packages :: proc(e: ^Engine, workspace: string) -> []Known_Package {
-    root := odin_root(&e.root)
+    root  := odin_root(&e.root)
     colls := config_collections(e, workspace)
     slice.sort_by(colls, proc(a, b: Collection) -> bool {
         return a.name < b.name
@@ -103,11 +103,11 @@ known_packages :: proc(e: ^Engine, workspace: string) -> []Known_Package {
     }
     out := make([]Known_Package, len(index.packages), context.temp_allocator)
     for p, i in index.packages {
-        out[i] = Known_Package {
-            name        = strings.clone(p.name, context.temp_allocator),
+        out[i] = Known_Package{
+            name = strings.clone(p.name, context.temp_allocator),
             import_path = strings.clone(p.import_path, context.temp_allocator),
-            dir         = strings.clone(p.dir, context.temp_allocator),
-            rank        = p.rank,
+            dir = strings.clone(p.dir, context.temp_allocator),
+            rank = p.rank,
         }
     }
     return out
@@ -164,10 +164,8 @@ walk_worker :: proc(t: ^thread.Thread) {
         if at >= len(job.tasks) {
             break
         }
-        task := &job.tasks[at]
-        local := Package_Index {
-            alloc = job.index.alloc,
-        }
+        task  := &job.tasks[at]
+        local := Package_Index{alloc = job.index.alloc}
         local.packages = make([dynamic]Known_Package, job.index.alloc)
         walk_packages(&local, task.coll, task.dir, task.rel, task.rank, 1)
         task.out = local.packages
@@ -178,13 +176,9 @@ walk_worker :: proc(t: ^thread.Thread) {
 // Caller holds index.mutex.
 @(private = "file")
 walk_tasks_run :: proc(index: ^Package_Index, tasks: []Walk_Task) {
-    next := 0
-    job := Walk_Job {
-        index = index,
-        tasks = tasks,
-        next  = &next,
-    }
-    count := min(len(tasks), WALK_THREADS)
+    next    := 0
+    job     := Walk_Job{index = index, tasks = tasks, next = &next}
+    count   := min(len(tasks), WALK_THREADS)
     threads := make([dynamic]^thread.Thread, 0, count, context.temp_allocator)
     for _ in 1 ..< count {
         if t := thread.create(walk_worker); t != nil {
@@ -193,9 +187,7 @@ walk_tasks_run :: proc(index: ^Package_Index, tasks: []Walk_Task) {
             thread.start(t)
         }
     }
-    self := thread.Thread {
-        data = &job,
-    }
+    self := thread.Thread{data = &job}
     walk_worker(&self)
     for t in threads {
         thread.join(t)
@@ -255,10 +247,10 @@ skip_package_dir :: proc(name: string) -> bool {
 
 @(private = "file")
 add_known :: proc(index: ^Package_Index, p: Known_Package) {
-    a := index.alloc
+    a        := index.alloc
     name, e1 := strings.clone(p.name, a)
     path, e2 := strings.clone(p.import_path, a)
-    dir, e3 := strings.clone(p.dir, a)
+    dir, e3  := strings.clone(p.dir, a)
     if e1 != nil || e2 != nil || e3 != nil {
         delete(name, a)
         delete(path, a)

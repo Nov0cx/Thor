@@ -51,7 +51,10 @@ File_Import :: struct {
 
 // The imports of a file in source order. Relative paths resolve against `file_dir`.
 // Free the result with file_imports_destroy; the item tree must outlive it.
-file_imports :: proc(tree: ^Item_Tree, file_dir: string, collections: ^Collections, allocator := context.allocator) -> (imports: []File_Import, err: mem.Allocator_Error) {
+file_imports :: proc(tree: ^Item_Tree, file_dir: string, collections: ^Collections, allocator := context.allocator) -> (
+    imports: []File_Import,
+    err: mem.Allocator_Error,
+) {
     if tree == nil {
         return nil, nil
     }
@@ -66,11 +69,11 @@ file_imports :: proc(tree: ^Item_Tree, file_dir: string, collections: ^Collectio
         if item.kind != .Import && item.kind != .Foreign_Import {
             continue
         }
-        imp := File_Import {
-            alias       = item.name,
+        imp := File_Import{
+            alias = item.name,
             alias_valid = is_identifier(item.name),
-            path        = item.path,
-            item        = index,
+            path = item.path,
+            item = index,
             name_offset = item.name_offset,
             path_offset = item.path_offset,
         }
@@ -119,7 +122,11 @@ lookup_import :: proc(imports: []File_Import, alias: string) -> (^File_Import, b
 
 // The cleaned directory an import path names, with `/` or `\` as separator.
 // `dir` is "" when `problem` is not .None.
-import_dir :: proc(path, file_dir: string, collections: ^Collections, allocator := context.allocator) -> (dir, collection: string, problem: Import_Problem, err: mem.Allocator_Error) {
+import_dir :: proc(path, file_dir: string, collections: ^Collections, allocator := context.allocator) -> (
+    dir, collection: string,
+    problem: Import_Problem,
+    err: mem.Allocator_Error,
+) {
     if path == "" {
         return "", "", .Empty_Path, nil
     }
@@ -143,7 +150,7 @@ import_dir :: proc(path, file_dir: string, collections: ^Collections, allocator 
             return "", collection, .Empty_Path, nil
         }
     }
-    joined := strings.concatenate({base, "/", rest}, context.temp_allocator) or_return
+    joined     := strings.concatenate({base, "/", rest}, context.temp_allocator) or_return
     slashed, _ := strings.replace_all(joined, "\\", "/", context.temp_allocator)
     dir = filepath.clean(slashed, allocator) or_return
     return dir, collection, .None, nil
@@ -176,7 +183,7 @@ package_dir_files :: proc(dir: string, allocator := context.allocator) -> (files
     handle := os.open(dir) or_return
     defer os.close(handle)
     infos := os.read_dir(handle, -1, context.temp_allocator) or_return
-    out := make([dynamic]string, allocator) or_return
+    out   := make([dynamic]string, allocator) or_return
     defer if err != nil {
         for f in out {
             delete(f, allocator)

@@ -12,20 +12,13 @@ Item_Printer :: #type proc(pr: ^Printer, out: ^[dynamic]Doc, item: Node)
 // blank-line gaps and interleaved comments. `indent_items` false keeps the
 // items at the level of the braces (switch cases without indent_cases).
 @(private)
-print_brace_body :: proc(
-    pr: ^Printer,
-    out: ^[dynamic]Doc,
-    open_line, close_line: int,
-    stmts: []Node,
-    printer: Item_Printer,
-    indent_items: bool,
-) {
+print_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, open_line, close_line: int, stmts: []Node, printer: Item_Printer, indent_items: bool) {
     assign_decl_align_ids(pr, stmts)
     assign_comment_cols(pr, stmts)
     append(out, text("{"))
     body: [dynamic]Doc
     prev_line := open_line
-    has_prev := true
+    has_prev  := true
     for stmt in stmts {
         separator(pr, &body, prev_line, has_prev, start_line(pr, stmt), true, stmt.start)
         printer(pr, &body, stmt)
@@ -125,7 +118,7 @@ print_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, body: Node, is_proc_body: b
         print_block(pr, out, body, is_proc_body)
         return
     case .Do_Body:
-        ks := kids(body)
+        ks    := kids(body)
         stmts := stmt_kids(ks)
         if !pr.opts.convert_do {
             append(out, text(" do "))
@@ -134,7 +127,7 @@ print_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, body: Node, is_proc_body: b
             }
             return
         }
-        open_line := start_line(pr, body)
+        open_line  := start_line(pr, body)
         close_line := end_line(pr, body)
         print_brace_lead(pr, out, is_proc_body)
         if print_one_line_block(pr, out, open_line, close_line, stmts) {
@@ -155,7 +148,7 @@ print_else :: proc(pr: ^Printer, out: ^[dynamic]Doc, ks: []Node) {
     }
     else_stmt := ks[at + 1]
     // An `else` after a kept `do` body must start its own line.
-    then_do := stmt_body(ks, at).kind == .Do_Body && !pr.opts.convert_do
+    then_do   := stmt_body(ks, at).kind == .Do_Body && !pr.opts.convert_do
     if then_do || else_own_line(pr) {
         append(out, hard_line(0))
     } else {
@@ -198,7 +191,7 @@ import_run_end :: proc(pr: ^Printer, stmts: []Node, i: int) -> int {
     }
     // A trailing comment on one of the run's lines pins it too.
     first_line := start_line(pr, stmts[i])
-    last_line := end_line(pr, stmts[end - 1])
+    last_line  := end_line(pr, stmts[end - 1])
     for cg in pr.comments[pr.comment_idx:] {
         if cg.line < first_line {
             continue
@@ -259,16 +252,7 @@ import_less :: proc(a, b: Sorted_Import) -> bool {
 // the caller supplies those). Returns the line/has-prev state to continue
 // from, so a caller can flush trailing comments afterward.
 @(private)
-print_stmt_list :: proc(
-    pr: ^Printer,
-    out: ^[dynamic]Doc,
-    stmts: []Node,
-    prev_line: int,
-    has_prev: bool,
-) -> (
-    last_line: int,
-    had_prev: bool,
-) {
+print_stmt_list :: proc(pr: ^Printer, out: ^[dynamic]Doc, stmts: []Node, prev_line: int, has_prev: bool) -> (last_line: int, had_prev: bool) {
     assign_decl_align_ids(pr, stmts)
     assign_comment_cols(pr, stmts)
     last_line = prev_line
@@ -374,13 +358,11 @@ assign_decl_align_ids :: proc(pr: ^Printer, stmts: []Node) {
             continue
         }
         end := i + 1
-        for end < len(stmts) &&
-            const_run_kind(stmts[end]) == kind &&
-            same_align_run(pr, end_line(pr, stmts[end - 1]), start_line(pr, stmts[end])) {
+        for end < len(stmts) && const_run_kind(stmts[end]) == kind && same_align_run(pr, end_line(pr, stmts[end - 1]), start_line(pr, stmts[end])) {
             end += 1
         }
         if end - i >= 2 {
-            id := next_align(pr)
+            id      := next_align(pr)
             // A typed run also lines up what follows the type.
             type_id := kind == .Typed_Constant || kind == .Typed_Variable ? next_align(pr) : 0
             for stmt in stmts[i:end] {
@@ -424,10 +406,7 @@ print_case_clause :: proc(pr: ^Printer, out: ^[dynamic]Doc, cc: Node) {
     if len(body) == 0 {
         return
     }
-    if pr.opts.inline_single_stmt_case &&
-       len(body) == 1 &&
-       body[0].kind != .Block &&
-       !comment_between(pr, ks[colon].end, body[0].end) {
+    if pr.opts.inline_single_stmt_case && len(body) == 1 && body[0].kind != .Block && !comment_between(pr, ks[colon].end, body[0].end) {
         append(out, text(" "))
         print_stmt(pr, out, body[0])
         return
@@ -463,7 +442,7 @@ print_switch_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, ks: []Node) {
         append(out, text(" {}"))
         return
     }
-    bks := kids(block)
+    bks     := kids(block)
     clauses := make([dynamic]Node, 0, len(bks))
     for k in bks {
         if k.kind == .Case_Clause {
@@ -513,7 +492,7 @@ print_stmt :: proc(pr: ^Printer, out: ^[dynamic]Doc, stmt: Node) {
         pr.too_deep = true
         return
     }
-    all := kids(stmt)
+    all             := kids(stmt)
     ks, after_label := print_stmt_prefix(pr, out, all)
     if after_label && stmt.kind != .Block {
         append(out, text(" "))
@@ -528,7 +507,7 @@ print_stmt :: proc(pr: ^Printer, out: ^[dynamic]Doc, stmt: Node) {
 
     case .Assign_Stmt:
         lists := make([dynamic]Node, 0, 2)
-        op := ""
+        op    := ""
         for k in ks {
             if k.kind == .Expr_List {
                 append(&lists, k)
@@ -560,8 +539,8 @@ print_stmt :: proc(pr: ^Printer, out: ^[dynamic]Doc, stmt: Node) {
             append(out, text("; "))
         }
         else_at := tok_index(ks, .Else)
-        stop := else_at < 0 ? len(ks) : else_at
-        semi := tok_index(ks, .Semicolon)
+        stop    := else_at < 0 ? len(ks) : else_at
+        semi    := tok_index(ks, .Semicolon)
         if cond, ok := expr_in(ks, semi + 1, stop); ok {
             print_expr(pr, out, cond)
         }
@@ -571,7 +550,7 @@ print_stmt :: proc(pr: ^Printer, out: ^[dynamic]Doc, stmt: Node) {
     case .When_Stmt:
         append(out, text("when "))
         else_at := tok_index(ks, .Else)
-        stop := else_at < 0 ? len(ks) : else_at
+        stop    := else_at < 0 ? len(ks) : else_at
         if cond, ok := expr_in(ks, 0, stop); ok {
             print_expr(pr, out, cond)
         }
@@ -616,8 +595,8 @@ print_stmt :: proc(pr: ^Printer, out: ^[dynamic]Doc, stmt: Node) {
 
     case .Switch_Stmt:
         append(out, text("switch"))
-        init := header_init(ks)
-        semi := tok_index(ks, .Semicolon)
+        init         := header_init(ks)
+        semi         := tok_index(ks, .Semicolon)
         tag, has_tag := expr_in(ks, semi + 1, len(ks))
         if is_node(init) || has_tag {
             append(out, text(" "))
@@ -696,7 +675,7 @@ print_for_stmt :: proc(pr: ^Printer, out: ^[dynamic]Doc, ks: []Node) {
     } else {
         init = header_init(ks)
         second := tok_index(ks, .Semicolon, first + 1)
-        stop := second < 0 ? len(ks) : second
+        stop   := second < 0 ? len(ks) : second
         cond, _ = expr_in(ks, first + 1, stop)
         if second >= 0 {
             for k in ks[second + 1:] {

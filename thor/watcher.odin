@@ -3,8 +3,8 @@ package thor
 import "core:strings"
 import "core:time"
 
-import "../watch"
 import "../prof"
+import "../watch"
 
 // Workspace file watcher wiring. The generic watcher (../watch) reports disk
 // changes under the workspace root; here two subscribers consume them — the
@@ -80,7 +80,7 @@ thor_shutdown_watcher :: proc(thor: ^Thor) {
 // ignored: git status takes one itself, and a refresh on it never stops.
 @(private = "file")
 thor_watch_explorer :: proc(data: rawptr, change: watch.Change) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if thor_git_lock_path(change.path, thor.workspace_dir) {
         return
     }
@@ -144,7 +144,7 @@ thor_path_byte_equal :: proc(a, b: u8) -> bool {
 // save landing, an in-flight reload), so this just routes the path to its file.
 @(private = "file")
 thor_watch_content :: proc(data: rawptr, change: watch.Change) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if change.kind == .Deleted {
         return // a vanished file keeps its buffer so unsaved work can be re-saved
     }

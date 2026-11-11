@@ -13,11 +13,11 @@ import "core:time"
 import "core:unicode/utf8"
 
 import "../lang"
+import "../lockfree"
+import "../prof"
 import "../search"
 import "../shell"
 import "../textedit"
-import "../lockfree"
-import "../prof"
 
 // Rows the picker takes; a scan stops when it has this many.
 @(private = "file")
@@ -44,7 +44,7 @@ File_Search_Hit :: struct {
 }
 
 File_Search_Job :: struct {
-    queue_next: ^File_Search_Job, // link in Thor.finished_file_searches
+    queue_next:  ^File_Search_Job, // link in Thor.finished_file_searches
     owner:       ^Thor,
     allocator:   runtime.Allocator,
     worker:      ^thread.Thread,
@@ -72,7 +72,7 @@ thor_find_in_files :: proc(thor: ^Thor) {
     // A selection is the first query, as in the find bar.
     if editor := thor_active_editor(thor); editor != nil && editor.state != nil {
         lo, hi := textedit.selection_range(textedit.primary_cursor(editor.state))
-        text := textedit.text(editor.state)[lo:hi]
+        text   := textedit.text(editor.state)[lo:hi]
         if len(text) >= FILE_SEARCH_QUERY_MIN && !strings.contains(text, "\n") {
             thor_palette_set_query(thor, strings.clone(text, context.temp_allocator))
         }
@@ -80,13 +80,13 @@ thor_find_in_files :: proc(thor: ^Thor) {
 }
 
 thor_cmd_find_in_files :: proc(data: rawptr) {
-    thor_find_in_files(cast(^Thor) data)
+    thor_find_in_files(cast(^Thor)data)
 }
 
 // The palette's query hook: the scan starts when the typing rests.
 @(private = "file")
 thor_file_search_query_changed :: proc(data: rawptr, query: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     // The running scan answers an old query.
     sync.atomic_add(&thor.file_search_serial, 1)
     delete(thor.file_search_query)
@@ -141,7 +141,7 @@ file_search_worker :: proc(job: ^File_Search_Job) {
     defer free_all(context.temp_allocator)
 
     job.hits = make([dynamic]File_Search_Hit, job.allocator)
-    files := file_search_list(job.root)
+    files   := file_search_list(job.root)
     matches := make([dynamic]search.Match, context.temp_allocator)
 
     for path in files {
@@ -163,12 +163,15 @@ file_search_worker :: proc(job: ^File_Search_Job) {
         for match in matches {
             line += strings.count(text[counted:match.start], "\n")
             counted = match.start
-            append(&job.hits, File_Search_Hit {
-                path    = strings.clone(path, job.allocator),
-                offset  = match.start,
-                line    = line,
-                preview = file_search_preview(text, match.start, job.allocator),
-            })
+            append(
+                &job.hits,
+                File_Search_Hit{
+                    path = strings.clone(path, job.allocator),
+                    offset = match.start,
+                    line = line,
+                    preview = file_search_preview(text, match.start, job.allocator),
+                },
+            )
             if len(job.hits) >= FILE_SEARCH_HIT_MAX {
                 job.capped = true
                 break
@@ -188,7 +191,7 @@ file_search_list :: proc(root: string) -> []string {
     defer delete(output)
     if status == 0 && len(output) > 0 {
         files := make([dynamic]string, context.temp_allocator)
-        rest := output
+        rest  := output
         for len(rest) > 0 && len(files) < FILE_SEARCH_FILE_MAX {
             end := strings.index_byte(rest, 0)
             rel := end < 0 ? rest : rest[:end]
@@ -267,14 +270,10 @@ thor_apply_file_search :: proc(thor: ^Thor, job: ^File_Search_Job) {
     thor_clear_doc_symbols(thor)
     items := make([dynamic]Pick_Item, 0, len(job.hits), context.temp_allocator)
     for hit in job.hits {
-        append(&thor.doc_symbols, Doc_Symbol {path = strings.clone(hit.path), offset = hit.offset})
-        rel := strings.trim_left(strings.trim_prefix(hit.path, thor.workspace_dir), "/\\")
+        append(&thor.doc_symbols, Doc_Symbol{path = strings.clone(hit.path), offset = hit.offset})
+        rel      := strings.trim_left(strings.trim_prefix(hit.path, thor.workspace_dir), "/\\")
         slash, _ := strings.replace_all(rel, "\\", "/", context.temp_allocator)
-        append(&items, Pick_Item {
-            text   = hit.preview,
-            color  = thor.theme.primary_text_color,
-            detail = fmt.tprintf("%s:%d", slash, hit.line),
-        })
+        append(&items, Pick_Item{text = hit.preview, color = thor.theme.primary_text_color, detail = fmt.tprintf("%s:%d", slash, hit.line)})
     }
     thor_palette_pick_rich_set(thor, items[:])
     if job.capped {

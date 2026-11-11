@@ -17,13 +17,13 @@ import ui "../vendor/loom/loom"
 // user committed. The host applies it live.
 Color_Preview_Proc :: #type proc(data: rawptr, id: string, color: ui.Color)
 // Fired on OK: apply and persist.
-Color_Commit_Proc :: #type proc(data: rawptr, id: string, color: ui.Color)
+Color_Commit_Proc  :: #type proc(data: rawptr, id: string, color: ui.Color)
 // Fired on Escape, Cancel or an outside click; the host restores what it had.
-Color_Cancel_Proc :: #type proc(data: rawptr, id: string)
+Color_Cancel_Proc  :: #type proc(data: rawptr, id: string)
 
-COLOR_PICKER_WIDTH :: f32(340)
+COLOR_PICKER_WIDTH    :: f32(340)
 COLOR_PICKER_SQUARE_H :: f32(200)
-COLOR_PICKER_STRIP_H :: f32(16)
+COLOR_PICKER_STRIP_H  :: f32(16)
 
 Color_Picker :: struct {
     title:         string, // owned
@@ -144,11 +144,11 @@ color_picker_close :: proc(thor: ^Thor) {
 // Confirms: hands the color to the host, then closes.
 @(private = "file")
 color_picker_confirm :: proc(thor: ^Thor) {
-    p := &thor.color_picker
-    color := thor_color_picker_color(p)
+    p      := &thor.color_picker
+    color  := thor_color_picker_color(p)
     commit := p.commit
-    data := p.data
-    id := strings.clone(p.key, context.temp_allocator)
+    data   := p.data
+    id     := strings.clone(p.key, context.temp_allocator)
     color_picker_close(thor)
     if commit != nil {
         commit(data, id, color)
@@ -158,10 +158,10 @@ color_picker_confirm :: proc(thor: ^Thor) {
 // Cancels: asks the host to put back what it had, then closes.
 @(private = "file")
 color_picker_dismiss :: proc(thor: ^Thor) {
-    p := &thor.color_picker
+    p      := &thor.color_picker
     cancel := p.cancel
-    data := p.data
-    id := strings.clone(p.key, context.temp_allocator)
+    data   := p.data
+    id     := strings.clone(p.key, context.temp_allocator)
     color_picker_close(thor)
     if cancel != nil {
         cancel(data, id)
@@ -237,10 +237,7 @@ color_picker_box :: proc(thor: ^Thor) {
         },
     )
 
-    ui.label(
-        p.title,
-        {key = "title", props = {color = thor.theme.foreground, text_wrap = .Ellipsis}},
-    )
+    ui.label(p.title, {key = "title", props = {color = thor.theme.foreground, text_wrap = .Ellipsis}})
 
     color_picker_square(thor)
     color_picker_hue(thor)
@@ -253,26 +250,15 @@ color_picker_box :: proc(thor: ^Thor) {
 // the pure hue over black.
 @(private = "file")
 color_picker_square :: proc(thor: ^Thor) {
-    p := &thor.color_picker
-    pure := rl.ColorFromHSV(p.hue, 1, 1)
-    stops := []ui.Stop {
-        {0, ui.Color{255, 255, 255, 255}},
-        {0, ui.Color{pure.r, pure.g, pure.b, 255}},
-        {0, ui.Color{0, 0, 0, 255}},
-        {0, ui.Color{0, 0, 0, 255}},
-    }
+    p     := &thor.color_picker
+    pure  := rl.ColorFromHSV(p.hue, 1, 1)
+    stops := []ui.Stop{{0, ui.Color{255, 255, 255, 255}}, {0, ui.Color{pure.r, pure.g, pure.b, 255}}, {0, ui.Color{0, 0, 0, 255}}, {0, ui.Color{0, 0, 0, 255}}}
 
     it := ui.scope(
         {
             key = "square",
             flags = {.Clickable, .Draggable},
-            props = {
-                w = ui.Grow(1),
-                h = ui.Px(COLOR_PICKER_SQUARE_H),
-                radius = ui.rad(4),
-                bg = ui.Gradient{kind = .Bilinear, stops = stops},
-                cursor = .Grab,
-            },
+            props = {w = ui.Grow(1), h = ui.Px(COLOR_PICKER_SQUARE_H), radius = ui.rad(4), bg = ui.Gradient{kind = .Bilinear, stops = stops}, cursor = .Grab},
         },
     )
 
@@ -294,7 +280,7 @@ color_picker_square :: proc(thor: ^Thor) {
 
 @(private = "file")
 color_picker_hue :: proc(thor: ^Thor) {
-    p := &thor.color_picker
+    p     := &thor.color_picker
     stops := make([]ui.Stop, 7, context.temp_allocator)
     for i in 0 ..< 7 {
         c := rl.ColorFromHSV(f32(i) * 60, 1, 1)
@@ -311,12 +297,9 @@ color_picker_hue :: proc(thor: ^Thor) {
 
 @(private = "file")
 color_picker_alpha :: proc(thor: ^Thor) {
-    p := &thor.color_picker
+    p     := &thor.color_picker
     solid := thor_color_picker_color(p)
-    stops := []ui.Stop {
-        {0, ui.Color{solid[0], solid[1], solid[2], 0}},
-        {1, ui.Color{solid[0], solid[1], solid[2], 255}},
-    }
+    stops := []ui.Stop{{0, ui.Color{solid[0], solid[1], solid[2], 0}}, {1, ui.Color{solid[0], solid[1], solid[2], 255}}}
 
     it := color_picker_strip(thor, "alpha", ui.Gradient{kind = .Linear, stops = stops})
     color_picker_strip_marker(it, clamp(p.alpha, 0, 1))
@@ -358,35 +341,13 @@ color_picker_strip_marker :: proc(it: ui.Interaction, t: f32) {
 color_picker_row :: proc(thor: ^Thor) {
     p := &thor.color_picker
 
-    ui.scope(
-        {
-            key = "row",
-            props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {10, 0}},
-        },
-    )
+    ui.scope({key = "row", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {10, 0}}})
 
-    ui.leaf(
-        {
-            key = "was",
-            props = {
-                w = ui.Px(34),
-                h = ui.Px(26),
-                radius = ui.rad(4),
-                bg = p.original,
-                border = {width = ui.all(1), color = thor.theme.border},
-            },
-        },
-    )
+    ui.leaf({key = "was", props = {w = ui.Px(34), h = ui.Px(26), radius = ui.rad(4), bg = p.original, border = {width = ui.all(1), color = thor.theme.border}}})
     ui.leaf(
         {
             key = "now",
-            props = {
-                w = ui.Px(34),
-                h = ui.Px(26),
-                radius = ui.rad(4),
-                bg = thor_color_picker_color(p),
-                border = {width = ui.all(1), color = thor.theme.border},
-            },
+            props = {w = ui.Px(34), h = ui.Px(26), radius = ui.rad(4), bg = thor_color_picker_color(p), border = {width = ui.all(1), color = thor.theme.border}},
         },
     )
 
@@ -417,19 +378,7 @@ color_picker_row :: proc(thor: ^Thor) {
 
 @(private = "file")
 color_picker_buttons :: proc(thor: ^Thor) {
-    ui.scope(
-        {
-            key = "buttons",
-            props = {
-                w = ui.Grow(1),
-                h = ui.FIT,
-                dir = .Row,
-                justify = .End,
-                gap = {8, 0},
-                margin = {t = 4},
-            },
-        },
-    )
+    ui.scope({key = "buttons", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, justify = .End, gap = {8, 0}, margin = {t = 4}}})
 
     if color_picker_button(thor, "cancel", "Cancel", thor.theme.muted_color) {
         color_picker_dismiss(thor)

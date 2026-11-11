@@ -90,14 +90,7 @@ which :: proc(name: string, allocator := context.allocator) -> (string, bool) {
 // pass a `which` result that found nothing. Every stored string is cloned into
 // `allocator`. Returns whether a profile was added.
 @(private)
-add_profile :: proc(
-    list: ^[dynamic]Profile,
-    id, name: string,
-    candidates: []string,
-    args, init: []string,
-    kind: Profile_Kind,
-    allocator := context.allocator,
-) -> bool {
+add_profile :: proc(list: ^[dynamic]Profile, id, name: string, candidates: []string, args, init: []string, kind: Profile_Kind, allocator := context.allocator) -> bool {
     exe := ""
     for candidate in candidates {
         if candidate != "" && os.is_file(candidate) {
@@ -109,14 +102,17 @@ add_profile :: proc(
         return false
     }
 
-    append(list, Profile {
-        id   = strings.clone(id, allocator),
-        name = strings.clone(name, allocator),
-        exe  = strings.clone(exe, allocator),
-        args = clone_list(args, allocator),
-        init = clone_list(init, allocator),
-        kind = kind,
-    })
+    append(
+        list,
+        Profile{
+            id = strings.clone(id, allocator),
+            name = strings.clone(name, allocator),
+            exe = strings.clone(exe, allocator),
+            args = clone_list(args, allocator),
+            init = clone_list(init, allocator),
+            kind = kind,
+        },
+    )
     return true
 }
 

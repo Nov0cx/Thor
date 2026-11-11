@@ -23,7 +23,7 @@ settings_open :: proc(thor: ^Thor) -> bool {
 }
 
 @(private = "file")
-BASICS := [?]Tutorial_Step {
+BASICS := [?]Tutorial_Step{
     {
         title = "Open a folder",
         body = "Thor edits a folder: its files show in the explorer, and its session (open tabs, " +
@@ -41,8 +41,7 @@ BASICS := [?]Tutorial_Step {
     },
     {
         title = "Open a file by name",
-        body = "Press {key:quick_open} and type a part of a file name. The list matches the letters " +
-            "in order, so `edvw` finds `editview`.",
+        body = "Press {key:quick_open} and type a part of a file name. The list matches the letters " + "in order, so `edvw` finds `editview`.",
         check = Check_Action{{"quick_open"}},
     },
     {
@@ -61,33 +60,29 @@ BASICS := [?]Tutorial_Step {
     },
     {
         title = "Save",
-        body = "Press {key:save}. Thor also saves by itself a short time after you stop typing, " +
-            "when `autosave` is on in the settings.",
+        body = "Press {key:save}. Thor also saves by itself a short time after you stop typing, " + "when `autosave` is on in the settings.",
         region = .Editor,
         check = Check_Action{{"save", "save_all"}},
     },
 }
 
 @(private = "file")
-EDITING := [?]Tutorial_Step {
+EDITING := [?]Tutorial_Step{
     {
         title = "Move a line",
-        body = "Put the caret on a line and press {key:move_line_down} or {key:move_line_up}. " +
-            "A selection moves all its lines.",
+        body = "Put the caret on a line and press {key:move_line_down} or {key:move_line_up}. " + "A selection moves all its lines.",
         region = .Editor,
         check = Check_Action{{"move_line_up", "move_line_down"}},
     },
     {
         title = "Duplicate a line",
-        body = "Press {key:duplicate_line_down} to copy the line below itself, or " +
-            "{key:duplicate_line_up} to copy it above.",
+        body = "Press {key:duplicate_line_down} to copy the line below itself, or " + "{key:duplicate_line_up} to copy it above.",
         region = .Editor,
         check = Check_Action{{"duplicate_line_up", "duplicate_line_down"}},
     },
     {
         title = "Comment a line",
-        body = "Press {key:toggle_line_comment}. Thor uses the comment marker of the language, and " +
-            "the same key removes it.",
+        body = "Press {key:toggle_line_comment}. Thor uses the comment marker of the language, and " + "the same key removes it.",
         region = .Editor,
         check = Check_Action{{"toggle_line_comment"}},
     },
@@ -97,40 +92,27 @@ EDITING := [?]Tutorial_Step {
         region = .Editor,
         check = Check_Action{{"undo"}},
     },
-    {
-        title = "Redo",
-        body = "Press {key:redo} to do again what you undid.",
-        region = .Editor,
-        check = Check_Action{{"redo", "redo_alt"}},
-    },
+    {title = "Redo", body = "Press {key:redo} to do again what you undid.", region = .Editor, check = Check_Action{{"redo", "redo_alt"}}},
     {
         title = "Delete a word",
-        body = "Press {key:delete_word_left} to delete the word before the caret, or " +
-            "{key:delete_word_right} for the word after it.",
+        body = "Press {key:delete_word_left} to delete the word before the caret, or " + "{key:delete_word_right} for the word after it.",
         region = .Editor,
         check = Check_Action{{"delete_word_left", "delete_word_right"}},
     },
 }
 
 @(private = "file")
-MULTI_CURSOR := [?]Tutorial_Step {
-    {
-        title = "Select a word",
-        body = "Put the caret in a word and press {key:select_word}.",
-        region = .Editor,
-        check = Check_Action{{"select_word"}},
-    },
+MULTI_CURSOR := [?]Tutorial_Step{
+    {title = "Select a word", body = "Put the caret in a word and press {key:select_word}.", region = .Editor, check = Check_Action{{"select_word"}}},
     {
         title = "Select the next one too",
-        body = "Press {key:select_word} again. Thor adds a cursor at the next place the same word is. " +
-            "What you type now goes to every cursor.",
+        body = "Press {key:select_word} again. Thor adds a cursor at the next place the same word is. " + "What you type now goes to every cursor.",
         region = .Editor,
         check = Check_Action{{"select_word"}},
     },
     {
         title = "A cursor on the next line",
-        body = "Press {key:add_cursor_below} or {key:add_cursor_above} to add a cursor in the same " +
-            "column of the next line.",
+        body = "Press {key:add_cursor_below} or {key:add_cursor_above} to add a cursor in the same " + "column of the next line.",
         region = .Editor,
         check = Check_Action{{"add_cursor_below", "add_cursor_above"}},
     },
@@ -143,12 +125,8 @@ MULTI_CURSOR := [?]Tutorial_Step {
 }
 
 @(private = "file")
-NAVIGATION := [?]Tutorial_Step {
-    {
-        title = "Go to a line",
-        body = "Press {key:goto_line}, type a line number and press Enter.",
-        check = Check_Action{{"goto_line"}},
-    },
+NAVIGATION := [?]Tutorial_Step{
+    {title = "Go to a line", body = "Press {key:goto_line}, type a line number and press Enter.", check = Check_Action{{"goto_line"}}},
     {
         title = "The matching bracket",
         body = "Put the caret on a bracket and press {key:matching_bracket}. The caret goes to its " +
@@ -171,15 +149,14 @@ NAVIGATION := [?]Tutorial_Step {
     },
     {
         title = "Jump back",
-        body = "Press {key:jump_back} to go back to where the jump started, and {key:jump_forward} " +
-            "to go forward again.",
+        body = "Press {key:jump_back} to go back to where the jump started, and {key:jump_forward} " + "to go forward again.",
         region = .Editor,
         check = Check_Action{{"jump_back", "jump_forward"}},
     },
 }
 
 @(private = "file")
-SEARCH := [?]Tutorial_Step {
+SEARCH := [?]Tutorial_Step{
     {
         title = "Find",
         body = "Press {key:find} and type. Enter goes to the next match. The buttons in the find bar " +
@@ -188,23 +165,17 @@ SEARCH := [?]Tutorial_Step {
     },
     {
         title = "Replace",
-        body = "Press {key:replace}. On a name the language knows, this renames the symbol everywhere. " +
-            "In other text, it opens find and replace.",
+        body = "Press {key:replace}. On a name the language knows, this renames the symbol everywhere. " + "In other text, it opens find and replace.",
         check = Check_Action{{"replace"}},
     },
-    {
-        title = "Find in files",
-        body = "{key:find_in_files} searches every file of the folder.",
-        check = Check_Action{{"find_in_files"}},
-    },
+    {title = "Find in files", body = "{key:find_in_files} searches every file of the folder.", check = Check_Action{{"find_in_files"}}},
 }
 
 @(private = "file")
-PANES := [?]Tutorial_Step {
+PANES := [?]Tutorial_Step{
     {
         title = "Split the editor",
-        body = "Use {key:toggle_split} to show two files side by side. **View: Pane Layout...** in " +
-            "the palette has more layouts, up to six panes.",
+        body = "Use {key:toggle_split} to show two files side by side. **View: Pane Layout...** in " + "the palette has more layouts, up to six panes.",
         region = .Editor,
         check = Check_Action{{"toggle_split", "pick_layout", "next_layout"}},
     },
@@ -216,21 +187,19 @@ PANES := [?]Tutorial_Step {
     },
     {
         title = "Zoom",
-        body = "Press {key:zoom_in} or {key:zoom_out}, or hold Ctrl and turn the mouse wheel. " +
-            "{key:reset_zoom} goes back to the font size of the settings.",
+        body = "Press {key:zoom_in} or {key:zoom_out}, or hold Ctrl and turn the mouse wheel. " + "{key:reset_zoom} goes back to the font size of the settings.",
         region = .Editor,
         check = Check_Action{{"zoom_in", "zoom_out", "reset_zoom"}},
     },
     {
         title = "Markdown preview",
-        body = "Open a `.md` file and use {key:toggle_markdown_preview}. The other pane shows the " +
-            "page as it renders, and it changes while you type.",
+        body = "Open a `.md` file and use {key:toggle_markdown_preview}. The other pane shows the " + "page as it renders, and it changes while you type.",
         check = Check_Proc(preview_on),
     },
 }
 
 @(private = "file")
-TERMINAL := [?]Tutorial_Step {
+TERMINAL := [?]Tutorial_Step{
     {
         title = "The terminal",
         body = "Press {key:toggle_console} to show the terminal panel, or {key:focus_terminal} to " +
@@ -240,8 +209,7 @@ TERMINAL := [?]Tutorial_Step {
     },
     {
         title = "A second terminal",
-        body = "Use {key:new_terminal}, or the `+` at the end of the terminal tabs. " +
-            "{key:select_shell} starts a different shell.",
+        body = "Use {key:new_terminal}, or the `+` at the end of the terminal tabs. " + "{key:select_shell} starts a different shell.",
         region = .Console,
         check = Check_Action{{"new_terminal", "select_shell"}},
     },
@@ -255,18 +223,16 @@ TERMINAL := [?]Tutorial_Step {
 }
 
 @(private = "file")
-GIT := [?]Tutorial_Step {
+GIT := [?]Tutorial_Step{
     {
         title = "The git window",
-        body = "Use {key:open_git_gui}, or **Git > Changes** in the menu. It needs a folder that " +
-            "is a git repository.",
+        body = "Use {key:open_git_gui}, or **Git > Changes** in the menu. It needs a folder that " + "is a git repository.",
         region = .Menu_Bar,
         check = Check_Proc(git_open),
     },
     {
         title = "Stage and commit",
-        body = "Click a file to see its diff. The `+` beside a file stages it, and the box at the " +
-            "bottom takes the commit message. Esc closes the window.",
+        body = "Click a file to see its diff. The `+` beside a file stages it, and the box at the " + "bottom takes the commit message. Esc closes the window.",
         check = Check_Next{},
     },
     {
@@ -277,33 +243,26 @@ GIT := [?]Tutorial_Step {
 }
 
 @(private = "file")
-SETTINGS := [?]Tutorial_Step {
+SETTINGS := [?]Tutorial_Step{
     {
         title = "The settings window",
-        body = "Use {key:open_settings_gui}, or click the hammer in the titlebar. A change applies at " +
-            "once and is written to `user/settings.lua`.",
+        body = "Use {key:open_settings_gui}, or click the hammer in the titlebar. A change applies at " + "once and is written to `user/settings.lua`.",
         region = .Titlebar,
         check = Check_Proc(settings_open),
     },
-    {
-        title = "A theme",
-        body = "Use {key:change_theme}. The list previews each theme while you move through it.",
-        check = Check_Action{{"change_theme"}},
-    },
+    {title = "A theme", body = "Use {key:change_theme}. The list previews each theme while you move through it.", check = Check_Action{{"change_theme"}}},
     {
         title = "Keys",
-        body = "Every key can change. The settings window has a keybinding list, and " +
-            "{key:open_keybinds} opens `user/keybinds.lua` as text.",
+        body = "Every key can change. The settings window has a keybinding list, and " + "{key:open_keybinds} opens `user/keybinds.lua` as text.",
         check = Check_Action{{"open_keybinds", "open_settings_gui"}},
     },
 }
 
 @(private = "file")
-PLUGINS := [?]Tutorial_Step {
+PLUGINS := [?]Tutorial_Step{
     {
         title = "Plugins",
-        body = "Each language and many tools are Lua plugins in `plugins/` beside the binary. " +
-            "A folder can have its own plugins in `.thor/plugins`.",
+        body = "Each language and many tools are Lua plugins in `plugins/` beside the binary. " + "A folder can have its own plugins in `.thor/plugins`.",
         check = Check_Next{},
     },
     {
@@ -314,14 +273,13 @@ PLUGINS := [?]Tutorial_Step {
     },
     {
         title = "Write one",
-        body = "`plugins/README.md` is the reference for plugin authors. **Help: Documentation** in " +
-            "the palette opens the manual.",
+        body = "`plugins/README.md` is the reference for plugin authors. **Help: Documentation** in " + "the palette opens the manual.",
         check = Check_Next{},
     },
 }
 
 @(private = "file")
-LAB := [?]Tutorial_Step {
+LAB := [?]Tutorial_Step{
     {
         title = "The lab",
         body = "The new tab holds a small Odin file that does not parse, does not compile and is " +
@@ -341,7 +299,7 @@ LAB := [?]Tutorial_Step {
     {title = "Align the constants", region = .Editor, check = Check_Lab(7)},
 }
 
-TUTORIAL_CHAPTERS := [?]Tutorial_Chapter {
+TUTORIAL_CHAPTERS := [?]Tutorial_Chapter{
     {id = "basics", title = "Basics", steps = BASICS[:]},
     {id = "editing", title = "Editing", steps = EDITING[:]},
     {id = "multi_cursor", title = "Multiple cursors", steps = MULTI_CURSOR[:]},

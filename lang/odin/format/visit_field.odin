@@ -18,10 +18,10 @@ Field_Parts :: struct {
 
 @(private)
 field_parts :: proc(pr: ^Printer, f: Node) -> (p: Field_Parts) {
-    ks := kids(f)
+    ks         := kids(f)
     directives := make([dynamic]Node, 0, 1)
-    colon := tok_index(ks, .Colon)
-    eq := tok_index(ks, .Eq)
+    colon      := tok_index(ks, .Colon)
+    eq         := tok_index(ks, .Eq)
     // A directive before the name or the type is a flag; after them it is a value.
     flags_done := false
     for k, i in ks {
@@ -63,7 +63,7 @@ field_has_names :: proc(f: Node) -> bool {
 @(private)
 print_field :: proc(pr: ^Printer, out: ^[dynamic]Doc, f: Node) {
     cell := align_cell(pr, f)
-    p := field_parts(pr, f)
+    p    := field_parts(pr, f)
 
     head: [dynamic]Doc
     if p.using_ {
@@ -79,8 +79,8 @@ print_field :: proc(pr: ^Printer, out: ^[dynamic]Doc, f: Node) {
     }
 
     in_cell, after_cell := colon_split(pr)
-    has_type := is_node(p.type)
-    has_colon := has_names && has_type
+    has_type            := is_node(p.type)
+    has_colon           := has_names && has_type
     if has_colon {
         append(&head, text(in_cell))
     }
@@ -125,7 +125,7 @@ print_field :: proc(pr: ^Printer, out: ^[dynamic]Doc, f: Node) {
 append_field_list_group :: proc(pr: ^Printer, out: ^[dynamic]Doc, open, close: string, fields: []Node, close_offset: int) {
     items := make([dynamic]List_Item, 0, len(fields))
     for f, i in fields {
-        item := List_Item {leading = take_comments_before(pr, f.start)}
+        item := List_Item{leading = take_comments_before(pr, f.start)}
         field: [dynamic]Doc
         print_field(pr, &field, f)
         item.doc = concat(field[:])
@@ -170,9 +170,7 @@ assign_field_align_ids :: proc(pr: ^Printer, fields: []Node) {
             continue
         }
         end := i + 1
-        for end < len(fields) &&
-            field_alignable(pr, fields[end]) &&
-            same_align_run(pr, end_line(pr, fields[end - 1]), start_line(pr, fields[end])) {
+        for end < len(fields) && field_alignable(pr, fields[end]) && same_align_run(pr, end_line(pr, fields[end - 1]), start_line(pr, fields[end])) {
             end += 1
         }
         if end - i >= 2 {
@@ -211,9 +209,7 @@ assign_field_default_ids :: proc(pr: ^Printer, fields: []Node) {
             continue
         }
         end := i + 1
-        for end < len(fields) &&
-            field_has_tail(pr, fields[end]) &&
-            same_align_run(pr, end_line(pr, fields[end - 1]), start_line(pr, fields[end])) {
+        for end < len(fields) && field_has_tail(pr, fields[end]) && same_align_run(pr, end_line(pr, fields[end - 1]), start_line(pr, fields[end])) {
             end += 1
         }
         if end - i >= 2 {
@@ -242,7 +238,7 @@ print_field_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, open_line, clos
         return
     }
     body: [dynamic]Doc
-    first_line := start_line(pr, fields[0])
+    first_line          := start_line(pr, fields[0])
     prev_line, has_prev := flush_before(pr, &body, open_line, true, first_line, true, fields[0].start)
     append(&body, hard_line(0))
     for f, i in fields {
@@ -276,9 +272,7 @@ assign_field_value_align_ids :: proc(pr: ^Printer, exprs: []Node) {
             continue
         }
         end := i + 1
-        for end < len(exprs) &&
-            is_flat_field_value(pr, exprs[end]) &&
-            same_align_run(pr, end_line(pr, exprs[end - 1]), start_line(pr, exprs[end])) {
+        for end < len(exprs) && is_flat_field_value(pr, exprs[end]) && same_align_run(pr, end_line(pr, exprs[end - 1]), start_line(pr, exprs[end])) {
             end += 1
         }
         if end - i >= 2 {
@@ -300,8 +294,8 @@ is_flat_field_value :: proc(pr: ^Printer, ex: Node) -> bool {
     if ex.kind != .Field_Value {
         return false
     }
-    ks := kids(ex)
-    eq := tok_index(ks, .Eq)
+    ks       := kids(ex)
+    eq       := tok_index(ks, .Eq)
     name, ok := expr_in(ks, 0, eq < 0 ? len(ks) : eq)
     return ok && start_line(pr, name) == end_line(pr, name)
 }
@@ -355,11 +349,11 @@ append_brace_close :: proc(out: ^[dynamic]Doc, body: []Doc) {
 
 @(private)
 print_bit_field_field :: proc(pr: ^Printer, out: ^[dynamic]Doc, f: Node) {
-    cell := align_cell(pr, f)
+    cell                := align_cell(pr, f)
     in_cell, after_cell := colon_split(pr)
-    ks := kids(f)
-    colon := tok_index(ks, .Colon)
-    bar := tok_index(ks, .Or)
+    ks                  := kids(f)
+    colon               := tok_index(ks, .Colon)
+    bar                 := tok_index(ks, .Or)
 
     head: [dynamic]Doc
     if name, ok := expr_in(ks, 0, colon < 0 ? len(ks) : colon); ok {
@@ -408,7 +402,7 @@ assign_bit_field_align_ids :: proc(pr: ^Printer, fields: []Node) {
             end += 1
         }
         if end - i >= 2 {
-            head_id := pr.opts.align_struct_fields ? next_align(pr) : 0
+            head_id  := pr.opts.align_struct_fields ? next_align(pr) : 0
             value_id := pr.opts.align_struct_values ? next_align(pr) : 0
             for f in fields[i:end] {
                 pr.align_ids[align_key(f)] = Align_Cell{head = head_id, value = value_id}

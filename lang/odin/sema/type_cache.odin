@@ -93,7 +93,7 @@ package_stamp_note :: proc(c: ^Checker, pkg: Package_Id, view: ^Package_View) {
     }
     stamp := Package_Stamp{missing = view == nil}
     if view != nil {
-        files, ferr := slice.clone(view.files, c.alloc)
+        files, ferr  := slice.clone(view.files, c.alloc)
         shapes, serr := make([]u64, len(view.datas), c.alloc)
         if !note_alloc(c, ferr) || !note_alloc(c, serr) {
             return
@@ -205,7 +205,7 @@ type_state_clone :: proc(c: ^Checker, s: ^Type_State) -> bool {
     if !note_alloc(c, type_table_copy(&c.table, &s.table, c.alloc, false)) {
         return false
     }
-    errs := [?]mem.Allocator_Error {
+    errs := [?]mem.Allocator_Error{
         map_copy(&c.decls, s.decls),
         map_copy(&c.consts, s.consts),
         map_copy(&c.instances, s.instances),
@@ -232,7 +232,7 @@ type_state_publish :: proc(c: ^Checker) {
     if c.err != nil || c.table.err != nil || snapshot_cancelled(c.snap) {
         return
     }
-    db := c.snap.db
+    db   := c.snap.db
     temp := scratch_begin(c)
     defer scratch_end(temp)
     dirty, ok := dirty_nodes(c)
@@ -271,10 +271,10 @@ type_state_publish :: proc(c: ^Checker) {
 // Per dependency node: it reads the request's buffer, itself or through a node it uses.
 @(private = "file")
 dirty_nodes :: proc(c: ^Checker) -> ([]bool, bool) {
-    n := len(c.nodes)
+    n           := len(c.nodes)
     dirty, derr := make([]bool, n, c.tmp)
     start, serr := make([]i32, n + 1, c.tmp)
-    next, nerr := make([]i32, n, c.tmp)
+    next, nerr  := make([]i32, n, c.tmp)
     users, uerr := make([]i32, len(c.edges), c.tmp)
     stack, kerr := make([dynamic]i32, 0, n, c.tmp)
     if derr != nil || serr != nil || nerr != nil || uerr != nil || kerr != nil {
@@ -369,7 +369,7 @@ type_state_freeze :: proc(c: ^Checker, s: ^Type_State, dirty: []bool) -> mem.All
     s.consts = make(map[Symbol]Const_Info, a)
     for sym, info in c.consts {
         if clean(dirty, info.node) {
-            value := clone_const(info.value, a) or_return
+            value            := clone_const(info.value, a) or_return
             _, entry, _, err := map_entry(&s.consts, sym)
             if err != nil {
                 return err
@@ -394,7 +394,7 @@ type_state_freeze :: proc(c: ^Checker, s: ^Type_State, dirty: []bool) -> mem.All
     s.inst_cache = make(map[string]Memo_Type, a)
     for key, memo in c.inst_cache {
         if clean(dirty, memo.node) {
-            stored := strings.clone(key, a) or_return
+            stored           := strings.clone(key, a) or_return
             _, entry, _, err := map_entry(&s.inst_cache, stored)
             if err != nil {
                 return err
@@ -405,7 +405,7 @@ type_state_freeze :: proc(c: ^Checker, s: ^Type_State, dirty: []bool) -> mem.All
     s.odin_types = make(map[string]Memo_Type, a)
     for key, memo in c.odin_types {
         if clean(dirty, memo.node) {
-            stored := strings.clone(key, a) or_return
+            stored           := strings.clone(key, a) or_return
             _, entry, _, err := map_entry(&s.odin_types, stored)
             if err != nil {
                 return err

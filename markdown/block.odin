@@ -37,9 +37,9 @@ Block :: struct {
     kind:     Block_Kind,
     lines:    []string, // Paragraph, Heading and Code text; Table rows with the delimiter row
     children: [dynamic]^Block,
-    level:    int, // Heading
+    level:    int,  // Heading
     ordered:  bool, // List
-    start:    int, // List: the first number
+    start:    int,  // List: the first number
     loose:    bool, // List: blank lines between or inside its items
     task:     Task, // Item
     alert:    Alert_Kind,
@@ -89,7 +89,7 @@ indent_columns :: proc(line: string) -> int {
 @(private)
 strip_columns :: proc(line: string, n: int) -> string {
     columns := 0
-    i := 0
+    i       := 0
     for i < len(line) && columns < n {
         switch line[i] {
         case ' ':
@@ -109,7 +109,7 @@ strip_columns :: proc(line: string, n: int) -> string {
 @(private)
 parse_blocks :: proc(b: ^Build, lines: []string) -> [dynamic]^Block {
     out := make([dynamic]^Block, context.temp_allocator)
-    i := 0
+    i   := 0
     for i < len(lines) {
         line := lines[i]
         if is_blank(line) {
@@ -117,7 +117,7 @@ parse_blocks :: proc(b: ^Build, lines: []string) -> [dynamic]^Block {
             continue
         }
         indent := indent_columns(line)
-        t := strings.trim_left_space(line)
+        t      := strings.trim_left_space(line)
 
         if indent >= 4 {
             i = parse_indented_code(&out, lines, i)
@@ -248,7 +248,7 @@ parse_paragraph :: proc(b: ^Build, out: ^[dynamic]^Block, lines: []string, at: i
 @(private = "file")
 parse_indented_code :: proc(out: ^[dynamic]^Block, lines: []string, at: int) -> int {
     rows := make([dynamic]string, context.temp_allocator)
-    i := at
+    i    := at
     for i < len(lines) && (is_blank(lines[i]) || indent_columns(lines[i]) >= 4) {
         append(&rows, strip_columns(lines[i], 4))
         i += 1
@@ -269,7 +269,7 @@ parse_fence :: proc(out: ^[dynamic]^Block, lines: []string, at, indent: int, fen
         info = info[:space]
     }
     rows := make([dynamic]string, context.temp_allocator)
-    i := at + 1
+    i    := at + 1
     for i < len(lines) && !fence_close(lines[i], fence, count) {
         append(&rows, strip_columns(lines[i], indent))
         i += 1
@@ -296,9 +296,9 @@ skip_comment :: proc(lines: []string, at: int) -> int {
 // `> [!NOTE]` on the first line makes it an alert.
 @(private = "file")
 parse_quote :: proc(b: ^Build, out: ^[dynamic]^Block, lines: []string, at: int) -> int {
-    inner := make([dynamic]string, context.temp_allocator)
+    inner   := make([dynamic]string, context.temp_allocator)
     in_text := false
-    i := at
+    i       := at
     for i < len(lines) {
         t := strings.trim_left_space(lines[i])
         if len(t) > 0 && t[0] == '>' && indent_columns(lines[i]) < 4 {
@@ -319,7 +319,7 @@ parse_quote :: proc(b: ^Build, out: ^[dynamic]^Block, lines: []string, at: int) 
         break
     }
 
-    blk := new_block(.Quote)
+    blk  := new_block(.Quote)
     body := inner[:]
     if len(body) > 0 {
         if kind, ok := alert_marker(body[0]); ok {
@@ -359,11 +359,11 @@ alert_marker :: proc(line: string) -> (Alert_Kind, bool) {
 // column, parsed again as blocks.
 @(private = "file")
 parse_list :: proc(b: ^Build, out: ^[dynamic]^Block, lines: []string, at: int) -> int {
-    list := new_block(.List)
+    list  := new_block(.List)
     first := true
-    i := at
+    i     := at
     for i < len(lines) {
-        t := strings.trim_left_space(lines[i])
+        t                                 := strings.trim_left_space(lines[i])
         marker, content, ordered, num, ok := list_item(t)
         if !ok || is_rule(t) {
             break
@@ -389,7 +389,7 @@ parse_list :: proc(b: ^Build, out: ^[dynamic]^Block, lines: []string, at: int) -
         body := make([dynamic]string, context.temp_allocator)
         append(&body, content)
         in_text := !is_blank(content)
-        blank := false
+        blank   := false
         i += 1
         for i < len(lines) {
             line := lines[i]
@@ -477,7 +477,7 @@ parse_details :: proc(b: ^Build, out: ^[dynamic]^Block, lines: []string, at: int
     blk := new_block(.Details)
     blk.summary = "Details"
     depth := 0
-    end := len(lines)
+    end   := len(lines)
     for i in at ..< len(lines) {
         t := strings.trim_space(lines[i])
         depth += strings.count(t, "<details")

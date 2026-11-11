@@ -17,14 +17,12 @@ import ui "../vendor/loom/loom"
 
 // Config files that moved from <name>.json to <name>.lua.
 @(private = "file")
-LUA_CONFIG_NAMES := [?]string {
-    "settings", "keybinds", "comments", "tips", "lsp", "tasks", "odin-analyzer", "odin-formatter",
-}
+LUA_CONFIG_NAMES := [?]string{"settings", "keybinds", "comments", "tips", "lsp", "tasks", "odin-analyzer", "odin-formatter"}
 
 // The only version that shows the card.
 LUA_CONFIG_NOTICE_VERSION :: "2026.11.0"
 // The record of notices the user closed.
-NOTICES_FILE :: "sessions/notices.json"
+NOTICES_FILE              :: "sessions/notices.json"
 @(private = "file")
 LUA_CONFIG_NOTICE_ID :: "lua-config"
 
@@ -41,7 +39,7 @@ thor_migrate_json_config :: proc(dir: string, converted: ^[dynamic]string) {
     }
     for name in LUA_CONFIG_NAMES {
         json_path := strings.concatenate({dir, "/", name, ".json"}, context.temp_allocator)
-        lua_path := strings.concatenate({dir, "/", name, ".lua"}, context.temp_allocator)
+        lua_path  := strings.concatenate({dir, "/", name, ".lua"}, context.temp_allocator)
         if os.exists(json_path) && luaconf.convert_json(json_path, lua_path) {
             append(converted, strings.clone(lua_path))
         }
@@ -56,7 +54,7 @@ thor_migrate_json_config :: proc(dir: string, converted: ^[dynamic]string) {
                 continue
             }
             loaded, ok := theme.load_json(json_path)
-            text := theme.encode(loaded)
+            text       := theme.encode(loaded)
             theme.destroy(&loaded)
             if !ok {
                 log.warnf("Not converting %q: it is not a theme", json_path)
@@ -73,7 +71,7 @@ thor_migrate_json_config :: proc(dir: string, converted: ^[dynamic]string) {
 
 // Converts plugins/<id>/plugin.json to manifest.lua under `plugins_dir`.
 thor_migrate_plugin_manifests :: proc(plugins_dir: string, converted: ^[dynamic]string) {
-    pattern := strings.concatenate({plugins_dir, "/*/plugin.json"}, context.temp_allocator)
+    pattern      := strings.concatenate({plugins_dir, "/*/plugin.json"}, context.temp_allocator)
     matches, err := filepath.glob(pattern, context.temp_allocator)
     if err != nil {
         return
@@ -126,8 +124,9 @@ thor_lua_notice_check :: proc(thor: ^Thor, workspace_dir: string) {
     if VERSION != LUA_CONFIG_NOTICE_VERSION {
         return
     }
-    if len(thor.lua_converted) == 0 && !thor_has_converted_backup(setting.USER_DIR) &&
-       (workspace_dir == "" || !thor_has_converted_backup(thor_workspace_config_dir(workspace_dir))) {
+    if len(thor.lua_converted) == 0 &&
+        !thor_has_converted_backup(setting.USER_DIR) &&
+        (workspace_dir == "" || !thor_has_converted_backup(thor_workspace_config_dir(workspace_dir))) {
         return
     }
     record := thor_read_notices()
@@ -216,10 +215,7 @@ thor_lua_notice_view :: proc(thor: ^Thor) {
     )
     for path, i in thor.lua_converted {
         if i == 6 {
-            ui.label(
-                "and more; see user/thor.log",
-                {key = "more", props = {color = thor.theme.disabled, text_wrap = .None}},
-            )
+            ui.label("and more; see user/thor.log", {key = "more", props = {color = thor.theme.disabled, text_wrap = .None}})
             break
         }
         ui.push_id_int(i64(i))

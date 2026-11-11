@@ -9,16 +9,16 @@ import "core:strings"
 import "core:thread"
 import "core:time"
 
-import "../shell"
-import "../textedit"
 import "../editview"
 import "../lockfree"
 import "../prof"
+import "../shell"
+import "../textedit"
 // Async `git status --porcelain`: a worker captures the output, the main thread
 // parses it into an absolute-path -> status map. Every ancestor directory of a
 // change is marked too, so folders containing changes get tinted.
 Git_Status_Job :: struct {
-    queue_next: ^Git_Status_Job, // link in Thor.finished_git
+    queue_next:  ^Git_Status_Job, // link in Thor.finished_git
     owner:       ^Thor,
     allocator:   runtime.Allocator,
     worker:      ^thread.Thread,
@@ -57,7 +57,7 @@ thor_refresh_git_status :: proc(thor: ^Thor) {
     thor.git_status_at = time.tick_now()
 
     // A path outside the repo fails the whole diff, so only paths inside it go in.
-    root := strings.trim_right(thor.git_prefix, "/\\")
+    root  := strings.trim_right(thor.git_prefix, "/\\")
     paths := make([dynamic]string, context.temp_allocator)
     for file in thor.open_files {
         if !file.closed && file.path != "" && thor_path_within(file.path, root) {
@@ -184,7 +184,7 @@ thor_clear_git_status :: proc(thor: ^Thor) {
 
 // Tree_Status_Proc: look up a path's status for highlighting.
 thor_tree_git_status :: proc(data: rawptr, path: string, _: bool) -> Git_Status {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if status, ok := thor.git_status[git_map_key(path)]; ok {
         return status
     }
@@ -227,7 +227,7 @@ git_unquote_path :: proc(path: string) -> string {
         return path
     }
     inner := path[1:len(path) - 1]
-    b := strings.builder_make(context.temp_allocator)
+    b     := strings.builder_make(context.temp_allocator)
     for i := 0; i < len(inner); {
         if inner[i] != '\\' || i + 1 >= len(inner) {
             strings.write_byte(&b, inner[i])
@@ -378,7 +378,7 @@ git_put :: proc(out: ^map[string]Git_Status, abs: string, status: Git_Status) {
 
 @(private)
 git_valid_code :: proc(code: string) -> bool {
-    for c in transmute([]u8) code {
+    for c in transmute([]u8)code {
         switch c {
         case ' ', 'M', 'A', 'D', 'R', 'C', 'U', '?', '!':
         case:
@@ -399,9 +399,12 @@ git_status_from_code :: proc(code: string) -> Git_Status {
     }
     x, y := code[0], code[1]
     switch {
-    case x == 'D' || y == 'D': return .Deleted
-    case x == 'R' || y == 'R': return .Renamed
-    case x == 'A' || y == 'A': return .Added
+    case x == 'D' || y == 'D':
+        return .Deleted
+    case x == 'R' || y == 'R':
+        return .Renamed
+    case x == 'A' || y == 'A':
+        return .Added
     }
     return .Modified
 }
@@ -413,7 +416,7 @@ git_status_from_code :: proc(code: string) -> Git_Status {
 // line right after the removal (or line 0 if the removal was at the top).
 @(private)
 git_parse_diff :: proc(thor: ^Thor, output: string, out: ^map[string][dynamic]editview.Diff_Line_Kind) {
-    it := output
+    it      := output
     current := "" // absolute path the following hunks belong to; empty = skip
 
     for line in strings.split_lines_iterator(&it) {
@@ -486,7 +489,7 @@ git_diff_ensure_len :: proc(arr: ^[dynamic]editview.Diff_Line_Kind, n: int) {
 // Parses a "@@ -old_start[,old_count] +new_start[,new_count] @@ ..." header.
 @(private = "file")
 git_parse_hunk_header :: proc(line: string) -> (old_count, new_start, new_count: int, ok: bool) {
-    rest := line[3:] // strip leading "@@ "
+    rest  := line[3:] // strip leading "@@ "
     close := strings.index(rest, " @@")
     if close < 0 {
         return

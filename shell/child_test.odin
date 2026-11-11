@@ -22,7 +22,7 @@ KILL_TIMEOUT :: 5 * time.Second
 // wants them apart.
 @(test)
 test_child_keeps_stderr_separate :: proc(t: ^testing.T) {
-    command := "echo out & echo err 1>&2" when ODIN_OS == .Windows else "echo out; echo err 1>&2"
+    command   := "echo out & echo err 1>&2" when ODIN_OS == .Windows else "echo out; echo err 1>&2"
     child, ok := start_shell_child(command)
     if !testing.expect(t, ok, "the child did not start") {
         return
@@ -47,7 +47,7 @@ test_child_keeps_stderr_separate :: proc(t: ^testing.T) {
 // closing stdin ends its input without killing it.
 @(test)
 test_child_writes_stdin :: proc(t: ^testing.T) {
-    filter := "sort" when ODIN_OS == .Windows else "cat"
+    filter    := "sort" when ODIN_OS == .Windows else "cat"
     child, ok := start_shell_child(filter)
     if !testing.expect(t, ok, "the child did not start") {
         return
@@ -55,13 +55,13 @@ test_child_writes_stdin :: proc(t: ^testing.T) {
     defer child_destroy(child)
     defer child_terminate(child)
 
-    testing.expect(t, child_write(child, transmute([]u8) string("alpha\nbeta\n")), "the write failed")
+    testing.expect(t, child_write(child, transmute([]u8)string("alpha\nbeta\n")), "the write failed")
     child_close_in(child)
 
     out := read_stream(child, true)
     defer delete(out)
     alpha := strings.index(out, "alpha")
-    beta := strings.index(out, "beta")
+    beta  := strings.index(out, "beta")
     testing.expectf(t, alpha >= 0 && beta >= 0, "the input did not come back: %q", out)
     testing.expectf(t, alpha < beta, "the order was lost: %q", out)
 }
@@ -70,7 +70,7 @@ test_child_writes_stdin :: proc(t: ^testing.T) {
 // entry passes a flag no argument carries.
 @(test)
 test_child_env_overlay :: proc(t: ^testing.T) {
-    command := "echo %THOR_CHILD_TEST%" when ODIN_OS == .Windows else "echo $THOR_CHILD_TEST"
+    command   := "echo %THOR_CHILD_TEST%" when ODIN_OS == .Windows else "echo $THOR_CHILD_TEST"
     child, ok := start_shell_child(command, "", {"THOR_CHILD_TEST=marker"})
     if !testing.expect(t, ok, "the child did not start") {
         return
@@ -90,7 +90,7 @@ test_child_env_overlay_keeps_the_parent :: proc(t: ^testing.T) {
     if os.get_env("PATH", context.temp_allocator) == "" {
         return
     }
-    command := "echo [%PATH%]" when ODIN_OS == .Windows else "echo [$PATH]"
+    command   := "echo [%PATH%]" when ODIN_OS == .Windows else "echo [$PATH]"
     child, ok := start_shell_child(command, "", {"THOR_CHILD_TEST=marker"})
     if !testing.expect(t, ok, "the child did not start") {
         return
@@ -107,7 +107,7 @@ test_child_env_overlay_keeps_the_parent :: proc(t: ^testing.T) {
 // spec names and not the editor's own.
 @(test)
 test_child_cwd :: proc(t: ^testing.T) {
-    command := "cd" when ODIN_OS == .Windows else "pwd"
+    command   := "cd" when ODIN_OS == .Windows else "pwd"
     child, ok := start_shell_child(command, "assets")
     if !testing.expect(t, ok, "the child did not start") {
         return

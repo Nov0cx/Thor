@@ -29,50 +29,41 @@ Mock :: struct {
 }
 
 mock_transport :: proc(mock: ^Mock) -> Transport {
-    return Transport {
-        data = mock,
-        write = proc(data: rawptr, bytes: []u8) -> bool {
-            mock := (^Mock)(data)
-            for mock.stall {
-                sync.lock(&mock.mutex)
-                closed := mock.closed
-                sync.unlock(&mock.mutex)
-                if closed {
-                    return false
-                }
-                time.sleep(time.Millisecond)
-            }
-            sync.guard(&mock.mutex)
-            if mock.closed {
+    return Transport{data = mock, write = proc(data: rawptr, bytes: []u8) -> bool {
+        mock := (^Mock)(data)
+        for mock.stall {
+            sync.lock(&mock.mutex)
+            closed := mock.closed
+            sync.unlock(&mock.mutex)
+            if closed {
                 return false
             }
-            append(&mock.to_server, ..bytes)
-            return true
-        },
-        read_out = proc(data: rawptr, buf: []u8) -> int {
-            mock := (^Mock)(data)
-            return mock_read(mock, &mock.to_client, &mock.out_ready, buf)
-        },
-        read_err = proc(data: rawptr, buf: []u8) -> int {
-            mock := (^Mock)(data)
-            return mock_read(mock, &mock.to_error, &mock.err_ready, buf)
-        },
-        close = proc(data: rawptr) {
-            mock_close((^Mock)(data))
-        },
-        terminate = proc(data: rawptr) {
-            mock_close((^Mock)(data))
-        },
-        kill = proc(data: rawptr) {
-            mock_close((^Mock)(data))
-        },
-        destroy = proc(data: rawptr) {
-            mock := (^Mock)(data)
-            delete(mock.to_server)
-            delete(mock.to_client)
-            delete(mock.to_error)
-        },
-    }
+            time.sleep(time.Millisecond)
+        }
+        sync.guard(&mock.mutex)
+        if mock.closed {
+            return false
+        }
+        append(&mock.to_server, ..bytes)
+        return true
+    }, read_out = proc(data: rawptr, buf: []u8) -> int {
+        mock := (^Mock)(data)
+        return mock_read(mock, &mock.to_client, &mock.out_ready, buf)
+    }, read_err = proc(data: rawptr, buf: []u8) -> int {
+        mock := (^Mock)(data)
+        return mock_read(mock, &mock.to_error, &mock.err_ready, buf)
+    }, close = proc(data: rawptr) {
+        mock_close((^Mock)(data))
+    }, terminate = proc(data: rawptr) {
+        mock_close((^Mock)(data))
+    }, kill = proc(data: rawptr) {
+        mock_close((^Mock)(data))
+    }, destroy = proc(data: rawptr) {
+        mock := (^Mock)(data)
+        delete(mock.to_server)
+        delete(mock.to_client)
+        delete(mock.to_error)
+    }}
 }
 
 // Queues bytes for the client to read, the way a server writing to its stdout
@@ -145,7 +136,7 @@ mock_has :: proc(mock: ^Mock, needle: string) -> bool {
 mock_frame :: proc(mock: ^Mock, body: string) {
     out := make([dynamic]u8, context.allocator)
     defer delete(out)
-    frame_write(&out, transmute([]u8) body)
+    frame_write(&out, transmute([]u8)body)
     mock_send(mock, out[:])
 }
 
@@ -229,7 +220,7 @@ serve_dispatch :: proc(s: ^Serve, body: []u8) {
     if !is_object {
         return
     }
-    method, _ := object["method"].(json.String)
+    method, _  := object["method"].(json.String)
     id, has_id := number(object["id"])
     if !has_id || s.answer == nil {
         // A notification needs no answer.
@@ -247,7 +238,7 @@ test_mock_transport_carries_a_frame :: proc(t: ^testing.T) {
     defer transport.destroy(transport.data)
 
     out := make([dynamic]u8, context.temp_allocator)
-    frame_write(&out, transmute([]u8) string(`{"method":"initialize"}`))
+    frame_write(&out, transmute([]u8)string(`{"method":"initialize"}`))
     testing.expect(t, transport.write(transport.data, out[:]), "the write failed")
 
     received := make([dynamic]u8, context.temp_allocator)
@@ -267,7 +258,7 @@ test_mock_transport_reads_are_not_messages :: proc(t: ^testing.T) {
     defer transport.destroy(transport.data)
 
     whole := make([dynamic]u8, context.temp_allocator)
-    frame_write(&whole, transmute([]u8) string("first"))
+    frame_write(&whole, transmute([]u8)string("first"))
     split := len(whole) - 2
     mock_send(&mock, whole[:split])
 
@@ -283,7 +274,7 @@ test_mock_transport_reads_are_not_messages :: proc(t: ^testing.T) {
     // The rest of the first frame and a whole second one, in one read.
     rest := make([dynamic]u8, context.temp_allocator)
     append(&rest, ..whole[split:])
-    frame_write(&rest, transmute([]u8) string("second"))
+    frame_write(&rest, transmute([]u8)string("second"))
     mock_send(&mock, rest[:])
 
     read = transport.read_out(transport.data, chunk[:])
@@ -304,8 +295,8 @@ test_mock_transport_streams_stay_apart :: proc(t: ^testing.T) {
     transport := mock_transport(&mock)
     defer transport.destroy(transport.data)
 
-    mock_send(&mock, transmute([]u8) string("body"), true)
-    mock_send(&mock, transmute([]u8) string("log"), false)
+    mock_send(&mock, transmute([]u8)string("body"), true)
+    mock_send(&mock, transmute([]u8)string("log"), false)
 
     out, err: [64]u8
     out_read := transport.read_out(transport.data, out[:])
@@ -322,7 +313,7 @@ test_mock_transport_reports_the_end :: proc(t: ^testing.T) {
     transport := mock_transport(&mock)
     defer transport.destroy(transport.data)
 
-    mock_send(&mock, transmute([]u8) string("last"))
+    mock_send(&mock, transmute([]u8)string("last"))
     transport.close(transport.data)
 
     buf: [64]u8
@@ -330,7 +321,7 @@ test_mock_transport_reports_the_end :: proc(t: ^testing.T) {
     testing.expect_value(t, string(buf[:read]), "last")
     testing.expect_value(t, transport.read_out(transport.data, buf[:]), 0)
     testing.expect_value(t, transport.read_err(transport.data, buf[:]), 0)
-    testing.expect(t, !transport.write(transport.data, transmute([]u8) string("x")), "a closed transport took a write")
+    testing.expect(t, !transport.write(transport.data, transmute([]u8)string("x")), "a closed transport took a write")
 }
 
 // How long a test waits for a thread to do its work. Far above what any of these
@@ -380,12 +371,9 @@ wait_written :: proc(mock: ^Mock, needle: string) -> bool {
 @(test)
 test_conn_round_trip :: proc(t: ^testing.T) {
     mock: Mock
-    serve := Serve {
-        mock = &mock,
-        answer = proc(s: ^Serve, id: i64, method: string) {
-            mock_reply(s.mock, id, `{"ok":true}`)
-        },
-    }
+    serve := Serve{mock = &mock, answer = proc(s: ^Serve, id: i64, method: string) {
+        mock_reply(s.mock, id, `{"ok":true}`)
+    }}
     mock_serve(&serve)
     defer mock_serve_destroy(&serve)
     c := conn_start(mock_transport(&mock), context.allocator)
@@ -433,33 +421,27 @@ test_conn_correlates_out_of_order :: proc(t: ^testing.T) {
     mock: Mock
     held := make([dynamic]Held, context.allocator)
     defer delete(held)
-    serve := Serve {
-        mock = &mock,
-        data = &held,
-        answer = proc(s: ^Serve, id: i64, method: string) {
-            // Both are held back, then answered newest first with the method
-            // echoed, so a reply matched by arrival order swaps them visibly.
-            waiting := (^[dynamic]Held)(s.data)
-            append(waiting, Held{id = id, method = strings.clone(method, s.allocator)})
-            if len(waiting) < 2 {
-                return
-            }
-            for index := len(waiting) - 1; index >= 0; index -= 1 {
-                result := fmt.aprintf(`"%s"`, waiting[index].method)
-                mock_reply(s.mock, waiting[index].id, result)
-                delete(result)
-                delete(waiting[index].method, s.allocator)
-            }
-            clear(waiting)
-        },
-    }
+    serve := Serve{mock = &mock, data = &held, answer = proc(s: ^Serve, id: i64, method: string) {
+        // Both are held back, then answered newest first with the method
+        // echoed, so a reply matched by arrival order swaps them visibly.
+        waiting := (^[dynamic]Held)(s.data)
+        append(waiting, Held{id = id, method = strings.clone(method, s.allocator)})
+        if len(waiting) < 2 {
+            return
+        }
+        for index := len(waiting) - 1; index >= 0; index -= 1 {
+            result := fmt.aprintf(`"%s"`, waiting[index].method)
+            mock_reply(s.mock, waiting[index].id, result)
+            delete(result)
+            delete(waiting[index].method, s.allocator)
+        }
+        clear(waiting)
+    }}
     mock_serve(&serve)
     defer mock_serve_destroy(&serve)
     c := conn_start(mock_transport(&mock), context.allocator)
 
-    second := Second_Call {
-        conn = c,
-    }
+    second := Second_Call{conn = c}
     worker := thread.create_and_start_with_poly_data(&second, second_call)
 
     first_value, first_error := conn_call(c, "alpha", "", WAIT_LIMIT)
@@ -468,7 +450,7 @@ test_conn_correlates_out_of_order :: proc(t: ^testing.T) {
 
     testing.expect_value(t, first_error, Rpc_Error.None)
     testing.expect_value(t, second.error, Rpc_Error.None)
-    first_text, _ := first_value.(json.String)
+    first_text, _  := first_value.(json.String)
     second_text, _ := second.value.(json.String)
     testing.expect_value(t, string(first_text), "alpha")
     testing.expect_value(t, string(second_text), "beta")
@@ -484,12 +466,9 @@ test_conn_correlates_out_of_order :: proc(t: ^testing.T) {
 @(test)
 test_conn_reports_a_server_error :: proc(t: ^testing.T) {
     mock: Mock
-    serve := Serve {
-        mock = &mock,
-        answer = proc(s: ^Serve, id: i64, method: string) {
-            mock_reply_error(s.mock, id, -32000, "no")
-        },
-    }
+    serve := Serve{mock = &mock, answer = proc(s: ^Serve, id: i64, method: string) {
+        mock_reply_error(s.mock, id, -32000, "no")
+    }}
     mock_serve(&serve)
     defer mock_serve_destroy(&serve)
     c := conn_start(mock_transport(&mock), context.allocator)
@@ -515,7 +494,7 @@ test_conn_gives_up_on_the_deadline :: proc(t: ^testing.T) {
     c := conn_start(mock_transport(&mock), context.allocator)
     defer conn_destroy(c)
 
-    start := time.tick_now()
+    start      := time.tick_now()
     value, err := conn_call(c, "textDocument/hover", "", 60 * time.Millisecond)
     testing.expect_value(t, err, Rpc_Error.Timeout)
     testing.expect(t, value == nil, "a timeout carries no result")
@@ -527,12 +506,9 @@ test_conn_gives_up_on_the_deadline :: proc(t: ^testing.T) {
 @(test)
 test_conn_fails_a_waiter_at_the_end_of_the_stream :: proc(t: ^testing.T) {
     mock: Mock
-    serve := Serve {
-        mock = &mock,
-        answer = proc(s: ^Serve, id: i64, method: string) {
-            mock_close(s.mock)
-        },
-    }
+    serve := Serve{mock = &mock, answer = proc(s: ^Serve, id: i64, method: string) {
+        mock_close(s.mock)
+    }}
     mock_serve(&serve)
     defer mock_serve_destroy(&serve)
     c := conn_start(mock_transport(&mock), context.allocator)
@@ -569,7 +545,7 @@ test_conn_cancels_on_the_flag :: proc(t: ^testing.T) {
     c := conn_start(mock_transport(&mock), context.allocator)
     defer conn_destroy(c)
 
-    cancel := true
+    cancel     := true
     value, err := conn_call(c, "textDocument/completion", "", WAIT_LIMIT, &cancel)
     testing.expect_value(t, err, Rpc_Error.Cancelled)
     testing.expect(t, value == nil, "a cancelled call carries no result")
@@ -584,10 +560,7 @@ test_conn_queues_a_notification :: proc(t: ^testing.T) {
     c := conn_start(mock_transport(&mock), context.allocator)
     defer conn_destroy(c)
 
-    mock_frame(
-        &mock,
-        `{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///a.odin"}}`,
-    )
+    mock_frame(&mock, `{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///a.odin"}}`)
     note, ok := wait_notification(c)
     testing.expect(t, ok, "the notification never arrived")
     if !ok {
@@ -613,11 +586,7 @@ test_conn_answers_the_server :: proc(t: ^testing.T) {
     testing.expect(t, wait_written(&mock, `{"jsonrpc":"2.0","id":1,"result":null}`), "the registration went unanswered")
 
     mock_frame(&mock, `{"jsonrpc":"2.0","id":2,"method":"workspace/applyEdit","params":{}}`)
-    testing.expect(
-        t,
-        wait_written(&mock, `{"jsonrpc":"2.0","id":2,"result":{"applied":false}}`),
-        "an edit must be refused, not ignored",
-    )
+    testing.expect(t, wait_written(&mock, `{"jsonrpc":"2.0","id":2,"result":{"applied":false}}`), "an edit must be refused, not ignored")
 
     mock_frame(&mock, `{"jsonrpc":"2.0","id":3,"method":"window/showMessageRequest","params":{}}`)
     testing.expect(t, wait_written(&mock, `{"jsonrpc":"2.0","id":3,"result":null}`), "a message request must get no action")
@@ -634,25 +603,18 @@ test_conn_answers_configuration_per_item :: proc(t: ^testing.T) {
     c := conn_start(mock_transport(&mock), context.allocator)
     defer conn_destroy(c)
 
-    mock_frame(
-        &mock,
-        `{"jsonrpc":"2.0","id":3,"method":"workspace/configuration","params":{"items":[{"section":"a"},{"section":"b"}]}}`,
-    )
-    testing.expect(
-        t,
-        wait_written(&mock, `{"jsonrpc":"2.0","id":3,"result":[null,null]}`),
-        "the answer did not match the request",
-    )
+    mock_frame(&mock, `{"jsonrpc":"2.0","id":3,"method":"workspace/configuration","params":{"items":[{"section":"a"},{"section":"b"}]}}`)
+    testing.expect(t, wait_written(&mock, `{"jsonrpc":"2.0","id":3,"result":[null,null]}`), "the answer did not match the request")
 }
 
 // Each item gets the part of the settings its section names.
 @(test)
 test_configuration_answer_by_section :: proc(t: ^testing.T) {
     settings := `{"gopls":{"ui":{"hints":true},"local":"x"},"other":1}`
-    cases := [?]struct {
+    cases    := [?]struct {
         params: string,
         want:   string,
-    } {
+    }{
         {`{"items":[{"section":"gopls"}]}`, `[{"local":"x","ui":{"hints":true}}]`},
         {`{"items":[{"section":"gopls.ui"},{"section":"other"}]}`, `[{"hints":true},1]`},
         {`{"items":[{"section":"gopls.missing"}]}`, `[null]`},
@@ -701,7 +663,7 @@ test_conn_ends_on_a_broken_frame :: proc(t: ^testing.T) {
     c := conn_start(mock_transport(&mock), context.allocator)
     defer conn_destroy(c)
 
-    mock_send(&mock, transmute([]u8) string("Content-Length: abc\r\n\r\n"))
+    mock_send(&mock, transmute([]u8)string("Content-Length: abc\r\n\r\n"))
     testing.expect(t, wait_closed(c), "a broken frame left the connection open")
 
     _, err := conn_call(c, "textDocument/hover", "", WAIT_LIMIT)
@@ -716,10 +678,10 @@ test_conn_keeps_the_stderr_tail :: proc(t: ^testing.T) {
     c := conn_start(mock_transport(&mock), context.allocator)
     defer conn_destroy(c)
 
-    mock_send(&mock, transmute([]u8) string("panic: no memory\n"), false)
+    mock_send(&mock, transmute([]u8)string("panic: no memory\n"), false)
     start := time.tick_now()
     for {
-        tail := conn_stderr_tail(c, context.allocator)
+        tail  := conn_stderr_tail(c, context.allocator)
         found := strings.contains(tail, "panic: no memory")
         delete(tail)
         if found {

@@ -211,9 +211,9 @@ package_redeclarations :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Re
     if live < 0 {
         return
     }
-    guards := Guard_Ctx{rc = rc, view = view, states = make(map[odinsema.Item_Ref]odinsema.Tri, 16, context.temp_allocator)}
-    done := make(map[string]struct{}, 16, context.temp_allocator)
-    clash := make([dynamic]odinsema.Item_Ref, context.temp_allocator)
+    guards  := Guard_Ctx{rc = rc, view = view, states = make(map[odinsema.Item_Ref]odinsema.Tri, 16, context.temp_allocator)}
+    done    := make(map[string]struct {}, 16, context.temp_allocator)
+    clash   := make([dynamic]odinsema.Item_Ref, context.temp_allocator)
     offsets := make([dynamic]int, context.temp_allocator)
     for item in rc.live.tree.items {
         if item.kind == .Import || item.kind == .Foreign_Import || item.name == "_" || item.name in done {
@@ -266,15 +266,15 @@ add_ref :: proc(list: ^[dynamic]odinsema.Item_Ref, ref: odinsema.Item_Ref) {
 Guard_Ctx :: struct {
     rc:     ^Request_Context,
     view:   ^odinsema.Package_View,
-    file:   int, // the file of the guard being resolved
+    file:   int,                                // the file of the guard being resolved
     states: map[odinsema.Item_Ref]odinsema.Tri, // by item
 }
 
 @(private = "file")
 refs_clash :: proc(g: ^Guard_Ctx, a, b: odinsema.Item_Ref) -> bool {
     files := g.view.sema_files
-    ia := odinsema.package_item(files, a)
-    ib := odinsema.package_item(files, b)
+    ia    := odinsema.package_item(files, a)
+    ib    := odinsema.package_item(files, b)
     // A file-private declaration is in the file's own scope, so only another file-private one of that file meets it.
     if (a.file != b.file && (ia.visibility == .File || ib.visibility == .File)) || (ia.visibility == .File) != (ib.visibility == .File) {
         return false
@@ -290,7 +290,7 @@ item_state :: proc(g: ^Guard_Ctx, ref: odinsema.Item_Ref) -> odinsema.Tri {
     tree := g.view.sema_files[ref.file].items
     g.file = ref.file
     resolver := odinsema.Guard_Resolver{resolve_guard, g}
-    state := odinsema.guard_state(tree, tree.items[ref.item].guard, g.rc.target, &resolver)
+    state    := odinsema.guard_state(tree, tree.items[ref.item].guard, g.rc.target, &resolver)
     g.states[ref] = state
     return state
 }
@@ -298,7 +298,7 @@ item_state :: proc(g: ^Guard_Ctx, ref: odinsema.Item_Ref) -> odinsema.Tri {
 // The condition of guard `guard` of the file being resolved, read from its parse by the checker.
 @(private = "file")
 resolve_guard :: proc(data: rawptr, tree: ^odinsema.Item_Tree, guard: int) -> odinsema.Tri {
-    g := cast(^Guard_Ctx)data
+    g  := cast(^Guard_Ctx)data
     rc := g.rc
     id := g.view.files[g.file]
     parsed: ^odinsyntax.Parse
@@ -329,7 +329,7 @@ when_cond_at :: proc(root: odinsyntax.Syntax_Node, offset: int) -> (odinsyntax.S
             }
         }
         next_found := false
-        it := odinsyntax.child_iter(&n, {kinds = ~odinsyntax.Kind_Set{}})
+        it         := odinsyntax.child_iter(&n, {kinds = ~odinsyntax.Kind_Set{}})
         for child in odinsyntax.child_iter_next(&it) {
             start, end := odinsyntax.node_range(child)
             if int(start) <= offset && offset < int(end) {
@@ -371,7 +371,7 @@ import_cycles :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) {
         return
     }
     imports := odinsema.db_imports(&rc.snap, rc.live.id)
-    dirs := make([]string, len(imports), context.temp_allocator)
+    dirs    := make([]string, len(imports), context.temp_allocator)
     for imp, i in imports {
         if !imp.is_foreign && imp.exists && imp.problem == .None && imp.collection != "base" && imp.collection != "core" && imp.collection != "vendor" {
             dirs[i] = imp.dir
@@ -389,7 +389,7 @@ import_cycles :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) {
 @(private = "file")
 import_redeclarations :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) {
     imports := odinsema.db_imports(&rc.snap, rc.live.id)
-    seen := make(map[string]struct{}, len(imports), context.temp_allocator)
+    seen    := make(map[string]struct {}, len(imports), context.temp_allocator)
     for imp in imports {
         if imp.is_foreign || !imp.alias_valid || imp.alias == "_" || (imp.problem != .None && imp.problem != .No_Odin_Root) {
             continue
@@ -419,7 +419,7 @@ local_redeclarations :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, whens
     }
     // Source order: a hoisted constant is declared ahead of the statements before it.
     locals := m.locals
-    order := make([]int, len(locals), context.temp_allocator)
+    order  := make([]int, len(locals), context.temp_allocator)
     for i in 0 ..< len(order) {
         order[i] = i
     }
@@ -488,7 +488,7 @@ member_redeclarations :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, repo
         record: int,
         name:   string,
     }
-    seen := make(map[Member_Key]struct{}, 64, context.temp_allocator)
+    seen := make(map[Member_Key]struct {}, 64, context.temp_allocator)
     for ref in m.refs {
         if ref.kind != .Member_Decl || ref.name == "_" {
             continue
@@ -620,7 +620,7 @@ when_state :: proc(rc: ^Request_Context, cond: odinsyntax.Syntax_Node, file: odi
 @(private = "file")
 collect_when_chain :: proc(n: odinsyntax.Syntax_Node, reached: odinsema.Tri, rc: ^Request_Context, out: ^[dynamic]Branch) {
     ws, _ := odinsyntax.as_when_stmt(n)
-    cond := odinsema.Tri.Unknown
+    cond  := odinsema.Tri.Unknown
     if c, ok := odinsyntax.when_stmt_cond(&ws); ok {
         cond = when_state(rc, c, rc.live.id)
     }
@@ -648,7 +648,7 @@ collect_when_chain :: proc(n: odinsyntax.Syntax_Node, reached: odinsema.Tri, rc:
 sort_by_offset :: proc(order: []int, locals: []odinsema.Local) {
     for i in 1 ..< len(order) {
         cur := order[i]
-        j := i
+        j   := i
         for j > 0 && locals[order[j - 1]].name_offset > locals[cur].name_offset {
             order[j] = order[j - 1]
             j -= 1

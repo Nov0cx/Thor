@@ -26,13 +26,7 @@ Platform :: struct {
 // The events worth a report. CLOSE_WRITE rather than MODIFY: a writer that
 // flushes in parts is still one change, and a reload wants the finished file.
 @(private = "file")
-EVENTS :: linux.Inotify_Event_Mask {
-    .CREATE,
-    .DELETE,
-    .MOVED_FROM,
-    .MOVED_TO,
-    .CLOSE_WRITE,
-}
+EVENTS :: linux.Inotify_Event_Mask{.CREATE, .DELETE, .MOVED_FROM, .MOVED_TO, .CLOSE_WRITE}
 
 // How long a wait for events lasts before the worker reads `stopping`, in
 // milliseconds; the shutdown latency of the poller.
@@ -127,7 +121,7 @@ watch_worker :: proc(w: ^Watcher) {
             watch_degrade(w)
             return
         }
-        fds := []linux.Poll_Fd {{fd = w.platform.fd, events = {.IN}}}
+        fds := []linux.Poll_Fd{{fd = w.platform.fd, events = {.IN}}}
         // A wait that ends in a signal or an error reads `stopping` and waits
         // again; nothing is lost, the events stay queued.
         if ready, err := linux.poll(fds, POLL_TIMEOUT); err != .NONE || ready <= 0 {
@@ -169,8 +163,8 @@ watch_consume :: proc(w: ^Watcher, buffer: []u8) {
     HEADER :: size_of(linux.Inotify_Event)
     offset := 0
     for offset + HEADER <= len(buffer) {
-        event := cast(^linux.Inotify_Event) raw_data(buffer[offset:])
-        next := offset + HEADER + int(event.len)
+        event := cast(^linux.Inotify_Event)raw_data(buffer[offset:])
+        next  := offset + HEADER + int(event.len)
         if next > len(buffer) {
             break
         }

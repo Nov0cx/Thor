@@ -39,7 +39,7 @@ frame_write :: proc(out: ^[dynamic]u8, body: []u8) {
 // resynchronise from it: the caller kills the server.
 frame_take :: proc(buf: ^[dynamic]u8, allocator := context.allocator) -> (body: []u8, err: Frame_Error, ok: bool) {
     text := string(buf[:])
-    end := strings.index(text, "\r\n\r\n")
+    end  := strings.index(text, "\r\n\r\n")
     if end < 0 {
         // Only "\r\n" ends a header line. A bare "\n\n" is not a terminator, and
         // guessing that it is one is what desynchronises a parser for good.
@@ -75,7 +75,7 @@ frame_take :: proc(buf: ^[dynamic]u8, allocator := context.allocator) -> (body: 
 // not a guess worth making.
 @(private = "file")
 content_length :: proc(header: string) -> (int, Frame_Error) {
-    rest := header
+    rest   := header
     length := -1
     for line in strings.split_iterator(&rest, "\r\n") {
         if line == "" {

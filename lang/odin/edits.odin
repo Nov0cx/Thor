@@ -38,9 +38,9 @@ Caret :: struct {
 @(private)
 request_caret :: proc(rc: ^Request_Context) -> Caret {
     src := rc.req.source
-    lo := clamp(rc.req.offset, 0, len(src))
-    hi := rc.req.end < 0 ? lo : clamp(rc.req.end, lo, len(src))
-    c := Caret{offset = lo, sel_end = hi, line_start = line_start(src, lo), line_end = line_end(src, hi)}
+    lo  := clamp(rc.req.offset, 0, len(src))
+    hi  := rc.req.end < 0 ? lo : clamp(rc.req.end, lo, len(src))
+    c   := Caret{offset = lo, sel_end = hi, line_start = line_start(src, lo), line_end = line_end(src, hi)}
     c.first, _ = offset_line_col(rc.live.lines, c.line_start)
     c.last, _ = offset_line_col(rc.live.lines, c.line_end)
     return c
@@ -69,7 +69,7 @@ line_end :: proc(src: string, offset: int) -> int {
 @(private)
 line_indent :: proc(src: string, offset: int) -> string {
     ls := line_start(src, offset)
-    i := ls
+    i  := ls
     for i < len(src) && (src[i] == ' ' || src[i] == '\t') {
         i += 1
     }
@@ -82,7 +82,7 @@ indent_unit :: proc(req: ^lang.Request) -> string {
     if req.tab_size > 0 {
         return "\t" if req.use_tabs else strings.repeat(" ", req.tab_size, context.temp_allocator)
     }
-    src := req.source
+    src   := req.source
     least := 0
     for i := 0; i < len(src); {
         if src[i] == '\t' {
@@ -159,9 +159,9 @@ push_file_action :: proc(res: ^lang.Result, kind, title: string, specs: []File_E
 // An owned action with the edits sorted by path and start.
 @(private)
 make_action :: proc(kind, title: string, specs: []File_Edit, ops: []lang.Resource_Op = nil) -> (action: lang.Code_Action, ok: bool) {
-    sorted := sort_file_edits(specs)
-    t, e1 := strings.clone(title)
-    k, e2 := strings.clone(kind)
+    sorted    := sort_file_edits(specs)
+    t, e1     := strings.clone(title)
+    k, e2     := strings.clone(kind)
     edits, e3 := make([dynamic]lang.Text_Edit, 0, len(sorted))
     action = lang.Code_Action{title = t, kind = k, edits = edits}
     if e1 != nil || e2 != nil || e3 != nil {
@@ -193,9 +193,9 @@ sort_file_edits :: proc(specs: []File_Edit) -> []File_Edit {
 append_edits :: proc(out: ^[dynamic]lang.Text_Edit, specs: []File_Edit) -> bool {
     for s in specs {
         path, p1 := strings.clone(s.path)
-        old, p2 := strings.clone(s.source[s.start:s.end])
+        old, p2  := strings.clone(s.source[s.start:s.end])
         text, p3 := strings.clone(s.text)
-        edit := lang.Text_Edit{path = path, start = s.start, end = s.end, old_text = old, new_text = text}
+        edit     := lang.Text_Edit{path = path, start = s.start, end = s.end, old_text = old, new_text = text}
         if p1 != nil || p2 != nil || p3 != nil {
             free_edit(edit)
             return false
@@ -212,9 +212,9 @@ append_edits :: proc(out: ^[dynamic]lang.Text_Edit, specs: []File_Edit) -> bool 
 @(private)
 append_ops :: proc(out: ^[dynamic]lang.Resource_Op, ops: []lang.Resource_Op) -> bool {
     for op in ops {
-        path, p1 := strings.clone(op.path)
+        path, p1     := strings.clone(op.path)
         new_path, p2 := strings.clone(op.new_path)
-        o := op
+        o            := op
         o.path, o.new_path = path, new_path
         if p1 != nil || p2 != nil {
             delete(path)

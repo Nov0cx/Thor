@@ -16,9 +16,9 @@ import_cycles :: proc(snap: ^Snapshot, home: Package_Id, dirs: []string) -> []bo
         return out
     }
     starts := make([]Package_Id, len(dirs), snap.alloc)
-    seen := make(map[Package_Id]struct{}, 16, snap.alloc)
-    queue := make([dynamic]Package_Id, 0, 16, snap.alloc)
-    edges := make([dynamic]Edge, 0, 64, snap.alloc)
+    seen   := make(map[Package_Id]struct {}, 16, snap.alloc)
+    queue  := make([dynamic]Package_Id, 0, 16, snap.alloc)
+    edges  := make([dynamic]Edge, 0, 64, snap.alloc)
     seen[home] = {}
     for dir, i in dirs {
         starts[i] = db_package_id(snap, dir)
@@ -64,7 +64,7 @@ import_cycles :: proc(snap: ^Snapshot, home: Package_Id, dirs: []string) -> []bo
             }
         }
     }
-    reaching := make(map[Package_Id]struct{}, 16, snap.alloc)
+    reaching := make(map[Package_Id]struct {}, 16, snap.alloc)
     reaching[home] = {}
     for changed := true; changed; {
         changed = false

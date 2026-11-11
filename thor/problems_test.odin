@@ -36,10 +36,11 @@ test_problem_groups_sorted_and_counted :: proc(t: ^testing.T) {
     thor.open_files = make([dynamic]^Open_File)
     defer delete(thor.open_files)
 
-    b := problems_file("pkg/b.odin", "x\ny\n", {
-        {start = 2, line = 1, severity = .Warning, message = "late"},
-        {start = 0, line = 0, severity = .Error, message = "early", code = "id"},
-    })
+    b := problems_file(
+        "pkg/b.odin",
+        "x\ny\n",
+        {{start = 2, line = 1, severity = .Warning, message = "late"}, {start = 0, line = 0, severity = .Error, message = "early", code = "id"}},
+    )
     defer problems_file_destroy(b)
     a := problems_file("pkg/a.odin", "x\n", {{start = 0, line = 0, severity = .Hint, message = "hint"}})
     defer problems_file_destroy(a)
@@ -83,7 +84,7 @@ test_problems_toggle_restores_focus :: proc(t: ^testing.T) {
 
 @(private = "file")
 closed_report :: proc(scope: string, items: []lang.Diagnostic) -> lang.Result {
-    res := lang.Result {kind = .Diagnostics, ok = true}
+    res := lang.Result{kind = .Diagnostics, ok = true}
     res.report.scope = scope
     res.report.items = make([dynamic]lang.Diagnostic)
     for d in items {
@@ -104,12 +105,15 @@ test_problem_groups_list_closed_files :: proc(t: ^testing.T) {
     defer problems_file_destroy(open)
     append(&thor.open_files, open)
 
-    res := closed_report("pkg", {
-        {path = "pkg/a.odin", line = 1, col = 1, severity = .Error, message = "dup"},
-        {path = "pkg/z.odin", line = 3, col = 2, severity = .Error, message = "late", code = "id"},
-        {path = "pkg/z.odin", line = 1, col = 5, severity = .Warning, message = "early"},
-        {path = "pkg/b.odin", line = 2, col = 1, severity = .Error, message = "b"},
-    })
+    res := closed_report(
+        "pkg",
+        {
+            {path = "pkg/a.odin", line = 1, col = 1, severity = .Error, message = "dup"},
+            {path = "pkg/z.odin", line = 3, col = 2, severity = .Error, message = "late", code = "id"},
+            {path = "pkg/z.odin", line = 1, col = 5, severity = .Warning, message = "early"},
+            {path = "pkg/b.odin", line = 2, col = 1, severity = .Error, message = "b"},
+        },
+    )
     defer delete(res.report.items)
     thor_package_problems_store(&thor, &res)
     testing.expect_value(t, len(thor.package_problems), 3)

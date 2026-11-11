@@ -52,19 +52,19 @@ Fake :: struct {
     config:     Server_Config,
     extensions: [1]string,
     command:    [1]string,
-    caps:       string, // the initialize result it answers with
-    result:     string, // what it answers every other request with; "" answers null
+    caps:       string,            // the initialize result it answers with
+    result:     string,            // what it answers every other request with; "" answers null
     by_method:  map[string]string, // method -> reply body; overrides result for that method
-    opens:      int,    // how many times a transport was asked for
-    refuse:     bool,   // a second start finds no program
-    silent:     bool,   // it takes every request but the handshake and never answers
-    mute:       bool,   // it never answers the handshake either
-    ended:      bool,   // the scripted server has been stopped
+    opens:      int,               // how many times a transport was asked for
+    refuse:     bool,              // a second start finds no program
+    silent:     bool,              // it takes every request but the handshake and never answers
+    mute:       bool,              // it never answers the handshake either
+    ended:      bool,              // the scripted server has been stopped
 }
 
 @(private = "file")
 CAPS_ALL :: `{"capabilities":{"textDocumentSync":{"openClose":true,"change":1,"save":true},` +
-`"definitionProvider":true,"hoverProvider":true,"renameProvider":true,"completionProvider":{}}}`
+    `"definitionProvider":true,"hoverProvider":true,"renameProvider":true,"completionProvider":{}}}`
 
 @(private = "file")
 fake_open :: proc(s: ^Server) -> (Transport, bool) {
@@ -103,18 +103,8 @@ fake_server :: proc(f: ^Fake, caps: string) -> ^Server {
     f.caps = caps
     f.extensions[0] = ".fake"
     f.command[0] = "fake-language-server"
-    f.config = Server_Config {
-        id         = "fake",
-        extensions = f.extensions[:],
-        command    = f.command[:],
-        features   = lang.FEATURES_ALL,
-        enabled    = true,
-    }
-    f.serve = Serve {
-        mock   = &f.mock,
-        answer = fake_answer,
-        data   = f,
-    }
+    f.config = Server_Config{id = "fake", extensions = f.extensions[:], command = f.command[:], features = lang.FEATURES_ALL, enabled = true}
+    f.serve = Serve{mock = &f.mock, answer = fake_answer, data = f}
     mock_serve(&f.serve)
 
     s := server_create(&f.config, WORKSPACE)
@@ -279,9 +269,9 @@ test_server_document_sync :: proc(t: ^testing.T) {
     server_notify(s, .Closed, SOURCE, "", 2)
     testing.expect(t, wait_sent(&f, `"method":"textDocument/didClose"`), "didClose never arrived")
 
-    open_at := fake_index(&f, `"method":"textDocument/didOpen"`)
+    open_at   := fake_index(&f, `"method":"textDocument/didOpen"`)
     change_at := fake_index(&f, `"method":"textDocument/didChange"`)
-    close_at := fake_index(&f, `"method":"textDocument/didClose"`)
+    close_at  := fake_index(&f, `"method":"textDocument/didClose"`)
     testing.expect(t, open_at < change_at && change_at < close_at, "the notifications arrived out of order")
 }
 
@@ -290,15 +280,9 @@ test_server_document_sync :: proc(t: ^testing.T) {
 @(test)
 test_server_change_coalescing :: proc(t: ^testing.T) {
     extensions := [1]string{".fake"}
-    command := [1]string{"fake-language-server"}
-    config := Server_Config {
-        id         = "fake",
-        extensions = extensions[:],
-        command    = command[:],
-        features   = lang.FEATURES_ALL,
-        enabled    = true,
-    }
-    s := server_create(&config, WORKSPACE)
+    command    := [1]string{"fake-language-server"}
+    config     := Server_Config{id = "fake", extensions = extensions[:], command = command[:], features = lang.FEATURES_ALL, enabled = true}
+    s          := server_create(&config, WORKSPACE)
     defer {
         server_stop(s)
         server_destroy(s)
@@ -343,8 +327,7 @@ test_server_sync_declined :: proc(t: ^testing.T) {
 }
 
 @(private = "file")
-CAPS_INCREMENTAL :: `{"capabilities":{"textDocumentSync":{"openClose":true,"change":2,"save":true},` +
-`"definitionProvider":true}}`
+CAPS_INCREMENTAL :: `{"capabilities":{"textDocumentSync":{"openClose":true,"change":2,"save":true},` + `"definitionProvider":true}}`
 
 // A server that advertises Incremental sync gets a ranged didChange carrying
 // only the replaced substring; the first didOpen still carries the whole
@@ -418,9 +401,7 @@ test_server_no_program :: proc(t: ^testing.T) {
 
     testing.expect(t, server_start(s, SOURCE))
     testing.expect(t, wait_state(s, .Failed), "a server with no program stayed alive")
-    req := lang.Request {
-        path = SOURCE,
-    }
+    req := lang.Request{path = SOURCE}
     testing.expect(t, !server_ensure_started(s, &req))
 
     reason := server_last_error(s, context.temp_allocator)
@@ -495,10 +476,7 @@ test_server_answers_configuration :: proc(t: ^testing.T) {
     // The configured settings are pushed once at the end of the handshake.
     testing.expect(t, wait_sent(&f, `"method":"workspace/didChangeConfiguration"`), "the settings were never pushed")
 
-    mock_frame(
-        &f.mock,
-        `{"jsonrpc":"2.0","id":900,"method":"workspace/configuration","params":{"items":[{"section":"fake"},{"section":"other"}]}}`,
-    )
+    mock_frame(&f.mock, `{"jsonrpc":"2.0","id":900,"method":"workspace/configuration","params":{"items":[{"section":"fake"},{"section":"other"}]}}`)
     testing.expect(t, wait_sent(&f, `[{"level":2},{"fake":{"level":2}}]`), "configuration went unanswered")
 
     mock_frame(&f.mock, `{"jsonrpc":"2.0","id":901,"method":"workspace/workspaceFolders"}`)
@@ -516,20 +494,17 @@ test_server_request_round_trip :: proc(t: ^testing.T) {
     s := fake_server(&f, CAPS_ALL)
     defer fake_end(&f, s)
     defer free_all(context.temp_allocator)
-    f.result =
-        `{"uri":"` + SOURCE_URI + `","range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}}}`
+    f.result = `{"uri":"` + SOURCE_URI + `","range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}}}`
 
-    req := lang.Request {
-        kind     = .Definition,
-        path     = SOURCE,
-        ext      = ".fake",
-        source   = BUFFER,
-        offset   = 6, // the "b" of "beta"
+    req := lang.Request{
+        kind = .Definition,
+        path = SOURCE,
+        ext = ".fake",
+        source = BUFFER,
+        offset = 6, // the "b" of "beta"
         revision = 4,
     }
-    res := lang.Result {
-        kind = .Definition,
-    }
+    res := lang.Result{kind = .Definition}
     testing.expect(t, server_ensure_started(s, &req), "the server did not start")
     request_answer(s, &req, &res)
     defer delete(res.location.path)
@@ -553,21 +528,12 @@ test_server_syncs_before_a_request :: proc(t: ^testing.T) {
     defer fake_end(&f, s)
     defer free_all(context.temp_allocator)
 
-    req := lang.Request {
-        kind     = .Hover,
-        path     = SOURCE,
-        ext      = ".fake",
-        source   = BUFFER,
-        offset   = 0,
-        revision = 4,
-    }
-    res := lang.Result {
-        kind = .Hover,
-    }
+    req := lang.Request{kind = .Hover, path = SOURCE, ext = ".fake", source = BUFFER, offset = 0, revision = 4}
+    res := lang.Result{kind = .Hover}
     testing.expect(t, server_ensure_started(s, &req), "the server did not start")
     request_answer(s, &req, &res)
 
-    open_at := fake_index(&f, `"method":"textDocument/didOpen"`)
+    open_at  := fake_index(&f, `"method":"textDocument/didOpen"`)
     hover_at := fake_index(&f, `"method":"textDocument/hover"`)
     testing.expect(t, open_at >= 0, "the file was never opened on the server")
     testing.expect(t, open_at < hover_at, "the position was sent before the text it counts over")
@@ -595,21 +561,10 @@ test_server_package_doc_uses_hover_and_keeps_markdown :: proc(t: ^testing.T) {
     defer fake_end(&f, s)
     defer free_all(context.temp_allocator)
 
-    f.result =
-        `{"contents":{"kind":"markdown","value":"# package fmt\n\n` +
-        "```" + `odin\nprintln :: proc(args: ..any)\n` + "```" + `"}}`
+    f.result = `{"contents":{"kind":"markdown","value":"# package fmt\n\n` + "```" + `odin\nprintln :: proc(args: ..any)\n` + "```" + `"}}`
 
-    req := lang.Request {
-        kind     = .Package_Doc,
-        path     = SOURCE,
-        ext      = ".fake",
-        source   = BUFFER,
-        offset   = 0,
-        revision = 1,
-    }
-    res := lang.Result {
-        kind = .Package_Doc,
-    }
+    req := lang.Request{kind = .Package_Doc, path = SOURCE, ext = ".fake", source = BUFFER, offset = 0, revision = 1}
+    res := lang.Result{kind = .Package_Doc}
     testing.expect(t, server_ensure_started(s, &req), "the server did not start")
     request_answer(s, &req, &res)
     defer delete(res.doc.title)
@@ -660,17 +615,8 @@ test_server_request_cancels :: proc(t: ^testing.T) {
 
     f.silent = true
     cancel := false
-    req := lang.Request {
-        kind     = .Completion,
-        path     = SOURCE,
-        ext      = ".fake",
-        source   = BUFFER,
-        revision = 1,
-        cancel   = &cancel,
-    }
-    res := lang.Result {
-        kind = .Completion,
-    }
+    req    := lang.Request{kind = .Completion, path = SOURCE, ext = ".fake", source = BUFFER, revision = 1, cancel = &cancel}
+    res    := lang.Result{kind = .Completion}
     testing.expect(t, server_ensure_started(s, &req), "the server did not start")
 
     // The editor gives up while the request is in flight, which is what a newer
@@ -695,13 +641,7 @@ test_server_latches_after_repeated_misses :: proc(t: ^testing.T) {
 
     s.deadline_percent = 1 // 30 ms
     f.silent = true
-    req := lang.Request {
-        kind     = .Completion,
-        path     = SOURCE,
-        ext      = ".fake",
-        source   = BUFFER,
-        revision = 1,
-    }
+    req := lang.Request{kind = .Completion, path = SOURCE, ext = ".fake", source = BUFFER, revision = 1}
     testing.expect(t, server_ensure_started(s, &req), "the server did not start")
 
     for _ in 0 ..< LATCH_STREAK - 1 {
@@ -734,13 +674,7 @@ test_server_miss_streak_resets_on_reply :: proc(t: ^testing.T) {
     defer free_all(context.temp_allocator)
 
     s.deadline_percent = 1
-    req := lang.Request {
-        kind     = .Completion,
-        path     = SOURCE,
-        ext      = ".fake",
-        source   = BUFFER,
-        revision = 1,
-    }
+    req := lang.Request{kind = .Completion, path = SOURCE, ext = ".fake", source = BUFFER, revision = 1}
     testing.expect(t, server_ensure_started(s, &req), "the server did not start")
 
     for _ in 0 ..< LATCH_STREAK - 1 {
@@ -770,16 +704,8 @@ test_server_request_without_a_method :: proc(t: ^testing.T) {
     defer fake_end(&f, s)
     defer free_all(context.temp_allocator)
 
-    req := lang.Request {
-        kind     = .Progress,
-        path     = SOURCE,
-        ext      = ".fake",
-        source   = BUFFER,
-        revision = 1,
-    }
-    res := lang.Result {
-        kind = .Progress,
-    }
+    req := lang.Request{kind = .Progress, path = SOURCE, ext = ".fake", source = BUFFER, revision = 1}
+    res := lang.Result{kind = .Progress}
     testing.expect(t, server_ensure_started(s, &req), "the server did not start")
     request_answer(s, &req, &res)
 
@@ -802,14 +728,14 @@ test_server_publishes_diagnostics :: proc(t: ^testing.T) {
     mock_frame(
         &f.mock,
         `{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"` +
-        SOURCE_URI +
-        `x","diagnostics":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"message":"foreign"}]}}`,
+            SOURCE_URI +
+            `x","diagnostics":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"message":"foreign"}]}}`,
     )
     mock_frame(
         &f.mock,
         `{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"` +
-        SOURCE_URI +
-        `","diagnostics":[{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}},"severity":1,"message":"boom"}]}}`,
+            SOURCE_URI +
+            `","diagnostics":[{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}},"severity":1,"message":"boom"}]}}`,
     )
 
     res: lang.Result
@@ -851,8 +777,8 @@ test_server_push_obeys_the_admin_gate :: proc(t: ^testing.T) {
     mock_frame(
         &f.mock,
         `{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"` +
-        SOURCE_URI +
-        `","diagnostics":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"message":"boom"}]}}`,
+            SOURCE_URI +
+            `","diagnostics":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"message":"boom"}]}}`,
     )
     time.sleep(50 * time.Millisecond)
 
@@ -871,10 +797,7 @@ test_server_progress_push :: proc(t: ^testing.T) {
     server_notify(s, .Opened, SOURCE, BUFFER, 1)
     testing.expect(t, wait_sent(&f, `"method":"textDocument/didOpen"`), "didOpen never arrived")
 
-    mock_frame(
-        &f.mock,
-        `{"jsonrpc":"2.0","method":"$/progress","params":{"token":"1","value":{"kind":"begin","title":"Indexing","percentage":0}}}`,
-    )
+    mock_frame(&f.mock, `{"jsonrpc":"2.0","method":"$/progress","params":{"token":"1","value":{"kind":"begin","title":"Indexing","percentage":0}}}`)
     begin: lang.Result
     testing.expect(t, wait_push(s, &begin), "the begin push never reached the queue")
     testing.expect_value(t, begin.kind, lang.Request_Kind.Progress)
@@ -945,9 +868,9 @@ test_server_show_message_push :: proc(t: ^testing.T) {
 @(test)
 test_server_poll_is_fifo_and_resets :: proc(t: ^testing.T) {
     extensions := [1]string{".fake"}
-    command := [1]string{"x"}
-    config := Server_Config{id = "fake", extensions = extensions[:], command = command[:], features = lang.FEATURES_ALL, enabled = true}
-    s := server_create(&config, "")
+    command    := [1]string{"x"}
+    config     := Server_Config{id = "fake", extensions = extensions[:], command = command[:], features = lang.FEATURES_ALL, enabled = true}
+    s          := server_create(&config, "")
     defer {
         server_stop(s)
         server_destroy(s)
@@ -985,8 +908,8 @@ test_apply_edit_round_trip :: proc(t: ^testing.T) {
     mock_frame(
         &f.mock,
         `{"jsonrpc":"2.0","id":9,"method":"workspace/applyEdit","params":{"edit":{"changes":{"` +
-        SOURCE_URI +
-        `":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":"ALPHA"}]}}}}`,
+            SOURCE_URI +
+            `":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":"ALPHA"}]}}}}`,
     )
 
     res: lang.Result
@@ -1029,9 +952,9 @@ test_apply_edit_push_sorts_edits :: proc(t: ^testing.T) {
     mock_frame(
         &f.mock,
         `{"jsonrpc":"2.0","id":9,"method":"workspace/applyEdit","params":{"edit":{"changes":{"` +
-        SOURCE_URI +
-        `":[{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}},"newText":"GAMMA"},` +
-        `{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":"ALPHA"}]}}}}`,
+            SOURCE_URI +
+            `":[{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}},"newText":"GAMMA"},` +
+            `{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":"ALPHA"}]}}}}`,
     )
 
     res: lang.Result
@@ -1071,8 +994,7 @@ test_apply_edit_push_carries_resource_ops :: proc(t: ^testing.T) {
 
     mock_frame(
         &f.mock,
-        `{"jsonrpc":"2.0","id":9,"method":"workspace/applyEdit","params":{"edit":{"documentChanges":[` +
-        `{"kind":"delete","uri":"` + OTHER_URI + `"}]}}}`,
+        `{"jsonrpc":"2.0","id":9,"method":"workspace/applyEdit","params":{"edit":{"documentChanges":[` + `{"kind":"delete","uri":"` + OTHER_URI + `"}]}}}`,
     )
 
     res: lang.Result
@@ -1111,8 +1033,7 @@ test_server_drop_push_frees_resource_ops :: proc(t: ^testing.T) {
 
     mock_frame(
         &f.mock,
-        `{"jsonrpc":"2.0","id":9,"method":"workspace/applyEdit","params":{"edit":{"documentChanges":[` +
-        `{"kind":"delete","uri":"` + OTHER_URI + `"}]}}}`,
+        `{"jsonrpc":"2.0","id":9,"method":"workspace/applyEdit","params":{"edit":{"documentChanges":[` + `{"kind":"delete","uri":"` + OTHER_URI + `"}]}}}`,
     )
 
     res: lang.Result
@@ -1137,8 +1058,8 @@ test_apply_edit_times_out_when_never_applied :: proc(t: ^testing.T) {
     mock_frame(
         &f.mock,
         `{"jsonrpc":"2.0","id":10,"method":"workspace/applyEdit","params":{"edit":{"changes":{"` +
-        SOURCE_URI +
-        `":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":"ALPHA"}]}}}}`,
+            SOURCE_URI +
+            `":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":"ALPHA"}]}}}}`,
     )
 
     testing.expect(t, wait_sent(&f, `"id":10,"result":{"applied":false}`), "a starved apply must still answer, not hang the server")
@@ -1154,21 +1075,10 @@ test_server_workspace_symbols_round_trip :: proc(t: ^testing.T) {
     s := fake_server(&f, CAPS_ALL)
     defer fake_end(&f, s)
     defer free_all(context.temp_allocator)
-    f.result =
-        `[{"name":"gamma","kind":12,"location":{"uri":"` +
-        SOURCE_URI +
-        `","range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}}}}]`
+    f.result = `[{"name":"gamma","kind":12,"location":{"uri":"` + SOURCE_URI + `","range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}}}}]`
 
-    req := lang.Request {
-        kind     = .Workspace_Symbols,
-        path     = SOURCE,
-        ext      = ".fake",
-        source   = BUFFER,
-        revision = 1,
-    }
-    res := lang.Result {
-        kind = .Workspace_Symbols,
-    }
+    req := lang.Request{kind = .Workspace_Symbols, path = SOURCE, ext = ".fake", source = BUFFER, revision = 1}
+    res := lang.Result{kind = .Workspace_Symbols}
     testing.expect(t, server_ensure_started(s, &req), "the server did not start")
     request_answer(s, &req, &res)
     defer {
@@ -1204,14 +1114,7 @@ test_server_workspace_symbols_query :: proc(t: ^testing.T) {
     defer free_all(context.temp_allocator)
     f.result = "[]"
 
-    req := lang.Request {
-        kind     = .Workspace_Symbols,
-        path     = SOURCE,
-        ext      = ".fake",
-        source   = BUFFER,
-        revision = 1,
-        query    = "gamma",
-    }
+    req := lang.Request{kind = .Workspace_Symbols, path = SOURCE, ext = ".fake", source = BUFFER, revision = 1, query = "gamma"}
     res: lang.Result
     testing.expect(t, server_ensure_started(s, &req), "the server did not start")
     request_answer(s, &req, &res)
@@ -1227,20 +1130,10 @@ test_server_pull_diagnostics_round_trip :: proc(t: ^testing.T) {
     s := fake_server(&f, CAPS_ALL)
     defer fake_end(&f, s)
     defer free_all(context.temp_allocator)
-    f.result =
-        `{"kind":"full","items":[` +
-        `{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}},"severity":2,"message":"unused"}]}`
+    f.result = `{"kind":"full","items":[` + `{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}},"severity":2,"message":"unused"}]}`
 
-    req := lang.Request {
-        kind     = .Diagnostics,
-        path     = SOURCE,
-        ext      = ".fake",
-        source   = BUFFER,
-        revision = 3,
-    }
-    res := lang.Result {
-        kind = .Diagnostics,
-    }
+    req := lang.Request{kind = .Diagnostics, path = SOURCE, ext = ".fake", source = BUFFER, revision = 3}
+    res := lang.Result{kind = .Diagnostics}
     testing.expect(t, server_ensure_started(s, &req), "the server did not start")
     request_answer(s, &req, &res)
     defer server_drop_push(s, &res)
@@ -1276,27 +1169,23 @@ test_server_rename_round_trip :: proc(t: ^testing.T) {
     server_document(s, OTHER, "one\nalpha two\n", 1)
     sync.unlock(&s.docs_mutex)
 
-    f.by_method["textDocument/prepareRename"] =
-        `{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}}}`
-    f.by_method["textDocument/rename"] =
-        `{"changes":{"` +
+    f.by_method["textDocument/prepareRename"] = `{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}}}`
+    f.by_method["textDocument/rename"] = `{"changes":{"` +
         SOURCE_URI +
         `":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":"renamed"}],"` +
         OTHER_URI +
         `":[{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}},"newText":"renamed"}]}}`
 
-    req := lang.Request {
-        kind     = .Rename,
-        path     = SOURCE,
-        ext      = ".fake",
-        source   = BUFFER, // caret on "alpha"
-        offset   = 0,
+    req := lang.Request{
+        kind = .Rename,
+        path = SOURCE,
+        ext = ".fake",
+        source = BUFFER, // caret on "alpha"
+        offset = 0,
         revision = 1,
         new_name = "renamed",
     }
-    res := lang.Result {
-        kind = .Rename,
-    }
+    res := lang.Result{kind = .Rename}
     testing.expect(t, server_ensure_started(s, &req), "the server did not start")
     request_answer(s, &req, &res)
     defer {
@@ -1334,21 +1223,10 @@ test_server_format_round_trip :: proc(t: ^testing.T) {
     defer fake_end(&f, s)
     defer free_all(context.temp_allocator)
 
-    f.result =
-        `[{"range":{"start":{"line":0,"character":0},"end":{"line":2,"character":0}},` +
-        `"newText":"alpha beta\nGAMMA\n"}]`
+    f.result = `[{"range":{"start":{"line":0,"character":0},"end":{"line":2,"character":0}},` + `"newText":"alpha beta\nGAMMA\n"}]`
 
-    req := lang.Request {
-        kind     = .Format,
-        path     = SOURCE,
-        ext      = ".fake",
-        source   = "alpha beta\ngamma\n",
-        revision = 1,
-        tab_size = 2,
-    }
-    res := lang.Result {
-        kind = .Format,
-    }
+    req := lang.Request{kind = .Format, path = SOURCE, ext = ".fake", source = "alpha beta\ngamma\n", revision = 1, tab_size = 2}
+    res := lang.Result{kind = .Format}
     testing.expect(t, server_ensure_started(s, &req), "the server did not start")
     request_answer(s, &req, &res)
     defer {
@@ -1376,11 +1254,7 @@ test_server_format_round_trip :: proc(t: ^testing.T) {
 @(test)
 test_server_on_type_trigger :: proc(t: ^testing.T) {
     f: Fake
-    s := fake_server(
-        &f,
-        `{"capabilities":{"documentOnTypeFormattingProvider":` +
-        `{"firstTriggerCharacter":"}","moreTriggerCharacter":[";"]}}}`,
-    )
+    s := fake_server(&f, `{"capabilities":{"documentOnTypeFormattingProvider":` + `{"firstTriggerCharacter":"}","moreTriggerCharacter":[";"]}}}`)
     defer fake_end(&f, s)
 
     c := new(Client, context.allocator)
@@ -1413,18 +1287,8 @@ test_server_rename_prepare_refusal :: proc(t: ^testing.T) {
     defer free_all(context.temp_allocator)
     f.by_method["textDocument/prepareRename"] = "null"
 
-    req := lang.Request {
-        kind     = .Rename,
-        path     = SOURCE,
-        ext      = ".fake",
-        source   = BUFFER,
-        offset   = 0,
-        revision = 1,
-        new_name = "renamed",
-    }
-    res := lang.Result {
-        kind = .Rename,
-    }
+    req := lang.Request{kind = .Rename, path = SOURCE, ext = ".fake", source = BUFFER, offset = 0, revision = 1, new_name = "renamed"}
+    res := lang.Result{kind = .Rename}
     testing.expect(t, server_ensure_started(s, &req), "the server did not start")
     request_answer(s, &req, &res)
 
@@ -1442,22 +1306,12 @@ test_server_code_actions_resolve_round_trip :: proc(t: ^testing.T) {
     defer fake_end(&f, s)
     defer free_all(context.temp_allocator)
     f.by_method["textDocument/codeAction"] = `[{"title":"Add import","kind":"quickfix","data":{"id":7}}]`
-    f.by_method["codeAction/resolve"] =
-        `{"title":"Add import","kind":"quickfix","edit":{"changes":{"` +
+    f.by_method["codeAction/resolve"] = `{"title":"Add import","kind":"quickfix","edit":{"changes":{"` +
         SOURCE_URI +
         `":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"newText":"// x\n"}]}}}`
 
-    req := lang.Request {
-        kind     = .Code_Actions,
-        path     = SOURCE,
-        ext      = ".fake",
-        source   = BUFFER,
-        offset   = 0,
-        revision = 1,
-    }
-    res := lang.Result {
-        kind = .Code_Actions,
-    }
+    req := lang.Request{kind = .Code_Actions, path = SOURCE, ext = ".fake", source = BUFFER, offset = 0, revision = 1}
+    res := lang.Result{kind = .Code_Actions}
     testing.expect(t, server_ensure_started(s, &req), "the server did not start")
     request_answer(s, &req, &res)
     defer {
@@ -1508,38 +1362,30 @@ test_server_code_actions_diagnostics_context :: proc(t: ^testing.T) {
     mock_frame(
         &f.mock,
         `{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"` +
-        SOURCE_URI +
-        `","diagnostics":[` +
-        `{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"severity":1,"code":"reportMissingImports","message":"in range"},` +
-        `{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}},"severity":1,"code":"unrelated","message":"out of range"}` +
-        `]}}`,
+            SOURCE_URI +
+            `","diagnostics":[` +
+            `{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"severity":1,"code":"reportMissingImports","message":"in range"},` +
+            `{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}},"severity":1,"code":"unrelated","message":"out of range"}` +
+            `]}}`,
     )
     diag: lang.Result
     testing.expect(t, wait_push(s, &diag), "the diagnostics push never reached the queue")
     server_drop_push(s, &diag)
 
-    req := lang.Request {
-        kind     = .Code_Actions,
-        path     = SOURCE,
-        ext      = ".fake",
-        source   = BUFFER, // "alpha beta\ngamma"
-        offset   = 0,
-        end      = 5, // "alpha" selected, overlapping only the first diagnostic
+    req := lang.Request{
+        kind = .Code_Actions,
+        path = SOURCE,
+        ext = ".fake",
+        source = BUFFER, // "alpha beta\ngamma"
+        offset = 0,
+        end = 5, // "alpha" selected, overlapping only the first diagnostic
         revision = 1,
     }
     res := lang.Result{kind = .Code_Actions}
     request_answer(s, &req, &res)
 
-    testing.expect(
-        t,
-        fake_sent(&f, `"code":"reportMissingImports"`),
-        "the overlapping diagnostic never reached the codeAction request",
-    )
-    testing.expect(
-        t,
-        !fake_sent(&f, `"code":"unrelated"`),
-        "a diagnostic outside the requested range leaked into the codeAction request",
-    )
+    testing.expect(t, fake_sent(&f, `"code":"reportMissingImports"`), "the overlapping diagnostic never reached the codeAction request")
+    testing.expect(t, !fake_sent(&f, `"code":"unrelated"`), "a diagnostic outside the requested range leaked into the codeAction request")
 }
 
 // req.end == req.offset (the zero value outside a selection) sends the same
@@ -1551,13 +1397,13 @@ test_server_code_actions_selection_range :: proc(t: ^testing.T) {
     defer fake_end(&f, s)
     defer free_all(context.temp_allocator)
 
-    req := lang.Request {
-        kind     = .Code_Actions,
-        path     = SOURCE,
-        ext      = ".fake",
-        source   = BUFFER, // "alpha beta\ngamma"
-        offset   = 0,
-        end      = 5, // "alpha" selected
+    req := lang.Request{
+        kind = .Code_Actions,
+        path = SOURCE,
+        ext = ".fake",
+        source = BUFFER, // "alpha beta\ngamma"
+        offset = 0,
+        end = 5, // "alpha" selected
         revision = 1,
     }
     res := lang.Result{kind = .Code_Actions}
@@ -1585,4 +1431,3 @@ test_server_stop_cancels_handshake :: proc(t: ^testing.T) {
     server_stop(s)
     testing.expect(t, time.tick_since(start) < DEADLINE_START / 2, "the stop waited out the handshake")
 }
-

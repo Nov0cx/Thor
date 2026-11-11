@@ -64,8 +64,8 @@ parent_dir :: proc(path: string) -> string {
 
 @(private)
 write_replace :: proc(target: string, data: []byte, durable: bool) -> os.Error {
-    _, base := os.split_path(target)
-    pattern := strings.concatenate({".", base, ".*.tmp"}, context.temp_allocator)
+    _, base       := os.split_path(target)
+    pattern       := strings.concatenate({".", base, ".*.tmp"}, context.temp_allocator)
     f, create_err := os.create_temp_file(parent_dir(target), pattern)
     if create_err != nil {
         return create_err

@@ -10,7 +10,7 @@ import odinsyntax "../syntax"
 // `@(require_results)`, which the compiler reports.
 ignored_error :: proc(c: ^Checker, file: File_Id, stmt: odinsyntax.Syntax_Node) -> (offset: int, type: Type_Id, ok: bool) {
     call, _, _, _ := ignored_call(c, file, stmt) or_return
-    result := expr_type(c, file, call)
+    result        := expr_type(c, file, call)
     if result.mode != .Value {
         return
     }
@@ -31,7 +31,13 @@ ignored_error :: proc(c: ^Checker, file: File_Id, stmt: odinsyntax.Syntax_Node) 
 // The call of the expression statement `stmt` and the type of its callee, unless the call is deferred, a
 // builtin, a directive, `@(require_results)` or a write to a sink.
 @(private = "file")
-ignored_call :: proc(c: ^Checker, file: File_Id, stmt: odinsyntax.Syntax_Node) -> (call: odinsyntax.Syntax_Node, ce: odinsyntax.Call_Expr, callee: odinsyntax.Syntax_Node, fn: Operand, ok: bool) {
+ignored_call :: proc(c: ^Checker, file: File_Id, stmt: odinsyntax.Syntax_Node) -> (
+    call: odinsyntax.Syntax_Node,
+    ce: odinsyntax.Call_Expr,
+    callee: odinsyntax.Syntax_Node,
+    fn: Operand,
+    ok: bool,
+) {
     es := odinsyntax.as_expr_stmt(stmt) or_return
     call = odinsyntax.expr_stmt_expr(&es) or_return
     for call.green.kind == .Paren_Expr {
@@ -92,14 +98,14 @@ ignored_ok :: proc(c: ^Checker, file: File_Id, stmt: odinsyntax.Syntax_Node) -> 
 // cannot allocate, or an `io` stream or writer, whose write errors stream output commonly drops.
 @(private = "file")
 writes_sink :: proc(c: ^Checker, file: File_Id, ce: ^odinsyntax.Call_Expr) -> bool {
-    list := odinsyntax.call_expr_args(ce) or_return
-    it := odinsyntax.arg_list_args(&list)
+    list  := odinsyntax.call_expr_args(ce) or_return
+    it    := odinsyntax.arg_list_args(&list)
     first := odinsyntax.child_iter_next(&it) or_return
-    type := expr_type(c, file, first).type
+    type  := expr_type(c, file, first).type
     if named, is_named := type_get(&c.table, type).(Named_Type); is_named && named.qualifier == "io" {
         return named.name == "Stream" || strings.contains(named.name, "Writer")
     }
-    p := type_get(&c.table, type_base(&c.table, type)).(Pointer_Type) or_return
+    p     := type_get(&c.table, type_base(&c.table, type)).(Pointer_Type) or_return
     named := type_get(&c.table, p.elem).(Named_Type) or_return
     return named.name == "Builder" && named.qualifier == "strings"
 }

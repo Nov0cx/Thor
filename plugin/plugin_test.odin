@@ -24,7 +24,7 @@ test_lua_calls_odin :: proc(t: ^testing.T) {
     manager_init(&m)
     defer manager_destroy(&m)
 
-    add :: proc "c" (L: ^lua.State) -> i32 {
+    add :: proc "c"(L: ^lua.State) -> i32 {
         sum := lua.L_checkinteger(L, 1) + lua.L_checkinteger(L, 2)
         lua.pushinteger(L, sum)
         return 1
@@ -106,7 +106,7 @@ test_odin_plugin_highlights :: proc(t: ^testing.T) {
     manager_load(&m)
     testing.expect(t, supports(&m, ".odin"), "odin language registered")
 
-    src := `package p
+    src   := `package p
 
 import "core:mem"
 
@@ -143,7 +143,7 @@ test_lua_plugin_highlights :: proc(t: ^testing.T) {
     manager_load(&m)
     testing.expect(t, supports(&m, ".lua"), "lua language registered")
 
-    src := "local function add(a, b)\n    return a + b  -- sum\nend\nprint(\"hi\")\n"
+    src   := "local function add(a, b)\n    return a + b  -- sum\nend\nprint(\"hi\")\n"
     spans := highlight(&m, "", src, ".lua", context.allocator)
     defer delete(spans)
     testing.expect(t, len(spans) > 0, "lua spans produced")
@@ -153,11 +153,11 @@ test_lua_plugin_highlights :: proc(t: ^testing.T) {
         testing.expectf(t, got == want, "%q: role %q, want %q", needle, got, want)
     }
     expect(t, spans, src, "local", "keywords")
-    expect(t, spans, src, "add", "functions")   // function declaration name
+    expect(t, spans, src, "add", "functions") // function declaration name
     expect(t, spans, src, "return", "keywords")
     expect(t, spans, src, "\"hi\"", "strings")
     expect(t, spans, src, "-- sum", "comments")
-    expect(t, spans, src, "print", "functions")  // builtin call
+    expect(t, spans, src, "print", "functions") // builtin call
 }
 
 // Loads the real plugins/go/plugin.lua and highlights Go through the tree-sitter
@@ -170,7 +170,7 @@ test_go_plugin_highlights :: proc(t: ^testing.T) {
     manager_load(&m)
     testing.expect(t, supports(&m, ".go"), "go language registered")
 
-    src := "package main\n\nfunc main() {\n\ts := \"hi\" // note\n}\n"
+    src   := "package main\n\nfunc main() {\n\ts := \"hi\" // note\n}\n"
     spans := highlight(&m, "", src, ".go", context.allocator)
     defer delete(spans)
     testing.expect(t, len(spans) > 0, "go spans produced")
@@ -196,7 +196,7 @@ test_typescript_plugin_highlights :: proc(t: ^testing.T) {
     manager_load(&m)
     testing.expect(t, supports(&m, ".ts"), "typescript language registered")
 
-    src := "const n: number = 1 // note\n"
+    src   := "const n: number = 1 // note\n"
     spans := highlight(&m, "", src, ".ts", context.allocator)
     defer delete(spans)
     testing.expect(t, len(spans) > 0, "typescript spans produced")
@@ -230,7 +230,7 @@ test_new_grammar_plugins_highlight :: proc(t: ^testing.T) {
         src:    string,
         checks: []Pair,
     }
-    cases := []Case {
+    cases := []Case{
         {
             ".star",
             "# c\ndef pick(a):\n    return a\nx = 1\n",
@@ -239,31 +239,16 @@ test_new_grammar_plugins_highlight :: proc(t: ^testing.T) {
         {
             ".tf",
             "// c\nresource \"aws_instance\" \"web\" {\n  ami = \"abc\"\n  count = 1\n}\n",
-            {
-                {"// c", "comments"}, {"resource", "keywords"}, {"ami", "variables"},
-                {"\"abc\"", "strings"}, {"count", "variables"}, {"1", "numbers"},
-            },
+            {{"// c", "comments"}, {"resource", "keywords"}, {"ami", "variables"}, {"\"abc\"", "strings"}, {"count", "variables"}, {"1", "numbers"}},
         },
-        {
-            ".nix",
-            "# c\nlet x = 1; in x + 1\n",
-            {{"# c", "comments"}, {"let", "keywords"}, {"in", "keywords"}},
-        },
+        {".nix", "# c\nlet x = 1; in x + 1\n", {{"# c", "comments"}, {"let", "keywords"}, {"in", "keywords"}}},
         {
             ".pas",
             "// c\nprogram Foo;\nbegin\n  writeln('hi');\nend.\n",
             {{"// c", "comments"}, {"program", "keywords"}, {"begin", "keywords"}, {"'hi'", "strings"}},
         },
-        {
-            ".nim",
-            "# c\nproc add(a, b: int): int =\n  return a + b\n",
-            {{"# c", "comments"}, {"proc", "keywords"}, {"return", "keywords"}, {"add", "functions"}},
-        },
-        {
-            ".lisp",
-            "; c\n(defun add (a b)\n  (+ a b))\n:key 42\n\"hi\"\n",
-            {{"; c", "comments"}, {"42", "numbers"}, {"\"hi\"", "strings"}, {":key", "conflict"}},
-        },
+        {".nim", "# c\nproc add(a, b: int): int =\n  return a + b\n", {{"# c", "comments"}, {"proc", "keywords"}, {"return", "keywords"}, {"add", "functions"}}},
+        {".lisp", "; c\n(defun add (a b)\n  (+ a b))\n:key 42\n\"hi\"\n", {{"; c", "comments"}, {"42", "numbers"}, {"\"hi\"", "strings"}, {":key", "conflict"}}},
     }
 
     for c in cases {
@@ -290,7 +275,7 @@ test_markdown_plugin_highlights :: proc(t: ^testing.T) {
     manager_load(&m)
     testing.expect(t, supports(&m, ".md"), "markdown language registered")
 
-    src := "# Title\n\nSome **bold** and *slant* and `code`.\n\n- item one\n> quote\n\n```\nfenced\n```\n"
+    src   := "# Title\n\nSome **bold** and *slant* and `code`.\n\n- item one\n> quote\n\n```\nfenced\n```\n"
     spans := highlight(&m, "", src, ".md", context.allocator)
     defer {
         for s in spans {
@@ -329,7 +314,7 @@ test_markdown_emphasis_spans_soft_breaks :: proc(t: ^testing.T) {
     defer manager_destroy(&m)
     manager_load(&m)
 
-    src := "- **`one.odin:1` frees `path` while a job\n  borrows it.** Both pending_jobs and use_after count.\n"
+    src   := "- **`one.odin:1` frees `path` while a job\n  borrows it.** Both pending_jobs and use_after count.\n"
     spans := highlight(&m, "", src, ".md", context.allocator)
     defer {
         for s in spans {
@@ -365,7 +350,7 @@ test_batch_plugin_highlights :: proc(t: ^testing.T) {
     manager_load(&m)
     testing.expect(t, supports(&m, ".bat"), "batch language registered")
 
-    src := "@echo off\nREM build script\nset NAME=thor\necho Building %NAME%\nif not exist bin goto :end\n:end\nexit /b 0\n"
+    src   := "@echo off\nREM build script\nset NAME=thor\necho Building %NAME%\nif not exist bin goto :end\n:end\nexit /b 0\n"
     spans := highlight(&m, "", src, ".bat", context.allocator)
     defer {
         for s in spans {
@@ -411,10 +396,10 @@ role_inside :: proc(spans: []Span, source, needle: string, skip: int) -> string 
 // Highlights `src` as `ext` with the real plugins/asm and checks each
 // {needle, skip, role} row and the span order.
 expect_asm_roles :: proc(t: ^testing.T, ext, src: string, rows: []struct {
-        needle: string,
-        skip:   int,
-        role:   string,
-    }) {
+    needle: string,
+    skip:   int,
+    role:   string,
+}) {
     m: Manager
     manager_init(&m)
     defer manager_destroy(&m)
@@ -441,96 +426,116 @@ expect_asm_roles :: proc(t: ^testing.T, ext, src: string, rows: []struct {
 @(test)
 test_asm_plugin_highlights_nasm :: proc(t: ^testing.T) {
     src := "section .text\nglobal _start\n_start:\n    mov rax, 60 ; exit\nmsg db \"hi\", 0x0A\nlen equ $ - msg\n%define N 4\n"
-    expect_asm_roles(t, ".asm", src, {
-        {"section", 0, "attributes"},
-        {"global", 0, "attributes"},
-        {"_start:", 0, "functions"},
-        {"mov", 0, "keywords"},
-        {"rax", 0, "variables"},
-        {"60", 0, "numbers"},
-        {"; exit", 0, "comments"},
-        {"msg db", 0, "variables"},
-        {"db", 0, "attributes"},
-        {"\"hi\"", 0, "strings"},
-        {"0x0A", 0, "numbers"},
-        {"len", 0, "variables"},
-        {"%define", 0, "attributes"},
-    })
+    expect_asm_roles(
+        t,
+        ".asm",
+        src,
+        {
+            {"section", 0, "attributes"},
+            {"global", 0, "attributes"},
+            {"_start:", 0, "functions"},
+            {"mov", 0, "keywords"},
+            {"rax", 0, "variables"},
+            {"60", 0, "numbers"},
+            {"; exit", 0, "comments"},
+            {"msg db", 0, "variables"},
+            {"db", 0, "attributes"},
+            {"\"hi\"", 0, "strings"},
+            {"0x0A", 0, "numbers"},
+            {"len", 0, "variables"},
+            {"%define", 0, "attributes"},
+        },
+    )
 }
 
 @(test)
 test_asm_plugin_highlights_gas :: proc(t: ^testing.T) {
     src := ".globl main\nmain:\n    movq $1, %rax # c1\n/* block\n   still */ ret\n    ldr r0, [sp, #4] @ c2\n    addi a0, zero, 1\n1:  jmp 1b\n#include <x.h>\n"
-    expect_asm_roles(t, ".S", src, {
-        {".globl", 0, "attributes"},
-        {"main:", 0, "functions"},
-        {"movq", 0, "keywords"},
-        {"$1", 0, "numbers"},
-        {"%rax", 0, "variables"},
-        {"# c1", 0, "comments"},
-        {"/* block", 0, "comments"},
-        {"still */", 0, "comments"},
-        {"ret", 0, "keywords"},
-        {"ldr", 0, "keywords"},
-        {"r0", 0, "variables"},
-        {"sp,", 0, "variables"},
-        {"#4", 0, "operators"},
-        {"#4", 1, "numbers"},
-        {"@ c2", 0, "comments"},
-        {"a0", 0, "variables"},
-        {"zero", 0, "variables"},
-        {"1:", 0, "functions"},
-        {"1b", 0, "numbers"},
-        {"#include", 0, "keywords"},
-    })
+    expect_asm_roles(
+        t,
+        ".S",
+        src,
+        {
+            {".globl", 0, "attributes"},
+            {"main:", 0, "functions"},
+            {"movq", 0, "keywords"},
+            {"$1", 0, "numbers"},
+            {"%rax", 0, "variables"},
+            {"# c1", 0, "comments"},
+            {"/* block", 0, "comments"},
+            {"still */", 0, "comments"},
+            {"ret", 0, "keywords"},
+            {"ldr", 0, "keywords"},
+            {"r0", 0, "variables"},
+            {"sp,", 0, "variables"},
+            {"#4", 0, "operators"},
+            {"#4", 1, "numbers"},
+            {"@ c2", 0, "comments"},
+            {"a0", 0, "variables"},
+            {"zero", 0, "variables"},
+            {"1:", 0, "functions"},
+            {"1b", 0, "numbers"},
+            {"#include", 0, "keywords"},
+        },
+    )
 }
 
 @(test)
 test_asm_plugin_highlights_fasm1 :: proc(t: ^testing.T) {
     src := "format PE64 GUI\nmacro pushall [reg]\n{\n    forward\n    push reg\n}\nstart:\n@@: pushall rax, rbx\n    jmp @b\nmsg db 'it''s', 0\nmacro cat a, b { a#b }\nx dq ?\n"
-    expect_asm_roles(t, ".asm", src, {
-        {"format", 0, "attributes"},
-        {"PE64", 0, "attributes"},
-        {"macro pushall", 0, "keywords"},
-        {"pushall [", 0, "functions"},
-        {"[reg]", 1, "parameters"},
-        {"forward", 0, "keywords"},
-        {"push reg", 0, "keywords"},
-        {"push reg", 5, "parameters"},
-        {"start:", 0, "functions"},
-        {"@@:", 0, "functions"},
-        {"pushall rax", 0, "functions"},
-        {"@b", 0, "functions"},
-        {"'it''s'", 0, "strings"},
-        {"'it''s'", 6, "strings"},
-        {"{ a#b", 2, "parameters"},
-        {"{ a#b", 3, "operators"},
-        {"{ a#b", 4, "parameters"},
-        {"x dq", 0, "variables"},
-        {"?", 0, "variables"},
-    })
+    expect_asm_roles(
+        t,
+        ".asm",
+        src,
+        {
+            {"format", 0, "attributes"},
+            {"PE64", 0, "attributes"},
+            {"macro pushall", 0, "keywords"},
+            {"pushall [", 0, "functions"},
+            {"[reg]", 1, "parameters"},
+            {"forward", 0, "keywords"},
+            {"push reg", 0, "keywords"},
+            {"push reg", 5, "parameters"},
+            {"start:", 0, "functions"},
+            {"@@:", 0, "functions"},
+            {"pushall rax", 0, "functions"},
+            {"@b", 0, "functions"},
+            {"'it''s'", 0, "strings"},
+            {"'it''s'", 6, "strings"},
+            {"{ a#b", 2, "parameters"},
+            {"{ a#b", 3, "operators"},
+            {"{ a#b", 4, "parameters"},
+            {"x dq", 0, "variables"},
+            {"?", 0, "variables"},
+        },
+    )
 }
 
 @(test)
 test_asm_plugin_highlights_fasm2 :: proc(t: ^testing.T) {
     src := "macro mov? dest*, src:0\n    emit 1: dest\nend macro\ncalminstruction ld? a\n    compute a, a + 1\n    jyes done\ndone:\nend calminstruction\niterate r, rax, rbx\n    push r\nend iterate\n    push r\n"
-    expect_asm_roles(t, ".fasm", src, {
-        {"macro", 0, "keywords"},
-        {"mov?", 0, "functions"},
-        {"dest*", 0, "parameters"},
-        {"src:0", 0, "parameters"},
-        {"1: dest", 3, "parameters"},
-        {"end macro", 0, "keywords"},
-        {"ld?", 0, "functions"},
-        {"compute", 0, "keywords"},
-        {"compute a", 8, "parameters"},
-        {"jyes", 0, "keywords"},
-        {"done:", 0, "functions"},
-        {"end calminstruction", 0, "keywords"},
-        {"iterate r", 8, "parameters"},
-        {"push r\nend", 5, "parameters"},
-        {"end iterate\n    push r", 21, ""},
-    })
+    expect_asm_roles(
+        t,
+        ".fasm",
+        src,
+        {
+            {"macro", 0, "keywords"},
+            {"mov?", 0, "functions"},
+            {"dest*", 0, "parameters"},
+            {"src:0", 0, "parameters"},
+            {"1: dest", 3, "parameters"},
+            {"end macro", 0, "keywords"},
+            {"ld?", 0, "functions"},
+            {"compute", 0, "keywords"},
+            {"compute a", 8, "parameters"},
+            {"jyes", 0, "keywords"},
+            {"done:", 0, "functions"},
+            {"end calminstruction", 0, "keywords"},
+            {"iterate r", 8, "parameters"},
+            {"push r\nend", 5, "parameters"},
+            {"end iterate\n    push r", 21, ""},
+        },
+    )
 }
 
 // Loads the real plugins/shell/plugin.lua and highlights a shell script through
@@ -544,7 +549,7 @@ test_shell_plugin_highlights :: proc(t: ^testing.T) {
     manager_load(&m)
     testing.expect(t, supports(&m, ".sh"), "shell language registered")
 
-    src := "#!/bin/bash\n# build\nNAME=thor\ncd $NAME\ngreet() {\n    echo hello\n}\nif [ -f bin ]; then\n    greet\nfi\n"
+    src   := "#!/bin/bash\n# build\nNAME=thor\ncd $NAME\ngreet() {\n    echo hello\n}\nif [ -f bin ]; then\n    greet\nfi\n"
     spans := highlight(&m, "", src, ".sh", context.allocator)
     defer {
         for s in spans {
@@ -581,7 +586,7 @@ test_json_plugin_highlights :: proc(t: ^testing.T) {
     manager_load(&m)
     testing.expect(t, supports(&m, ".json"), "json language registered")
 
-    src := "{\n  \"name\": \"thor\",\n  \"version\": 2,\n  \"debug\": true,\n  \"nested\": null\n}\n"
+    src   := "{\n  \"name\": \"thor\",\n  \"version\": 2,\n  \"debug\": true,\n  \"nested\": null\n}\n"
     spans := highlight(&m, "", src, ".json", context.allocator)
     defer {
         for s in spans {
@@ -595,7 +600,7 @@ test_json_plugin_highlights :: proc(t: ^testing.T) {
         got := role_covering(spans, src, needle)
         testing.expectf(t, got == want, "%q: role %q, want %q", needle, got, want)
     }
-    expect(t, spans, src, "\"name\"", "tags")   // object key
+    expect(t, spans, src, "\"name\"", "tags") // object key
     expect(t, spans, src, "\"thor\"", "strings") // string value
     expect(t, spans, src, "2", "numbers")
     expect(t, spans, src, "true", "keywords")
@@ -628,7 +633,7 @@ test_added_grammar_plugins_highlight :: proc(t: ^testing.T) {
         str:     string,
         comment: string,
     }
-    cases := []Case {
+    cases := []Case{
         {".rs", "fn main() {\n    let s = \"hi\"; // note\n}\n", "fn", "\"hi\"", "// note"},
         {".py", "def main():\n    s = \"hi\"  # note\n", "def", "\"hi\"", "# note"},
         {".rb", "def main\n  s = \"hi\" # note\nend\n", "def", "\"hi\"", "# note"},
@@ -678,104 +683,97 @@ test_added_lexer_plugins_highlight :: proc(t: ^testing.T) {
         src:    string,
         checks: []Pair,
     }
-    cases := []Case {
-        {
-            ".xml",
-            "<root attr=\"v\">\n  <!-- c -->\n</root>\n",
-            {{"root", "tags"}, {"attr", "attributes"}, {"\"v\"", "strings"}, {"<!-- c -->", "comments"}},
-        },
-        {
-            ".html",
-            "<div class=\"a\">hi</div>\n",
-            {{"div", "tags"}, {"class", "attributes"}, {"\"a\"", "strings"}},
-        },
-        {
-            ".css",
-            "/* c */\n.foo { color: red; }\n",
-            {{"/* c */", "comments"}, {".foo", "tags"}, {"color", "attributes"}},
-        },
-        {
-            ".ini",
-            "[main]\nkey = \"v\"\n; c\n",
-            {{"[main]", "keywords"}, {"key", "attributes"}, {"\"v\"", "strings"}, {"; c", "comments"}},
-        },
+    cases := []Case{
+        {".xml", "<root attr=\"v\">\n  <!-- c -->\n</root>\n", {{"root", "tags"}, {"attr", "attributes"}, {"\"v\"", "strings"}, {"<!-- c -->", "comments"}}},
+        {".html", "<div class=\"a\">hi</div>\n", {{"div", "tags"}, {"class", "attributes"}, {"\"a\"", "strings"}}},
+        {".css", "/* c */\n.foo { color: red; }\n", {{"/* c */", "comments"}, {".foo", "tags"}, {"color", "attributes"}}},
+        {".ini", "[main]\nkey = \"v\"\n; c\n", {{"[main]", "keywords"}, {"key", "attributes"}, {"\"v\"", "strings"}, {"; c", "comments"}}},
         {
             ".toml",
             "[tbl]\nname = \"x\"\nn = 5\n# c\n",
             {{"[tbl]", "keywords"}, {"name", "attributes"}, {"\"x\"", "strings"}, {"5", "numbers"}, {"# c", "comments"}},
         },
-        {
-            ".yaml",
-            "# c\nkey: val\nnum: 5\n",
-            {{"# c", "comments"}, {"key", "attributes"}, {"5", "numbers"}},
-        },
-        {
-            ".env",
-            "# c\nKEY=\"v\"\n",
-            {{"# c", "comments"}, {"KEY", "attributes"}, {"\"v\"", "strings"}},
-        },
-        {
-            "Makefile",
-            "# c\nall: build\n\tgcc\n",
-            {{"# c", "comments"}, {"all", "functions"}},
-        },
-        {
-            "Dockerfile",
-            "# c\nFROM alpine AS base\n",
-            {{"# c", "comments"}, {"FROM", "keywords"}, {"AS", "keywords"}},
-        },
+        {".yaml", "# c\nkey: val\nnum: 5\n", {{"# c", "comments"}, {"key", "attributes"}, {"5", "numbers"}}},
+        {".env", "# c\nKEY=\"v\"\n", {{"# c", "comments"}, {"KEY", "attributes"}, {"\"v\"", "strings"}}},
+        {"Makefile", "# c\nall: build\n\tgcc\n", {{"# c", "comments"}, {"all", "functions"}}},
+        {"Dockerfile", "# c\nFROM alpine AS base\n", {{"# c", "comments"}, {"FROM", "keywords"}, {"AS", "keywords"}}},
         {
             ".slang",
             "// c\n[shader(\"vertex\")]\nfloat4 vs_main(float3 p : POSITION) : SV_Position {\n    let s = 1.0f;\n    return float4(p * s, 1.0);\n}\n",
             {
-                {"// c", "comments"}, {"shader", "attributes"}, {"\"vertex\"", "strings"},
-                {"float4", "warning"}, {"vs_main", "functions"}, {"POSITION", "attributes"},
-                {"SV_Position", "attributes"}, {"let", "keywords"}, {"1.0f", "numbers"},
+                {"// c", "comments"},
+                {"shader", "attributes"},
+                {"\"vertex\"", "strings"},
+                {"float4", "warning"},
+                {"vs_main", "functions"},
+                {"POSITION", "attributes"},
+                {"SV_Position", "attributes"},
+                {"let", "keywords"},
+                {"1.0f", "numbers"},
             },
         },
         {
             "CMakeLists.txt",
             "# c\ncmake_minimum_required(VERSION 3.20)\nif(WIN32)\n  target_link_libraries(thor PUBLIC \"x\")\nendif()\n",
             {
-                {"# c", "comments"}, {"cmake_minimum_required", "functions"},
-                {"VERSION", "attributes"}, {"3.20", "numbers"}, {"if", "keywords"},
-                {"PUBLIC", "attributes"}, {"\"x\"", "strings"}, {"endif", "keywords"},
+                {"# c", "comments"},
+                {"cmake_minimum_required", "functions"},
+                {"VERSION", "attributes"},
+                {"3.20", "numbers"},
+                {"if", "keywords"},
+                {"PUBLIC", "attributes"},
+                {"\"x\"", "strings"},
+                {"endif", "keywords"},
             },
         },
         {
             ".gitignore",
             "# c\n*.log\n!keep.log\n*.sh text eol=lf\n",
             {
-                {"# c", "comments"}, {"keep.log", "strings"}, {"!", "operators"},
-                {".sh", "strings"}, {"text", "attributes"}, {"eol", "attributes"},
-                {"=", "operators"}, {"lf", "strings"},
+                {"# c", "comments"},
+                {"keep.log", "strings"},
+                {"!", "operators"},
+                {".sh", "strings"},
+                {"text", "attributes"},
+                {"eol", "attributes"},
+                {"=", "operators"},
+                {"lf", "strings"},
             },
         },
         {
             ".ps1",
             "<# c #>\n# c2\nfunction Get-Thing {\n    $x = \"v\"\n    if ($x -eq $true) { return }\n}\n",
             {
-                {"<# c #>", "comments"}, {"# c2", "comments"}, {"function", "keywords"},
-                {"Get-Thing", "functions"}, {"$x", "variables"}, {"\"v\"", "strings"},
-                {"if", "keywords"}, {"-eq", "operators"}, {"$true", "conflict"},
+                {"<# c #>", "comments"},
+                {"# c2", "comments"},
+                {"function", "keywords"},
+                {"Get-Thing", "functions"},
+                {"$x", "variables"},
+                {"\"v\"", "strings"},
+                {"if", "keywords"},
+                {"-eq", "operators"},
+                {"$true", "conflict"},
             },
         },
         {
             ".groovy",
             "// c\n@Grab('x')\nclass Foo {\n    def bar() {\n        String s = \"v\"\n        return true\n    }\n}\n",
             {
-                {"// c", "comments"}, {"@Grab", "attributes"}, {"class", "keywords"},
-                {"def", "keywords"}, {"bar", "functions"}, {"String", "warning"},
-                {"\"v\"", "strings"}, {"return", "keywords"}, {"true", "conflict"},
+                {"// c", "comments"},
+                {"@Grab", "attributes"},
+                {"class", "keywords"},
+                {"def", "keywords"},
+                {"bar", "functions"},
+                {"String", "warning"},
+                {"\"v\"", "strings"},
+                {"return", "keywords"},
+                {"true", "conflict"},
             },
         },
         {
             ".sml",
             "(* c *)\nfun add (a, b) =\n  let val x = 1 in x + a + b end\n",
-            {
-                {"(* c *)", "comments"}, {"fun", "keywords"}, {"add", "functions"},
-                {"let", "keywords"}, {"val", "keywords"}, {"1", "numbers"}, {"in", "keywords"},
-            },
+            {{"(* c *)", "comments"}, {"fun", "keywords"}, {"add", "functions"}, {"let", "keywords"}, {"val", "keywords"}, {"1", "numbers"}, {"in", "keywords"}},
         },
     }
 
@@ -900,7 +898,7 @@ test_on_key_is_per_plugin :: proc(t: ^testing.T) {
     manager_init(&m)
     defer manager_destroy(&m)
 
-    first := `seen = 0
+    first  := `seen = 0
     thor.on_key(function(ev) seen = seen + 1 return ev.chord == "f5" end)`
     second := `seen = 0
     thor.on_key(function(ev) seen = seen + 1 return false end)`
@@ -973,12 +971,16 @@ test_language_key_by_name :: proc(t: ^testing.T) {
     testing.expect_value(t, language_key(&m, ".nothing"), "")
     testing.expect_value(t, language_key(&m, "No Such Language"), "")
 
-    names := language_names(&m, context.temp_allocator)
+    names    := language_names(&m, context.temp_allocator)
     has_fasm := false
     for name, i in names {
         has_fasm ||= name == "FASM"
         if i > 0 {
-            testing.expect(t, strings.to_lower(names[i - 1], context.temp_allocator) < strings.to_lower(name, context.temp_allocator), "names sorted and unique")
+            testing.expect(
+                t,
+                strings.to_lower(names[i - 1], context.temp_allocator) < strings.to_lower(name, context.temp_allocator),
+                "names sorted and unique",
+            )
         }
     }
     testing.expect(t, has_fasm, "FASM listed")
@@ -1002,7 +1004,7 @@ test_large_source_highlights_one_window :: proc(t: ^testing.T) {
     }
     source := strings.to_string(b)
 
-    mid := len(source) / 2
+    mid           := len(source) / 2
     spans, lo, hi := highlight_range(&m, "big.odin", source, ".odin", mid, mid + 2000, context.allocator)
     defer delete(spans)
     testing.expect(t, len(spans) > 0, "the window has spans")

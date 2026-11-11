@@ -63,7 +63,7 @@ thor_prompt_lsp_trust :: proc(thor: ^Thor) {
     }
     thor.lsp_trust_pending = false
 
-    ids := make([dynamic]string, context.temp_allocator)
+    ids   := make([dynamic]string, context.temp_allocator)
     texts := make([dynamic]string, context.temp_allocator)
     for command in lsp.config_workspace_commands(thor.workspace_dir, context.temp_allocator) {
         append(&ids, command.id)
@@ -88,7 +88,7 @@ thor_prompt_lsp_trust :: proc(thor: ^Thor) {
 // that changed while the prompt was open is asked about again instead.
 @(private = "file")
 thor_grant_lsp_trust :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor.lang_reload_pending = true
 
     digest, has_entries := thor_lsp_workspace_digest(thor.workspace_dir)
@@ -107,7 +107,7 @@ thor_grant_lsp_trust :: proc(data: rawptr) {
 // Cancel: the file stays out until it changes or Thor restarts.
 @(private = "file")
 thor_decline_lsp_trust :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor.lsp_trust_declined = true
 }
 
@@ -160,13 +160,13 @@ thor_lsp_set_grant :: proc(rows: ^[dynamic]Lsp_Grant, workspace, digest: string)
             return
         }
     }
-    append(rows, Lsp_Grant {workspace = workspace, digest = digest})
+    append(rows, Lsp_Grant{workspace = workspace, digest = digest})
 }
 
 // The remembered answers, temp-owned. A missing or malformed file reads as none.
 @(private = "file")
 thor_read_lsp_grants :: proc() -> [dynamic]Lsp_Grant {
-    rows := make([dynamic]Lsp_Grant, context.temp_allocator)
+    rows      := make([dynamic]Lsp_Grant, context.temp_allocator)
     data, err := os.read_entire_file(LSP_GRANTS_FILE, context.temp_allocator)
     if err != nil {
         return rows
@@ -188,7 +188,7 @@ thor_write_lsp_grants :: proc(rows: []Lsp_Grant) {
             return
         }
     }
-    data, err := json.marshal(Lsp_Grants {rows}, {pretty = true}, context.temp_allocator)
+    data, err := json.marshal(Lsp_Grants{rows}, {pretty = true}, context.temp_allocator)
     if err != nil {
         log.errorf("Could not marshal %q: %v", LSP_GRANTS_FILE, err)
         return

@@ -14,18 +14,12 @@ import lang ".."
 @(test)
 test_client_set_server_enabled_gates_dispatch :: proc(t: ^testing.T) {
     extensions := [1]string{".fake"}
-    command := [1]string{"fake-language-server"}
+    command    := [1]string{"fake-language-server"}
 
     c: Client
     c.config.servers = make([dynamic]Server_Config, 1)
     defer delete(c.config.servers)
-    c.config.servers[0] = Server_Config {
-        id         = "fake",
-        extensions = extensions[:],
-        command    = command[:],
-        features   = lang.FEATURES_ALL,
-        enabled    = true,
-    }
+    c.config.servers[0] = Server_Config{id = "fake", extensions = extensions[:], command = command[:], features = lang.FEATURES_ALL, enabled = true}
     c.servers = make([dynamic]^Server, 0)
     append(&c.servers, server_create(&c.config.servers[0], ""))
     defer {
@@ -61,18 +55,12 @@ test_client_set_server_enabled_gates_dispatch :: proc(t: ^testing.T) {
 @(test)
 test_client_handles_a_file_name :: proc(t: ^testing.T) {
     filenames := [1]string{"Makefile"}
-    command := [1]string{"fake-language-server"}
+    command   := [1]string{"fake-language-server"}
 
     c: Client
     c.config.servers = make([dynamic]Server_Config, 1)
     defer delete(c.config.servers)
-    c.config.servers[0] = Server_Config {
-        id        = "make",
-        filenames = filenames[:],
-        command   = command[:],
-        features  = lang.FEATURES_ALL,
-        enabled   = true,
-    }
+    c.config.servers[0] = Server_Config{id = "make", filenames = filenames[:], command = command[:], features = lang.FEATURES_ALL, enabled = true}
     c.servers = make([dynamic]^Server, 0)
     append(&c.servers, server_create(&c.config.servers[0], ""))
     defer {
@@ -93,17 +81,17 @@ test_client_handles_a_file_name :: proc(t: ^testing.T) {
 @(test)
 test_client_set_server_features_seeded_by_config :: proc(t: ^testing.T) {
     extensions := [1]string{".fake"}
-    command := [1]string{"fake-language-server"}
+    command    := [1]string{"fake-language-server"}
 
     c: Client
     c.config.servers = make([dynamic]Server_Config, 1)
     defer delete(c.config.servers)
-    c.config.servers[0] = Server_Config {
-        id         = "fake",
+    c.config.servers[0] = Server_Config{
+        id = "fake",
         extensions = extensions[:],
-        command    = command[:],
-        features   = lang.FEATURES_ALL - {.Rename}, // lsp.lua already declines Rename
-        enabled    = true,
+        command = command[:],
+        features = lang.FEATURES_ALL - {.Rename}, // lsp.lua already declines Rename
+        enabled = true,
     }
     c.servers = make([dynamic]^Server, 0)
     append(&c.servers, server_create(&c.config.servers[0], ""))
@@ -137,7 +125,7 @@ test_client_set_server_features_seeded_by_config :: proc(t: ^testing.T) {
 test_client_server_ids :: proc(t: ^testing.T) {
     extensions_a := [1]string{".a"}
     extensions_b := [1]string{".b"}
-    command := [1]string{"x"}
+    command      := [1]string{"x"}
 
     c: Client
     c.config.servers = make([dynamic]Server_Config, 2)
@@ -168,20 +156,20 @@ test_client_server_ids :: proc(t: ^testing.T) {
 @(test)
 test_client_server_status :: proc(t: ^testing.T) {
     extensions := [2]string{".py", ".pyi"}
-    command := [1]string{"thor-no-such-language-server"}
+    command    := [1]string{"thor-no-such-language-server"}
 
     c: Client
     c.config.servers = make([dynamic]Server_Config, 1)
     defer delete(c.config.servers)
-    c.config.servers[0] = Server_Config {
-        id         = "basedpyright",
-        name       = "basedpyright (Python)",
+    c.config.servers[0] = Server_Config{
+        id = "basedpyright",
+        name = "basedpyright (Python)",
         extensions = extensions[:],
-        command    = command[:],
-        install    = "pipx install basedpyright",
-        docs_url   = "https://example.invalid",
-        features   = lang.FEATURES_ALL,
-        enabled    = true,
+        command = command[:],
+        install = "pipx install basedpyright",
+        docs_url = "https://example.invalid",
+        features = lang.FEATURES_ALL,
+        enabled = true,
     }
     c.servers = make([dynamic]^Server, 0)
     append(&c.servers, server_create(&c.config.servers[0], ""))
@@ -219,7 +207,7 @@ test_client_server_status :: proc(t: ^testing.T) {
 @(test)
 test_client_servers_share_a_language :: proc(t: ^testing.T) {
     extensions := [1]string{".py"}
-    command := [1]string{"x"}
+    command    := [1]string{"x"}
 
     c: Client
     c.config.servers = make([dynamic]Server_Config, 2)
@@ -258,7 +246,7 @@ test_client_servers_share_a_language :: proc(t: ^testing.T) {
 test_poll_round_robins_across_servers :: proc(t: ^testing.T) {
     extensions_a := [1]string{".a"}
     extensions_b := [1]string{".b"}
-    command := [1]string{"x"}
+    command      := [1]string{"x"}
 
     c: Client
     c.config.servers = make([dynamic]Server_Config, 2)

@@ -21,7 +21,7 @@ foreign import kernel32 "system:Kernel32.lib"
 foreign kernel32 {
     CreatePseudoConsole :: proc(size: win32.COORD, hInput, hOutput: win32.HANDLE, dwFlags: win32.DWORD, phPC: ^HPCON) -> win32.HRESULT ---
     ResizePseudoConsole :: proc(hPC: HPCON, size: win32.COORD) -> win32.HRESULT ---
-    ClosePseudoConsole :: proc(hPC: HPCON) ---
+    ClosePseudoConsole  :: proc(hPC: HPCON) ---
 }
 
 Pty :: struct {
@@ -55,7 +55,7 @@ pty_start :: proc(profile: Profile, cwd: string, cols, rows: int) -> (^Pty, bool
 
     console: HPCON
     size := win32.COORD{win32.SHORT(cols), win32.SHORT(rows)}
-    hr := CreatePseudoConsole(size, in_read, out_write, 0, &console)
+    hr   := CreatePseudoConsole(size, in_read, out_write, 0, &console)
     // The console owns copies of those two ends now.
     win32.CloseHandle(in_read)
     win32.CloseHandle(out_write)
@@ -76,23 +76,14 @@ pty_start :: proc(profile: Profile, cwd: string, cols, rows: int) -> (^Pty, bool
     // Null standard handles: without STARTF_USESTDHANDLES the child takes the
     // editor's own, which write to a file or pipe instead of the pseudo-console
     // when the editor's output is redirected.
-    si := STARTUPINFOEXW {
-        StartupInfo = {cb = size_of(STARTUPINFOEXW), dwFlags = win32.STARTF_USESTDHANDLES},
-        lpAttributeList = raw_data(attribute),
-    }
+    si := STARTUPINFOEXW{StartupInfo = {cb = size_of(STARTUPINFOEXW), dwFlags = win32.STARTF_USESTDHANDLES}, lpAttributeList = raw_data(attribute)}
     pi: win32.PROCESS_INFORMATION
 
     // The child reads TERM to decide what it may send; ConPTY itself sets none.
-    if !win32.SetEnvironmentVariableW(
-        win32.utf8_to_wstring("TERM", context.temp_allocator),
-        win32.utf8_to_wstring(PTY_TERM, context.temp_allocator),
-    ) {
+    if !win32.SetEnvironmentVariableW(win32.utf8_to_wstring("TERM", context.temp_allocator), win32.utf8_to_wstring(PTY_TERM, context.temp_allocator)) {
         log.warnf("shell: could not set TERM for %s: %v", profile.name, win32.GetLastError())
     }
-    if !win32.SetEnvironmentVariableW(
-        win32.utf8_to_wstring("COLORTERM", context.temp_allocator),
-        win32.utf8_to_wstring("truecolor", context.temp_allocator),
-    ) {
+    if !win32.SetEnvironmentVariableW(win32.utf8_to_wstring("COLORTERM", context.temp_allocator), win32.utf8_to_wstring("truecolor", context.temp_allocator)) {
         log.warnf("shell: could not set COLORTERM for %s: %v", profile.name, win32.GetLastError())
     }
 
@@ -105,18 +96,7 @@ pty_start :: proc(profile: Profile, cwd: string, cols, rows: int) -> (^Pty, bool
     // Not suspended: a client of a pseudo-console attaches to it while its own
     // libraries start, and a suspended one fails that with a DLL init error.
     flags := win32.DWORD(win32.EXTENDED_STARTUPINFO_PRESENT)
-    ok := win32.CreateProcessW(
-        nil,
-        cmdline,
-        nil,
-        nil,
-        false,
-        flags,
-        nil,
-        wdir,
-        cast(^win32.STARTUPINFOW) &si,
-        &pi,
-    )
+    ok    := win32.CreateProcessW(nil, cmdline, nil, nil, false, flags, nil, wdir, cast(^win32.STARTUPINFOW)&si, &pi)
     if !ok {
         DeleteProcThreadAttributeList(raw_data(attribute))
         delete(attribute)
@@ -166,16 +146,10 @@ pty_write :: proc(pty: ^Pty, data: string) -> bool {
     if len(data) == 0 {
         return true
     }
-    bytes := transmute([]u8) data
+    bytes := transmute([]u8)data
     for sent := 0; sent < len(bytes); {
         written: win32.DWORD
-        if !win32.WriteFile(
-            pty.input,
-            &bytes[sent],
-            win32.DWORD(len(bytes) - sent),
-            &written,
-            nil,
-        ) || written == 0 {
+        if !win32.WriteFile(pty.input, &bytes[sent], win32.DWORD(len(bytes) - sent), &written, nil) || written == 0 {
             return false
         }
         sent += int(written)
@@ -250,4 +224,3 @@ pty_destroy :: proc(pty: ^Pty) {
     }
     free(pty)
 }
-

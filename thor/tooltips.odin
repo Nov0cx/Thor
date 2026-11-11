@@ -21,14 +21,14 @@ thor_tip :: proc(thor: ^Thor, id: ui.Id, text: string, chord := "") {
     }
 
     body := strings.concatenate({text, "\n", chord}, context.temp_allocator)
-    dim := make([]ui.Text_Span, 1, context.temp_allocator)
+    dim  := make([]ui.Text_Span, 1, context.temp_allocator)
     dim[0] = {start = len(text) + 1, end = len(body), color = thor.theme.disabled}
     ui.tooltip(body, id, el = {spans = dim})
 }
 
 // What each titlebar menu covers. The dropdown itself names the commands.
 @(private = "file")
-MENU_TIPS := [?]string {
+MENU_TIPS := [?]string{
     "Files, folders and windows",
     "Undo, clipboard and selection",
     "Panels, split view and appearance",

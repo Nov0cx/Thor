@@ -32,7 +32,7 @@ poll_worker :: proc(w: ^Watcher, stopping: ^bool) {
     defer scan_destroy(&b)
 
     previous := &a
-    current := &b
+    current  := &b
     for !intrinsics.atomic_load(stopping) {
         poll_sleep(stopping)
         if intrinsics.atomic_load(stopping) {

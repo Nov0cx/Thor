@@ -9,11 +9,11 @@ import "core:thread"
 import "core:time"
 
 import "../atomicfile"
+import "../lockfree"
 import "../plugin"
 import "../setting"
 import "../shell"
 import "../textedit"
-import "../lockfree"
 
 // One row of a plugin dropdown (see thor.menu). A separator carries no command.
 Plugin_Menu_Item :: struct {
@@ -27,8 +27,8 @@ Plugin_Menu_Item :: struct {
 // thor.menu (a dropdown built from `entries`, in which case `command` is empty).
 Plugin_Top_Button :: struct {
     thor:    ^Thor,
-    label:   string, // owned; the button borrows it as its text
-    command: string, // owned
+    label:   string,                    // owned; the button borrows it as its text
+    command: string,                    // owned
     entries: [dynamic]Plugin_Menu_Item, // owned; empty for a flat button
 }
 
@@ -39,33 +39,36 @@ thor_set_plugin_host :: proc(thor: ^Thor) {
     if thor.plugin_data_root == "" {
         thor.plugin_data_root = thor_plugin_data_root_path()
     }
-    plugin.manager_set_host(&thor.plugins, plugin.Host {
-        data         = thor,
-        print        = thor_plugin_print,
-        keybind      = thor_plugin_keybind,
-        doc          = thor_plugin_doc,
-        exec         = thor_plugin_exec,
-        exec_async   = thor_plugin_exec_async,
-        button       = thor_plugin_button,
-        workspace    = thor_plugin_workspace,
-        data_root    = thor_plugin_data_root,
-        active_path  = thor_plugin_active_path,
-        read         = thor_plugin_read,
-        write        = thor_plugin_write,
-        refresh_git  = thor_plugin_refresh_git,
-        menu         = thor_plugin_menu,
-        prompt       = thor_plugin_prompt,
-        pick         = thor_plugin_pick,
-        confirm      = thor_plugin_confirm,
-        panel        = thor_plugin_panel,
-        panel_render = thor_plugin_panel_render,
-        panel_show   = thor_plugin_panel_show,
-        panel_close  = thor_plugin_panel_close,
-        draw_rect    = thor_plugin_draw_rect,
-        draw_text    = thor_plugin_draw_text,
-        draw_line    = thor_plugin_draw_line,
-        measure_text = thor_plugin_measure_text,
-    })
+    plugin.manager_set_host(
+        &thor.plugins,
+        plugin.Host{
+            data = thor,
+            print = thor_plugin_print,
+            keybind = thor_plugin_keybind,
+            doc = thor_plugin_doc,
+            exec = thor_plugin_exec,
+            exec_async = thor_plugin_exec_async,
+            button = thor_plugin_button,
+            workspace = thor_plugin_workspace,
+            data_root = thor_plugin_data_root,
+            active_path = thor_plugin_active_path,
+            read = thor_plugin_read,
+            write = thor_plugin_write,
+            refresh_git = thor_plugin_refresh_git,
+            menu = thor_plugin_menu,
+            prompt = thor_plugin_prompt,
+            pick = thor_plugin_pick,
+            confirm = thor_plugin_confirm,
+            panel = thor_plugin_panel,
+            panel_render = thor_plugin_panel_render,
+            panel_show = thor_plugin_panel_show,
+            panel_close = thor_plugin_panel_close,
+            draw_rect = thor_plugin_draw_rect,
+            draw_text = thor_plugin_draw_text,
+            draw_line = thor_plugin_draw_line,
+            measure_text = thor_plugin_measure_text,
+        },
+    )
 }
 
 // Drops every top-bar button plugins added.
@@ -85,7 +88,7 @@ thor_clear_plugin_buttons :: proc(thor: ^Thor) {
 
 // thor.print(text): append plugin output to the console, revealing it if hidden.
 thor_plugin_print :: proc(host: rawptr, text: string) {
-    thor := cast(^Thor) host
+    thor := cast(^Thor)host
     // No terminal yet (shell detection is still running): hold the text, the
     // first terminal takes it.
     if thor_active_console(thor) == nil {
@@ -101,7 +104,7 @@ thor_plugin_print :: proc(host: rawptr, text: string) {
 // thor.keybind(action): the chord currently bound to `action` in keybinds.lua,
 // formatted for display, so plugins present the user's real shortcuts.
 thor_plugin_keybind :: proc(host: rawptr, action: string) -> (string, bool) {
-    thor := cast(^Thor) host
+    thor := cast(^Thor)host
     if kb, ok := setting.keybind(&thor.config, action); ok {
         if s := setting.keybind_to_string(kb, context.temp_allocator); s != "" {
             return s, true
@@ -114,7 +117,7 @@ thor_plugin_keybind :: proc(host: rawptr, action: string) -> (string, bool) {
 // the file, and replaces an already-open buffer in place so a plugin can refresh
 // a live view without reopening or stealing focus. `focus` reveals it first time.
 thor_plugin_doc :: proc(host: rawptr, path: string, text: string, focus: bool) {
-    thor := cast(^Thor) host
+    thor := cast(^Thor)host
 
     // write_entire_file does not create parent directories, and a plugin path
     // like ".thor/git/status.md" nests more than one deep.
@@ -125,7 +128,7 @@ thor_plugin_doc :: proc(host: rawptr, path: string, text: string, focus: bool) {
             return
         }
     }
-    if werr := atomicfile.write(path, transmute([]byte) text); werr != nil {
+    if werr := atomicfile.write(path, transmute([]byte)text); werr != nil {
         log.errorf("thor.doc: could not write %q: %v", path, werr)
         thor_flash_status(thor, "Plugin document could not be written", is_error = true)
         return
@@ -153,7 +156,7 @@ thor_plugin_doc :: proc(host: rawptr, path: string, text: string, focus: bool) {
 // its combined output. Synchronous, so it holds the frame — `timeout` is what
 // the plugin has left of its call budget, and the command is killed at it.
 thor_plugin_exec :: proc(host: rawptr, command: string, timeout: time.Duration) -> string {
-    thor := cast(^Thor) host
+    thor := cast(^Thor)host
     return shell.run(command, thor.workspace_dir, timeout)
 }
 
@@ -163,20 +166,20 @@ PLUGIN_EXEC_TIMEOUT :: 120 * time.Second
 // A thor.exec with a callback, run on a worker thread.
 Plugin_Exec_Job :: struct {
     queue_next: ^Plugin_Exec_Job, // link in Thor.finished_plugin_execs
-    owner:     ^Thor,
-    allocator: runtime.Allocator,
-    worker:    ^thread.Thread,
-    id:        u64,
-    command:   string, // owned
-    cwd:       string, // owned
-    output:    string, // owned
-    code:      int,
+    owner:      ^Thor,
+    allocator:  runtime.Allocator,
+    worker:     ^thread.Thread,
+    id:         u64,
+    command:    string, // owned
+    cwd:        string, // owned
+    output:     string, // owned
+    code:       int,
 }
 
 // thor.exec(command, fn): starts `command` in the workspace on a worker thread.
 // The result reaches the plugin through thor_dispatch_plugin_execs.
 thor_plugin_exec_async :: proc(host: rawptr, command: string) -> u64 {
-    thor := cast(^Thor) host
+    thor := cast(^Thor)host
     thor.plugin_exec_next += 1
     job := new(Plugin_Exec_Job)
     job.owner = thor
@@ -248,7 +251,7 @@ plugin_exec_free :: proc(job: ^Plugin_Exec_Job) {
 
 // thor.workspace(): the absolute path of the open workspace directory.
 thor_plugin_workspace :: proc(host: rawptr) -> string {
-    thor := cast(^Thor) host
+    thor := cast(^Thor)host
     return thor.workspace_dir
 }
 
@@ -259,8 +262,7 @@ thor_plugin_workspace :: proc(host: rawptr) -> string {
 thor_plugin_data_root_path :: proc() -> string {
     dir := setting.USER_DIR
     if exe, err := os.get_executable_path(context.temp_allocator); err == nil {
-        if joined, jerr := filepath.join({os.dir(exe), setting.USER_DIR}, context.temp_allocator);
-           jerr == nil {
+        if joined, jerr := filepath.join({os.dir(exe), setting.USER_DIR}, context.temp_allocator); jerr == nil {
             dir = joined
         }
     }
@@ -274,14 +276,14 @@ thor_plugin_data_root_path :: proc() -> string {
 
 // The root under which the sandbox gives each plugin its own data directory.
 thor_plugin_data_root :: proc(host: rawptr) -> string {
-    thor := cast(^Thor) host
+    thor := cast(^Thor)host
     return thor.plugin_data_root
 }
 
 // thor.active_path(): absolute path of the file in the active tab, or "" when
 // no file is open (empty maps to nil in Lua).
 thor_plugin_active_path :: proc(host: rawptr) -> string {
-    thor := cast(^Thor) host
+    thor  := cast(^Thor)host
     index := signal_get(&thor.active_file)
     if index < 0 || index >= len(thor.open_files) {
         return ""
@@ -293,7 +295,7 @@ thor_plugin_active_path :: proc(host: rawptr) -> string {
 // (so a plugin sees unsaved edits, e.g. a commit message being typed) and falls
 // back to disk. The result is owned by the caller (see plugin.Read_Proc).
 thor_plugin_read :: proc(host: rawptr, path: string) -> (string, bool) {
-    thor := cast(^Thor) host
+    thor := cast(^Thor)host
 
     canonical := path
     if abs, err := filepath.abs(path, context.temp_allocator); err == nil {
@@ -315,7 +317,7 @@ thor_plugin_read :: proc(host: rawptr, path: string) -> (string, bool) {
 // tab. Used by plugins for scratch files (e.g. a commit message passed to
 // `git commit -F`). Creates the parent directory like thor.doc does.
 thor_plugin_write :: proc(host: rawptr, path: string, text: string) {
-    thor := cast(^Thor) host
+    thor := cast(^Thor)host
     if dir := filepath.dir(path); dir != "" && dir != "." && !os.exists(dir) {
         if err := os.make_directory_all(dir); err != nil {
             log.errorf("thor.write: could not create %q: %v", dir, err)
@@ -323,7 +325,7 @@ thor_plugin_write :: proc(host: rawptr, path: string, text: string) {
             return
         }
     }
-    if err := atomicfile.write(path, transmute([]byte) text); err != nil {
+    if err := atomicfile.write(path, transmute([]byte)text); err != nil {
         log.errorf("thor.write: could not write %q: %v", path, err)
         thor_flash_status(thor, "Plugin file could not be written", is_error = true)
     }
@@ -332,7 +334,7 @@ thor_plugin_write :: proc(host: rawptr, path: string, text: string) {
 // thor.refresh_git(): recompute the tree's git-status colouring after a plugin
 // changed the working tree.
 thor_plugin_refresh_git :: proc(host: rawptr) {
-    thor := cast(^Thor) host
+    thor := cast(^Thor)host
     thor_refresh_git_status(thor)
 }
 
@@ -350,8 +352,8 @@ thor_plugin_add_button :: proc(thor: ^Thor, label: string) -> ^Plugin_Top_Button
 // thor.button(label, command): adds a flat top-bar button, just after Help,
 // that runs the named plugin command when clicked.
 thor_plugin_button :: proc(host: rawptr, label: string, command: string) {
-    thor := cast(^Thor) host
-    pb := thor_plugin_add_button(thor, label)
+    thor := cast(^Thor)host
+    pb   := thor_plugin_add_button(thor, label)
     pb.command = strings.clone(command)
 }
 
@@ -374,7 +376,7 @@ thor_plugin_find_menu_button :: proc(thor: ^Thor, label: string) -> ^Plugin_Top_
 // behind a separator, instead of adding a duplicate button — how several
 // plugins of one kind share one dropdown.
 thor_plugin_menu :: proc(host: rawptr, label: string, entries: []plugin.Menu_Entry) {
-    thor := cast(^Thor) host
+    thor := cast(^Thor)host
 
     pb := thor_plugin_find_menu_button(thor, label)
     if pb == nil {
@@ -385,25 +387,20 @@ thor_plugin_menu :: proc(host: rawptr, label: string, entries: []plugin.Menu_Ent
     }
 
     for e in entries {
-        append(&pb.entries, Plugin_Menu_Item {
-            thor      = thor,
-            label     = strings.clone(e.label),
-            command   = strings.clone(e.command),
-            separator = e.separator,
-        })
+        append(&pb.entries, Plugin_Menu_Item{thor = thor, label = strings.clone(e.label), command = strings.clone(e.command), separator = e.separator})
     }
 }
 
 // Click handler for a flat plugin button; runs its command.
 thor_plugin_button_click :: proc(data: rawptr) {
-    pb := cast(^Plugin_Top_Button) data
+    pb := cast(^Plugin_Top_Button)data
     plugin.manager_run_command(&pb.thor.plugins, pb.command)
 }
 
 // Click handler for a dropdown plugin button; builds the shared menu from the
 // button's entries and opens it just below the button.
 thor_plugin_menu_open :: proc(data: rawptr) {
-    pb := cast(^Plugin_Top_Button) data
+    pb   := cast(^Plugin_Top_Button)data
     thor := pb.thor
     thor_menu_clear(thor)
     for &entry in pb.entries {
@@ -418,39 +415,39 @@ thor_plugin_menu_open :: proc(data: rawptr) {
 
 // Runs the command behind a chosen dropdown row.
 thor_plugin_menu_item_click :: proc(data: rawptr) {
-    item := cast(^Plugin_Menu_Item) data
+    item := cast(^Plugin_Menu_Item)data
     plugin.manager_run_command(&item.thor.plugins, item.command)
 }
 
 // thor.prompt(label, fn): opens the single-line prompt; the entered text is
 // handed back to the plugin (plugin.manager_dialog_text).
 thor_plugin_prompt :: proc(host: rawptr, label: string) {
-    thor := cast(^Thor) host
+    thor := cast(^Thor)host
     thor_palette_prompt(thor, label, thor_plugin_dialog_text, thor)
 }
 
 // thor.pick(label, items, fn): opens the fuzzy picker; the chosen item is handed
 // back to the plugin (plugin.manager_dialog_text).
 thor_plugin_pick :: proc(host: rawptr, label: string, items: []string) {
-    thor := cast(^Thor) host
+    thor := cast(^Thor)host
     thor_palette_pick(thor, label, items, thor_plugin_dialog_text, thor)
 }
 
 // thor.confirm(message, fn): opens the yes/no confirmation; a confirm is handed
 // back to the plugin (plugin.manager_dialog_confirm).
 thor_plugin_confirm :: proc(host: rawptr, message: string) {
-    thor := cast(^Thor) host
+    thor := cast(^Thor)host
     thor_palette_confirm(thor, message, thor_plugin_dialog_confirm, thor)
 }
 
 // Shared submit trampoline for prompt/pick: forwards the text into the plugin VM.
 thor_plugin_dialog_text :: proc(data: rawptr, text: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     plugin.manager_dialog_text(&thor.plugins, text)
 }
 
 // Confirm trampoline: fires the pending confirm callback in the plugin VM.
 thor_plugin_dialog_confirm :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     plugin.manager_dialog_confirm(&thor.plugins)
 }

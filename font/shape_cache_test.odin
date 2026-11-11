@@ -20,11 +20,11 @@ test_shape_cache_eviction_is_lru :: proc(t: ^testing.T) {
 
     // Touch entry 0 so it's the most recently used, then insert one more:
     // eviction must take entry 1 (now the true oldest), not entry 0.
-    key0 := Shape_Cache_Key{family = &dummy, size = 17, line = "line-0"}
+    key0    := Shape_Cache_Key{family = &dummy, size = 17, line = "line-0"}
     _, hit0 := shape_cache_get(&cache, key0)
     testing.expect(t, hit0, "entry 0 should still be resident before overflow")
 
-    key1 := Shape_Cache_Key{family = &dummy, size = 17, line = "line-1"}
+    key1         := Shape_Cache_Key{family = &dummy, size = 17, line = "line-1"}
     overflow_key := Shape_Cache_Key{family = &dummy, size = 17, line = "overflow"}
     shape_cache_put(&cache, overflow_key, glyphs)
 

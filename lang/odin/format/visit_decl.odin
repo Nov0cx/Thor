@@ -8,8 +8,8 @@ print_file :: proc(pr: ^Printer, root: Node) -> Doc {
     out: [dynamic]Doc
 
     prev_line := 0
-    has_prev := false
-    ks := kids(root)
+    has_prev  := false
+    ks        := kids(root)
     // A comment above a tag stays above it, so it does not become the package doc.
     for k in ks {
         if k.kind != .File_Tag {
@@ -96,8 +96,8 @@ value_decl_parts :: proc(ks: []Node) -> (v: Value_Decl_Parts) {
     }
     if first_colon >= 0 {
         second := tok_index(ks, .Colon, first_colon + 1)
-        eq := tok_index(ks, .Eq, first_colon + 1)
-        stop := len(ks)
+        eq     := tok_index(ks, .Eq, first_colon + 1)
+        stop   := len(ks)
         if second >= 0 {
             stop = second
         }
@@ -116,8 +116,8 @@ print_value_decl :: proc(pr: ^Printer, out: ^[dynamic]Doc, d: Node, ks: []Node) 
     if v.using_ {
         append(out, text("using "))
     }
-    cell := align_cell(pr, d)
-    has_type := is_node(v.type)
+    cell                := align_cell(pr, d)
+    has_type            := is_node(v.type)
     in_cell, after_cell := colon_split(pr)
     if !has_type {
         in_cell, after_cell = "", ""
@@ -194,7 +194,7 @@ print_foreign_import_decl :: proc(pr: ^Printer, out: ^[dynamic]Doc, ks: []Node) 
         print_expr(pr, out, name)
         append(out, text(" "))
     }
-    open := tok_index(ks, .Open_Brace)
+    open  := tok_index(ks, .Open_Brace)
     paths := make([dynamic]Node, 0, 2)
     for k, i in ks {
         if is_tok(k, .String) || (open >= 0 && i > open && is_expr(k)) {

@@ -147,7 +147,7 @@ test_view_reuses_snapshot :: proc(t: ^testing.T) {
     pt := piecetable_create("hello")
     defer piecetable_destroy(&pt)
 
-    first := piecetable_view(&pt)
+    first  := piecetable_view(&pt)
     second := piecetable_view(&pt)
     testing.expect(t, raw_data(first) == raw_data(second), "an unchanged table re-materialized")
 
@@ -282,7 +282,7 @@ test_patched_view_matches_rebuild :: proc(t: ^testing.T) {
     for round in 0 ..< 400 {
         edits := 1 + rand.int_max(3)
         for _ in 0 ..< edits {
-            n := len(model.buf)
+            n   := len(model.buf)
             pos := rand.int_max(n + 1)
             if rand.int_max(2) == 0 || n == 0 {
                 word := words[rand.int_max(len(words))]

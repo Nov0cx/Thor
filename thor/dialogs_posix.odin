@@ -75,14 +75,11 @@ thor_pick_command :: proc(kind: Pick_Kind, title: string, initial: string) -> st
             applescript_write_string(&script, initial)
         }
         strings.write_string(&script, ")")
-        return strings.concatenate(
-            {"osascript -e ", thor_shell_quote(strings.to_string(script)), " 2>/dev/null"},
-            context.temp_allocator,
-        )
+        return strings.concatenate({"osascript -e ", thor_shell_quote(strings.to_string(script)), " 2>/dev/null"}, context.temp_allocator)
     } else {
-        start := initial != "" ? initial : "."
+        start   := initial != "" ? initial : "."
         // zenity reads a starting directory as a file name that ends in a separator.
-        zenity := strings.concatenate(
+        zenity  := strings.concatenate(
             {
                 "zenity --file-selection",
                 kind == .Folder ? " --directory" : "",

@@ -7,7 +7,7 @@ import lang ".."
 @(test)
 test_live_nil_deref_array_elements :: proc(t: ^testing.T) {
     root := fixture(t, "live_nil_deref_array", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     src := `package app
@@ -54,12 +54,17 @@ f :: proc(q: ^T, i: int, k: [3]^T) -> int {
 `
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
     defer free_live(&res)
-    expect_errors(t, &res, src, {
-        {"a[1].x", "Dereferencing 'a[1]', which is always nil here", 0},
-        {"h[0]()", "Calling 'h[0]', which is always nil here", 0},
-        {"s.arr[2].x", "Dereferencing 's.arr[2]', which is always nil here", 0},
-        {"m[0].x", "Dereferencing 'm[0]', which is always nil here", 0},
-    })
+    expect_errors(
+        t,
+        &res,
+        src,
+        {
+            {"a[1].x", "Dereferencing 'a[1]', which is always nil here", 0},
+            {"h[0]()", "Calling 'h[0]', which is always nil here", 0},
+            {"s.arr[2].x", "Dereferencing 's.arr[2]', which is always nil here", 0},
+            {"m[0].x", "Dereferencing 'm[0]', which is always nil here", 0},
+        },
+    )
     for d in res.report.items {
         if d.code == CODE_NIL_DEREF {
             testing.expect_value(t, d.severity, lang.Diagnostic_Severity.Hint)
@@ -70,7 +75,7 @@ f :: proc(q: ^T, i: int, k: [3]^T) -> int {
 @(test)
 test_live_dangling_comp_lit_and_local_pointer :: proc(t: ^testing.T) {
     root := fixture(t, "live_dangling_complit", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     src := `package app
@@ -110,17 +115,22 @@ fine_reassigned :: proc(out: ^Holder) {
 `
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
     defer free_live(&res)
-    expect_errors(t, &res, src, {
-        {"Holder{p = &x}", "A pointer or slice of a local is returned and dangles after the procedure returns", 0},
-        {"Holder{&y, 1}", "A pointer or slice of a local is stored and dangles after the procedure returns", 0},
-        {"&z\n}", "Address of local 'z' is stored and dangles after the procedure returns", 0},
-    })
+    expect_errors(
+        t,
+        &res,
+        src,
+        {
+            {"Holder{p = &x}", "A pointer or slice of a local is returned and dangles after the procedure returns", 0},
+            {"Holder{&y, 1}", "A pointer or slice of a local is stored and dangles after the procedure returns", 0},
+            {"&z\n}", "Address of local 'z' is stored and dangles after the procedure returns", 0},
+        },
+    )
 }
 
 @(test)
 test_live_dangling_slice_flow :: proc(t: ^testing.T) {
     root := fixture(t, "live_dangling_flow", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     src := `package app
@@ -209,13 +219,18 @@ fine_param :: proc(p: ^int) -> ^int {
 `
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
     defer free_live(&res)
-    expect_errors(t, &res, src, {
-        {"q\n}\nvia_call", "A pointer or slice of a local is returned and dangles after the procedure returns", 0},
-        {"ident(&y)\n", "A pointer or slice of a local is returned and dangles after the procedure returns", 0},
-        {"h\n}\nstored", "A pointer or slice of a local is returned and dangles after the procedure returns", 0},
-        {"s\n}\nto_global", "A pointer or slice of a local is stored and dangles after the procedure returns", 0},
-        {"pz\n}\nfine_reset", "A pointer or slice of a local is stored and dangles after the procedure returns", 0},
-    })
+    expect_errors(
+        t,
+        &res,
+        src,
+        {
+            {"q\n}\nvia_call", "A pointer or slice of a local is returned and dangles after the procedure returns", 0},
+            {"ident(&y)\n", "A pointer or slice of a local is returned and dangles after the procedure returns", 0},
+            {"h\n}\nstored", "A pointer or slice of a local is returned and dangles after the procedure returns", 0},
+            {"s\n}\nto_global", "A pointer or slice of a local is stored and dangles after the procedure returns", 0},
+            {"pz\n}\nfine_reset", "A pointer or slice of a local is stored and dangles after the procedure returns", 0},
+        },
+    )
     for d in res.report.items {
         testing.expect_value(t, d.code, CODE_DANGLING_SLICE)
         testing.expect(t, d.lint, "a dangling slice is a lint")

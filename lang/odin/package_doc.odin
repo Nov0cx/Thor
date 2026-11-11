@@ -119,11 +119,7 @@ render_package_doc :: proc(ctx: ^Request_Context, dir: string, res: ^lang.Result
             strings.write_byte(&page, '\n')
         }
     }
-    res.doc = lang.Doc_Info {
-        title = strings.concatenate({"package ", pkg_name}),
-        path  = strings.clone(dir),
-        text  = strings.clone(strings.to_string(page)),
-    }
+    res.doc = lang.Doc_Info{title = strings.concatenate({"package ", pkg_name}), path = strings.clone(dir), text = strings.clone(strings.to_string(page))}
     res.ok = true
 }
 
@@ -137,11 +133,14 @@ collect_entries :: proc(tree: ^odinsema.Item_Tree, target: odinsema.Target, out:
         if !odinsema.guard_active(tree, item.guard, target) {
             continue
         }
-        append(out, Doc_Entry {
-            name      = strings.clone(item.name, context.temp_allocator),
-            signature = strings.clone(item.signature, context.temp_allocator),
-            doc       = strings.clone(item.doc, context.temp_allocator),
-        })
+        append(
+            out,
+            Doc_Entry{
+                name = strings.clone(item.name, context.temp_allocator),
+                signature = strings.clone(item.signature, context.temp_allocator),
+                doc = strings.clone(item.doc, context.temp_allocator),
+            },
+        )
     }
 }
 

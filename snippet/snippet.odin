@@ -26,10 +26,10 @@ Stop :: struct {
 
 // A parsed template: the text to insert and its stops, in visit order.
 Snippet :: struct {
-    text:       string,               // owned
-    stops:      [dynamic]Stop,        // owned
-    transforms: [dynamic]Transform,   // owned, with their strings
-    choices:    [dynamic]string,      // owned, with their strings
+    text:       string,             // owned
+    stops:      [dynamic]Stop,      // owned
+    transforms: [dynamic]Transform, // owned, with their strings
+    choices:    [dynamic]string,    // owned, with their strings
 }
 
 // What the LSP snippet variables resolve to. All optional: an unset one, and any
@@ -75,23 +75,18 @@ destroy :: proc(snip: ^Snippet) {
 // `${VAR:default}` / `${VAR/regex/format/opts}`, and the escapes `\$`, `\}` and
 // `\\`. Anything that does not parse stays in the text as it was written.
 parse :: proc(template: string, vars := Vars{}, allocator := context.allocator) -> Snippet {
-    p := Parser {
-        src        = template,
-        vars       = vars,
-        allocator  = allocator,
-        out        = strings.builder_make(allocator),
-        stops      = make([dynamic]Stop, allocator),
+    p := Parser{
+        src = template,
+        vars = vars,
+        allocator = allocator,
+        out = strings.builder_make(allocator),
+        stops = make([dynamic]Stop, allocator),
         transforms = make([dynamic]Transform, allocator),
-        choices    = make([dynamic]string, allocator),
+        choices = make([dynamic]string, allocator),
     }
     snippet_body(&p, false)
     snippet_fill_mirrors(&p)
-    snip := Snippet {
-        text       = strings.to_string(p.out),
-        stops      = p.stops,
-        transforms = p.transforms,
-        choices    = p.choices,
-    }
+    snip := Snippet{text = strings.to_string(p.out), stops = p.stops, transforms = p.transforms, choices = p.choices}
     snippet_order(&snip)
     return snip
 }
@@ -103,11 +98,11 @@ indent :: proc(snip: ^Snippet, line_indent, unit: string, allocator := context.a
     if !strings.contains_rune(snip.text, '\n') && !strings.has_prefix(snip.text, "\t") {
         return
     }
-    old := snip.text
-    out := strings.builder_make(0, len(old) + 16, allocator)
-    moved := make([]int, len(old) + 1, context.temp_allocator)
+    old        := snip.text
+    out        := strings.builder_make(0, len(old) + 16, allocator)
+    moved      := make([]int, len(old) + 1, context.temp_allocator)
     line_start := true // no character but a tab on this line yet
-    indented := true   // the first line is at the indent already
+    indented   := true // the first line is at the indent already
     for i := 0; i < len(old); i += 1 {
         c := old[i]
         if !indented && c != '\n' {
@@ -237,7 +232,7 @@ snippet_braced_stop :: proc(p: ^Parser, index, at: int) -> bool {
         return true
     case ':':
         start := strings.builder_len(p.out)
-        mark := len(p.stops)
+        mark  := len(p.stops)
         p.at = at + 1
         p.depth += 1
         snippet_body(p, true)
@@ -293,7 +288,7 @@ snippet_braced_var :: proc(p: ^Parser, name: string, at: int) -> bool {
         return true
     case ':':
         start := strings.builder_len(p.out)
-        mark := len(p.stops)
+        mark  := len(p.stops)
         p.at = at + 1
         snippet_body(p, true)
         if p.at >= len(p.src) || p.src[p.at] != '}' {
@@ -369,7 +364,7 @@ snippet_fill_mirrors :: proc(p: ^Parser) {
     for &f in fills {
         f.text = strings.clone(f.text, context.temp_allocator)
     }
-    out := strings.builder_make(0, len(old) + 16, p.allocator)
+    out  := strings.builder_make(0, len(old) + 16, p.allocator)
     prev := 0
     for f in fills {
         pos := orig[f.stop].start
@@ -385,14 +380,14 @@ snippet_fill_mirrors :: proc(p: ^Parser) {
         o := orig[i]
         for f in fills {
             pos := orig[f.stop].start
-            n := len(f.text)
+            n   := len(f.text)
             if f.stop == i {
                 s.end += n
                 continue
             }
             // A placeholder around the filled stop grows; a stop after it moves.
             contains := orig[f.stop].depth > o.depth && o.start <= pos && pos <= o.end
-            after := pos < o.start || (pos == o.start && !contains && i > f.stop)
+            after    := pos < o.start || (pos == o.start && !contains && i > f.stop)
             if after {
                 s.start += n
                 s.end += n
@@ -453,7 +448,7 @@ snippet_name :: proc(src: string, at: int) -> (name: string, next: int, ok: bool
 snippet_choice :: proc(src: string, at: int) -> (choices: [dynamic]string, next: int, ok: bool) {
     choices = make([dynamic]string, context.temp_allocator)
     out := strings.builder_make(context.temp_allocator)
-    i := at
+    i   := at
     for i < len(src) {
         c := src[i]
         if c == '\\' && i + 1 < len(src) {
@@ -483,13 +478,10 @@ snippet_choice :: proc(src: string, at: int) -> (choices: [dynamic]string, next:
 }
 
 @(private = "file")
-MONTH_NAMES := [12]string {
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December",
-}
+MONTH_NAMES := [12]string{"January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"}
 
 @(private = "file")
-DAY_NAMES := [7]string {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"}
+DAY_NAMES := [7]string{"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"}
 
 // An LSP snippet variable. Anything Thor cannot answer resolves to "", which
 // leaves a written default in its place.
@@ -533,7 +525,7 @@ snippet_var_value :: proc(p: ^Parser, name: string) -> string {
     if !v.has_time || !strings.has_prefix(name, "CURRENT_") {
         return ""
     }
-    month := clamp(v.month, 1, 12) - 1
+    month   := clamp(v.month, 1, 12) - 1
     weekday := clamp(v.weekday, 0, 6)
     switch name {
     case "CURRENT_YEAR":

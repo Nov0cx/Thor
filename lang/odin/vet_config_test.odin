@@ -12,7 +12,7 @@ test_vet_option_flags :: proc(t: ^testing.T) {
         want: odinsema.Vet_Flags,
         ok:   bool,
     }
-    cases := [?]Case {
+    cases := [?]Case{
         {"-vet", odinsema.VET_DEFAULT, true},
         {"-vet-style", {.Style}, true},
         {"-vet-unused-procedures", {.Unused_Procedures}, true},
@@ -33,14 +33,16 @@ test_vet_option_flags :: proc(t: ^testing.T) {
 // `"vet"` in the analyzer config adds checks to the `-vet` set; a diagnostic id set to off still removes one.
 @(test)
 test_workspace_vet_flags_from_config :: proc(t: ^testing.T) {
-    root := fixture(t, "vet_config_flags", {
-        {".thor/odin-analyzer.lua", `return { vet = { "-vet-style", "unused-procedures", "-vet-bogus", 7 }, diagnostics = { ["vet/cast"] = "off" } }`},
-    })
+    root  := fixture(
+        t,
+        "vet_config_flags",
+        {{".thor/odin-analyzer.lua", `return { vet = { "-vet-style", "unused-procedures", "-vet-bogus", 7 }, diagnostics = { ["vet/cast"] = "off" } }`}},
+    )
     plain := fixture(t, "vet_config_plain", {{".thor/odin-analyzer.lua", `return {}`}})
-    e := engine_create()
+    e     := engine_create()
     defer engine_destroy(e)
 
-    got := workspace_vet_flags(e, root)
+    got  := workspace_vet_flags(e, root)
     want := (odinsema.VET_DEFAULT - {.Cast}) + {.Style, .Unused_Procedures}
     testing.expectf(t, got == want, "got %v, want %v", got, want)
     testing.expect_value(t, workspace_vet_flags(e, plain), odinsema.VET_DEFAULT)

@@ -12,7 +12,7 @@ Stack :: struct($T: typeid) {
 }
 
 // Pushes `node`. Any thread.
-stack_push :: proc "contextless" (s: ^Stack($T), node: ^T) {
+stack_push :: proc "contextless"(s: ^Stack($T), node: ^T) {
     old := sync.atomic_load_explicit(&s.head, .Relaxed)
     for {
         node.queue_next = old
@@ -25,7 +25,7 @@ stack_push :: proc "contextless" (s: ^Stack($T), node: ^T) {
 }
 
 // Takes every pushed node as a list linked by `queue_next`, oldest first. One consumer only.
-stack_take :: proc "contextless" (s: ^Stack($T)) -> ^T {
+stack_take :: proc "contextless"(s: ^Stack($T)) -> ^T {
     node := sync.atomic_exchange_explicit(&s.head, nil, .Acquire)
     list: ^T
     for node != nil {
@@ -37,7 +37,7 @@ stack_take :: proc "contextless" (s: ^Stack($T)) -> ^T {
     return list
 }
 
-stack_empty :: proc "contextless" (s: ^Stack($T)) -> bool {
+stack_empty :: proc "contextless"(s: ^Stack($T)) -> bool {
     return sync.atomic_load_explicit(&s.head, .Relaxed) == nil
 }
 
@@ -45,8 +45,8 @@ stack_empty :: proc "contextless" (s: ^Stack($T)) -> bool {
 Byte_Ring :: struct {
     data:      []u8, // owned
     mask:      uint,
-    head:      uint, // atomic; the producer's count of bytes written
-    tail:      uint, // atomic; the consumer's count of bytes read
+    head:      uint,       // atomic; the producer's count of bytes written
+    tail:      uint,       // atomic; the consumer's count of bytes read
     space:     sync.Futex, // bumped by every read that frees space, and by ring_wake
     allocator: runtime.Allocator,
 }
@@ -74,14 +74,14 @@ ring_destroy :: proc(r: ^Byte_Ring) {
 }
 
 // Writes as much of `bytes` as fits. Producer only. Returns the bytes written.
-ring_write :: proc "contextless" (r: ^Byte_Ring, bytes: []u8) -> int {
+ring_write :: proc "contextless"(r: ^Byte_Ring, bytes: []u8) -> int {
     head := sync.atomic_load_explicit(&r.head, .Relaxed)
     tail := sync.atomic_load_explicit(&r.tail, .Acquire)
-    n := min(len(r.data) - int(head - tail), len(bytes))
+    n    := min(len(r.data) - int(head - tail), len(bytes))
     if n <= 0 {
         return 0
     }
-    at := int(head & r.mask)
+    at    := int(head & r.mask)
     first := min(n, len(r.data) - at)
     copy(r.data[at:], bytes[:first])
     copy(r.data, bytes[first:n])
@@ -90,14 +90,14 @@ ring_write :: proc "contextless" (r: ^Byte_Ring, bytes: []u8) -> int {
 }
 
 // Reads up to len(out) bytes. Consumer only. Returns the bytes read.
-ring_read :: proc "contextless" (r: ^Byte_Ring, out: []u8) -> int {
+ring_read :: proc "contextless"(r: ^Byte_Ring, out: []u8) -> int {
     tail := sync.atomic_load_explicit(&r.tail, .Relaxed)
     head := sync.atomic_load_explicit(&r.head, .Acquire)
-    n := min(int(head - tail), len(out))
+    n    := min(int(head - tail), len(out))
     if n <= 0 {
         return 0
     }
-    at := int(tail & r.mask)
+    at    := int(tail & r.mask)
     first := min(n, len(r.data) - at)
     copy(out, r.data[at:][:first])
     copy(out[first:n], r.data)
@@ -107,30 +107,30 @@ ring_read :: proc "contextless" (r: ^Byte_Ring, out: []u8) -> int {
 }
 
 // Bytes written and not yet read.
-ring_len :: proc "contextless" (r: ^Byte_Ring) -> int {
+ring_len :: proc "contextless"(r: ^Byte_Ring) -> int {
     tail := sync.atomic_load_explicit(&r.tail, .Acquire)
     head := sync.atomic_load_explicit(&r.head, .Acquire)
     return int(head - tail)
 }
 
 // The value a producer passes to ring_wait_space. Load it before the write that found the ring full.
-ring_space_gen :: proc "contextless" (r: ^Byte_Ring) -> u32 {
+ring_space_gen :: proc "contextless"(r: ^Byte_Ring) -> u32 {
     return u32(sync.atomic_load_explicit(&r.space, .Acquire))
 }
 
 // Blocks the producer until a read or a ring_wake after `gen` was loaded.
-ring_wait_space :: proc "contextless" (r: ^Byte_Ring, gen: u32) {
+ring_wait_space :: proc "contextless"(r: ^Byte_Ring, gen: u32) {
     sync.futex_wait(&r.space, gen)
 }
 
 // Wakes a producer blocked in ring_wait_space.
-ring_wake :: proc "contextless" (r: ^Byte_Ring) {
+ring_wake :: proc "contextless"(r: ^Byte_Ring) {
     sync.atomic_add_explicit(&r.space, 1, .Release)
     sync.futex_broadcast(&r.space)
 }
 
 // Empties the ring. Only while no other thread uses it.
-ring_reset :: proc "contextless" (r: ^Byte_Ring) {
+ring_reset :: proc "contextless"(r: ^Byte_Ring) {
     sync.atomic_store(&r.head, 0)
     sync.atomic_store(&r.tail, 0)
 }
@@ -148,7 +148,7 @@ Mpmc :: struct($T: typeid, $N: int) where N > 0 && N & (N - 1) == 0 {
 }
 
 // Call before the first push.
-mpmc_init :: proc "contextless" (q: ^Mpmc($T, $N)) {
+mpmc_init :: proc "contextless"(q: ^Mpmc($T, $N)) {
     for &cell, i in q.cells {
         cell.seq = uint(i)
     }
@@ -157,7 +157,7 @@ mpmc_init :: proc "contextless" (q: ^Mpmc($T, $N)) {
 }
 
 // Queues `value`. False when the ring is full.
-mpmc_push :: proc "contextless" (q: ^Mpmc($T, $N), value: T) -> bool {
+mpmc_push :: proc "contextless"(q: ^Mpmc($T, $N), value: T) -> bool {
     pos := sync.atomic_load_explicit(&q.enqueue, .Relaxed)
     cell: ^Mpmc_Cell(T)
     for {
@@ -182,7 +182,7 @@ mpmc_push :: proc "contextless" (q: ^Mpmc($T, $N), value: T) -> bool {
 }
 
 // Takes the oldest value. False when the ring is empty.
-mpmc_pop :: proc "contextless" (q: ^Mpmc($T, $N)) -> (value: T, ok: bool) {
+mpmc_pop :: proc "contextless"(q: ^Mpmc($T, $N)) -> (value: T, ok: bool) {
     pos := sync.atomic_load_explicit(&q.dequeue, .Relaxed)
     cell: ^Mpmc_Cell(T)
     for {

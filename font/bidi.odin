@@ -50,7 +50,7 @@ shape_itemize :: proc(line: string, allocator := context.temp_allocator) -> []Sh
     // An ASCII line is one left-to-right Latin run, which skips the scan.
     if is_ascii(line) {
         runs := make([]Shape_Run, 1, allocator)
-        runs[0] = Shape_Run {start = 0, end = len(line), script = .SCRIPT_LATIN}
+        runs[0] = Shape_Run{start = 0, end = len(line), script = .SCRIPT_LATIN}
         return runs
     }
 
@@ -89,7 +89,7 @@ classify :: proc(line: string, chars: ^[dynamic]Char_Info) {
             size = 1
         }
         script := rune_script(r)
-        append(chars, Char_Info {offset = offset, class = rune_class(r, script), script = script})
+        append(chars, Char_Info{offset = offset, class = rune_class(r, script), script = script})
         offset += size
     }
 }
@@ -102,7 +102,7 @@ rune_script :: proc(r: rune) -> hb.script_t {
         }
         return .SCRIPT_COMMON
     }
-    return hb.unicode_script(unicode_funcs, cast(hb.codepoint_t) r)
+    return hb.unicode_script(unicode_funcs, cast(hb.codepoint_t)r)
 }
 
 // A script a run can shape with. The other three attach to a neighbour.
@@ -164,8 +164,8 @@ resolve_levels :: proc(chars: []Char_Info) {
             j += 1
         }
         // Both line ends count as the base direction (sos and eos).
-        before := i > 0 ? strong_side(chars[i - 1].class) : BASE_CLASS
-        after := j < len(chars) ? strong_side(chars[j].class) : BASE_CLASS
+        before   := i > 0 ? strong_side(chars[i - 1].class) : BASE_CLASS
+        after    := j < len(chars) ? strong_side(chars[j].class) : BASE_CLASS
         resolved := before == after ? before : BASE_CLASS
         for k in i ..< j {
             chars[k].class = resolved
@@ -198,7 +198,7 @@ strong_side :: proc(class: Bidi_Class) -> Bidi_Class {
 @(private = "file")
 resolve_scripts :: proc(chars: []Char_Info) {
     inherited := hb.script_t.SCRIPT_INVALID
-    first := -1
+    first     := -1
     for &ch, i in chars {
         if script_is_real(ch.script) {
             inherited = ch.script
@@ -230,7 +230,7 @@ build_runs :: proc(line: string, chars: []Char_Info, runs: ^[dynamic]Shape_Run) 
                 continue
             }
         }
-        append(runs, Shape_Run {start = ch.offset, end = end, script = ch.script, level = ch.level})
+        append(runs, Shape_Run{start = ch.offset, end = end, script = ch.script, level = ch.level})
     }
 }
 

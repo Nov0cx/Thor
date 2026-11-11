@@ -50,8 +50,8 @@ ANCHOR :: 6
 
 @(private = "file")
 row_spans_for :: proc(editor: ^editview.Editor) -> ([]ui.Text_Span, []editview.Row_Swatch) {
-    buffer := make([]editview.Row_Swatch, editview.MAX_ROW_SWATCHES, context.temp_allocator)
-    count := editview.editor_scan_swatches(ROW, buffer)
+    buffer   := make([]editview.Row_Swatch, editview.MAX_ROW_SWATCHES, context.temp_allocator)
+    count    := editview.editor_scan_swatches(ROW, buffer)
     swatches := buffer[:count]
     return thor_row_spans(editor, ROW, 0, len(ROW), swatches), swatches
 }
@@ -88,8 +88,8 @@ test_row_spans_carry_the_gap :: proc(t: ^testing.T) {
 test_a_highlight_over_the_anchor_is_split :: proc(t: ^testing.T) {
     editor: editview.Editor
     editor.font_size = 16
-    gap := editview.editor_swatch_span(&editor)
-    red := ui.Color{255, 0, 0, 255}
+    gap        := editview.editor_swatch_span(&editor)
+    red        := ui.Color{255, 0, 0, 255}
     highlights := []editview.Highlight_Span{{start = 0, end = len(ROW), color = red}}
     editor.highlights = highlights
 
@@ -153,7 +153,7 @@ test_editview_and_the_spans_report_the_same_gap :: proc(t: ^testing.T) {
     editor.font_size = 16
 
     spans, swatches := row_spans_for(&editor)
-    gap := editview.editor_swatch_span(&editor)
+    gap             := editview.editor_swatch_span(&editor)
     for at in ([]int{0, ANCHOR - 1, ANCHOR, ANCHOR + 4, len(ROW)}) {
         mine: f32
         for swatch in swatches {

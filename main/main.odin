@@ -1,8 +1,10 @@
 package main
 
 // Used by the debug build only.
-@(require) import "core:log"
-@(require) import "core:mem"
+@(require)
+import "core:log"
+@(require)
+import "core:mem"
 import "core:os"
 
 import "../prof"

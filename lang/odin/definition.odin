@@ -21,9 +21,9 @@ import odinsema "sema"
 // The root of the Odin toolchain, found once per engine.
 @(private)
 Odin_Root :: struct {
-    state: sync.Futex, // ROOT_UNKNOWN, ROOT_FINDING or ROOT_KNOWN
-    alloc: runtime.Allocator,
-    path:  string, // owned; "" when not found. Read only after state is ROOT_KNOWN
+    state:     sync.Futex, // ROOT_UNKNOWN, ROOT_FINDING or ROOT_KNOWN
+    alloc:     runtime.Allocator,
+    path:      string, // owned; "" when not found. Read only after state is ROOT_KNOWN
     cache_dir: string, // owned; "" when the root cache is off. Set before the first request
 }
 
@@ -47,9 +47,9 @@ Def_Candidate :: struct {
     signature:  string,
     offset:     int,
     line:       int,
-    inactive:   bool, // under a false `when`, or in a file out of the build
+    inactive:   bool,                // under a false `when`, or in a file out of the build
     visibility: odinsema.Visibility, // of the declaration, or of the type that holds the member
-    members:    []Def_Member, // Proc_Group
+    members:    []Def_Member,        // Proc_Group
 }
 
 // Where a member of a procedure group is declared.
@@ -89,7 +89,7 @@ definition :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
         return
     }
 
-    cands := make([dynamic]Def_Candidate, context.temp_allocator)
+    cands   := make([dynamic]Def_Candidate, context.temp_allocator)
     own_dir := live_dir(&ctx)
     switch ref.kind {
     case .None:
@@ -223,14 +223,17 @@ answer :: proc(ctx: ^Request_Context, cands: []Def_Candidate, name_offset: int, 
         res.location = lang.Location{path = strings.clone(c.path), start = c.offset, end = c.offset + len(c.name)}
     case:
         for c in list {
-            append(&res.symbols, lang.Symbol {
-                name      = strings.clone(c.name),
-                kind      = strings.clone(symbol_kind(c.kind)),
-                signature = strings.clone(c.signature),
-                path      = strings.clone(c.path),
-                line      = c.line,
-                offset    = c.offset,
-            })
+            append(
+                &res.symbols,
+                lang.Symbol{
+                    name = strings.clone(c.name),
+                    kind = strings.clone(symbol_kind(c.kind)),
+                    signature = strings.clone(c.signature),
+                    path = strings.clone(c.path),
+                    line = c.line,
+                    offset = c.offset,
+                },
+            )
         }
     }
     res.ok = true
@@ -295,9 +298,9 @@ expand_group :: proc(ctx: ^Request_Context, group: Def_Candidate, out: ^[dynamic
 // are read only when nothing else declares the name, and their candidates are inactive.
 @(private)
 package_candidates :: proc(ctx: ^Request_Context, dir, name, member: string, own: bool, out: ^[dynamic]Def_Candidate) {
-    live := &ctx.live
+    live    := &ctx.live
     replace := odinsema.path_key(dir) == live.dir_key
-    start := len(out)
+    start   := len(out)
     if replace {
         for &item in live.tree.items {
             if item.name != name || item.kind == .Import || item.kind == .Foreign_Import {
@@ -324,7 +327,7 @@ package_candidates :: proc(ctx: ^Request_Context, dir, name, member: string, own
         if !item_reaches(item, own) {
             continue
         }
-        data := view.datas[ref.file]
+        data     := view.datas[ref.file]
         inactive := !odinsema.package_ref_active(view.scope, ref)
         emit_candidate(ctx, out, item, view.sema_files[ref.file].path, data.lines, inactive, member)
     }
@@ -359,15 +362,7 @@ request_package :: proc(ctx: ^Request_Context, dir: string) -> ^odinsema.Package
 
 // Appends `item`, or with `member` set its field or member of that name, as a candidate.
 @(private)
-emit_candidate :: proc(
-    ctx: ^Request_Context,
-    out: ^[dynamic]Def_Candidate,
-    item: ^odinsema.Item,
-    path: string,
-    lines: []int,
-    inactive: bool,
-    member: string,
-) {
+emit_candidate :: proc(ctx: ^Request_Context, out: ^[dynamic]Def_Candidate, item: ^odinsema.Item, path: string, lines: []int, inactive: bool, member: string) {
     target := item
     if member != "" {
         target = nil
@@ -382,14 +377,14 @@ emit_candidate :: proc(
         }
     }
     line, _ := offset_line_col(lines, target.name_offset)
-    cand := Def_Candidate {
-        path       = strings.clone(path, context.temp_allocator),
-        name       = strings.clone(target.name, context.temp_allocator),
-        kind       = target.kind,
-        signature  = strings.clone(target.signature, context.temp_allocator),
-        offset     = target.name_offset,
-        line       = line,
-        inactive   = inactive,
+    cand    := Def_Candidate{
+        path = strings.clone(path, context.temp_allocator),
+        name = strings.clone(target.name, context.temp_allocator),
+        kind = target.kind,
+        signature = strings.clone(target.signature, context.temp_allocator),
+        offset = target.name_offset,
+        line = line,
+        inactive = inactive,
         visibility = item.visibility,
     }
     if target.kind == .Proc_Group {
@@ -402,8 +397,8 @@ emit_candidate :: proc(
 // A qualified member whose import does not resolve is left out.
 @(private = "file")
 group_members :: proc(ctx: ^Request_Context, item: ^odinsema.Item, path: string) -> []Def_Member {
-    out := make([dynamic]Def_Member, context.temp_allocator)
-    is_live := path == ctx.live.path
+    out      := make([dynamic]Def_Member, context.temp_allocator)
+    is_live  := path == ctx.live.path
     file_dir := is_live ? live_dir(ctx) : filepath.dir(path)
     imports: []odinsema.File_Import
     has_imports := false
@@ -438,7 +433,7 @@ package_jump :: proc(dir: string, res: ^lang.Result) {
     if read_err != nil {
         return
     }
-    pkg := filepath.base(dir)
+    pkg  := filepath.base(dir)
     want := strings.concatenate({pkg, ".odin"}, context.temp_allocator)
     best_name, best_path := "", ""
     best_score := 0
@@ -468,14 +463,14 @@ package_jump :: proc(dir: string, res: ^lang.Result) {
 // similar length score higher.
 @(private = "file")
 pkg_file_score :: proc(stem, pkg: string) -> int {
-    score := 0
-    n := min(len(stem), len(pkg))
+    score  := 0
+    n      := min(len(stem), len(pkg))
     prefix := 0
     for prefix < n && ascii_lower(stem[prefix]) == ascii_lower(pkg[prefix]) {
         prefix += 1
     }
     score += prefix * 8
-    qi := 0
+    qi     := 0
     streak := 0
     for i in 0 ..< len(stem) {
         if qi >= len(pkg) {
@@ -529,7 +524,7 @@ odin_root_find :: proc(cache_dir: string) -> string {
             return root
         }
     }
-    key := root_cache_key()
+    key  := root_cache_key()
     file := root_cache_file(cache_dir)
     if key != "" && file != "" {
         if root := root_cache_read(file, key); root != "" {
@@ -589,7 +584,7 @@ root_cache_read :: proc(file, key: string) -> string {
     if err != nil {
         return ""
     }
-    text := string(data)
+    text            := string(data)
     stored, _, rest := strings.partition(text, "\n")
     if stored != key {
         return ""

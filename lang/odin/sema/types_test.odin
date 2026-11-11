@@ -42,13 +42,18 @@ test_types_named_and_recursive :: proc(t: ^testing.T) {
     testing.expect_value(t, type_table_init(&table), nil)
     defer type_table_destroy(&table)
 
-    sym := Symbol{file = 1, item = 3, child = -1}
+    sym  := Symbol{file = 1, item = 3, child = -1}
     node := type_named(&table, sym, "Node")
     testing.expect_value(t, type_named(&table, sym, "Node"), node)
     other := type_named(&table, Symbol{file = 1, item = 4, child = -1}, "Node")
     testing.expect(t, other != node)
 
-    body := type_struct(&table, Struct_Type{fields = {{name = "next", type = type_pointer(&table, node), name_offset = 10}, {name = "value", type = type_basic(.Int), name_offset = 20}}})
+    body := type_struct(
+        &table,
+        Struct_Type{
+            fields = {{name = "next", type = type_pointer(&table, node), name_offset = 10}, {name = "value", type = type_basic(.Int), name_offset = 20}},
+        },
+    )
     type_set_underlying(&table, node, body)
     testing.expect_value(t, type_underlying(&table, node), body)
     testing.expect_value(t, type_base(&table, node), body)
@@ -62,8 +67,8 @@ test_types_named_and_recursive :: proc(t: ^testing.T) {
     }
 
     id_sym := Symbol{file = 2, item = 0, child = -1}
-    id := type_named(&table, id_sym, "Id", "pkg")
-    dist := type_distinct(&table, id_sym, type_basic(.Int))
+    id     := type_named(&table, id_sym, "Id", "pkg")
+    dist   := type_distinct(&table, id_sym, type_basic(.Int))
     testing.expect_value(t, type_distinct(&table, id_sym, type_basic(.Int)), dist)
     type_set_underlying(&table, id, dist)
     testing.expect_value(t, type_underlying(&table, id), dist)
@@ -73,7 +78,7 @@ test_types_named_and_recursive :: proc(t: ^testing.T) {
     expect_string(t, &table, dist, "distinct int")
 
     loop_sym := Symbol{file = 3, item = 0, child = -1}
-    loop := type_named(&table, loop_sym, "Loop")
+    loop     := type_named(&table, loop_sym, "Loop")
     type_set_underlying(&table, loop, loop)
     testing.expect_value(t, type_underlying(&table, loop), INVALID_TYPE)
 }
@@ -114,10 +119,18 @@ test_types_printing :: proc(t: ^testing.T) {
     expect_string(t, &table, INVALID_TYPE, "invalid")
 
     expect_string(t, &table, type_union(&table, Union_Type{variants = {int_t, f32_t}, flags = {.No_Nil}}), "union #no_nil {int, f32}")
-    expect_string(t, &table, type_struct(&table, Struct_Type{
-        fields = {{name = "base", type = color, is_using = true, name_offset = 0}, {name = "w", type = f32_t, tag = "`json:\"w\"`", name_offset = 9}},
-        flags  = {.Packed},
-    }), "struct #packed {using base: Color, w: f32}")
+    expect_string(
+        t,
+        &table,
+        type_struct(
+            &table,
+            Struct_Type{
+                fields = {{name = "base", type = color, is_using = true, name_offset = 0}, {name = "w", type = f32_t, tag = "`json:\"w\"`", name_offset = 9}},
+                flags = {.Packed},
+            },
+        ),
+        "struct #packed {using base: Color, w: f32}",
+    )
     many := make([]Struct_Field, 10)
     defer delete(many)
     for &f in many {
@@ -126,16 +139,30 @@ test_types_printing :: proc(t: ^testing.T) {
     expect_string(t, &table, type_struct(&table, Struct_Type{fields = many}), "struct {f: u8, f: u8, f: u8, f: u8, f: u8, f: u8, f: u8, f: u8, ...}")
     expect_string(t, &table, type_bit_field(&table, Bit_Field_Type{backing = type_basic(.U16), fields = {{"low", u8_t, 4, 0}}}), "bit_field u16 {low: u8 | 4}")
 
-    add := type_proc(&table, Proc_Type{
-        params  = {{name = "a", type = int_t, name_offset = 0}, {name = "b", type = int_t, default = "2", has_default = true, inferred = true, name_offset = 3}},
-        results = {{type = int_t, name_offset = -1}, {type = type_basic(.Bool), name_offset = -1}},
-    })
+    add := type_proc(
+        &table,
+        Proc_Type{
+            params = {
+                {name = "a", type = int_t, name_offset = 0},
+                {name = "b", type = int_t, default = "2", has_default = true, inferred = true, name_offset = 3},
+            },
+            results = {{type = int_t, name_offset = -1}, {type = type_basic(.Bool), name_offset = -1}},
+        },
+    )
     expect_string(t, &table, add, "proc(a: int, b := 2) -> (int, bool)")
-    expect_string(t, &table, type_proc(&table, Proc_Type{
-        params     = {{name = "args", type = type_basic(.Any), flags = {.C_Vararg, .Variadic}, name_offset = 0}},
-        results    = {{type = int_t, name_offset = -1}},
-        convention = "c",
-    }), "proc \"c\" (#c_vararg args: ..any) -> int")
+    expect_string(
+        t,
+        &table,
+        type_proc(
+            &table,
+            Proc_Type{
+                params = {{name = "args", type = type_basic(.Any), flags = {.C_Vararg, .Variadic}, name_offset = 0}},
+                results = {{type = int_t, name_offset = -1}},
+                convention = "c",
+            },
+        ),
+        "proc \"c\" (#c_vararg args: ..any) -> int",
+    )
     expect_string(t, &table, type_proc(&table, Proc_Type{diverging = true}), "proc() -> !")
     expect_string(t, &table, type_proc(&table, Proc_Type{results = {{name = "ok", type = type_basic(.Bool), name_offset = 0}}}), "proc() -> (ok: bool)")
     expect_string(t, &table, type_proc(&table, Proc_Type{params = {{name = "n", type = int_t, default = "1", has_default = true}}}), "proc(n: int = 1)")
@@ -143,7 +170,15 @@ test_types_printing :: proc(t: ^testing.T) {
 
     poly := type_poly_param(&table, "T", type_slice(&table, int_t))
     expect_string(t, &table, poly, "$T/[]int")
-    expect_string(t, &table, type_struct(&table, Struct_Type{params = {{name = "T", type = type_basic(.Typeid), flags = {.Const}}}, fields = {{name = "items", type = type_slice(&table, poly)}}}), "struct(#const T: typeid) {items: []$T/[]int}")
+    expect_string(
+        t,
+        &table,
+        type_struct(
+            &table,
+            Struct_Type{params = {{name = "T", type = type_basic(.Typeid), flags = {.Const}}}, fields = {{name = "items", type = type_slice(&table, poly)}}},
+        ),
+        "struct(#const T: typeid) {items: []$T/[]int}",
+    )
     testing.expect_value(t, table.err, nil)
 }
 

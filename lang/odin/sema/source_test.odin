@@ -41,7 +41,7 @@ test_type_source :: proc(t: ^testing.T) {
     Case :: struct {
         name, type, zero: string,
     }
-    cases := []Case {
+    cases := []Case{
         {"v_int", "int", "0"},
         {"v_bool", "b32", "false"},
         {"v_str", "string", `""`},
@@ -65,7 +65,7 @@ test_type_source :: proc(t: ^testing.T) {
         if !testing.expectf(t, ok, "%s: no symbol", cs.name) {
             continue
         }
-        ty := decl_type(c, sym)
+        ty       := decl_type(c, sym)
         src, has := type_source(c, ANON_FILE, ty, context.temp_allocator)
         testing.expectf(t, has == (cs.type != ""), "%s: type_source ok = %v", cs.name, has)
         testing.expectf(t, src == cs.type, "%s: type %q, want %q", cs.name, src, cs.type)
@@ -118,12 +118,12 @@ test_or_return_fits :: proc(t: ^testing.T) {
         return
     }
     defer check_end(&env)
-    c := &env.c
+    c     := &env.c
     wants := []struct {
         after: string,
         call:  string,
         fits:  bool,
-    } {
+    }{
         {"fits ::", "two()", true},
         {"named ::", "two()", true},
         {"unnamed ::", "two()", false},

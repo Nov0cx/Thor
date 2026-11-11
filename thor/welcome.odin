@@ -14,12 +14,12 @@ import ui "../vendor/loom/loom"
 // of them; the column has no room for that many.
 WELCOME_RECENT_ROWS :: 5
 
-WELCOME_WIDTH :: f32(520)
-WELCOME_RECENT_ROW_H :: f32(36)
+WELCOME_WIDTH           :: f32(520)
+WELCOME_RECENT_ROW_H    :: f32(36)
 WELCOME_TITLE_FONT_SIZE :: i32(28)
-WELCOME_LOGO_HEIGHT :: f32(72)
+WELCOME_LOGO_HEIGHT     :: f32(72)
 // The recent list's icon and name columns. Fixed, so every path starts at one x.
-WELCOME_RECENT_ICON_W :: f32(18)
+WELCOME_RECENT_ICON_W   :: f32(18)
 WELCOME_RECENT_NAME_MIN :: f32(70)
 WELCOME_RECENT_NAME_MAX :: f32(180)
 
@@ -85,7 +85,7 @@ thor_close_workspace :: proc(thor: ^Thor) {
 
 // File menu / palette: close the current workspace, if any.
 thor_cmd_close_workspace :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if thor.workspace_dir == "" {
         return
     }
@@ -95,7 +95,7 @@ thor_cmd_close_workspace :: proc(data: rawptr) {
 // Welcome page: pick a file anywhere on disk and make its folder the
 // workspace, mirroring the CLI single-file launch case.
 thor_welcome_open_file :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if path, ok := thor_pick_file("Open File", ""); ok {
         defer delete(path)
         thor_open_folder(thor, filepath.dir(path))
@@ -106,74 +106,21 @@ thor_welcome_open_file :: proc(data: rawptr) {
 // Shown in place of the editor while no workspace is open: the mark, the two
 // open buttons, the recent list and the tip of the day.
 thor_welcome_view :: proc(thor: ^Thor) {
-    ui.scope(
-        {
-            key = "welcome",
-            props = {
-                w = ui.Grow(1),
-                h = ui.Grow(1),
-                dir = .Column,
-                justify = .Center,
-                align = .Center,
-                bg = thor.theme.background,
-            },
-        },
-    )
+    ui.scope({key = "welcome", props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column, justify = .Center, align = .Center, bg = thor.theme.background}})
 
-    ui.scope(
-        {
-            key = "column",
-            props = {
-                w = ui.Px(WELCOME_WIDTH),
-                max_w = ui.viewport().x - 80,
-                h = ui.FIT,
-                dir = .Column,
-                gap = {0, 10},
-            },
-        },
-    )
+    ui.scope({key = "column", props = {w = ui.Px(WELCOME_WIDTH), max_w = ui.viewport().x - 80, h = ui.FIT, dir = .Column, gap = {0, 10}}})
 
     thor_logo_image(thor, "logo", WELCOME_LOGO_HEIGHT)
-    ui.label(
-        "Thor",
-        {
-            key = "title",
-            props = {
-                color = thor.theme.foreground,
-                font_size = f32(WELCOME_TITLE_FONT_SIZE),
-                text_wrap = .None,
-            },
-        },
-    )
-    ui.label(
-        "Open a folder to start, or pick a file.",
-        {key = "sub", props = {color = thor.theme.muted_color, text_wrap = .None}},
-    )
+    ui.label("Thor", {key = "title", props = {color = thor.theme.foreground, font_size = f32(WELCOME_TITLE_FONT_SIZE), text_wrap = .None}})
+    ui.label("Open a folder to start, or pick a file.", {key = "sub", props = {color = thor.theme.muted_color, text_wrap = .None}})
 
     {
-        ui.scope(
-            {
-                key = "actions",
-                props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = {8, 0}, margin = {t = 6}},
-            },
-        )
-        if welcome_button(
-            thor,
-            "open-folder",
-            "Open Folder",
-            "folder",
-            "Open a folder as the workspace",
-        ) {
+        ui.scope({key = "actions", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = {8, 0}, margin = {t = 6}}})
+        if welcome_button(thor, "open-folder", "Open Folder", "folder", "Open a folder as the workspace") {
             thor_cmd_open_folder(thor)
             return
         }
-        if welcome_button(
-            thor,
-            "open-file",
-            "Open File",
-            "file",
-            "Open one file, and its folder as the workspace",
-        ) {
+        if welcome_button(thor, "open-file", "Open File", "file", "Open one file, and its folder as the workspace") {
             thor_welcome_open_file(thor)
             return
         }
@@ -235,16 +182,8 @@ welcome_recent :: proc(thor: ^Thor) {
         return
     }
 
-    ui.label(
-        "Recent",
-        {key = "recent-label", props = {color = thor.theme.disabled, margin = {t = 14}, text_wrap = .None}},
-    )
-    ui.scope(
-        {
-            key = "recent",
-            props = {w = ui.Grow(1), h = ui.FIT, dir = .Column, gap = {0, 6}},
-        },
-    )
+    ui.label("Recent", {key = "recent-label", props = {color = thor.theme.disabled, margin = {t = 14}, text_wrap = .None}})
+    ui.scope({key = "recent", props = {w = ui.Grow(1), h = ui.FIT, dir = .Column, gap = {0, 6}}})
 
     name_w := welcome_recent_name_width(paths)
 
@@ -281,44 +220,13 @@ welcome_recent :: proc(thor: ^Thor) {
             // label then overflows its box instead of cutting the text. The
             // floors freeze the icon and the name, so the path alone gives way
             // and the columns line up down the list.
-            ui.begin(
-                {
-                    key = "icon",
-                    props = {
-                        w = ui.Px(WELCOME_RECENT_ICON_W),
-                        min_w = WELCOME_RECENT_ICON_W,
-                        justify = .Center,
-                        align = .Center,
-                    },
-                },
-            )
+            ui.begin({key = "icon", props = {w = ui.Px(WELCOME_RECENT_ICON_W), min_w = WELCOME_RECENT_ICON_W, justify = .Center, align = .Center}})
             thor_icon_label(thor, "folder", thor.theme.muted_color)
             ui.end()
-            ui.label(
-                filepath.base(path),
-                {
-                    key = "name",
-                    props = {
-                        w = ui.Px(name_w),
-                        min_w = name_w,
-                        color = thor.theme.foreground,
-                        text_wrap = .Ellipsis,
-                    },
-                },
-            )
+            ui.label(filepath.base(path), {key = "name", props = {w = ui.Px(name_w), min_w = name_w, color = thor.theme.foreground, text_wrap = .Ellipsis}})
             // The name alone reads the same for two folders of one name, so the
             // whole path rides beside it.
-            ui.label(
-                path,
-                {
-                    key = "path",
-                    props = {
-                        w = ui.Grow(1),
-                        color = thor.theme.disabled,
-                        text_wrap = .Ellipsis,
-                    },
-                },
-            )
+            ui.label(path, {key = "path", props = {w = ui.Grow(1), color = thor.theme.disabled, text_wrap = .Ellipsis}})
             // A long path is cut short above, so the whole one goes in the tip.
             thor_tip(thor, it.id, path)
         }

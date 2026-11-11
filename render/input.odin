@@ -3,8 +3,8 @@ package render
 import "core:unicode/utf8"
 import rl "vendor:raylib"
 
-import ui "../vendor/loom/loom"
 import "../prof"
+import ui "../vendor/loom/loom"
 
 // The layout-corrected key of a raylib key. `remap_key_to_layout` answers what
 // the user's layout prints, so a binding follows the cap and not the position.
@@ -195,29 +195,29 @@ poll_input :: proc(b: ^Backend) -> ui.Input {
 
     // Measured here, not by raylib, which counts a frame only when it is drawn.
     now := rl.GetTime()
-    dt := b.last_poll > 0 ? f32(now - b.last_poll) : rl.GetFrameTime()
+    dt  := b.last_poll > 0 ? f32(now - b.last_poll) : rl.GetFrameTime()
     b.last_poll = now
 
     pos := rl.GetWindowPosition()
-    out := ui.Input {
-        dt         = dt,
-        viewport   = {f32(rl.GetScreenWidth()), f32(rl.GetScreenHeight())},
+    out := ui.Input{
+        dt = dt,
+        viewport = {f32(rl.GetScreenWidth()), f32(rl.GetScreenHeight())},
         window_pos = {pos.x, pos.y},
-        dpi        = b.dpi,
-        mouse      = ui.Vec2(rl.GetMousePosition()),
+        dpi = b.dpi,
+        mouse = ui.Vec2(rl.GetMousePosition()),
         // raylib counts a wheel rolled away from the hand as positive; Loom
         // counts a scroll down as positive. They are opposite.
-        wheel      = -ui.Vec2(rl.GetMouseWheelMoveV()),
+        wheel = -ui.Vec2(rl.GetMouseWheelMoveV()),
     }
 
     // The modifiers come first, so every event carries them.
-    keys := Mod_Keys {
-        left_ctrl  = rl.IsKeyDown(.LEFT_CONTROL),
+    keys := Mod_Keys{
+        left_ctrl = rl.IsKeyDown(.LEFT_CONTROL),
         right_ctrl = rl.IsKeyDown(.RIGHT_CONTROL),
-        left_alt   = rl.IsKeyDown(.LEFT_ALT),
-        right_alt  = rl.IsKeyDown(.RIGHT_ALT),
-        shift      = rl.IsKeyDown(.LEFT_SHIFT) || rl.IsKeyDown(.RIGHT_SHIFT),
-        super      = rl.IsKeyDown(.LEFT_SUPER) || rl.IsKeyDown(.RIGHT_SUPER),
+        left_alt = rl.IsKeyDown(.LEFT_ALT),
+        right_alt = rl.IsKeyDown(.RIGHT_ALT),
+        shift = rl.IsKeyDown(.LEFT_SHIFT) || rl.IsKeyDown(.RIGHT_SHIFT),
+        super = rl.IsKeyDown(.LEFT_SUPER) || rl.IsKeyDown(.RIGHT_SUPER),
     }
     out.mods = mods_from_keys(keys, keys.right_alt && right_alt_is_alt_gr(b))
 
@@ -252,18 +252,12 @@ poll_input :: proc(b: ^Backend) -> ui.Input {
     // repeats or releases, so both are polled per held key.
     #reverse for held, index in b.held {
         if rl.IsKeyUp(held.physical) {
-            append(
-                &b.key_evs,
-                ui.Key_Event{key = held.mapped, mods = out.mods, action = .Release},
-            )
+            append(&b.key_evs, ui.Key_Event{key = held.mapped, mods = out.mods, action = .Release})
             unordered_remove(&b.held, index)
             continue
         }
         if !is_modifier_key(held.physical) && rl.IsKeyPressedRepeat(held.physical) {
-            append(
-                &b.key_evs,
-                ui.Key_Event{key = held.mapped, mods = out.mods, action = .Repeat},
-            )
+            append(&b.key_evs, ui.Key_Event{key = held.mapped, mods = out.mods, action = .Repeat})
         }
         out.keys_down += {held.mapped}
     }

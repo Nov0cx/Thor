@@ -21,8 +21,8 @@ Move :: struct {
     dest_dir:     string,
     dest_dir_key: string,
     dest_pkg:     string,
-    cross:        bool,  // the destination is in another package
-    moved_start:  int,   // the moved text in the buffer, doc comment included
+    cross:        bool, // the destination is in another package
+    moved_start:  int,  // the moved text in the buffer, doc comment included
     moved_end:    int,
     buffer_hits:  [dynamic]int, // uses in the buffer outside the moved text
     edits:        [dynamic]File_Edit,
@@ -62,7 +62,7 @@ movable :: proc(rc: ^Request_Context, item: ^odinsema.Item) -> bool {
 // `name` in snake case: `Foo_Bar` and `fooBar` give `foo_bar`.
 @(private = "file")
 snake_case :: proc(name: string) -> string {
-    sb := strings.builder_make(context.temp_allocator)
+    sb         := strings.builder_make(context.temp_allocator)
     prev_lower := false
     for c in name {
         upper := c >= 'A' && c <= 'Z'
@@ -168,7 +168,7 @@ import_path_to :: proc(rc: ^Request_Context, from_dir, dir: string) -> string {
 // when it does not exist. Strings of the edits live in `allocator`.
 @(private)
 move_decl_edits :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, text: string, allocator: mem.Allocator) -> ([]File_Edit, []lang.Resource_Op, string) {
-    src := rc.req.source
+    src         := rc.req.source
     item, found := item_named_at(rc, rc.req.offset)
     if !found {
         return nil, nil, "the caret is not on a declaration of this file"
@@ -202,30 +202,30 @@ move_decl_edits :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, text: stri
         return nil, nil, "the declaration is in that file already"
     }
 
-    mv := Move {
-        rc           = rc,
-        item         = item,
-        src_dir_key  = odinsema.path_key(src_dir),
-        dest_path    = dest,
-        dest_dir     = dest_dir,
+    mv := Move{
+        rc = rc,
+        item = item,
+        src_dir_key = odinsema.path_key(src_dir),
+        dest_path = dest,
+        dest_dir = dest_dir,
         dest_dir_key = odinsema.path_key(dest_dir),
-        moved_start  = doc_start(src, item.start),
-        moved_end    = item.end,
-        buffer_hits  = make([dynamic]int, context.temp_allocator),
-        edits        = make([dynamic]File_Edit, allocator),
-        allocator    = allocator,
+        moved_start = doc_start(src, item.start),
+        moved_end = item.end,
+        buffer_hits = make([dynamic]int, context.temp_allocator),
+        edits = make([dynamic]File_Edit, allocator),
+        allocator = allocator,
     }
     mv.cross = mv.dest_dir_key != mv.src_dir_key
 
-    snap := &rc.snap
-    exists := os.is_file(dest)
+    snap     := &rc.snap
+    exists   := os.is_file(dest)
     dest_src := ""
     dest_tree: ^odinsema.Item_Tree
     dest_imports: []odinsema.File_Import
     if exists {
-        id := odinsema.db_file_id(snap, dest)
+        id     := odinsema.db_file_id(snap, dest)
         parsed := odinsema.db_parse(snap, id)
-        data := odinsema.db_file(snap, id)
+        data   := odinsema.db_file(snap, id)
         if parsed == nil || parsed.tree == nil || data == nil {
             return nil, nil, "the file cannot be read"
         }
@@ -252,10 +252,10 @@ move_decl_edits :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, text: stri
     }
 
     // The names the moved text reads: the imports it needs, and what it uses of its own package.
-    src_view := request_package(rc, src_dir)
+    src_view       := request_package(rc, src_dir)
     buffer_imports := odinsema.db_imports(snap, rc.live.id)
-    needed := make([dynamic]odinsema.File_Import, context.temp_allocator)
-    dropped := make([dynamic]Edit_Spec, context.temp_allocator) // `alias.` the moved text loses
+    needed         := make([dynamic]odinsema.File_Import, context.temp_allocator)
+    dropped        := make([dynamic]Edit_Spec, context.temp_allocator) // `alias.` the moved text loses
     for ref in m.refs {
         if ref.start < item.start || ref.start >= item.end {
             continue
@@ -365,7 +365,7 @@ move_decl_edits :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, text: stri
         }
         if line != "" {
             at, insert := import_insert_in(src, rc.live.tree, line)
-            folded := false
+            folded     := false
             for &b in buffer {
                 if b.start <= at && at < b.end && b.text == "" && b.start != mv.moved_start {
                     b.text = strings.concatenate({line, "\n"}, context.temp_allocator)
@@ -524,14 +524,14 @@ dest_alias :: proc(mv: ^Move, tree: ^odinsema.Item_Tree, imports: []odinsema.Fil
 // Records the uses of one file: the buffer's for later, the others' as edits.
 @(private = "file")
 visit_move_file :: proc(data: rawptr, f: Ref_File) -> bool {
-    mv := cast(^Move)data
-    rc := mv.rc
-    item := mv.item
-    in_buffer := odinsema.path_key(f.path) == rc.live.key
-    file_dir := filepath.dir(f.path)
-    dir_key := odinsema.path_key(file_dir)
+    mv           := cast(^Move)data
+    rc           := mv.rc
+    item         := mv.item
+    in_buffer    := odinsema.path_key(f.path) == rc.live.key
+    file_dir     := filepath.dir(f.path)
+    dir_key      := odinsema.path_key(file_dir)
     in_dest_file := odinsema.path_key(f.path) == odinsema.path_key(mv.dest_path)
-    root := odinsyntax.node_root(f.parsed.tree)
+    root         := odinsyntax.node_root(f.parsed.tree)
     // Same package: only a file-private destination can break a use.
     if !mv.cross {
         for offset in f.hits {
@@ -542,21 +542,33 @@ visit_move_file :: proc(data: rawptr, f: Ref_File) -> bool {
                 append(&mv.buffer_hits, offset)
             }
             if !in_dest_file && dest_file_private(mv) {
-                mv.reason = fmt.aprintf("%s is private to its file and '%s' is used at %s", filepath.base(mv.dest_path), item.name, move_place(f, offset), allocator = mv.allocator)
+                mv.reason = fmt.aprintf(
+                    "%s is private to its file and '%s' is used at %s",
+                    filepath.base(mv.dest_path),
+                    item.name,
+                    move_place(f, offset),
+                    allocator = mv.allocator,
+                )
                 return false
             }
         }
         return true
     }
-    source := ""
-    alias := ""
+    source       := ""
+    alias        := ""
     needs_import := false
     for offset in f.hits {
         if in_buffer && offset >= mv.moved_start && offset < mv.moved_end {
             continue
         }
         if dir_key != mv.dest_dir_key && (item.visibility != .Public || dest_file_private(mv)) {
-            mv.reason = fmt.aprintf("'%s' would be private to package %s and is used at %s", item.name, mv.dest_pkg, move_place(f, offset), allocator = mv.allocator)
+            mv.reason = fmt.aprintf(
+                "'%s' would be private to package %s and is used at %s",
+                item.name,
+                mv.dest_pkg,
+                move_place(f, offset),
+                allocator = mv.allocator,
+            )
             return false
         }
         if in_buffer {
@@ -630,8 +642,8 @@ qualifier_of :: proc(ident: ^odinsyntax.Syntax_Node) -> (start, end: int, ok: bo
     if p == nil || p.green.kind != .Selector_Expr {
         return
     }
-    sel, _ := odinsyntax.as_selector_expr(p^)
-    field, has_field := odinsyntax.selector_expr_field(&sel)
+    sel, _               := odinsyntax.as_selector_expr(p^)
+    field, has_field     := odinsyntax.selector_expr_field(&sel)
     operand, has_operand := odinsyntax.selector_expr_operand(&sel)
     if !has_field || !has_operand || field.offset != ident.offset || operand.green.kind != .Ident {
         return
@@ -653,11 +665,8 @@ move_edit :: proc(mv: ^Move, f: Ref_File, source: ^string, start, end: int, text
     if source^ == "" {
         source^ = strings.clone(f.source, mv.allocator)
     }
-    append(&mv.edits, File_Edit {
-        path = strings.clone(f.path, mv.allocator),
-        source = source^,
-        start = start,
-        end = end,
-        text = strings.clone(text, mv.allocator),
-    })
+    append(
+        &mv.edits,
+        File_Edit{path = strings.clone(f.path, mv.allocator), source = source^, start = start, end = end, text = strings.clone(text, mv.allocator)},
+    )
 }

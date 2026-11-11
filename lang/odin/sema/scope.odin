@@ -1,8 +1,8 @@
 package odinsema
 
 import "core:mem"
-import "core:slice"
 import "core:mem/virtual"
+import "core:slice"
 
 import odinsyntax "../syntax"
 
@@ -17,7 +17,7 @@ Decl_Kind :: enum u8 {
     Loop_Var,   // a `for ... in` variable
     Switch_Var, // the `v` of `switch v in u`; one declaration for every case clause
     Label,
-    Poly,       // `$T` or `$N`
+    Poly, // `$T` or `$N`
     Import,
 }
 
@@ -45,7 +45,7 @@ Name_Ref :: struct {
     is_decl:       bool, // the identifier is the name of its declaration
     is_using:      bool, // Local: the declaration has `using`
     is_store:      bool, // Local: a place of a plain `=`
-    operand_start: int, // Field_Or_Member and Package_Qualified: the operand; Field_Name: the literal type or callee; -1 when none
+    operand_start: int,  // Field_Or_Member and Package_Qualified: the operand; Field_Name: the literal type or callee; -1 when none
     operand_end:   int,
     operand:       string, // Package_Qualified: the package name
 }
@@ -101,13 +101,13 @@ Using_Entry :: struct {
 // The scopes, local declarations and identifier references of a parsed file, or of its declarations
 // that touch a range. Everything is in `arena`; strings borrow the text of the parse.
 Scope_Map :: struct {
-    arena:     virtual.Arena,
-    scopes:    []Scope,
-    locals:    []Local,
-    refs:      []Name_Ref, // one per identifier, in walk order
-    usings:    []Using_Entry,
-    has_using: bool, // a `using` statement or a `using` local is in the map
-    ref_order: []int, // indices into `refs`, by start
+    arena:       virtual.Arena,
+    scopes:      []Scope,
+    locals:      []Local,
+    refs:        []Name_Ref, // one per identifier, in walk order
+    usings:      []Using_Entry,
+    has_using:   bool,  // a `using` statement or a `using` local is in the map
+    ref_order:   []int, // indices into `refs`, by start
     local_order: []int, // indices into `locals`, by name offset
 }
 
@@ -223,16 +223,16 @@ scope_map_range :: proc(parsed: odinsyntax.Parse, start, end: int, allocator := 
         return m, nil
     }
     alloc := virtual.arena_allocator(&m.arena)
-    w := Walker {
+    w     := Walker{
         scopes = make([dynamic]Scope, alloc),
         locals = make([dynamic]Local, alloc),
-        refs   = make([dynamic]Name_Ref, alloc),
+        refs = make([dynamic]Name_Ref, alloc),
         usings = make([dynamic]Using_Entry, alloc),
         active = make([dynamic]int, alloc),
-        cur    = -1,
+        cur = -1,
     }
-    root := odinsyntax.node_root(parsed.tree)
-    it := odinsyntax.child_iter(&root, {kinds = ALL_KINDS})
+    root  := odinsyntax.node_root(parsed.tree)
+    it    := odinsyntax.child_iter(&root, {kinds = ALL_KINDS})
     for child in odinsyntax.child_iter_next(&it) {
         cs, ce := odinsyntax.node_range(child)
         if int(ce) < start || int(cs) > end {
@@ -280,7 +280,7 @@ open_scope :: proc(w: ^Walker, n: odinsyntax.Syntax_Node, new_proc := false) -> 
         w.proc_depth += 1
     }
     start, end := odinsyntax.node_range(n)
-    _, err := append(&w.scopes, Scope{parent = w.cur, start = int(start), end = int(end), proc_depth = w.proc_depth})
+    _, err     := append(&w.scopes, Scope{parent = w.cur, start = int(start), end = int(end), proc_depth = w.proc_depth})
     if err != nil {
         note_err(w, err)
         return mark
@@ -299,14 +299,7 @@ close_scope :: proc(w: ^Walker, mark: Scope_Mark) {
 @(private = "file")
 base_ref :: proc(n: odinsyntax.Syntax_Node) -> Name_Ref {
     start, end := odinsyntax.node_range(n)
-    return Name_Ref {
-        name          = odinsyntax.node_text(n),
-        start         = int(start),
-        end           = int(end),
-        decl          = -1,
-        operand_start = -1,
-        operand_end   = -1,
-    }
+    return Name_Ref{name = odinsyntax.node_text(n), start = int(start), end = int(end), decl = -1, operand_start = -1, operand_end = -1}
 }
 
 @(private = "file")
@@ -334,16 +327,16 @@ declare :: proc(w: ^Walker, n: odinsyntax.Syntax_Node, kind: Decl_Kind, is_using
         return -1
     }
     ref.kind = .Local
-    local := Local {
-        name         = ref.name,
-        kind         = kind,
-        name_offset  = ref.start,
-        scope        = w.cur,
-        is_using     = is_using,
-        type_offset  = value.type_offset,
+    local := Local{
+        name = ref.name,
+        kind = kind,
+        name_offset = ref.start,
+        scope = w.cur,
+        is_using = is_using,
+        type_offset = value.type_offset,
         value_offset = value.value_offset,
-        value_index  = value.value_index,
-        source       = value.source,
+        value_index = value.value_index,
+        source = value.source,
     }
     if _, err := append(&w.locals, local); err != nil {
         note_err(w, err)
@@ -417,7 +410,7 @@ use_ident :: proc(w: ^Walker, n: odinsyntax.Syntax_Node, label := false) {
 
 @(private = "file")
 walk_children :: proc(w: ^Walker, n: odinsyntax.Syntax_Node) {
-    n := n
+    n  := n
     it := odinsyntax.child_iter(&n, {kinds = ALL_KINDS})
     for child in odinsyntax.child_iter_next(&it) {
         walk(w, child)
@@ -498,14 +491,14 @@ walk :: proc(w: ^Walker, n: odinsyntax.Syntax_Node) {
             items := odinsyntax.expr_list_items(&exprs)
             for item in odinsyntax.child_iter_next(&items) {
                 start, end := odinsyntax.node_range(item)
-                _, err := append(&w.usings, Using_Entry{int(start), int(end), w.cur})
+                _, err     := append(&w.usings, Using_Entry{int(start), int(end), w.cur})
                 note_err(w, err)
                 walk(w, item)
             }
         }
     case .Proc_Lit:
         mark := open_scope(w, n, true)
-        it := odinsyntax.child_iter(&n, {kinds = ALL_KINDS})
+        it   := odinsyntax.child_iter(&n, {kinds = ALL_KINDS})
         for child in odinsyntax.child_iter_next(&it) {
             if child.green.kind == .Proc_Type {
                 walk_signature(w, child)
@@ -600,9 +593,9 @@ walk_elem :: proc(w: ^Walker, n: odinsyntax.Syntax_Node, op_start, op_end: int) 
 
 @(private = "file")
 walk_selector :: proc(w: ^Walker, n: odinsyntax.Syntax_Node) {
-    sel, _ := odinsyntax.as_selector_expr(n)
+    sel, _               := odinsyntax.as_selector_expr(n)
     operand, has_operand := odinsyntax.selector_expr_operand(&sel)
-    operand_free := false
+    operand_free         := false
     if has_operand {
         walk(w, operand)
         if operand.green.kind == .Ident && len(w.refs) > 0 {
@@ -631,7 +624,7 @@ walk_selector :: proc(w: ^Walker, n: odinsyntax.Syntax_Node) {
 @(private = "file")
 walk_attribute :: proc(w: ^Walker, n: odinsyntax.Syntax_Node) {
     attr, _ := odinsyntax.as_attribute(n)
-    elems := odinsyntax.attribute_elems(&attr)
+    elems   := odinsyntax.attribute_elems(&attr)
     for elem in odinsyntax.child_iter_next(&elems) {
         fv, ok := odinsyntax.as_field_value(elem)
         if !ok {
@@ -682,8 +675,8 @@ Decl_Names :: struct {
 
 @(private = "file")
 decl_names :: proc(w: ^Walker, v: ^odinsyntax.Value_Decl) -> Decl_Names {
-    d := Decl_Names {
-        names  = make([dynamic]odinsyntax.Syntax_Node, context.temp_allocator),
+    d := Decl_Names{
+        names = make([dynamic]odinsyntax.Syntax_Node, context.temp_allocator),
         values = make([dynamic]odinsyntax.Syntax_Node, context.temp_allocator),
     }
     if list, ok := odinsyntax.value_decl_names(v); ok {
@@ -730,9 +723,9 @@ has_using :: proc(n: odinsyntax.Syntax_Node) -> bool {
 // Walks an assignment. A name on the left of a plain `=` is a store.
 @(private = "file")
 walk_assign :: proc(w: ^Walker, n: odinsyntax.Syntax_Node) {
-    a, _ := odinsyntax.as_assign_stmt(n)
+    a, _       := odinsyntax.as_assign_stmt(n)
     op, has_op := odinsyntax.assign_stmt_op(&a)
-    plain := has_op && op.green.kind == .Eq
+    plain      := has_op && op.green.kind == .Eq
     if lhs, ok := odinsyntax.assign_stmt_lhs(&a); ok {
         it := odinsyntax.expr_list_items(&lhs)
         for item in odinsyntax.child_iter_next(&it) {
@@ -753,10 +746,10 @@ walk_assign :: proc(w: ^Walker, n: odinsyntax.Syntax_Node) {
 // Walks a Value_Decl. A variable is declared after its type and values, so `x := x` reads the outer `x`.
 @(private = "file")
 walk_value_decl :: proc(w: ^Walker, n: odinsyntax.Syntax_Node) {
-    v, _ := odinsyntax.as_value_decl(n)
+    v, _     := odinsyntax.as_value_decl(n)
     constant := is_constant_decl(n)
     is_using := has_using(n)
-    attrs := odinsyntax.value_decl_attributes(&v)
+    attrs    := odinsyntax.value_decl_attributes(&v)
     for attr in odinsyntax.child_iter_next(&attrs) {
         walk_attribute(w, attr)
     }
@@ -782,8 +775,8 @@ walk_value_decl :: proc(w: ^Walker, n: odinsyntax.Syntax_Node) {
 // The type and value Value_Decl `n` gives the name `name`.
 @(private = "file")
 decl_local_value :: proc(n, name: odinsyntax.Syntax_Node) -> Local_Value {
-    n := n
-    out := NO_VALUE
+    n    := n
+    out  := NO_VALUE
     v, _ := odinsyntax.as_value_decl(n)
     if type, ok := odinsyntax.value_decl_type(&v); ok {
         out.type_offset = int(type.offset)
@@ -799,7 +792,7 @@ decl_local_value :: proc(n, name: odinsyntax.Syntax_Node) -> Local_Value {
 // A `when` body opens no scope, so its constants belong to the list too.
 @(private = "file")
 hoist :: proc(w: ^Walker, n: odinsyntax.Syntax_Node) {
-    n := n
+    n  := n
     it := odinsyntax.child_iter(&n, {kinds = {.Value_Decl, .When_Stmt, .Foreign_Block}})
     for child in odinsyntax.child_iter_next(&it) {
         if child.green.kind == .When_Stmt {
@@ -817,7 +810,7 @@ hoist :: proc(w: ^Walker, n: odinsyntax.Syntax_Node) {
             continue
         }
         v, _ := odinsyntax.as_value_decl(child)
-        d := decl_names(w, &v)
+        d    := decl_names(w, &v)
         for name, i in d.names {
             if name.green.kind == .Ident {
                 declare(w, name, name_kind(d, i, true), value = decl_local_value(child, name))
@@ -887,7 +880,7 @@ var_ident :: proc(n: odinsyntax.Syntax_Node) -> (odinsyntax.Syntax_Node, bool) {
     if n.green.kind != .Unary_Expr {
         return {}, false
     }
-    u, _ := odinsyntax.as_unary_expr(n)
+    u, _        := odinsyntax.as_unary_expr(n)
     operand, ok := odinsyntax.unary_expr_operand(&u)
     if !ok || operand.green.kind != .Ident {
         return {}, false
@@ -935,7 +928,7 @@ walk_range :: proc(w: ^Walker, n: odinsyntax.Syntax_Node) {
 @(private = "file")
 walk_type_switch :: proc(w: ^Walker, n: odinsyntax.Syntax_Node) {
     ts, _ := odinsyntax.as_type_switch_stmt(n)
-    mark := open_scope(w, n)
+    mark  := open_scope(w, n)
     defer close_scope(w, mark)
     if lbl, ok := odinsyntax.type_switch_stmt_label(&ts); ok {
         walk(w, odinsyntax.Syntax_Node(lbl))
@@ -1013,8 +1006,8 @@ prescan_poly :: proc(w: ^Walker, n: odinsyntax.Syntax_Node) {
 // Walks the parameters and results of a procedure type in the current scope.
 @(private = "file")
 walk_signature :: proc(w: ^Walker, n: odinsyntax.Syntax_Node) {
-    pt, _ := odinsyntax.as_proc_type(n)
-    params, has_params := odinsyntax.proc_type_params(&pt)
+    pt, _                := odinsyntax.as_proc_type(n)
+    params, has_params   := odinsyntax.proc_type_params(&pt)
     results, has_results := odinsyntax.proc_type_results(&pt)
     if has_params {
         prescan_poly(w, odinsyntax.Syntax_Node(params))
@@ -1035,7 +1028,7 @@ walk_signature :: proc(w: ^Walker, n: odinsyntax.Syntax_Node) {
 @(private = "file")
 walk_fields :: proc(w: ^Walker, list: odinsyntax.Syntax_Node, kind: Decl_Kind, member := false) {
     list := list
-    it := odinsyntax.child_iter(&list, {kinds = ALL_KINDS})
+    it   := odinsyntax.child_iter(&list, {kinds = ALL_KINDS})
     for child in odinsyntax.child_iter_next(&it) {
         f, is_field := odinsyntax.as_field(child)
         if !is_field {
@@ -1051,7 +1044,7 @@ walk_fields :: proc(w: ^Walker, list: odinsyntax.Syntax_Node, kind: Decl_Kind, m
             continue
         }
         _, is_using := odinsyntax.field_using(&f)
-        value := NO_VALUE
+        value       := NO_VALUE
         if type, ok := odinsyntax.field_type(&f); ok {
             value.type_offset = int(type.offset)
         }
@@ -1078,7 +1071,7 @@ walk_fields :: proc(w: ^Walker, list: odinsyntax.Syntax_Node, kind: Decl_Kind, m
 // Walks a struct or union type: its `$T` parameters are in reach in the where clause and the fields.
 @(private = "file")
 walk_record :: proc(w: ^Walker, n: odinsyntax.Syntax_Node) {
-    n := n
+    n    := n
     mark := open_scope(w, n, true)
     defer close_scope(w, mark)
     if params, ok := odinsyntax.find_child_node(&n, {kinds = {.Param_List}}); ok {

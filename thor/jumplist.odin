@@ -104,7 +104,7 @@ thor_jump_push :: proc(stack: ^[dynamic]Jump_Point, path: string, line, col: int
         delete(stack[0].path)
         ordered_remove(stack, 0)
     }
-    append(stack, Jump_Point {path = strings.clone(path), line = line, col = col})
+    append(stack, Jump_Point{path = strings.clone(path), line = line, col = col})
 }
 
 @(private = "file")

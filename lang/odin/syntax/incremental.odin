@@ -24,8 +24,8 @@ MAX_GENERATIONS :: 32
 MAX_SPLICE_DEPTH :: 80
 
 // The span between the common prefix and the common suffix of `old` and `new`.
-text_diff :: proc "contextless" (old, new: string) -> Text_Edit_Span {
-    n := min(len(old), len(new))
+text_diff :: proc "contextless"(old, new: string) -> Text_Edit_Span {
+    n     := min(len(old), len(new))
     start := 0
     for start < n && old[start] == new[start] {
         start += 1
@@ -50,8 +50,8 @@ reparse :: proc(old: ^Parse, src: string, allocator := context.allocator) -> (re
         return result, .Unchanged, nil
     }
     if old.tree.generation < MAX_GENERATIONS {
-        edit := text_diff(old.tree.text, src)
-        path := make([dynamic]Spine_Step, 0, 32, context.temp_allocator)
+        edit   := text_diff(old.tree.text, src)
+        path   := make([dynamic]Spine_Step, 0, 32, context.temp_allocator)
         starts := make([dynamic]u32, 0, 32, context.temp_allocator)
         descend(old.tree.root, edit.start, edit.old_end, &path, &starts)
         if patched, ok := patch_token(old, src, edit, path[:], starts[:], allocator); ok {
@@ -87,7 +87,7 @@ reparse :: proc(old: ^Parse, src: string, allocator := context.allocator) -> (re
 @(private = "file")
 descend :: proc(root: ^Green_Node, start, end: u32, path: ^[dynamic]Spine_Step, starts: ^[dynamic]u32) {
     node := root
-    pos := u32(0)
+    pos  := u32(0)
     for {
         next: ^Green_Node
         for child, i in green_children(node) {
@@ -113,12 +113,12 @@ patch_token :: proc(old: ^Parse, src: string, edit: Text_Edit_Span, path: []Spin
     if len(path) == 0 {
         return
     }
-    last := path[len(path) - 1]
+    last        := path[len(path) - 1]
     tok, is_tok := element_token(green_children(last.node)[last.index])
     if !is_tok || tok.flags & {.Unterminated, .Malformed} != {} {
         return
     }
-    start := starts[len(starts) - 1]
+    start   := starts[len(starts) - 1]
     old_end := start + tok.len
     if edit.start <= start || edit.old_end > old_end {
         return
@@ -182,11 +182,11 @@ reparse_block :: proc(old: ^Parse, src: string, edit: Text_Edit_Span, path: []Sp
         return
     }
     block, _ := element_node(green_children(step.node)[step.index])
-    kids := green_children(block)
+    kids     := green_children(block)
     if len(kids) < 2 {
         return
     }
-    open_tok, open_ok := element_token(kids[0])
+    open_tok, open_ok   := element_token(kids[0])
     close_tok, close_ok := element_token(kids[len(kids) - 1])
     if !open_ok || !close_ok || open_tok.kind != .Open_Brace || close_tok.kind != .Close_Brace {
         return
@@ -195,9 +195,9 @@ reparse_block :: proc(old: ^Parse, src: string, edit: Text_Edit_Span, path: []Sp
     if edit.start <= start || edit.old_end >= old_end || !braces_nest(block) {
         return
     }
-    delta := i64(edit.new_end) - i64(edit.old_end)
+    delta   := i64(edit.new_end) - i64(edit.old_end)
     new_end := u32(i64(old_end) + delta)
-    toks := lex_from(src[:new_end], int(start), {}, context.temp_allocator)
+    toks    := lex_from(src[:new_end], int(start), {}, context.temp_allocator)
     if len(toks) < 3 || toks[0].kind != .Open_Brace || toks[len(toks) - 2].kind != .Close_Brace || token_end(toks[len(toks) - 2]) != new_end {
         return
     }
@@ -236,10 +236,15 @@ reparse_block :: proc(old: ^Parse, src: string, edit: Text_Edit_Span, path: []Sp
     p: Parser
     parser_init(&p, src[:new_end], toks, tree, len(toks) * NODE_BYTES_PER_TOKEN + splice_bytes(path))
     defer parser_destroy(&p)
-    elem, parsed := parse_block_only(&p, in_proc)
+    elem, parsed  := parse_block_only(&p, in_proc)
     node, is_node := element_node(elem)
-    if !parsed || !is_node || p.emitted != len(toks) - 1 || p.open_braces != 0 || node.text_len != new_end - start ||
-       !ends_in_close_brace(node) || len(path) + green_height(node) > MAX_SPLICE_DEPTH {
+    if !parsed ||
+        !is_node ||
+        p.emitted != len(toks) - 1 ||
+        p.open_braces != 0 ||
+        node.text_len != new_end - start ||
+        !ends_in_close_brace(node) ||
+        len(path) + green_height(node) > MAX_SPLICE_DEPTH {
         discard_tree(tree, allocator)
         return
     }
@@ -281,13 +286,13 @@ reparse_block :: proc(old: ^Parse, src: string, edit: Text_Edit_Span, path: []Sp
 
 // Moves a position at or after `from` by `delta`.
 @(private = "file")
-shift :: #force_inline proc "contextless" (pos, from: u32, delta: i64) -> u32 {
+shift :: #force_inline proc "contextless"(pos, from: u32, delta: i64) -> u32 {
     return u32(i64(pos) + delta) if pos >= from else pos
 }
 
 // Reports whether the text before `offset` ends in a '#', or in a comment that may hide one.
 @(private = "file")
-after_hash :: proc "contextless" (text: string, offset: u32) -> bool {
+after_hash :: proc "contextless"(text: string, offset: u32) -> bool {
     for i := int(offset) - 1; i >= 0; i -= 1 {
         switch text[i] {
         case ' ', '\t', '\r', '\n':
@@ -341,7 +346,7 @@ braces_nest :: proc(block: ^Green_Node) -> bool {
 
 // Reports whether the last child of `node` is a '}' token.
 @(private = "file")
-ends_in_close_brace :: proc "contextless" (node: ^Green_Node) -> bool {
+ends_in_close_brace :: proc "contextless"(node: ^Green_Node) -> bool {
     kids := green_children(node)
     if len(kids) == 0 {
         return false

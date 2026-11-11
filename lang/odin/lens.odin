@@ -14,8 +14,8 @@ code_lens :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     if !opened {
         return
     }
-    dir := live_dir(&ctx)
-    items := make([dynamic]^odinsema.Item, context.temp_allocator)
+    dir     := live_dir(&ctx)
+    items   := make([dynamic]^odinsema.Item, context.temp_allocator)
     targets := make([dynamic]Ref_Target, context.temp_allocator)
     for &item in ctx.live.tree.items {
         #partial switch item.kind {
@@ -26,14 +26,7 @@ code_lens :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
             continue
         }
         append(&items, &item)
-        append(&targets, Ref_Target {
-            kind       = .Package_Item,
-            name       = item.name,
-            path       = req.path,
-            decl       = item.name_offset,
-            dir        = dir,
-            visibility = item.visibility,
-        })
+        append(&targets, Ref_Target{kind = .Package_Item, name = item.name, path = req.path, decl = item.name_offset, dir = dir, visibility = item.visibility})
     }
     counts := make([]int, len(targets), context.temp_allocator)
     if !count_references(&ctx, targets[:], counts) {

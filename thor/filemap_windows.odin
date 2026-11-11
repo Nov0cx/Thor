@@ -50,7 +50,7 @@ file_map_open :: proc(m: ^File_Map, path: string) -> ([]u8, bool) {
     if m.view == nil {
         return nil, false
     }
-    return (cast([^]u8) m.view)[:size], true
+    return (cast([^]u8)m.view)[:size], true
 }
 
 // Releases the mapping. Safe on a map that never opened, and on one opened twice.

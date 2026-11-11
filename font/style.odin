@@ -10,7 +10,7 @@ Style_Flag :: enum u8 {
     Italic,
 }
 
-Style :: bit_set[Style_Flag;u8]
+Style :: bit_set[Style_Flag; u8]
 
 // The slant of synthetic italic: the top edge moves right by this much per
 // pixel of glyph height.
@@ -33,15 +33,7 @@ style_extra :: proc(style: Style, size: i32) -> i32 {
 // Draws one glyph cell of `texture` at `pos` in `style`. `baseline` is the y
 // an italic glyph leans around.
 @(private)
-draw_glyph_styled :: proc(
-    texture: rl.Texture2D,
-    src: rl.Rectangle,
-    pos: rl.Vector2,
-    color: rl.Color,
-    style: Style,
-    size: i32,
-    baseline: f32,
-) {
+draw_glyph_styled :: proc(texture: rl.Texture2D, src: rl.Rectangle, pos: rl.Vector2, color: rl.Color, style: Style, size: i32, baseline: f32) {
     passes := .Bold in style ? bold_extra(size) : 0
     for pass in 0 ..= passes {
         at := rl.Vector2{pos.x + f32(pass), pos.y}
@@ -64,7 +56,7 @@ draw_sheared :: proc(texture: rl.Texture2D, src: rl.Rectangle, pos: rl.Vector2, 
     u1, v1 := (src.x + abs(src.width)) / tw, (src.y + abs(src.height)) / th
     w, h := abs(src.width), abs(src.height)
     x, y := pos.x, pos.y
-    top := (baseline - y) * ITALIC_SLANT
+    top    := (baseline - y) * ITALIC_SLANT
     bottom := (baseline - y - h) * ITALIC_SLANT
 
     rlgl.SetTexture(texture.id)

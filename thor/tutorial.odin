@@ -82,7 +82,7 @@ Tutorial :: struct {
     marks:        [len(TUTORIAL_CHAPTERS)]Tutorial_Mark,
     loaded:       bool,
     card:         Markdown_View, // owned
-    card_h:       f32, // last frame's card height, for the placement
+    card_h:       f32,           // last frame's card height, for the placement
     // A rect the "Show me" button points at, in place of the step's region.
     focus:        ui.Rect,
     focus_set:    bool,
@@ -91,7 +91,7 @@ Tutorial :: struct {
 
 // Help -> Tutorial: the chapter list.
 thor_cmd_tutorial :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_tutorial_load(thor)
     thor.tutorial.chooser_open = true
 }
@@ -103,7 +103,7 @@ thor_tutorial_start :: proc(thor: ^Thor, chapter: int) {
         return
     }
     thor_tutorial_load(thor)
-    c := TUTORIAL_CHAPTERS[chapter]
+    c    := TUTORIAL_CHAPTERS[chapter]
     mark := t.marks[chapter]
     t.running = true
     t.chooser_open = false
@@ -180,7 +180,7 @@ thor_note_action :: proc(thor: ^Thor, action: string) {
 
 // editview.Action_Proc: an editor keymap action ran.
 thor_editor_action_note :: proc(data: rawptr, name: string) {
-    thor_note_action(cast(^Thor) data, name)
+    thor_note_action(cast(^Thor)data, name)
 }
 
 // Polls the state checks of the current step. Called once a frame.
@@ -204,7 +204,7 @@ thor_tutorial_poll :: proc(thor: ^Thor) {
 // The step body with each `{key:action}` replaced by the live chord, or by the
 // palette command that runs the action when it has no chord. In the temp allocator.
 thor_tutorial_expand :: proc(thor: ^Thor, body: string) -> string {
-    b := strings.builder_make(context.temp_allocator)
+    b    := strings.builder_make(context.temp_allocator)
     rest := body
     for {
         at := strings.index(rest, "{key:")
@@ -267,9 +267,7 @@ thor_tutorial_parse :: proc(data: []byte) -> (marks: [len(TUTORIAL_CHAPTERS)]Tut
 
 // The progress file for `marks`. In the temp allocator.
 thor_tutorial_marshal :: proc(marks: []Tutorial_Mark) -> ([]byte, json.Marshal_Error) {
-    record := Tutorial_Record {
-        chapters = make(map[string]Tutorial_Mark, len(marks), context.temp_allocator),
-    }
+    record := Tutorial_Record{chapters = make(map[string]Tutorial_Mark, len(marks), context.temp_allocator)}
     for mark, i in marks {
         if i < len(TUTORIAL_CHAPTERS) && (mark.done || mark.step > 0) {
             record.chapters[TUTORIAL_CHAPTERS[i].id] = mark

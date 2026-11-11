@@ -34,8 +34,8 @@ Sink :: struct {
 
 @(private = "file")
 sink_collect :: proc(data: rawptr, change: Change) {
-    sink := cast(^Sink) data
-    append(&sink.changes, Change {kind = change.kind, path = strings.clone(change.path)})
+    sink := cast(^Sink)data
+    append(&sink.changes, Change{kind = change.kind, path = strings.clone(change.path)})
 }
 
 @(private = "file")
@@ -124,14 +124,13 @@ test_watch_create_modify_delete :: proc(t: ^testing.T) {
     // write is repeated until a change arrives, which reports Modified once the
     // file exists.
     for _ in 0 ..< 5 {
-        _ = os.write_entire_file(file, transmute([]u8) string("hi"))
+        _ = os.write_entire_file(file, transmute([]u8)string("hi"))
         pump_until(&w, &sink, sink_saw_content_change, 1500 * time.Millisecond)
         if sink_saw_content_change(&sink) {
             break
         }
     }
-    testing.expect(t, sink_has(&sink, .Created, file) || sink_has(&sink, .Modified, file),
-        "expected a create/modify change for the new file")
+    testing.expect(t, sink_has(&sink, .Created, file) || sink_has(&sink, .Modified, file), "expected a create/modify change for the new file")
 
     // Delete.
     sink_clear(&sink)

@@ -19,7 +19,7 @@ test_startup_target :: proc(t: ^testing.T) {
     testing.expect_value(t, dot_file, "")
 
     TEST_PATH :: "thor_startup.tmp"
-    write_err := os.write_entire_file(TEST_PATH, transmute([]u8) string("x"))
+    write_err := os.write_entire_file(TEST_PATH, transmute([]u8)string("x"))
     testing.expect(t, write_err == nil, "could not create test file")
     defer os.remove(TEST_PATH)
 
@@ -51,10 +51,10 @@ test_startup_targets_opens_every_file :: proc(t: ^testing.T) {
     cwd, cwd_err := os.get_working_directory(context.temp_allocator)
     testing.expect(t, cwd_err == nil, "could not read the working directory")
 
-    FIRST :: "thor_startup_multi_a.tmp"
+    FIRST  :: "thor_startup_multi_a.tmp"
     SECOND :: "thor_startup_multi_b.tmp"
-    for path in ([]string {FIRST, SECOND}) {
-        testing.expect(t, os.write_entire_file(path, transmute([]u8) string("x")) == nil, "could not create test file")
+    for path in ([]string{FIRST, SECOND}) {
+        testing.expect(t, os.write_entire_file(path, transmute([]u8)string("x")) == nil, "could not create test file")
     }
     defer os.remove(FIRST)
     defer os.remove(SECOND)
@@ -84,7 +84,7 @@ test_startup_targets_ignores_a_second_folder :: proc(t: ^testing.T) {
     testing.expect(t, cwd_err == nil, "could not read the working directory")
 
     PATH :: "thor_startup_multi_c.tmp"
-    testing.expect(t, os.write_entire_file(PATH, transmute([]u8) string("x")) == nil, "could not create test file")
+    testing.expect(t, os.write_entire_file(PATH, transmute([]u8)string("x")) == nil, "could not create test file")
     defer os.remove(PATH)
 
     ws, files := thor_startup_targets({PATH, ".", "thor_does_not_exist_xyz"})

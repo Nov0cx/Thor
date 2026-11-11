@@ -114,11 +114,7 @@ test_tutorial_expand_placeholders :: proc(t: ^testing.T) {
     got := thor_tutorial_expand(thor, "Press {key:save} now.")
     testing.expect_value(t, got, strings.concatenate({"Press `", chord, "` now."}, context.temp_allocator))
 
-    testing.expect_value(
-        t,
-        thor_tutorial_expand(thor, "{key:toggle_word_wrap}"),
-        "**View: Toggle Word Wrap** in the command palette",
-    )
+    testing.expect_value(t, thor_tutorial_expand(thor, "{key:toggle_word_wrap}"), "**View: Toggle Word Wrap** in the command palette")
     testing.expect_value(t, thor_tutorial_expand(thor, "{key:no_such_action}"), "`no_such_action`")
     testing.expect_value(t, thor_tutorial_expand(thor, "open {key:save"), "open {key:save")
 }
@@ -128,7 +124,7 @@ test_tutorial_expand_placeholders :: proc(t: ^testing.T) {
 @(test)
 test_tutorial_lab_checks :: proc(t: ^testing.T) {
     broken := lab_state_of(thor_lab_source())
-    fixed := lab_state_of(FIXED_LAB)
+    fixed  := lab_state_of(FIXED_LAB)
     testing.expect(t, !broken.parse_ok, "the playground does not parse")
     for task in 0 ..< LAB_TASKS {
         testing.expectf(t, !lab_check(&broken, task), "task %d passes on the broken playground", task)
@@ -143,7 +139,7 @@ test_tutorial_lab_checks :: proc(t: ^testing.T) {
 // The trailing spaces of the playground are part of task 6.
 @(test)
 test_tutorial_lab_keeps_trailing_spaces :: proc(t: ^testing.T) {
-    st := lab_state_of(thor_lab_source())
+    st         := lab_state_of(thor_lab_source())
     lo, hi, ok := lab_target(&st, 6)
     testing.expect(t, ok && hi > lo, "the trailing whitespace is found")
     if ok {

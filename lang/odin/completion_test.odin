@@ -10,7 +10,7 @@ import lang ".."
 // Runs a Completion request with the caret after the first `needle` in `source`, or at its `|`.
 @(private = "file")
 complete_at :: proc(e: ^Engine, source, needle: string, workspace := "", path := "buffer.odin") -> lang.Result {
-    bar := strings.index_byte(needle, '|')
+    bar    := strings.index_byte(needle, '|')
     search := needle
     if bar >= 0 {
         search = strings.concatenate({needle[:bar], needle[bar + 1:]}, context.temp_allocator)
@@ -19,14 +19,7 @@ complete_at :: proc(e: ^Engine, source, needle: string, workspace := "", path :=
     }
     at := strings.index(source, search)
     assert(at >= 0, needle)
-    req := lang.Request {
-        kind      = .Completion,
-        path      = path,
-        ext       = ".odin",
-        source    = source,
-        offset    = at + bar,
-        workspace = workspace,
-    }
+    req := lang.Request{kind = .Completion, path = path, ext = ".odin", source = source, offset = at + bar, workspace = workspace}
     res := lang.Result{kind = .Completion}
     resolve(e, &req, &res)
     return res
@@ -437,9 +430,9 @@ test_completion_packages :: proc(t: ^testing.T) {
     lib_src := "package lib\n\nscale :: proc(v: int, by: int) -> int {\n\treturn v * by\n}\n\nshift :: 3\n\n@(private)\nscale_hidden :: 1\n"
     sib_src := "package app\n\nsib_value :: 7\n\n@(private = \"file\")\nsib_hidden :: 8\n"
     far_src := "package other\n\nsib_far :: 1\n"
-    root := fixture(t, "completion_packages", {{"lib/lib.odin", lib_src}, {"app/sibling.odin", sib_src}, {"other/far.odin", far_src}})
+    root    := fixture(t, "completion_packages", {{"lib/lib.odin", lib_src}, {"app/sibling.odin", sib_src}, {"other/far.odin", far_src}})
     defer os.remove_all(root)
-    main_src := "package app\n\nimport \"../lib\"\n\nmain :: proc() {\n\t_ = lib.sc\n\t_ = lib.\n\t_ = sib\n}\n"
+    main_src  := "package app\n\nimport \"../lib\"\n\nmain :: proc() {\n\t_ = lib.sc\n\t_ = lib.\n\t_ = sib\n}\n"
     main_path := fixture_path(root, "app/main.odin")
 
     res := complete_at(e, main_src, "lib.sc", workspace = root, path = main_path)
@@ -462,7 +455,7 @@ test_completion_disabled :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    src := "package app\n\nvalue :: 3\n\nmain :: proc() {\n\t_ = val\n}\n"
+    src  := "package app\n\nvalue :: 3\n\nmain :: proc() {\n\t_ = val\n}\n"
     root := fixture(t, "completion_disabled", {{".thor/odin-analyzer.lua", `return { enable_completion = false }`}})
     defer os.remove_all(root)
     res := complete_at(e, src, "_ = val", workspace = root, path = fixture_path(root, "main.odin"))
@@ -550,7 +543,7 @@ test_completion_proc_snippets :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    src := `package demo
+    src  := `package demo
 
 scale :: proc(v: int, by: int) -> int {
 	return v * by
@@ -566,8 +559,8 @@ main :: proc() {
 	scale(1, 2)
 }
 `
-    res := complete_at(e, src, "_ = sca")
-    want := [?][2]string {
+    res  := complete_at(e, src, "_ = sca")
+    want := [?][2]string{
         {"scale", "scale(${1:v}, ${2:by})$0"},
         {"scale_opt", "scale_opt(${1:a}, ${2:b})$0"},
         {"scale_none", "scale_none()$0"},
@@ -601,7 +594,7 @@ main :: proc() {
 // A declaration head gives the call snippet; snippet syntax in it is escaped.
 @(test)
 test_completion_signature_snippet :: proc(t: ^testing.T) {
-    cases := [?][3]string {
+    cases := [?][3]string{
         {"f", "f :: proc(a, b: int) -> int", "f(${1:a}, ${2:b})$0"},
         {"f", "f :: proc(int, string)", "f(${1:int}, ${2:string})$0"},
         {"f", "f :: proc \"c\" (x: i32)", "f(${1:x})$0"},
@@ -625,22 +618,30 @@ test_completion_auto_import :: proc(t: ^testing.T) {
     defer engine_destroy(e)
 
     config := `return { collections = { { name = "shared", path = "shared" } } }`
-    mathx := "package mathx\n\nclamp_to :: proc(v, hi: int) -> int {\n\treturn min(v, hi)\n}\n\n@(private)\nclamp_hidden :: 1\n"
-    root := fixture(t, "completion_auto_import", {
-        {".thor/odin-analyzer.lua", config},
-        {"shared/mathx/mathx.odin", mathx},
-        {"shared/mathx/tests/tests.odin", "package tests\n"},
-        {"app/other.odin", "package app\n"},
-    })
+    mathx  := "package mathx\n\nclamp_to :: proc(v, hi: int) -> int {\n\treturn min(v, hi)\n}\n\n@(private)\nclamp_hidden :: 1\n"
+    root   := fixture(
+        t,
+        "completion_auto_import",
+        {
+            {".thor/odin-analyzer.lua", config},
+            {"shared/mathx/mathx.odin", mathx},
+            {"shared/mathx/tests/tests.odin", "package tests\n"},
+            {"app/other.odin", "package app\n"},
+        },
+    )
     defer os.remove_all(root)
     main_path := fixture_path(root, "app/main.odin")
 
     bare := "package app\n\nmain :: proc() {\n\t_ = math\n\t_ = tes\n\t_ = ap\n}\n"
-    res := complete_at(e, bare, "_ = math", workspace = root, path = main_path)
+    res  := complete_at(e, bare, "_ = math", workspace = root, path = main_path)
     item := find_item(&res, "mathx")
     if testing.expect(t, item != nil, "missing mathx") {
         testing.expect_value(t, item.kind, "namespace")
-        testing.expect_value(t, apply_extra_edit(bare, item), "package app\n\nimport \"shared:mathx\"\n\nmain :: proc() {\n\t_ = math\n\t_ = tes\n\t_ = ap\n}\n")
+        testing.expect_value(
+            t,
+            apply_extra_edit(bare, item),
+            "package app\n\nimport \"shared:mathx\"\n\nmain :: proc() {\n\t_ = math\n\t_ = tes\n\t_ = ap\n}\n",
+        )
     }
     completions_free(&res)
 
@@ -683,12 +684,16 @@ test_completion_auto_import_same_name :: proc(t: ^testing.T) {
     defer engine_destroy(e)
 
     config := `return { collections = { { name = "shared", path = "shared" } } }`
-    root := fixture(t, "completion_auto_import_same_name", {
-        {".thor/odin-analyzer.lua", config},
-        {"shared/a/util/util.odin", "package util\n\nalpha :: 1\nboth :: 1\n"},
-        {"shared/b/util/util.odin", "package util\n\nbeta :: 2\nboth :: 2\n"},
-        {"app/other.odin", "package app\n"},
-    })
+    root   := fixture(
+        t,
+        "completion_auto_import_same_name",
+        {
+            {".thor/odin-analyzer.lua", config},
+            {"shared/a/util/util.odin", "package util\n\nalpha :: 1\nboth :: 1\n"},
+            {"shared/b/util/util.odin", "package util\n\nbeta :: 2\nboth :: 2\n"},
+            {"app/other.odin", "package app\n"},
+        },
+    )
     defer os.remove_all(root)
     main_path := fixture_path(root, "app/main.odin")
 
@@ -711,14 +716,14 @@ test_completion_auto_import_new_package :: proc(t: ^testing.T) {
     defer engine_destroy(e)
 
     config := `return { collections = { { name = "shared", path = "shared" } } }`
-    root := fixture(t, "completion_auto_import_new_package", {
-        {".thor/odin-analyzer.lua", config},
-        {"shared/old/old.odin", "package old\n"},
-        {"app/other.odin", "package app\n"},
-    })
+    root   := fixture(
+        t,
+        "completion_auto_import_new_package",
+        {{".thor/odin-analyzer.lua", config}, {"shared/old/old.odin", "package old\n"}, {"app/other.odin", "package app\n"}},
+    )
     defer os.remove_all(root)
     main_path := fixture_path(root, "app/main.odin")
-    src := "package app\n\nmain :: proc() {\n\t_ = fres\n}\n"
+    src       := "package app\n\nmain :: proc() {\n\t_ = fres\n}\n"
 
     res := complete_at(e, src, "_ = fres", workspace = root, path = main_path)
     expect_labels(t, &res, nil, {"freshpkg"})

@@ -44,7 +44,7 @@ test_generator_reports_schema_errors :: proc(t: ^testing.T) {
     if !ok {
         return
     }
-    schema := "Root\n    a = node Nope\n    b = token Nope\n    a = node Root\nRoot\n"
+    schema    := "Root\n    a = node Nope\n    b = token Nope\n    a = node Root\nRoot\n"
     _, errors := syntaxgen.generate(schema, tokens, context.temp_allocator)
     testing.expect_value(t, len(errors), 4)
 }

@@ -62,8 +62,8 @@ tree_cache_ensure :: proc(e: ^Engine) {
     if root == "" {
         return
     }
-    key := fmt.tprintf("%s\n%s", root, compiler_stamp(root))
-    name := fmt.tprintf("items-%16x.bin", hash.fnv64a(transmute([]byte)key))
+    key        := fmt.tprintf("%s\n%s", root, compiler_stamp(root))
+    name       := fmt.tprintf("items-%16x.bin", hash.fnv64a(transmute([]byte)key))
     path, jerr := filepath.join({c.dir, name}, context.temp_allocator)
     if jerr != nil {
         return
@@ -83,7 +83,7 @@ tree_cache_ensure :: proc(e: ^Engine) {
 // The modtime and size of the compiler under `root`; "none" when it is missing. Temp-allocated.
 @(private = "file")
 compiler_stamp :: proc(root: string) -> string {
-    exe := ODIN_OS == .Windows ? "odin.exe" : "odin"
+    exe        := ODIN_OS == .Windows ? "odin.exe" : "odin"
     path, jerr := filepath.join({root, exe}, context.temp_allocator)
     if jerr != nil {
         return "none"
@@ -99,7 +99,7 @@ compiler_stamp :: proc(root: string) -> string {
 // A write that runs on another thread makes this one return.
 @(private)
 tree_cache_write :: proc(e: ^Engine, force: bool) {
-    c := &e.tree_cache
+    c     := &e.tree_cache
     added := odinsema.db_cache_added(&e.db)
     if added == 0 || !force && added < TREE_CACHE_BATCH {
         return
@@ -138,7 +138,7 @@ tree_cache_write :: proc(e: ^Engine, force: bool) {
 // Removes the tree caches beside `path` that another Odin root or compiler wrote.
 @(private = "file")
 remove_old_caches :: proc(path: string) {
-    dir, name := filepath.split(path)
+    dir, name  := filepath.split(path)
     infos, err := os.read_directory_by_path(dir, -1, context.temp_allocator)
     if err != nil {
         return

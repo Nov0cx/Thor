@@ -11,7 +11,7 @@ import stbtt "vendor:stb/truetype"
 // own file. The first file of each row that exists is used.
 when ODIN_OS == .Windows {
     @(private = "file")
-    SYSTEM_FALLBACKS := [][]string {
+    SYSTEM_FALLBACKS := [][]string{
         {"C:/Windows/Fonts/seguisym.ttf"},
         {"C:/Windows/Fonts/msyh.ttc", "C:/Windows/Fonts/msyh.ttf", "C:/Windows/Fonts/simsun.ttc"},
         {"C:/Windows/Fonts/meiryo.ttc", "C:/Windows/Fonts/msgothic.ttc"},
@@ -21,7 +21,7 @@ when ODIN_OS == .Windows {
     }
 } else when ODIN_OS == .Darwin {
     @(private = "file")
-    SYSTEM_FALLBACKS := [][]string {
+    SYSTEM_FALLBACKS := [][]string{
         {"/System/Library/Fonts/Apple Symbols.ttf"},
         {"/System/Library/Fonts/PingFang.ttc", "/System/Library/Fonts/STHeiti Light.ttc"},
         {"/System/Library/Fonts/Hiragino Sans GB.ttc"},
@@ -31,7 +31,7 @@ when ODIN_OS == .Windows {
     }
 } else {
     @(private = "file")
-    SYSTEM_FALLBACKS := [][]string {
+    SYSTEM_FALLBACKS := [][]string{
         {
             "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
             "/usr/share/fonts/TTF/DejaVuSans.ttf",
@@ -46,14 +46,8 @@ when ODIN_OS == .Windows {
             "/usr/share/fonts/wenquanyi/wqy-microhei/wqy-microhei.ttc",
             "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
         },
-        {
-            "/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf",
-            "/usr/share/fonts/noto/NotoSansSymbols2-Regular.ttf",
-        },
-        {
-            "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
-            "/usr/share/fonts/noto/NotoSans-Regular.ttf",
-        },
+        {"/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf", "/usr/share/fonts/noto/NotoSansSymbols2-Regular.ttf"},
+        {"/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf", "/usr/share/fonts/noto/NotoSans-Regular.ttf"},
     }
 }
 
@@ -103,7 +97,7 @@ fallback_init :: proc() {
     for row in SYSTEM_FALLBACKS {
         for path in row {
             if os.exists(path) {
-                append(&system_faces, Fallback_Face {path = path})
+                append(&system_faces, Fallback_Face{path = path})
                 break
             }
         }
@@ -192,7 +186,7 @@ fallback_rasterize :: proc(family: ^Font_Family, sheet: ^Fallback_Sheet, size: i
         }
     }
     if family.icon_font {
-        return Fallback_Glyph {advance = sheet.blank}
+        return Fallback_Glyph{advance = sheet.blank}
     }
     for &face in system_faces {
         if !face_load(&face) {
@@ -202,7 +196,7 @@ fallback_rasterize :: proc(family: ^Font_Family, sheet: ^Fallback_Sheet, size: i
             return fallback_bake(&face.info, sheet, size, gid)
         }
     }
-    return Fallback_Glyph {advance = sheet.blank}
+    return Fallback_Glyph{advance = sheet.blank}
 }
 
 @(private = "file")
@@ -232,7 +226,7 @@ fallback_bake :: proc(info: ^stbtt.fontinfo, sheet: ^Fallback_Sheet, size: i32, 
     scale := stbtt.ScaleForPixelHeight(info, f32(size))
     advance: c.int
     stbtt.GetGlyphHMetrics(info, gid, &advance, nil)
-    glyph := Fallback_Glyph {advance = max(i32(f32(advance) * scale), 1)}
+    glyph := Fallback_Glyph{advance = max(i32(f32(advance) * scale), 1)}
 
     width, height, xoff, yoff: c.int
     bitmap := stbtt.GetGlyphBitmap(info, scale, scale, gid, &width, &height, &xoff, &yoff)
@@ -256,7 +250,7 @@ fallback_bake :: proc(info: ^stbtt.fontinfo, sheet: ^Fallback_Sheet, size: i32, 
     }
 
     page := sheet.pages[len(sheet.pages) - 1]
-    rect := rl.Rectangle {f32(sheet.pen_x), f32(sheet.pen_y), f32(width), f32(height)}
+    rect := rl.Rectangle{f32(sheet.pen_x), f32(sheet.pen_y), f32(width), f32(height)}
     if page.id != 0 {
         // Gray is full, alpha is coverage, the format of the main atlas.
         pixels := make([]u8, int(width * height) * 2, context.temp_allocator)
@@ -283,19 +277,13 @@ page_add :: proc(sheet: ^Fallback_Sheet) -> bool {
     texture: rl.Texture2D
     if rl.IsWindowReady() {
         bytes := PAGE_SIZE * PAGE_SIZE * 2
-        data := rl.MemAlloc(c.uint(bytes))
+        data  := rl.MemAlloc(c.uint(bytes))
         if data == nil {
             log.errorf("No memory for a %dx%d fallback glyph page", PAGE_SIZE, PAGE_SIZE)
             return false
         }
         mem.zero(data, bytes)
-        image := rl.Image {
-            data    = data,
-            width   = PAGE_SIZE,
-            height  = PAGE_SIZE,
-            mipmaps = 1,
-            format  = .UNCOMPRESSED_GRAY_ALPHA,
-        }
+        image := rl.Image{data = data, width = PAGE_SIZE, height = PAGE_SIZE, mipmaps = 1, format = .UNCOMPRESSED_GRAY_ALPHA}
         texture = rl.LoadTextureFromImage(image)
         rl.MemFree(data)
         if texture.id == 0 {

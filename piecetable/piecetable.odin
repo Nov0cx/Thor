@@ -27,30 +27,26 @@ Pending_Op :: struct {
 MAX_PENDING :: 8
 
 Piece_Table :: struct {
-    original: string,         // owned
-    add:      [dynamic]u8,    // owned
-    pieces:   [dynamic]Piece, // owned
+    original:    string,         // owned
+    add:         [dynamic]u8,    // owned
+    pieces:      [dynamic]Piece, // owned
     // Total bytes, maintained by the edits so a length query walks nothing.
-    length:   int,
+    length:      int,
     // The contents as one buffer, brought up to date by piecetable_view on the
     // first read after an edit: patched in place from `pending`, or rebuilt.
-    snapshot: [dynamic]u8, // owned
-    stale:    bool,        // snapshot must be rebuilt before it is read
+    snapshot:    [dynamic]u8,         // owned
+    stale:       bool,                // snapshot must be rebuilt before it is read
     // Edits since the last read, applied in place to the valid snapshot.
-    pending:  [dynamic]Pending_Op, // owned
+    pending:     [dynamic]Pending_Op, // owned
     // Piece index and start offset of the last split, where the next scan starts; -1 when unset.
     hint_index:  int,
     hint_offset: int,
 }
 
 piecetable_create :: proc(initial_text: string = "") -> Piece_Table {
-    pt := Piece_Table {
-        original = strings.clone(initial_text),
-        length   = len(initial_text),
-        stale    = true,
-    }
+    pt := Piece_Table{original = strings.clone(initial_text), length = len(initial_text), stale = true}
     if len(pt.original) > 0 {
-        append(&pt.pieces, Piece {source = .Original, start = 0, length = len(pt.original)})
+        append(&pt.pieces, Piece{source = .Original, start = 0, length = len(pt.original)})
     }
     return pt
 }
@@ -103,8 +99,8 @@ piecetable_split_at :: proc(pt: ^Piece_Table, pos: int) -> int {
         }
         if pos < offset + piece.length {
             local := pos - offset
-            left := Piece {source = piece.source, start = piece.start, length = local}
-            right := Piece {source = piece.source, start = piece.start + local, length = piece.length - local}
+            left  := Piece{source = piece.source, start = piece.start, length = local}
+            right := Piece{source = piece.source, start = piece.start + local, length = piece.length - local}
             pt.pieces[i] = left
             inject_at(&pt.pieces, i + 1, right)
             piecetable_set_hint(pt, i + 1, pos)
@@ -164,7 +160,7 @@ piecetable_insert :: proc(pt: ^Piece_Table, pos: int, text: string) {
 
     add_start := len(pt.add)
     append(&pt.add, text)
-    piecetable_note_edit(pt, Pending_Op {pos = clamp(pos, 0, pt.length), add_start = add_start, length = len(text), insert = true})
+    piecetable_note_edit(pt, Pending_Op{pos = clamp(pos, 0, pt.length), add_start = add_start, length = len(text), insert = true})
 
     // Split before the length grows, or an append misses the end-of-buffer fast path.
     index := piecetable_split_at(pt, pos)
@@ -184,7 +180,7 @@ piecetable_insert :: proc(pt: ^Piece_Table, pos: int, text: string) {
             return
         }
     }
-    inject_at(&pt.pieces, index, Piece {source = .Add, start = add_start, length = len(text)})
+    inject_at(&pt.pieces, index, Piece{source = .Add, start = add_start, length = len(text)})
     if at_split {
         piecetable_set_hint(pt, index + 1, pt.hint_offset + len(text))
     }
@@ -198,21 +194,21 @@ piecetable_delete :: proc(pt: ^Piece_Table, pos: int, delete_length: int) {
         return
     }
 
-    start_index := piecetable_split_at(pt, pos)
+    start_index    := piecetable_split_at(pt, pos)
     // The split's own hint is the true offset it landed on (pos itself may be
     // an out-of-range value split_at only clamped); the second split below
     // overwrites the hint, so capture it now.
     start_at_split := pt.hint_index == start_index
-    start_offset := pt.hint_offset
-    end_index := piecetable_split_at(pt, pos + delete_length)
+    start_offset   := pt.hint_offset
+    end_index      := piecetable_split_at(pt, pos + delete_length)
     // A range past the end removes less than asked, so count what really goes.
-    removed := 0
+    removed        := 0
     for i in start_index ..< end_index {
         removed += pt.pieces[i].length
     }
     pt.length -= removed
     if removed > 0 {
-        piecetable_note_edit(pt, Pending_Op {pos = clamp(pos, 0, pt.length + removed), length = removed})
+        piecetable_note_edit(pt, Pending_Op{pos = clamp(pos, 0, pt.length + removed), length = removed})
     }
     remove_range(&pt.pieces, start_index, end_index)
     before := len(pt.pieces)

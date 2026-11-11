@@ -7,7 +7,7 @@ import odinsyntax "../syntax"
 
 // What a member that follows `x.` is.
 Member_Kind :: enum u8 {
-    Field,          // a struct, bit_field or `#soa` field, or a field of `any`
+    Field, // a struct, bit_field or `#soa` field, or a field of `any`
     Enum_Member,
     Package_Member, // a declaration of a package that is not a procedure
     Proc,           // a procedure or procedure group of a package
@@ -143,7 +143,9 @@ package_members :: proc(c: ^Checker, dir: string, from := NO_FILE, allocator := 
             break
         }
     }
-    slice.sort_by(out[:], proc(a, b: Member) -> bool { return a.name < b.name })
+    slice.sort_by(out[:], proc(a, b: Member) -> bool {
+        return a.name < b.name
+    })
     return out[:]
 }
 
@@ -219,7 +221,7 @@ add_field :: proc(c: ^Checker, out: ^[dynamic]Member, name: string, type: Type_I
 // A copy of the node path to `offset` in `c.tmp`.
 @(private)
 path_copy :: proc(c: ^Checker, file: File_Id, offset: int) -> []odinsyntax.Syntax_Node {
-    path := node_path(c, file, offset)
+    path     := node_path(c, file, offset)
     out, err := slice.clone(path, c.tmp)
     if !note_alloc(c, err) {
         return nil
@@ -237,7 +239,7 @@ same_node :: proc(a, b: odinsyntax.Syntax_Node) -> bool {
 @(private)
 child_index :: proc(it: odinsyntax.Child_Iter, child: odinsyntax.Syntax_Node) -> int {
     it := it
-    i := 0
+    i  := 0
     for n in odinsyntax.child_iter_next(&it) {
         if same_node(n, child) {
             return i
@@ -251,7 +253,7 @@ child_index :: proc(it: odinsyntax.Child_Iter, child: odinsyntax.Syntax_Node) ->
 @(private)
 child_nth :: proc(it: odinsyntax.Child_Iter, k: int) -> (odinsyntax.Syntax_Node, bool) {
     it := it
-    i := 0
+    i  := 0
     for n in odinsyntax.child_iter_next(&it) {
         if i == k {
             return n, true
@@ -269,7 +271,7 @@ expected_type_at :: proc(c: ^Checker, file: File_Id, offset: int) -> Type_Id {
     temp := scratch_begin(c)
     defer scratch_end(temp)
     path := path_copy(c, file, offset)
-    i := -1
+    i    := -1
     for n, k in path {
         if n.green.kind in odinsyntax.KINDS_EXPR {
             i = k
@@ -291,8 +293,16 @@ is_head_of :: proc(parent, child: odinsyntax.Syntax_Node) -> bool {
         return false
     }
     #partial switch parent.green.kind {
-    case .Selector_Expr, .Call_Expr, .Index_Expr, .Matrix_Index_Expr, .Slice_Expr, .Deref_Expr, .Type_Assertion,
-         .Or_Return_Expr, .Or_Branch_Expr, .Selector_Call_Expr:
+    case .Selector_Expr,
+        .Call_Expr,
+        .Index_Expr,
+        .Matrix_Index_Expr,
+        .Slice_Expr,
+        .Deref_Expr,
+        .Type_Assertion,
+        .Or_Return_Expr,
+        .Or_Branch_Expr,
+        .Selector_Call_Expr:
         return true
     }
     return false
@@ -306,16 +316,16 @@ expected_in :: proc(c: ^Checker, file: File_Id, path: []odinsyntax.Syntax_Node, 
     }
     c.depth += 1
     defer c.depth -= 1
-    child := path[i]
+    child  := path[i]
     parent := path[i - 1]
-    t := &c.table
+    t      := &c.table
     #partial switch parent.green.kind {
     case .Paren_Expr, .Implicit_Selector, .Tag_Expr:
         return expected_in(c, file, path, i - 1)
     case .If_Stmt, .For_Stmt, .When_Stmt:
         return type_basic(.Bool)
     case .Unary_Expr:
-        u, _ := odinsyntax.as_unary_expr(parent)
+        u, _  := odinsyntax.as_unary_expr(parent)
         op, _ := odinsyntax.unary_expr_op(&u)
         outer := expected_in(c, file, path, i - 1)
         if op.green.kind == .And {
@@ -365,17 +375,17 @@ expected_in :: proc(c: ^Checker, file: File_Id, path: []odinsyntax.Syntax_Node, 
         }
         return INVALID_TYPE
     case .Or_Else_Expr:
-        oe, _ := odinsyntax.as_or_else_expr(parent)
+        oe, _   := odinsyntax.as_or_else_expr(parent)
         lhs, ok := odinsyntax.or_else_expr_lhs(&oe)
         if !ok || same_node(lhs, child) {
             return expected_in(c, file, path, i - 1)
         }
-        op := expr_values(c, file, lhs)
+        op    := expr_values(c, file, lhs)
         types := tuple_types(c, &op.type)
         return len(types) > 0 ? types[0] : INVALID_TYPE
     case .Index_Expr:
-        ie, _ := odinsyntax.as_index_expr(parent)
-        index, ok := odinsyntax.index_expr_index(&ie)
+        ie, _                := odinsyntax.as_index_expr(parent)
+        index, ok            := odinsyntax.index_expr_index(&ie)
         operand, has_operand := odinsyntax.index_expr_operand(&ie)
         if !ok || !has_operand || !same_node(index, child) {
             return INVALID_TYPE
@@ -388,7 +398,7 @@ expected_in :: proc(c: ^Checker, file: File_Id, path: []odinsyntax.Syntax_Node, 
         }
         return INVALID_TYPE
     case .Field:
-        f, _ := odinsyntax.as_field(parent)
+        f, _        := odinsyntax.as_field(parent)
         default, ok := odinsyntax.field_default(&f)
         if !ok || !same_node(default, child) {
             return INVALID_TYPE
@@ -423,16 +433,16 @@ expected_in :: proc(c: ^Checker, file: File_Id, path: []odinsyntax.Syntax_Node, 
 // The operand type of the other side of a binary expression, or the bit_set element for `in`.
 @(private)
 binary_expected :: proc(c: ^Checker, file: File_Id, path: []odinsyntax.Syntax_Node, i: int) -> Type_Id {
-    t := &c.table
-    b, _ := odinsyntax.as_binary_expr(path[i - 1])
-    op, has_op := odinsyntax.binary_expr_op(&b)
+    t            := &c.table
+    b, _         := odinsyntax.as_binary_expr(path[i - 1])
+    op, has_op   := odinsyntax.binary_expr_op(&b)
     lhs, has_lhs := odinsyntax.binary_expr_lhs(&b)
     rhs, has_rhs := odinsyntax.binary_expr_rhs(&b)
     if !has_op || !has_lhs || !has_rhs {
         return INVALID_TYPE
     }
     is_lhs := same_node(lhs, path[i])
-    other := is_lhs ? rhs : lhs
+    other  := is_lhs ? rhs : lhs
     #partial switch op.green.kind {
     case .In, .Not_In:
         if !is_lhs {
@@ -474,16 +484,16 @@ list_expected :: proc(c: ^Checker, file: File_Id, path: []odinsyntax.Syntax_Node
     if i < 2 {
         return INVALID_TYPE
     }
-    list := path[i - 1]
+    list  := path[i - 1]
     owner := path[i - 2]
     el, _ := odinsyntax.as_expr_list(list)
-    k := child_index(odinsyntax.expr_list_items(&el), path[i])
+    k     := child_index(odinsyntax.expr_list_items(&el), path[i])
     if k < 0 {
         return INVALID_TYPE
     }
     #partial switch owner.green.kind {
     case .Assign_Stmt:
-        a, _ := odinsyntax.as_assign_stmt(owner)
+        a, _         := odinsyntax.as_assign_stmt(owner)
         rhs, has_rhs := odinsyntax.assign_stmt_rhs(&a)
         lhs, has_lhs := odinsyntax.assign_stmt_lhs(&a)
         if !has_rhs || !has_lhs || !same_node(odinsyntax.Syntax_Node(rhs), list) {
@@ -531,8 +541,8 @@ list_expected :: proc(c: ^Checker, file: File_Id, path: []odinsyntax.Syntax_Node
 @(private)
 call_args :: proc(c: ^Checker, file: File_Id, list: odinsyntax.Syntax_Node, skip: odinsyntax.Syntax_Node) -> []Call_Arg {
     al, _ := odinsyntax.as_arg_list(list)
-    args := make([dynamic]Call_Arg, c.tmp)
-    it := odinsyntax.arg_list_args(&al)
+    args  := make([dynamic]Call_Arg, c.tmp)
+    it    := odinsyntax.arg_list_args(&al)
     for arg in odinsyntax.child_iter_next(&it) {
         a := Call_Arg{node = arg}
         #partial switch arg.green.kind {
@@ -565,9 +575,9 @@ call_args :: proc(c: ^Checker, file: File_Id, list: odinsyntax.Syntax_Node, skip
 // A group takes the best member, else the first whose parameters take the arguments.
 @(private)
 called_proc :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node, skip: odinsyntax.Syntax_Node) -> (p: Proc_Type, args: []Call_Arg, ok: bool) {
-    ce, _ := odinsyntax.as_call_expr(call)
+    ce, _              := odinsyntax.as_call_expr(call)
     callee, has_callee := odinsyntax.call_expr_callee(&ce)
-    list, has_list := odinsyntax.call_expr_args(&ce)
+    list, has_list     := odinsyntax.call_expr_args(&ce)
     if !has_callee || !has_list {
         return
     }
@@ -630,7 +640,7 @@ call_group_member :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_No
         return INVALID_TYPE
     }
     callee, has_callee := odinsyntax.call_expr_callee(&ce)
-    list, has_list := odinsyntax.call_expr_args(&ce)
+    list, has_list     := odinsyntax.call_expr_args(&ce)
     if !has_callee || !has_list {
         return INVALID_TYPE
     }
@@ -656,7 +666,7 @@ call_group_member :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_No
 // False when the name is not the callee of a call.
 callee_call :: proc(c: ^Checker, file: File_Id, offset: int) -> (odinsyntax.Syntax_Node, bool) {
     path := node_path(c, file, offset)
-    i := len(path) - 1
+    i    := len(path) - 1
     if i < 1 || path[i].green.kind != .Ident {
         return {}, false
     }
@@ -666,8 +676,8 @@ callee_call :: proc(c: ^Checker, file: File_Id, offset: int) -> (odinsyntax.Synt
     if i < 1 || path[i - 1].green.kind != .Call_Expr {
         return {}, false
     }
-    call := path[i - 1]
-    ce, _ := odinsyntax.as_call_expr(call)
+    call       := path[i - 1]
+    ce, _      := odinsyntax.as_call_expr(call)
     callee, ok := odinsyntax.call_expr_callee(&ce)
     if !ok || callee.offset != path[i].offset || callee.green != path[i].green {
         return {}, false
@@ -731,7 +741,7 @@ bound_param_type :: proc(c: ^Checker, p: Proc_Type, args: []Call_Arg, slot: int)
     if !found {
         return INVALID_TYPE
     }
-    pt, _ := odinsyntax.as_proc_type(node)
+    pt, _              := odinsyntax.as_proc_type(node)
     params, has_params := odinsyntax.proc_type_params(&pt)
     if !has_params {
         return INVALID_TYPE
@@ -775,14 +785,14 @@ field_value_expected :: proc(c: ^Checker, file: File_Id, path: []odinsyntax.Synt
     if i < 2 {
         return INVALID_TYPE
     }
-    fv, _ := odinsyntax.as_field_value(path[i - 1])
-    name, has_name := odinsyntax.field_value_name(&fv)
+    fv, _            := odinsyntax.as_field_value(path[i - 1])
+    name, has_name   := odinsyntax.field_value_name(&fv)
     value, has_value := odinsyntax.field_value_value(&fv)
     if !has_name || !has_value {
         return INVALID_TYPE
     }
     owner := path[i - 2]
-    t := &c.table
+    t     := &c.table
     if same_node(value, path[i]) {
         #partial switch owner.green.kind {
         case .Arg_List:
@@ -793,11 +803,16 @@ field_value_expected :: proc(c: ^Checker, file: File_Id, path: []odinsyntax.Synt
         case .Comp_Lit:
             lit := lit_type(c, file, path, i - 2)
             #partial switch v in type_get(t, type_base(t, lit)) {
-            case Array_Type:            return v.elem
-            case Enumerated_Array_Type: return v.elem
-            case Map_Type:              return v.value
-            case Slice_Type:            return v.elem
-            case Dynamic_Array_Type:    return v.elem
+            case Array_Type:
+                return v.elem
+            case Enumerated_Array_Type:
+                return v.elem
+            case Map_Type:
+                return v.value
+            case Slice_Type:
+                return v.elem
+            case Dynamic_Array_Type:
+                return v.elem
             }
             if name.green.kind == .Ident {
                 if hit, ok := find_field(c, lit, odinsyntax.node_text(name)); ok {
@@ -810,8 +825,10 @@ field_value_expected :: proc(c: ^Checker, file: File_Id, path: []odinsyntax.Synt
     if same_node(name, path[i]) && owner.green.kind == .Comp_Lit {
         lit := lit_type(c, file, path, i - 2)
         #partial switch v in type_get(t, type_base(t, lit)) {
-        case Enumerated_Array_Type: return v.index
-        case Map_Type:              return v.key
+        case Enumerated_Array_Type:
+            return v.index
+        case Map_Type:
+            return v.key
         }
     }
     return INVALID_TYPE
@@ -834,14 +851,22 @@ element_type :: proc(c: ^Checker, lit: Type_Id, k: int) -> Type_Id {
     #partial switch v in type_get(t, type_base(t, lit)) {
     case Struct_Type:
         return k < len(v.fields) ? v.fields[k].type : INVALID_TYPE
-    case Array_Type:            return v.elem
-    case Slice_Type:            return v.elem
-    case Dynamic_Array_Type:    return v.elem
-    case Enumerated_Array_Type: return v.elem
-    case Simd_Type:             return v.elem
-    case Matrix_Type:           return v.elem
-    case Soa_Type:              return v.elem
-    case Bit_Set_Type:          return v.range ? type_default(t, v.elem) : v.elem
+    case Array_Type:
+        return v.elem
+    case Slice_Type:
+        return v.elem
+    case Dynamic_Array_Type:
+        return v.elem
+    case Enumerated_Array_Type:
+        return v.elem
+    case Simd_Type:
+        return v.elem
+    case Matrix_Type:
+        return v.elem
+    case Soa_Type:
+        return v.elem
+    case Bit_Set_Type:
+        return v.range ? type_default(t, v.elem) : v.elem
     }
     return INVALID_TYPE
 }
@@ -852,7 +877,7 @@ selector_symbol :: proc(c: ^Checker, file: File_Id, offset: int) -> (Symbol, boo
     temp := scratch_begin(c)
     defer scratch_end(temp)
     path := path_copy(c, file, offset)
-    i := -1
+    i    := -1
     for n, k in path {
         if n.green.kind == .Ident {
             i = k
@@ -861,12 +886,12 @@ selector_symbol :: proc(c: ^Checker, file: File_Id, offset: int) -> (Symbol, boo
     if i < 1 {
         return {}, false
     }
-    ident := path[i]
-    name := odinsyntax.node_text(ident)
+    ident  := path[i]
+    name   := odinsyntax.node_text(ident)
     parent := path[i - 1]
     #partial switch parent.green.kind {
     case .Selector_Expr:
-        sel, _ := odinsyntax.as_selector_expr(parent)
+        sel, _    := odinsyntax.as_selector_expr(parent)
         field, ok := odinsyntax.selector_expr_field(&sel)
         if !ok || !same_node(odinsyntax.Syntax_Node(field), ident) {
             return {}, false
@@ -877,7 +902,7 @@ selector_symbol :: proc(c: ^Checker, file: File_Id, offset: int) -> (Symbol, boo
         op := implicit_operand(c, name, expected_type_at(c, file, int(parent.offset)))
         return op.symbol, op.mode != .Invalid && op.has_symbol
     case .Field_Value:
-        fv, _ := odinsyntax.as_field_value(parent)
+        fv, _     := odinsyntax.as_field_value(parent)
         fname, ok := odinsyntax.field_value_name(&fv)
         if !ok || !same_node(fname, ident) || i < 2 {
             return {}, false
@@ -885,7 +910,7 @@ selector_symbol :: proc(c: ^Checker, file: File_Id, offset: int) -> (Symbol, boo
         owner := path[i - 2]
         #partial switch owner.green.kind {
         case .Comp_Lit:
-            lit := lit_type(c, file, path, i - 2)
+            lit        := lit_type(c, file, path, i - 2)
             hit, found := find_field(c, lit, name)
             if !found || hit.name_offset < 0 {
                 return {}, false
@@ -916,8 +941,8 @@ expr_under :: proc(c: ^Checker, file: File_Id, offset: int) -> (odinsyntax.Synta
     if len(path) == 0 {
         return {}, false
     }
-    last := path[len(path) - 1]
-    pos := last.offset
+    last     := path[len(path) - 1]
+    pos      := last.offset
     on_token := false
     for child in odinsyntax.green_children(last.green) {
         child_len := odinsyntax.element_len(child)
@@ -979,7 +1004,7 @@ call_slots :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) -> 
         return
     }
     callee, has_callee := odinsyntax.call_expr_callee(&ce)
-    list, has_list := odinsyntax.call_expr_args(&ce)
+    list, has_list     := odinsyntax.call_expr_args(&ce)
     if !has_callee || !has_list {
         return
     }
@@ -1029,7 +1054,7 @@ call_arg_params :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node
     if !ok {
         return nil
     }
-    out := make([dynamic]Arg_Param, 0, len(args), allocator)
+    out  := make([dynamic]Arg_Param, 0, len(args), allocator)
     last := -1
     for a, i in args {
         k := slots[i]

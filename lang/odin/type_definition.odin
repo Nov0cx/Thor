@@ -83,14 +83,17 @@ type_definition :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
         res.location = lang.Location{path = strings.clone(j.path), start = j.start, end = j.end}
     case:
         for j in jumps {
-            append(&res.symbols, lang.Symbol {
-                name      = strings.clone(j.name),
-                kind      = strings.clone(j.kind),
-                signature = strings.clone(j.signature),
-                path      = strings.clone(j.path),
-                line      = j.line,
-                offset    = j.start,
-            })
+            append(
+                &res.symbols,
+                lang.Symbol{
+                    name = strings.clone(j.name),
+                    kind = strings.clone(j.kind),
+                    signature = strings.clone(j.signature),
+                    path = strings.clone(j.path),
+                    line = j.line,
+                    offset = j.start,
+                },
+            )
         }
     }
     res.ok = true
@@ -201,12 +204,12 @@ symbol_jump :: proc(ctx: ^Request_Context, c: ^odinsema.Checker, f: Type_Found) 
     if !ok {
         return {}, false
     }
-    j := Type_Jump {
-        path  = strings.clone(snapshot_path(ctx, file), context.temp_allocator),
-        name  = strings.clone(f.name, context.temp_allocator),
-        kind  = "type",
+    j     := Type_Jump{
+        path = strings.clone(snapshot_path(ctx, file), context.temp_allocator),
+        name = strings.clone(f.name, context.temp_allocator),
+        kind = "type",
         start = start,
-        end   = end,
+        end = end,
     }
     lines := file == ctx.live.id ? ctx.live.lines : nil
     if data := odinsema.db_file(&ctx.snap, file); data != nil {
@@ -242,13 +245,16 @@ builtin_jumps :: proc(ctx: ^Request_Context, name: string, out: ^[dynamic]Type_J
         return !a.inactive && b.inactive
     })
     cand := cands[0]
-    append(out, Type_Jump {
-        path      = cand.path,
-        name      = cand.name,
-        kind      = symbol_kind(cand.kind),
-        signature = cand.signature,
-        start     = cand.offset,
-        end       = cand.offset + len(cand.name),
-        line      = cand.line,
-    })
+    append(
+        out,
+        Type_Jump{
+            path = cand.path,
+            name = cand.name,
+            kind = symbol_kind(cand.kind),
+            signature = cand.signature,
+            start = cand.offset,
+            end = cand.offset + len(cand.name),
+            line = cand.line,
+        },
+    )
 }

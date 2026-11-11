@@ -76,8 +76,8 @@ switch_fixes :: proc(rc: ^Request_Context, caret: Caret, res: ^lang.Result) {
 
 @(private = "file")
 fill_switch :: proc(rc: ^Request_Context, sw: odinsyntax.Syntax_Node, missing: []string, res: ^lang.Result) {
-    src := rc.req.source
-    sw := sw
+    src     := rc.req.source
+    sw      := sw
     is_enum := sw.green.kind == .Switch_Stmt
     body: odinsyntax.Block
     has_body: bool
@@ -91,7 +91,7 @@ fill_switch :: proc(rc: ^Request_Context, sw: odinsyntax.Syntax_Node, missing: [
     if !has_body {
         return
     }
-    block := odinsyntax.Syntax_Node(body)
+    block            := odinsyntax.Syntax_Node(body)
     close, has_close := odinsyntax.find_child_token(&block, {tokens = {.Close_Brace}, last = true})
     if !has_close {
         return
@@ -104,7 +104,7 @@ fill_switch :: proc(rc: ^Request_Context, sw: odinsyntax.Syntax_Node, missing: [
     for name in missing {
         fmt.sbprintf(&sb, "%scase %s%s:\n", indent, "." if is_enum else "", name)
     }
-    at := int(close.offset)
+    at   := int(close.offset)
     text := strings.to_string(sb)
     if ls := line_start(src, at); strings.trim_space(src[ls:at]) == "" {
         at = ls
@@ -128,7 +128,7 @@ unused_variable_fixes :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, care
     if c == nil {
         return
     }
-    root := odinsyntax.node_root(rc.parsed.tree)
+    root    := odinsyntax.node_root(rc.parsed.tree)
     tok, ok := odinsyntax.node_token_at(root, u32(caret.offset), context.temp_allocator)
     if !ok {
         return
@@ -155,9 +155,9 @@ unused_variable_fixes :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, care
 // declaration an assignment to `_`, or removes it when it has no value.
 @(private = "file")
 unused_variable_fix :: proc(rc: ^Request_Context, root: odinsyntax.Syntax_Node, u: odinsema.Live_Name, res: ^lang.Result) {
-    rename := Edit_Spec{u.offset, u.offset + len(u.name), "_"}
+    rename       := Edit_Spec{u.offset, u.offset + len(u.name), "_"}
     rename_title := fmt.tprintf("Rename '%s' to '_'", u.name)
-    tok, ok := odinsyntax.node_token_at(root, u32(u.offset), context.temp_allocator)
+    tok, ok      := odinsyntax.node_token_at(root, u32(u.offset), context.temp_allocator)
     if !ok || tok.parent == nil || tok.parent.parent == nil {
         return
     }
@@ -167,10 +167,10 @@ unused_variable_fix :: proc(rc: ^Request_Context, root: odinsyntax.Syntax_Node, 
         push_action(res, rc.req, rename_title, rename)
         return
     }
-    names := 0
+    names  := 0
     others := 0
-    nl := odinsyntax.Name_List(list^)
-    it := odinsyntax.name_list_names(&nl)
+    nl     := odinsyntax.Name_List(list^)
+    it     := odinsyntax.name_list_names(&nl)
     for name in odinsyntax.child_iter_next(&it) {
         names += 1
         if int(name.offset) != u.offset && odinsyntax.node_text(name) != "_" {
@@ -199,14 +199,14 @@ unused_import_fixes :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, whens:
     if .Unused_Imports not_in live_vet_flags(rc) {
         return
     }
-    imports := odinsema.db_imports(&rc.snap, rc.live.id)
+    imports     := odinsema.db_imports(&rc.snap, rc.live.id)
     unused, err := odinsema.vet_unused_imports(rc.live.tree, imports, m, branch_spans(whens, false), context.temp_allocator)
     if err != nil || len(unused) == 0 {
         return
     }
-    src := rc.req.source
+    src   := rc.req.source
     specs := make([dynamic]Edit_Spec, 0, len(unused), context.temp_allocator)
-    hit := false
+    hit   := false
     for i in unused {
         imp := imports[i]
         if imp.item < 0 || imp.item >= len(rc.live.tree.items) {
@@ -253,9 +253,9 @@ import_fixes :: proc(rc: ^Request_Context, caret: Caret, res: ^lang.Result) {
     if !unresolved {
         return
     }
-    name := src[start:end]
+    name    := src[start:end]
     imports := odinsema.db_imports(&rc.snap, rc.live.id)
-    count := 0
+    count   := 0
     next: for p in known_packages(rc.e, rc.req.workspace) {
         if p.name != name {
             continue
@@ -309,7 +309,7 @@ ignore_fixes :: proc(rc: ^Request_Context, caret: Caret, res: ^lang.Result) {
 @(private = "file")
 ignore_line_edit :: proc(rc: ^Request_Context, line: int, code: string) -> Edit_Spec {
     src := rc.req.source
-    ls := rc.live.lines[clamp(line - 1, 0, len(rc.live.lines) - 1)]
+    ls  := rc.live.lines[clamp(line - 1, 0, len(rc.live.lines) - 1)]
     if ls > 0 {
         prev := src[line_start(src, ls - 1):ls - 1]
         if ignore_comment(prev, "thor:ignore") {
@@ -324,7 +324,7 @@ ignore_line_edit :: proc(rc: ^Request_Context, line: int, code: string) -> Edit_
 @(private = "file")
 ignore_file_edit :: proc(rc: ^Request_Context, code: string) -> Edit_Spec {
     src := rc.req.source
-    p := rc.live.tree.package_offset
+    p   := rc.live.tree.package_offset
     if p < 0 {
         return {0, 0, fmt.tprintf("// thor:ignore-file %s\n", code)}
     }

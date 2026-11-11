@@ -59,7 +59,7 @@ test_stack_many_producers :: proc(t: ^testing.T) {
     }
 
     next: [PRODUCERS]int
-    seen := 0
+    seen     := 0
     in_order := true
     for seen < PRODUCERS * PER_PRODUCER {
         for item := stack_take(&run.stack); item != nil; item = item.queue_next {
@@ -124,7 +124,7 @@ test_ring_spsc_stream :: proc(t: ^testing.T) {
             }
             rest := buf[:n]
             for len(rest) > 0 {
-                gen := ring_space_gen(&run.ring)
+                gen   := ring_space_gen(&run.ring)
                 wrote := ring_write(&run.ring, rest)
                 rest = rest[wrote:]
                 if wrote == 0 {
@@ -136,7 +136,7 @@ test_ring_spsc_stream :: proc(t: ^testing.T) {
     })
 
     out: [517]u8
-    got := 0
+    got    := 0
     intact := true
     for got < RING_TOTAL {
         n := ring_read(&run.ring, out[:])

@@ -44,29 +44,29 @@ Options :: struct {
 }
 
 default_options :: proc() -> Options {
-    return Options {
-        character_width            = 100,
-        spaces                     = 4,
-        newline_limit              = 2,
-        tabs                       = true,
-        tabs_width                 = 4,
-        convert_do                 = false,
+    return Options{
+        character_width = 100,
+        spaces = 4,
+        newline_limit = 2,
+        tabs = true,
+        tabs_width = 4,
+        convert_do = false,
         exp_multiline_composite_literals = false,
-        brace_style                = ._1TBS,
-        indent_cases                = false,
-        newline_style                = .LF,
-        inline_single_stmt_case      = false,
-        spaces_around_colons         = false,
-        sort_imports                 = true,
-        space_single_line_blocks     = false,
-        align_struct_fields          = true,
-        align_struct_values          = true,
-        align_struct_declarations    = true,
-        align_constant_definitions   = true,
-        align_variable_declarations  = true,
-        align_comments               = true,
-        align_case_comments          = true,
-        align_field_defaults         = true,
+        brace_style = ._1TBS,
+        indent_cases = false,
+        newline_style = .LF,
+        inline_single_stmt_case = false,
+        spaces_around_colons = false,
+        sort_imports = true,
+        space_single_line_blocks = false,
+        align_struct_fields = true,
+        align_struct_values = true,
+        align_struct_declarations = true,
+        align_constant_definitions = true,
+        align_variable_declarations = true,
+        align_comments = true,
+        align_case_comments = true,
+        align_field_defaults = true,
     }
 }
 
@@ -79,22 +79,22 @@ Int_Range :: struct {
 }
 
 @(private)
-INT_RANGES := [?]Int_Range {
+INT_RANGES := [?]Int_Range{
     {"character_width", offset_of(Options, character_width), 20, 1000},
-    {"spaces",          offset_of(Options, spaces),          1,  16},
-    {"newline_limit",   offset_of(Options, newline_limit),   0,  16},
-    {"tabs_width",      offset_of(Options, tabs_width),      1,  16},
+    {"spaces", offset_of(Options, spaces), 1, 16},
+    {"newline_limit", offset_of(Options, newline_limit), 0, 16},
+    {"tabs_width", offset_of(Options, tabs_width), 1, 16},
 }
 
 // Resets every integer option outside its range to the default, and returns
 // the keys it reset.
 validate_options :: proc(opts: ^Options, allocator := context.allocator) -> []string {
     defaults := default_options()
-    reset := make([dynamic]string, allocator)
+    reset    := make([dynamic]string, allocator)
     for r in INT_RANGES {
-        value := cast(^int) (uintptr(opts) + r.offset)
+        value := cast(^int)(uintptr(opts) + r.offset)
         if value^ < r.min || value^ > r.max {
-            value^ = (cast(^int) (uintptr(&defaults) + r.offset))^
+            value^ = (cast(^int)(uintptr(&defaults) + r.offset))^
             append(&reset, r.key)
         }
     }

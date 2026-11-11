@@ -39,7 +39,7 @@ Point :: struct { x, y: f32 }
 @(test)
 test_shape_hash_ignores_bodies_offsets_and_docs :: proc(t: ^testing.T) {
     base := shape_of(t, SHAPE_BASE)
-    same := []string {
+    same := []string{
         // A body edit.
         `package demo
 
@@ -100,8 +100,8 @@ Point :: struct { x, y: f32 }
 
 @(test)
 test_shape_hash_sees_declarations :: proc(t: ^testing.T) {
-    base := shape_of(t, SHAPE_BASE)
-    changed := []string {
+    base    := shape_of(t, SHAPE_BASE)
+    changed := []string{
         // A signature.
         `package demo
 

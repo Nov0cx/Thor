@@ -28,15 +28,9 @@ test_clipboard_label :: proc(t: ^testing.T) {
 
 @(test)
 test_clipboard_file_round_trip :: proc(t: ^testing.T) {
-    entries := []Clipboard_Entry {
-        {"one", false},
-        {"two\nlines\n", false},
-        {"hunter2-Secret!", true},
-        {"--- 3\nfake header", false},
-        {"", false},
-    }
-    want := []string{"one", "two\nlines\n", "--- 3\nfake header", ""}
-    got := clipboard_history_parse(clipboard_history_format(entries))
+    entries := []Clipboard_Entry{{"one", false}, {"two\nlines\n", false}, {"hunter2-Secret!", true}, {"--- 3\nfake header", false}, {"", false}}
+    want    := []string{"one", "two\nlines\n", "--- 3\nfake header", ""}
+    got     := clipboard_history_parse(clipboard_history_format(entries))
     testing.expect_value(t, len(got), len(want))
     for entry, i in want {
         if i < len(got) {
@@ -72,7 +66,7 @@ test_clipboard_history_cap :: proc(t: ^testing.T) {
 
 @(test)
 test_clipboard_secret_detection :: proc(t: ^testing.T) {
-    secrets := []string {
+    secrets := []string{
         "-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n-----END OPENSSH PRIVATE KEY-----\n",
         "ghp_0123456789abcdefghijABCDEFGHIJ012345",
         "AKIAIOSFODNN7EXAMPLE",
@@ -83,13 +77,7 @@ test_clipboard_secret_detection :: proc(t: ^testing.T) {
     for text in secrets {
         testing.expectf(t, clipboard_is_secret(text, ""), "not a secret: %q", text)
     }
-    plain := []string {
-        "thor_clipboard_note",
-        "editor.on_clipboard(editor.clipboard_data, text)",
-        "hello world",
-        "x := 1",
-        "README",
-    }
+    plain := []string{"thor_clipboard_note", "editor.on_clipboard(editor.clipboard_data, text)", "hello world", "x := 1", "README"}
     for text in plain {
         testing.expectf(t, !clipboard_is_secret(text, ""), "a secret: %q", text)
     }
@@ -126,7 +114,7 @@ test_clipboard_file_wipe_keeps_an_empty_file :: proc(t: ^testing.T) {
     }
     path := "bin/test/clipboard_wipe/clipboard.txt"
     defer os.remove(path)
-    testing.expect_value(t, os.write_entire_file(path, transmute([]byte) string("--- 6\nsecret\n")), nil)
+    testing.expect_value(t, os.write_entire_file(path, transmute([]byte)string("--- 6\nsecret\n")), nil)
 
     clipboard_file_wipe(path)
     testing.expect(t, os.exists(path))
@@ -141,8 +129,8 @@ test_clipboard_seal_round_trip :: proc(t: ^testing.T) {
     for &b, i in key {
         b = u8(i)
     }
-    plain := "--- 5\nhello\n"
-    sealed := clipboard_seal(&key, transmute([]byte) plain)
+    plain  := "--- 5\nhello\n"
+    sealed := clipboard_seal(&key, transmute([]byte)plain)
     testing.expect(t, clipboard_is_encrypted(sealed))
     testing.expect(t, !strings.contains(string(sealed), "hello"))
 
@@ -162,7 +150,7 @@ test_clipboard_seal_round_trip :: proc(t: ^testing.T) {
 
     _, ok = clipboard_open(&key, sealed[:10])
     testing.expect(t, !ok)
-    testing.expect(t, !clipboard_is_encrypted(transmute([]byte) plain))
+    testing.expect(t, !clipboard_is_encrypted(transmute([]byte)plain))
 }
 
 @(private = "file")

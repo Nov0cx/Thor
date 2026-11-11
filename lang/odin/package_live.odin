@@ -42,7 +42,7 @@ package_live_items :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report
     }
     slice.sort(names[:])
     added := 0
-    read := 0
+    read  := 0
     for name in names {
         full, jerr := filepath.join({dir, name}, context.temp_allocator)
         if jerr != nil || paths_equal(full, rc.req.path) {

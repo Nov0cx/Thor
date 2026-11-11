@@ -7,7 +7,7 @@ print_asm_template :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: Node) {
     ks := kids(e)
     append(out, text("asm"))
     specs, has_specs := find_kind(ks, .Asm_Spec_List)
-    params, _ := find_kind(ks, .Param_List)
+    params, _        := find_kind(ks, .Param_List)
     print_param_list(pr, out, params)
     results, _ := find_kind(ks, .Result_List)
     print_signature_results(pr, out, results, has_specs && len(node_kids(kids(specs))) > 0)
@@ -20,7 +20,7 @@ print_asm_template :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: Node) {
         append(out, text("{}"))
         return
     }
-    bks := kids(body)
+    bks                   := kids(body)
     open_line, close_line := brace_lines(pr, bks, body)
     print_brace_body(pr, out, open_line, close_line, node_kids(bks), print_stmt_item, true)
 }
@@ -155,7 +155,7 @@ print_asm_memory_operand :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: Node) {
 // `{%r0, %r1}`, or `{%r0..%r7}` for the two-register range form.
 @(private)
 print_asm_register_group :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: Node) {
-    ks := kids(e)
+    ks    := kids(e)
     close := tok_index(ks, .Close_Brace)
     if close < 0 {
         close = len(ks)

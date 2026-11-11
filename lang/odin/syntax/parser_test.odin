@@ -101,7 +101,7 @@ add :: proc(a, b: int) -> int {
     return p.x
 }
 `
-    o := outline(t, src)
+    o   := outline(t, src)
     expect_kinds(t, o.top, {.Package_Decl, .Import_Decl, .Value_Decl, .Value_Decl})
     expect_kinds(t, o.block, {.If_Stmt, .Range_Stmt, .Value_Decl, .Return_Stmt})
     expect_errors(t, o.errors, {})
@@ -195,7 +195,7 @@ test_lexer_errors_are_reported :: proc(t: ^testing.T) {
 test_deep_nesting_does_not_overflow :: proc(t: ^testing.T) {
     for open in ([]string{"(", "[", "{", "^", "!", "proc(", "a.", "1+", "#type "}) {
         src := strings.concatenate({"package p\nf :: proc() {\n x := ", strings.repeat(open, 20000, context.temp_allocator), "\n}\n"}, context.temp_allocator)
-        o := outline(t, src)
+        o   := outline(t, src)
         testing.expectf(t, len(o.errors) > 0, "%q nested: no error", open)
         found := false
         for e in o.errors {
@@ -208,7 +208,7 @@ test_deep_nesting_does_not_overflow :: proc(t: ^testing.T) {
 
 @(test)
 test_trivia_stays_outside_nodes :: proc(t: ^testing.T) {
-    src := "package p\n\n// doc\nx :: 1 // trailing\n"
+    src         := "package p\n\n// doc\nx :: 1 // trailing\n"
     result, err := parse(src)
     if !testing.expect_value(t, err, nil) {
         return

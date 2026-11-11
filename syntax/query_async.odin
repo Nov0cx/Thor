@@ -11,10 +11,10 @@ import ts "../vendor/odin-tree-sitter"
 @(private)
 Query_Job :: struct {
     lang:    ts.Language,
-    lang_id: string, // owned
-    source:  string, // owned
+    lang_id: string,   // owned
+    source:  string,   // owned
     query:   ts.Query, // owned until query_poll installs it
-    done:    bool, // set by the worker
+    done:    bool,     // set by the worker
     worker:  ^thread.Thread,
 }
 
@@ -119,7 +119,7 @@ query_worker :: proc(job: ^Query_Job) {
 @(private = "file")
 query_install :: proc(h: ^Highlighter, job: ^Query_Job) -> bool {
     entry, known := h.languages[job.lang_id]
-    current := known && highlights_source(h, job.lang_id, entry) == job.source
+    current      := known && highlights_source(h, job.lang_id, entry) == job.source
     if job.query == nil {
         if current && job.lang_id not_in h.async_failed {
             h.async_failed[strings.clone(job.lang_id)] = true

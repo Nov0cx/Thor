@@ -6,10 +6,10 @@ import "core:path/filepath"
 import "core:strings"
 import rl "vendor:raylib"
 
-import ui "../vendor/loom/loom"
 import "../editview"
 import "../lang"
 import "../textedit"
+import ui "../vendor/loom/loom"
 // Points both editor panes at the shared context menu. Called once at startup;
 // every other menu is opened straight from the view that owns the click.
 thor_wire_menus :: proc(thor: ^Thor) {
@@ -26,11 +26,11 @@ thor_set_menu_target :: proc(thor: ^Thor, dir: string) {
 }
 
 thor_editor_context_menu :: proc(data: rawptr, position: ui.Vec2) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     // The right-click focused its pane before this callback, but menu_open takes
     // focus next, so the frame's own thor_sync_active_pane would never see it.
     thor_sync_active_pane(thor)
-    file := thor_active_open_file(thor)
+    file     := thor_active_open_file(thor)
     has_file := file != nil
 
     // Format Selection formats the whole document when there is no selection.
@@ -41,7 +41,14 @@ thor_editor_context_menu :: proc(data: rawptr, position: ui.Vec2) {
 
     thor_menu_clear(thor)
     thor_menu_add(thor, "Go to Definition", thor_cmd_goto_definition, thor, thor_menu_lang_allows(thor, .Definition), action = "goto_definition")
-    thor_menu_add(thor, "Go to Type Definition", thor_cmd_goto_type_definition, thor, thor_menu_lang_allows(thor, .Type_Definition), action = "goto_type_definition")
+    thor_menu_add(
+        thor,
+        "Go to Type Definition",
+        thor_cmd_goto_type_definition,
+        thor,
+        thor_menu_lang_allows(thor, .Type_Definition),
+        action = "goto_type_definition",
+    )
     thor_menu_add(thor, "Peek Definition", thor_cmd_peek_definition, thor, thor_menu_lang_allows(thor, .Definition), action = "peek_definition")
     thor_menu_add(thor, "Find References", thor_cmd_find_references, thor, thor_menu_lang_allows(thor, .References), action = "find_references")
     thor_menu_add(thor, "Go to Implementations", thor_cmd_implementations, thor, thor_menu_lang_allows(thor, .Implementations), action = "goto_implementations")
@@ -80,8 +87,8 @@ thor_menu_lang_allows :: proc(thor: ^Thor, kind: lang.Request_Kind) -> bool {
 }
 
 thor_console_context_menu :: proc(data: rawptr, position: ui.Vec2) {
-    thor := cast(^Thor) data
-    term := thor_active_terminal(thor)
+    thor          := cast(^Thor)data
+    term          := thor_active_terminal(thor)
     has_selection := term != nil && thor_console_has_selection(&term.console)
     thor_menu_clear(thor)
     thor_menu_add(thor, "Copy", thor_menu_console_copy_selection, thor, has_selection)
@@ -97,7 +104,7 @@ thor_console_context_menu :: proc(data: rawptr, position: ui.Vec2) {
 
 @(private = "file")
 thor_menu_terminal_restart :: proc(data: rawptr) {
-    if term := thor_active_terminal(cast(^Thor) data); term != nil {
+    if term := thor_active_terminal(cast(^Thor)data); term != nil {
         thor_terminal_restart(term)
     }
 }
@@ -114,7 +121,7 @@ thor_explorer_context_menu :: proc(thor: ^Thor, clicked: string, position: ui.Ve
     // The right-click selected the row first, so Rename and the other selection
     // actions read the explorer's caret row.
     has_selection := clicked != ""
-    on_folder := has_selection && os.is_dir(clicked)
+    on_folder     := has_selection && os.is_dir(clicked)
 
     thor_menu_clear(thor)
     thor_menu_add(thor, "New File", thor_menu_new_file, thor, action = "new_file")
@@ -164,7 +171,7 @@ thor_terminal_tab_context_menu :: proc(thor: ^Thor, index: int, position: ui.Vec
 
 @(private = "file")
 thor_menu_close_tab :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_request_close_file(thor, thor.menu_target_tab)
 }
 
@@ -172,7 +179,7 @@ thor_menu_close_tab :: proc(data: rawptr) {
 // tail first so the target's own index never shifts under it.
 @(private = "file")
 thor_menu_close_other_tabs :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     keep := thor.menu_target_tab
     if keep < 0 || keep >= len(thor.open_files) {
         return
@@ -187,37 +194,43 @@ thor_menu_close_other_tabs :: proc(data: rawptr) {
 
 @(private = "file")
 thor_menu_close_terminal :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_terminal_close(thor, thor.menu_target_terminal)
 }
 
-thor_menu_cut :: proc(data: rawptr) {editview.editor_cut(thor_active_editor(cast(^Thor) data))}
-thor_menu_copy :: proc(data: rawptr) {editview.editor_copy(thor_active_editor(cast(^Thor) data))}
-thor_menu_paste :: proc(data: rawptr) {editview.editor_paste(thor_active_editor(cast(^Thor) data))}
+thor_menu_cut   :: proc(data: rawptr) {
+    editview.editor_cut(thor_active_editor(cast(^Thor)data))
+}
+thor_menu_copy  :: proc(data: rawptr) {
+    editview.editor_copy(thor_active_editor(cast(^Thor)data))
+}
+thor_menu_paste :: proc(data: rawptr) {
+    editview.editor_paste(thor_active_editor(cast(^Thor)data))
+}
 
 thor_menu_console_clear :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if thor_active_console(thor) != nil {
         thor_console_clear(thor_active_console(thor))
     }
 }
 
 thor_menu_console_copy :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if thor_active_console(thor) != nil {
         thor_console_copy_all(thor_active_console(thor))
     }
 }
 
 thor_menu_console_copy_selection :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if thor_active_console(thor) != nil {
         thor_console_copy(thor_active_console(thor))
     }
 }
 
 thor_menu_console_paste :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if thor_active_console(thor) != nil {
         thor_console_paste(thor_active_console(thor))
     }
@@ -226,31 +239,31 @@ thor_menu_console_paste :: proc(data: rawptr) {
 // Open the shared name prompt into menu_target (the right-clicked directory).
 // Command-palette entries reset the target to the workspace root first.
 thor_menu_new_file :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_palette_prompt(thor, "New file name", thor_prompt_new_file, thor)
 }
 
 thor_menu_new_folder :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_palette_prompt(thor, "New folder name", thor_prompt_new_folder, thor)
 }
 
 thor_menu_explorer_refresh :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_explorer_refresh(thor)
     thor_refresh_git_status(thor)
 }
 
 // Explorer right-click Rename: the right-clicked row is the current selection.
 thor_menu_rename :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_begin_rename(thor, thor_explorer_selected(thor))
 }
 
 // Explorer right-click Delete: acts on the right-clicked row, or on the whole
 // selection when that row is part of one.
 thor_menu_explorer_delete :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_tree_delete(thor, thor_explorer_selected(thor))
 }
 
@@ -258,29 +271,29 @@ thor_menu_explorer_delete :: proc(data: rawptr) {
 // on the current workspace. Skips the this-window/new-window prompt — the entry
 // already says which it is.
 thor_menu_open_new_window :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_new_window_for(thor, thor_explorer_selected(thor))
 }
 
 thor_menu_open_to_side :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_open_file_in_pane(thor, thor_explorer_selected(thor), thor_side_pane(thor))
 }
 
 thor_menu_open_in_pane :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_pane_pick_begin(thor, thor_explorer_selected(thor))
 }
 
 thor_menu_explorer_reveal :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if !thor_reveal_path(thor_explorer_selected(thor)) {
         thor_flash_status(thor, "Could not open the file explorer", true)
     }
 }
 
 thor_menu_explorer_copy_path :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if thor_explorer_selected(thor) != "" {
         rl.SetClipboardText(strings.clone_to_cstring(thor_explorer_selected(thor), context.temp_allocator))
     }
@@ -301,13 +314,13 @@ thor_create_target :: proc(thor: ^Thor) -> string {
 // Command-palette / top-bar / keybind entry points (the explorer right-click
 // sets its own target).
 thor_cmd_new_file :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_set_menu_target(thor, thor_create_target(thor))
     thor_menu_new_file(data)
 }
 
 thor_cmd_new_folder :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_set_menu_target(thor, thor_create_target(thor))
     thor_menu_new_folder(data)
 }
@@ -315,7 +328,7 @@ thor_cmd_new_folder :: proc(data: rawptr) {
 // Top-bar File menu / command palette / F2: rename the explorer's selection when
 // the tree is focused, otherwise the active tab's file.
 thor_cmd_rename_file :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if thor.focus_owner == "explorer" && thor_explorer_selected(thor) != "" {
         thor_begin_rename(thor, thor_explorer_selected(thor))
         return
@@ -336,7 +349,7 @@ thor_valid_entry_name :: proc(name: string) -> bool {
 }
 
 thor_prompt_new_file :: proc(data: rawptr, name: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     name := name
     name = strings.trim_space(name)
     if !thor_valid_entry_name(name) {
@@ -362,7 +375,7 @@ thor_prompt_new_file :: proc(data: rawptr, name: string) {
 }
 
 thor_prompt_new_folder :: proc(data: rawptr, name: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     name := name
     name = strings.trim_space(name)
     if !thor_valid_entry_name(name) {
@@ -386,7 +399,7 @@ thor_prompt_new_folder :: proc(data: rawptr, name: string) {
 }
 
 thor_open_file_menu :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_menu_clear(thor)
     thor_menu_add(thor, "Open File...", thor_cmd_open_file, thor, action = "open_file")
     thor_menu_add(thor, "Open Folder...", thor_cmd_open_folder, thor, action = "open_folder")
@@ -407,7 +420,7 @@ thor_open_file_menu :: proc(data: rawptr) {
 }
 
 thor_open_edit_menu :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_menu_clear(thor)
     thor_menu_add(thor, "Undo", thor_cmd_undo, thor, thor_can_undo(thor), action = "undo")
     thor_menu_add(thor, "Redo", thor_cmd_redo, thor, thor_can_redo(thor), action = "redo")
@@ -432,7 +445,7 @@ thor_open_edit_menu :: proc(data: rawptr) {
 }
 
 thor_open_view_menu :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_menu_clear(thor)
     thor_menu_add(thor, "Toggle Explorer", thor_cmd_toggle_explorer, thor, action = "toggle_explorer")
     thor_menu_add(thor, "Toggle Console", thor_cmd_toggle_console, thor, action = "toggle_console")
@@ -454,7 +467,7 @@ thor_open_view_menu :: proc(data: rawptr) {
 }
 
 thor_open_git_menu :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_menu_clear(thor)
     thor_menu_add(thor, "Changes", thor_cmd_open_git_view, thor, action = "open_git_gui")
     thor_menu_add(thor, "History", thor_cmd_open_git_history, thor, action = "open_git_history")
@@ -463,7 +476,7 @@ thor_open_git_menu :: proc(data: rawptr) {
 }
 
 thor_open_help_menu :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_menu_clear(thor)
     thor_menu_add(thor, "Tutorial", thor_cmd_tutorial, thor, action = "tutorial")
     thor_menu_add(thor, "Command Palette", thor_cmd_command_palette, thor, action = "command_palette")

@@ -48,14 +48,7 @@ sync_destroy :: proc(data: rawptr) {
 
 @(private = "file")
 sync_backend :: proc(p: ^Sync_Probe) -> lang.Backend {
-    return lang.Backend {
-        data = p,
-        name = "sync-probe",
-        handles = sync_handles,
-        resolve = sync_resolve,
-        destroy = sync_destroy,
-        notify = sync_notify,
-    }
+    return lang.Backend{data = p, name = "sync-probe", handles = sync_handles, resolve = sync_resolve, destroy = sync_destroy, notify = sync_notify}
 }
 
 // An open, loaded buffer with no I/O behind it: the sync pass reads only `path`,
@@ -75,7 +68,7 @@ sync_file :: proc(thor: ^Thor, path, text: string) -> ^Open_File {
 @(test)
 test_lang_sync_one_change_per_edit :: proc(t: ^testing.T) {
     probe := Sync_Probe{}
-    thor := new(Thor)
+    thor  := new(Thor)
     defer free(thor)
     thor.open_files = make([dynamic]^Open_File)
     lang.manager_init(&thor.lang_manager)
@@ -123,7 +116,7 @@ test_lang_sync_one_change_per_edit :: proc(t: ^testing.T) {
 @(test)
 test_lang_sync_sees_reload_of_unedited_buffer :: proc(t: ^testing.T) {
     probe := Sync_Probe{}
-    thor := new(Thor)
+    thor  := new(Thor)
     defer free(thor)
     thor.open_files = make([dynamic]^Open_File)
     lang.manager_init(&thor.lang_manager)
@@ -153,7 +146,7 @@ test_lang_sync_sees_reload_of_unedited_buffer :: proc(t: ^testing.T) {
 @(test)
 test_lang_sync_ignores_other_files :: proc(t: ^testing.T) {
     probe := Sync_Probe{}
-    thor := new(Thor)
+    thor  := new(Thor)
     defer free(thor)
     thor.open_files = make([dynamic]^Open_File)
     lang.manager_init(&thor.lang_manager)
@@ -167,7 +160,7 @@ test_lang_sync_ignores_other_files :: proc(t: ^testing.T) {
     }
 
     claimed := sync_file(thor, "claimed.sync", "one\n")
-    other := sync_file(thor, "other.txt", "two\n")
+    other   := sync_file(thor, "other.txt", "two\n")
     // A buffer that is still loading has no text to send.
     loading := sync_file(thor, "loading.sync", "")
     loading.loaded = false
@@ -188,7 +181,7 @@ test_lang_sync_ignores_other_files :: proc(t: ^testing.T) {
 @(test)
 test_lang_sync_save_flushes_change :: proc(t: ^testing.T) {
     probe := Sync_Probe{}
-    thor := new(Thor)
+    thor  := new(Thor)
     defer free(thor)
     thor.open_files = make([dynamic]^Open_File)
     lang.manager_init(&thor.lang_manager)

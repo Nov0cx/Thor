@@ -182,7 +182,7 @@ node_kids :: proc(ks: []Node) -> []Node {
 @(private)
 print_inner_comments :: proc(pr: ^Printer, out: ^[dynamic]Doc, at: int, before_node: bool, lead_space := false, rest: ^[dynamic]Doc = nil) {
     for comment_before(pr, at) {
-        cg := pr.comments[pr.comment_idx]
+        cg      := pr.comments[pr.comment_idx]
         is_line := strings.has_prefix(cg.list[len(cg.list) - 1].text, "//")
         pr.comment_idx += 1
         group: [dynamic]Doc
@@ -256,7 +256,7 @@ binary_parts :: proc(pr: ^Printer, n: Node) -> (lhs, rhs: Node, op: syn.Token_Ki
 @(private)
 print_binary_chain :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: Node) {
     first, right, op, op_text := binary_parts(pr, e)
-    rights := make([dynamic]Node, context.temp_allocator)
+    rights                    := make([dynamic]Node, context.temp_allocator)
     append(&rights, right)
     for first.kind == .Binary_Expr {
         inner_left, inner_right, inner_op, _ := binary_parts(pr, first)
@@ -284,7 +284,7 @@ print_binary_chain :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: Node) {
 // operator, and the operand goes on the next line, one indent in.
 @(private)
 print_binary_comments :: proc(pr: ^Printer, out: ^[dynamic]Doc, right: Node) {
-    inline := true
+    inline     := true
     right_line := start_line(pr, right)
     for i := pr.comment_idx; i < len(pr.comments) && pr.comments[i].start < right.start; i += 1 {
         cg := pr.comments[i]
@@ -317,7 +317,7 @@ print_binary_comments :: proc(pr: ^Printer, out: ^[dynamic]Doc, right: Node) {
 // The `{...}` of a composite literal; `ks` are the children of the literal.
 @(private)
 print_comp_lit_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, ks: []Node) {
-    open := tok_index(ks, .Open_Brace)
+    open  := tok_index(ks, .Open_Brace)
     close := tok_index(ks, .Close_Brace)
     if open < 0 || close < 0 {
         append(out, text("{}"))
@@ -328,10 +328,10 @@ print_comp_lit_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, ks: []Node) {
         append(out, text("{}"))
         return
     }
-    open_line := start_line(pr, ks[open])
-    close_line := start_line(pr, ks[close])
+    open_line    := start_line(pr, ks[open])
+    close_line   := start_line(pr, ks[close])
     close_offset := ks[close].start
-    multiline := pr.opts.exp_multiline_composite_literals && open_line != close_line
+    multiline    := pr.opts.exp_multiline_composite_literals && open_line != close_line
     if !multiline {
         // The group is off when exp_multiline_composite_literals is on: it
         // would break a literal the source wrote on one line, and the second
@@ -345,7 +345,7 @@ print_comp_lit_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, ks: []Node) {
         }
         items := make([dynamic]List_Item, 0, len(elems))
         for el, i in elems {
-            item := List_Item {leading = take_comments_before(pr, el.start)}
+            item := List_Item{leading = take_comments_before(pr, el.start)}
             elem: [dynamic]Doc
             print_expr(pr, &elem, el)
             item.doc = concat(elem[:])
@@ -361,7 +361,7 @@ print_comp_lit_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, ks: []Node) {
     assign_comment_cols(pr, elems)
     body: [dynamic]Doc
     prev_line := open_line
-    has_prev := true
+    has_prev  := true
     for el in elems {
         separator(pr, &body, prev_line, has_prev, start_line(pr, el), true, el.start)
         elem_doc: [dynamic]Doc
@@ -382,15 +382,15 @@ print_comp_lit_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, ks: []Node) {
 // The `(...)` of a call.
 @(private)
 print_arg_list :: proc(pr: ^Printer, out: ^[dynamic]Doc, list: Node) {
-    ks := kids(list)
-    args := expr_kids(ks)
+    ks           := kids(list)
+    args         := expr_kids(ks)
     close_offset := list.end
     if i := tok_index(ks, .Close_Paren); i >= 0 {
         close_offset = ks[i].start
     }
     items := make([dynamic]List_Item, 0, len(args))
     for a, i in args {
-        item := List_Item {leading = take_comments_before(pr, a.start)}
+        item := List_Item{leading = take_comments_before(pr, a.start)}
         arg: [dynamic]Doc
         print_expr(pr, &arg, a)
         item.doc = concat(arg[:])
@@ -434,7 +434,7 @@ print_param_list :: proc(pr: ^Printer, out: ^[dynamic]Doc, params: Node) {
         append(out, text("()"))
         return
     }
-    ks := kids(params)
+    ks           := kids(params)
     close_offset := params.end
     if i := tok_index(ks, .Close_Paren); i >= 0 {
         close_offset = ks[i].start
@@ -495,7 +495,7 @@ print_signature_results :: proc(pr: ^Printer, out: ^[dynamic]Doc, results: Node,
 
 @(private)
 print_proc_lit :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: Node) {
-    ks := kids(e)
+    ks    := kids(e)
     pt, _ := find_kind(ks, .Proc_Type)
     print_proc_type_head(pr, out, pt)
     if wc, ok := find_kind(ks, .Where_Clause); ok {
@@ -583,8 +583,8 @@ print_struct_type :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: Node) {
         append(out, text(" {}"))
         return
     }
-    lks := kids(list)
-    fields := field_kids(lks)
+    lks                   := kids(list)
+    fields                := field_kids(lks)
     open_line, close_line := brace_lines(pr, lks, list)
     print_brace_lead(pr, out, false, len(fields) == 0)
     print_field_brace_body(pr, out, open_line, close_line, fields)
@@ -599,8 +599,8 @@ print_union_type :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: Node) {
     if wc, ok := find_kind(ks, .Where_Clause); ok {
         print_where(pr, out, wc)
     }
-    open := tok_index(ks, .Open_Brace)
-    variants := expr_kids(ks[open + 1:]) if open >= 0 else []Node{}
+    open                  := tok_index(ks, .Open_Brace)
+    variants              := expr_kids(ks[open + 1:]) if open >= 0 else []Node{}
     open_line, close_line := brace_lines(pr, ks, e)
     print_brace_lead(pr, out, false, len(variants) == 0)
     print_expr_brace_body(pr, out, open_line, close_line, variants)
@@ -615,7 +615,7 @@ print_enum_type :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: Node) {
         append(out, text(" "))
         print_expr(pr, out, backing)
     }
-    members := expr_kids(ks[open + 1:]) if open >= 0 else []Node{}
+    members               := expr_kids(ks[open + 1:]) if open >= 0 else []Node{}
     open_line, close_line := brace_lines(pr, ks, e)
     print_brace_lead(pr, out, false, len(members) == 0)
     print_expr_brace_body(pr, out, open_line, close_line, members)
@@ -651,7 +651,7 @@ print_directive_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
 
 @(private)
 print_comp_lit_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
-    ks := kids(expr)
+    ks   := kids(expr)
     open := tok_index(ks, .Open_Brace)
     if t, ok := expr_in(ks, 0, open < 0 ? len(ks) : open); ok {
         print_expr(pr, out, t)
@@ -661,7 +661,7 @@ print_comp_lit_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
 
 @(private)
 print_tag_expr_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
-    ks := kids(expr)
+    ks    := kids(expr)
     nodes := node_kids(ks)
     for n, i in nodes {
         if i > 0 {
@@ -733,7 +733,7 @@ print_spaced_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
 
 @(private)
 print_paren_expr_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
-    ks := kids(expr)
+    ks        := kids(expr)
     inner, ok := first_node(ks)
     if !ok {
         append(out, text("()"))
@@ -810,8 +810,8 @@ print_spread_expr_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
 
 @(private)
 print_field_value_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
-    ks := kids(expr)
-    eq := tok_index(ks, .Eq)
+    ks      := kids(expr)
+    eq      := tok_index(ks, .Eq)
     name, _ := expr_in(ks, 0, eq < 0 ? len(ks) : eq)
     if cell := align_cell(pr, expr); cell.head != 0 {
         field_doc: [dynamic]Doc
@@ -830,7 +830,7 @@ print_field_value_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
 
 @(private)
 print_type_assertion_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
-    ks := kids(expr)
+    ks  := kids(expr)
     dot := tok_index(ks, .Period)
     if operand, ok := expr_in(ks, 0, dot < 0 ? len(ks) : dot); ok {
         print_expr(pr, out, operand)
@@ -915,7 +915,7 @@ print_multi_pointer_type_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: No
 
 @(private)
 print_array_type_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
-    ks := kids(expr)
+    ks    := kids(expr)
     close := tok_index(ks, .Close_Bracket)
     append(out, text("["))
     if has_tok(ks[:max(close, 0)], .Question) {
@@ -931,7 +931,7 @@ print_array_type_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
 
 @(private)
 print_dynamic_array_type_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
-    ks := kids(expr)
+    ks    := kids(expr)
     close := tok_index(ks, .Close_Bracket)
     append(out, text("[dynamic"))
     if capacity, ok := expr_in(ks, 0, close); ok {
@@ -946,7 +946,7 @@ print_dynamic_array_type_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: No
 
 @(private)
 print_bit_set_type_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
-    ks := kids(expr)
+    ks   := kids(expr)
     semi := tok_index(ks, .Semicolon)
     append(out, text("bit_set["))
     if elem, ok := expr_in(ks, 0, semi < 0 ? len(ks) : semi); ok {
@@ -963,7 +963,7 @@ print_bit_set_type_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
 
 @(private)
 print_map_type_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
-    ks := kids(expr)
+    ks    := kids(expr)
     close := tok_index(ks, .Close_Bracket)
     append(out, text("map["))
     if key, ok := expr_in(ks, 0, close); ok {
@@ -977,7 +977,7 @@ print_map_type_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
 
 @(private)
 print_matrix_type_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
-    ks := kids(expr)
+    ks    := kids(expr)
     close := tok_index(ks, .Close_Bracket)
     comma := tok_index(ks, .Comma)
     append(out, text("matrix["))

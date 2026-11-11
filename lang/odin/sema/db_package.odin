@@ -17,7 +17,7 @@ db_package :: proc(snap: ^Snapshot, pkg: Package_Id) -> ^Package_View {
     if snapshot_cancelled(snap) {
         return nil
     }
-    db := snap.db
+    db   := snap.db
     slot := package_slot(db, pkg)
     if slot == nil {
         return nil
@@ -32,14 +32,14 @@ db_package :: proc(snap: ^Snapshot, pkg: Package_Id) -> ^Package_View {
 
 @(private = "file")
 package_view :: proc(snap: ^Snapshot, slot: ^Package_Slot) -> ^Package_View {
-    db := snap.db
+    db         := snap.db
     view, verr := new(Package_View, snap.alloc)
     if verr != nil {
         return nil
     }
     view.id = slot.id
     view.dir = slot.dir
-    live := &snap.live
+    live     := &snap.live
     has_live := live.has && live.id != ANON_FILE && live.dir_key == slot.key
     {
         sync.guard(&slot.mutex)
@@ -73,7 +73,7 @@ package_view :: proc(snap: ^Snapshot, slot: ^Package_Slot) -> ^Package_View {
         return view.scope != nil ? view : nil
     }
     if i, found := slice.linear_search(view.files, live.id); found {
-        cached := view.scope != nil && view.datas[i] != nil && view.datas[i].shape == live.data.shape
+        cached      := view.scope != nil && view.datas[i] != nil && view.datas[i].shape == live.data.shape
         datas, cerr := slice.clone(view.datas, snap.alloc)
         if cerr != nil {
             return nil
@@ -86,13 +86,13 @@ package_view :: proc(snap: ^Snapshot, slot: ^Package_Slot) -> ^Package_View {
         }
     } else {
         live_path := file_path_of(db, live.id)
-        at := 0
+        at        := 0
         for at < len(view.files) && file_path_of(db, view.files[at]) < live_path {
             at += 1
         }
         files := make([dynamic]File_Id, 0, len(view.files) + 1, snap.alloc)
         datas := make([dynamic]^File_Data, 0, len(view.files) + 1, snap.alloc)
-        sema := make([dynamic]Package_File, 0, len(view.files) + 1, snap.alloc)
+        sema  := make([dynamic]Package_File, 0, len(view.files) + 1, snap.alloc)
         append(&files, ..view.files[:at])
         append(&files, live.id)
         append(&files, ..view.files[at:])
@@ -229,7 +229,7 @@ load_worker :: proc(t: ^thread.Thread) {
 // at the end. A thread takes only file slots. False when cancelled. The caller holds the package slot.
 @(private = "file")
 files_load_parallel :: proc(snap: ^Snapshot, ids: []File_Id, datas: []^File_Data) -> bool {
-    db := snap.db
+    db   := snap.db
     todo := make([dynamic]int, 0, len(ids), snap.alloc)
     for id, i in ids {
         if slot := file_slot(db, id); slot != nil {
@@ -242,10 +242,10 @@ files_load_parallel :: proc(snap: ^Snapshot, ids: []File_Id, datas: []^File_Data
     if len(todo) < PARALLEL_LOAD_MIN {
         return true
     }
-    count := min(len(todo), PARALLEL_LOAD_THREADS)
-    jobs := make([]Load_Job, count, snap.alloc)
+    count   := min(len(todo), PARALLEL_LOAD_THREADS)
+    jobs    := make([]Load_Job, count, snap.alloc)
     threads := make([dynamic]^thread.Thread, 0, count, snap.alloc)
-    next := 0
+    next    := 0
     for &job in jobs {
         job = Load_Job{ids = ids, todo = todo[:], datas = datas, next = &next}
         job.snap = snap^
@@ -288,7 +288,7 @@ cache_prune_listing :: proc(snap: ^Snapshot, slot: ^Package_Slot) {
 
 @(private = "file")
 package_memo_new :: proc(snap: ^Snapshot, ids: []File_Id, datas: []^File_Data) -> ^Package_Memo {
-    db := snap.db
+    db     := snap.db
     m, err := new(Package_Memo, db.allocator)
     if err != nil {
         return nil
@@ -299,7 +299,7 @@ package_memo_new :: proc(snap: ^Snapshot, ids: []File_Id, datas: []^File_Data) -
     m.files, _ = slice.clone(ids, db.allocator)
     m.built_from, _ = make([]u64, len(ids), db.allocator)
     sema, serr := make([]Package_File, len(ids), snap.alloc)
-    ok := serr == nil && (len(ids) == 0 || (m.files != nil && m.built_from != nil))
+    ok         := serr == nil && (len(ids) == 0 || (m.files != nil && m.built_from != nil))
     if ok {
         for d, i in datas {
             sema[i] = Package_File{path = file_path_of(db, ids[i]), items = d != nil ? d.tree : nil}

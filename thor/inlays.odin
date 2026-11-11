@@ -10,7 +10,7 @@ import "../textedit"
 // Asks for, rebases and pushes the inlay hints of the file `pane` shows.
 thor_sync_pane_inlays :: proc(thor: ^Thor, pane: int) {
     editor := thor_pane_editor(thor, pane)
-    index := thor.pane_file[pane]
+    index  := thor.pane_file[pane]
     if index < 0 || index >= len(thor.open_files) {
         editview.editor_set_inlays(editor, nil)
         editview.editor_set_lenses(editor, nil)
@@ -35,7 +35,7 @@ thor_request_inlays :: proc(thor: ^Thor, file: ^Open_File, editor: ^editview.Edi
     if thor.inlay_request_id != 0 || thor_big_file(file) {
         return
     }
-    margin := max(editview.editor_visible_row_count(editor), 1)
+    margin         := max(editview.editor_visible_row_count(editor), 1)
     start, end, ok := editview.editor_visible_byte_range(editor, margin)
     if !ok {
         return
@@ -48,7 +48,7 @@ thor_request_inlays :: proc(thor: ^Thor, file: ^Open_File, editor: ^editview.Edi
         return
     }
     source := textedit.text(&file.state)
-    id := lang.manager_request_debounced(
+    id     := lang.manager_request_debounced(
         &thor.lang_manager,
         .Inlay_Hints,
         file.path,
@@ -88,13 +88,16 @@ thor_update_inlays :: proc(thor: ^Thor, res: ^lang.Result) {
     }
     thor_clear_file_inlays(file)
     for hint in res.inlays {
-        append(&file.inlays, editview.Inlay {
-            offset    = hint.offset,
-            label     = strings.clone(hint.label),
-            parameter = hint.kind == .Parameter,
-            pad_left  = hint.pad_left,
-            pad_right = hint.pad_right,
-        })
+        append(
+            &file.inlays,
+            editview.Inlay{
+                offset = hint.offset,
+                label = strings.clone(hint.label),
+                parameter = hint.kind == .Parameter,
+                pad_left = hint.pad_left,
+                pad_right = hint.pad_right,
+            },
+        )
     }
     file.inlay_source = source
     file.inlay_revision = res.revision
@@ -134,8 +137,8 @@ thor_rebase_file_inlays :: proc(file: ^Open_File) {
 @(private)
 thor_rebase_inlays :: proc(out: ^[dynamic]editview.Inlay, inlays: []editview.Inlay, old_text, new_text: string) {
     prefix, suffix := thor_common_affixes(old_text, new_text)
-    tail := len(old_text) - suffix
-    delta := len(new_text) - len(old_text)
+    tail           := len(old_text) - suffix
+    delta          := len(new_text) - len(old_text)
     for inlay in inlays {
         if inlay.offset <= prefix && inlay.offset < tail {
             append(out, inlay)

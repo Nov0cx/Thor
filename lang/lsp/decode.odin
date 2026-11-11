@@ -63,11 +63,11 @@ request_decode :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
 // One place a definition reply named.
 @(private)
 Target :: struct {
-    uri:        string,
-    line:       int,
-    character:  int,
-    end_line:   int,
-    end_char:   int,
+    uri:       string,
+    line:      int,
+    character: int,
+    end_line:  int,
+    end_char:  int,
 }
 
 // `Location`, `LocationLink` and an array of either. One target is the jump; more
@@ -85,11 +85,7 @@ decode_definition :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         if !ok {
             return
         }
-        res.location = lang.Location {
-            path  = strings.clone(path),
-            start = start,
-            end   = end,
-        }
+        res.location = lang.Location{path = strings.clone(path), start = start, end = end}
         res.ok = true
         return
     }
@@ -103,7 +99,7 @@ decode_definition :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         text, read := ask_source(ask, path)
         append(
             &res.symbols,
-            lang.Symbol {
+            lang.Symbol{
                 name = strings.clone(filepath.base(path)),
                 kind = strings.clone("reference"),
                 signature = read ? source_line_at(text, start) : strings.clone(""),
@@ -135,11 +131,7 @@ decode_hover :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         start = offset_from_position(&ask.lines, start_line, start_char)
         end = offset_from_position(&ask.lines, end_line, end_char)
     }
-    res.hover = lang.Hover_Info {
-        text  = strings.clone(text),
-        start = start,
-        end   = end,
-    }
+    res.hover = lang.Hover_Info{text = strings.clone(text), start = start, end = end}
     res.ok = true
 }
 
@@ -160,11 +152,11 @@ decode_package_doc :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         return
     }
     start, end := identifier_span(ask.req.source, ask.req.offset)
-    name := ask.req.source[start:end]
-    res.doc = lang.Doc_Info {
+    name       := ask.req.source[start:end]
+    res.doc = lang.Doc_Info{
         title = name == "" ? strings.clone("package") : strings.concatenate({"package ", name}),
-        path  = strings.clone(filepath.dir(ask.req.path)),
-        text  = strings.clone(text),
+        path = strings.clone(filepath.dir(ask.req.path)),
+        text = strings.clone(text),
     }
     res.ok = true
 }
@@ -194,7 +186,7 @@ decode_references :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         return
     }
     start, end := identifier_span(ask.req.source, ask.req.offset)
-    name := ask.req.source[start:end]
+    name       := ask.req.source[start:end]
 
     res.symbols = make([dynamic]lang.Symbol)
     for item in items {
@@ -202,7 +194,7 @@ decode_references :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         if !is_object {
             continue
         }
-        uri, has_uri := object["uri"].(json.String)
+        uri, has_uri                                          := object["uri"].(json.String)
         start_line, start_char, end_line, end_char, has_range := range_of(object["range"])
         if !has_uri || !has_range {
             continue
@@ -214,7 +206,7 @@ decode_references :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         text, read := ask_source(ask, path)
         append(
             &res.symbols,
-            lang.Symbol {
+            lang.Symbol{
                 name = strings.clone(name),
                 kind = strings.clone("reference"),
                 signature = read ? source_line_at(text, at) : strings.clone(""),
@@ -246,7 +238,7 @@ decode_signature_help :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         return
     }
     // An absent activeSignature reads as 0, the protocol's own default.
-    active_signature, _ := number(object["activeSignature"])
+    active_signature, _          := number(object["activeSignature"])
     active_parameter, has_active := number(object["activeParameter"])
 
     res.signature.entries = make([dynamic]lang.Signature_Entry)
@@ -327,7 +319,7 @@ append_completion :: proc(ask: ^Ask, object: json.Object, defaults: json.Object,
         return
     }
 
-    insert := row
+    insert             := row
     format, has_format := number(object["insertTextFormat"])
     if !has_format {
         format, has_format = number(defaults["insertTextFormat"])
@@ -370,10 +362,10 @@ append_completion :: proc(ask: ^Ask, object: json.Object, defaults: json.Object,
 
     // An absent kind, detail, filterText or sortText reads as 0 / "", their
     // protocol defaults.
-    kind, _ := number(object["kind"])
-    detail, _ := object["detail"].(json.String)
-    filter, _ := object["filterText"].(json.String)
-    sort, _ := object["sortText"].(json.String)
+    kind, _      := number(object["kind"])
+    detail, _    := object["detail"].(json.String)
+    filter, _    := object["filterText"].(json.String)
+    sort, _      := object["sortText"].(json.String)
     preselect, _ := object["preselect"].(json.Boolean)
 
     // Only a server that resolves is worth keeping the candidate's own JSON for;
@@ -396,30 +388,33 @@ append_completion :: proc(ask: ^Ask, object: json.Object, defaults: json.Object,
     // labelDetails: a signature tail and a qualifier, shown muted after the label.
     note: string
     if details, dok := object["labelDetails"].(json.Object); dok {
-        tail, _ := details["detail"].(json.String)
+        tail, _      := details["detail"].(json.String)
         qualifier, _ := details["description"].(json.String)
-        parts := [2]string{string(tail), string(qualifier)}
+        parts        := [2]string{string(tail), string(qualifier)}
         note = strings.join(parts[:], parts[0] != "" && parts[1] != "" ? " " : "", context.temp_allocator)
     }
 
-    append(&res.completions, lang.Completion_Item {
-        documentation = strings.clone(documentation_text(object["documentation"])),
-        label       = strings.clone(row),
-        kind        = strings.clone(completion_kind_name(int(kind))),
-        detail      = strings.clone(detail == "" ? row : string(detail)),
-        note        = strings.clone(note),
-        insert     = strings.clone(insert),
-        filter      = strings.clone(string(filter)),
-        sort        = strings.clone(string(sort)),
-        start       = start,
-        end         = end,
-        snippet     = snippet,
-        preselect   = bool(preselect),
-        extra_edits = extra,
-        command     = strings.clone(command),
-        arguments   = strings.clone(arguments),
-        raw         = raw,
-    })
+    append(
+        &res.completions,
+        lang.Completion_Item{
+            documentation = strings.clone(documentation_text(object["documentation"])),
+            label = strings.clone(row),
+            kind = strings.clone(completion_kind_name(int(kind))),
+            detail = strings.clone(detail == "" ? row : string(detail)),
+            note = strings.clone(note),
+            insert = strings.clone(insert),
+            filter = strings.clone(string(filter)),
+            sort = strings.clone(string(sort)),
+            start = start,
+            end = end,
+            snippet = snippet,
+            preselect = bool(preselect),
+            extra_edits = extra,
+            command = strings.clone(command),
+            arguments = strings.clone(arguments),
+            raw = raw,
+        },
+    )
 }
 
 // A candidate's own textEdit: its replacement text and the byte range it covers
@@ -481,7 +476,7 @@ documentation_text :: proc(value: json.Value) -> string {
         text = string(v)
     case json.Object:
         content, _ := v["value"].(json.String)
-        kind, _ := v["kind"].(json.String)
+        kind, _    := v["kind"].(json.String)
         text = string(content)
         markdown = kind == "markdown"
     }
@@ -509,10 +504,7 @@ decode_resolve_completion :: proc(ask: ^Ask, value: json.Value, res: ^lang.Resul
     if !is_object {
         return
     }
-    item := lang.Completion_Item {
-        start = -1,
-        end   = -1,
-    }
+    item := lang.Completion_Item{start = -1, end = -1}
     if edits, eok := object["additionalTextEdits"].(json.Array); eok && len(edits) > 0 {
         item.extra_edits = make([dynamic]lang.Text_Edit)
         if !decode_text_edits(ask, ask.uri, edits, &item.extra_edits) {
@@ -584,7 +576,7 @@ decode_publish_diagnostics :: proc(s: ^Server, params: json.Value) -> (lang.Resu
     if !is_object {
         return {}, false
     }
-    uri, has_uri := object["uri"].(json.String)
+    uri, has_uri    := object["uri"].(json.String)
     items, is_array := object["diagnostics"].(json.Array)
     if !has_uri || !is_array {
         return {}, false
@@ -605,11 +597,7 @@ decode_publish_diagnostics :: proc(s: ^Server, params: json.Value) -> (lang.Resu
         return {}, false
     }
 
-    res := lang.Result {
-        kind     = .Diagnostics,
-        ok       = true,
-        revision = doc.revision,
-    }
+    res := lang.Result{kind = .Diagnostics, ok = true, revision = doc.revision}
     res.report.scope = strings.clone(doc.path)
     res.report.items = make([dynamic]lang.Diagnostic)
     for item in items {
@@ -658,10 +646,7 @@ decode_progress :: proc(params: json.Value) -> (lang.Result, bool) {
     if !has_kind {
         return {}, false
     }
-    res := lang.Result {
-        kind = .Progress,
-        ok   = true,
-    }
+    res := lang.Result{kind = .Progress, ok = true}
     switch string(kind) {
     case "end":
         res.progress.done = true
@@ -690,7 +675,7 @@ decode_one_diagnostic :: proc(lines: ^Line_Index, path: string, value: json.Valu
     if !is_object {
         return {}, false
     }
-    message, has_message := object["message"].(json.String)
+    message, has_message                    := object["message"].(json.String)
     start_line, start_char, _, _, has_range := range_of(object["range"])
     if !has_message || !has_range {
         return {}, false
@@ -698,22 +683,24 @@ decode_one_diagnostic :: proc(lines: ^Line_Index, path: string, value: json.Valu
     severity := lang.Diagnostic_Severity.Error
     if level, has_level := number(object["severity"]); has_level {
         switch level {
-        case 2:    severity = .Warning
-        case 3:    severity = .Information
-        case 4:    severity = .Hint
+        case 2:
+            severity = .Warning
+        case 3:
+            severity = .Information
+        case 4:
+            severity = .Hint
         }
     }
 
     offset := offset_from_position(lines, start_line, start_char)
-    line := clamp(start_line, 0, len(lines.starts) - 1)
-    return lang.Diagnostic {
-            path = strings.clone(path),
-            line = line + 1,
-            col = offset - lines.starts[line] + 1,
-            severity = severity,
-            message = strings.clone(string(message)),
-        },
-        true
+    line   := clamp(start_line, 0, len(lines.starts) - 1)
+    return lang.Diagnostic{
+        path = strings.clone(path),
+        line = line + 1,
+        col = offset - lines.starts[line] + 1,
+        severity = severity,
+        message = strings.clone(string(message)),
+    }, true
 }
 
 // Replaces `doc`'s cached diagnostics with `items`, verbatim, for a later
@@ -738,13 +725,7 @@ document_replace_diagnostics :: proc(doc: ^Document, items: json.Array) {
         if text == "" {
             continue
         }
-        append(&doc.diagnostics, Cached_Diagnostic {
-            start_line  = start_line,
-            start_char  = start_char,
-            end_line    = end_line,
-            end_char    = end_char,
-            json        = text,
-        })
+        append(&doc.diagnostics, Cached_Diagnostic{start_line = start_line, start_char = start_char, end_line = end_line, end_char = end_char, json = text})
     }
 }
 
@@ -772,7 +753,7 @@ decode_semantic_tokens :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) 
 
     data: []i64
     if edits, eok := object["edits"].(json.Array); eok {
-        prev := server_semantic_data(ask.server, ask.req.path, context.temp_allocator)
+        prev       := server_semantic_data(ask.server, ask.req.path, context.temp_allocator)
         merged, ok := apply_semantic_edits(prev, edits, context.temp_allocator)
         if !ok {
             server_clear_semantic(ask.server, ask.req.path)
@@ -804,7 +785,7 @@ decode_semantic_tokens :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) 
             continue
         }
         start := offset_from_position(&ask.lines, line, character)
-        end := offset_from_position(&ask.lines, line, character + int(length))
+        end   := offset_from_position(&ask.lines, line, character + int(length))
         if end <= start {
             continue
         }
@@ -851,11 +832,7 @@ decode_inlay_hints :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         if len(label) == 0 {
             continue
         }
-        hint := lang.Inlay_Hint {
-            offset = offset_from_position(&ask.lines, line, character),
-            label  = strings.clone(string(label[:])),
-            kind   = .Type,
-        }
+        hint := lang.Inlay_Hint{offset = offset_from_position(&ask.lines, line, character), label = strings.clone(string(label[:])), kind = .Type}
         if kind, has_kind := number(object["kind"]); has_kind && kind == 2 {
             hint.kind = .Parameter
         }
@@ -890,9 +867,9 @@ decode_document_highlights :: proc(ask: ^Ask, value: json.Value, res: ^lang.Resu
         if !has_range {
             continue
         }
-        highlight := lang.Document_Highlight {
+        highlight := lang.Document_Highlight{
             start = offset_from_position(&ask.lines, start_line, start_char),
-            end   = offset_from_position(&ask.lines, end_line, end_char),
+            end = offset_from_position(&ask.lines, end_line, end_char),
         }
         if kind, has_kind := number(object["kind"]); has_kind {
             switch kind {
@@ -1018,7 +995,7 @@ decode_format :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         if !is_object {
             return
         }
-        new_text, has_text := object["newText"].(json.String)
+        new_text, has_text                                    := object["newText"].(json.String)
         start_line, start_char, end_line, end_char, has_range := range_of(object["range"])
         if !has_text || !has_range {
             return
@@ -1041,8 +1018,8 @@ decode_format :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
     }
 
     source := ask.req.source
-    out := make([dynamic]u8, context.temp_allocator)
-    pos := 0
+    out    := make([dynamic]u8, context.temp_allocator)
+    pos    := 0
     for edit in raw {
         if edit.start < pos || edit.end > len(source) {
             return
@@ -1062,13 +1039,16 @@ decode_format :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
     spans := lang.diff_spans(source, formatted, context.temp_allocator)
     res.edits = make([dynamic]lang.Text_Edit)
     for span in spans {
-        append(&res.edits, lang.Text_Edit {
-            path     = strings.clone(ask.req.path),
-            start    = span.start,
-            end      = span.end,
-            old_text = strings.clone(source[span.start:span.end]),
-            new_text = strings.clone(span.text),
-        })
+        append(
+            &res.edits,
+            lang.Text_Edit{
+                path = strings.clone(ask.req.path),
+                start = span.start,
+                end = span.end,
+                old_text = strings.clone(source[span.start:span.end]),
+                new_text = strings.clone(span.text),
+            },
+        )
     }
     res.ok = true
 }
@@ -1086,10 +1066,10 @@ decode_code_actions :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
     }
 
     preferred := make([dynamic]lang.Code_Action, context.temp_allocator)
-    rest := make([dynamic]lang.Code_Action, context.temp_allocator)
+    rest      := make([dynamic]lang.Code_Action, context.temp_allocator)
     for item in items {
         object, is_object := item.(json.Object)
-        title, has_title := object["title"].(json.String)
+        title, has_title  := object["title"].(json.String)
         if !is_object || !has_title {
             continue
         }
@@ -1097,13 +1077,13 @@ decode_code_actions :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
             continue
         }
         command, arguments := decode_action_command(object)
-        action := lang.Code_Action {
-            title        = strings.clone(string(title)),
-            kind         = strings.clone(action_kind_of(object["kind"])),
-            edits        = make([dynamic]lang.Text_Edit),
+        action             := lang.Code_Action{
+            title = strings.clone(string(title)),
+            kind = strings.clone(action_kind_of(object["kind"])),
+            edits = make([dynamic]lang.Text_Edit),
             resource_ops = make([dynamic]lang.Resource_Op),
-            command      = strings.clone(command),
-            arguments    = strings.clone(arguments),
+            command = strings.clone(command),
+            arguments = strings.clone(arguments),
         }
         decode_action_edit(ask, object, &action.edits, &action.resource_ops)
         if len(action.edits) == 0 && len(action.resource_ops) == 0 && action.command == "" {
@@ -1161,12 +1141,7 @@ decode_action_command :: proc(object: json.Object) -> (command, arguments: strin
 // codeAction/resolve on this worker's own connection — the shared conn_lock
 // covers the whole request, so a second call here is safe.
 @(private)
-decode_action_edit :: proc(
-    ask: ^Ask,
-    object: json.Object,
-    out: ^[dynamic]lang.Text_Edit,
-    ops: ^[dynamic]lang.Resource_Op,
-) -> bool {
+decode_action_edit :: proc(ask: ^Ask, object: json.Object, out: ^[dynamic]lang.Text_Edit, ops: ^[dynamic]lang.Resource_Op) -> bool {
     if edit, has_edit := object["edit"]; has_edit {
         if _, is_null := edit.(json.Null); !is_null {
             return decode_workspace_edit(ask, edit, out, ops)
@@ -1220,19 +1195,14 @@ action_kind_of :: proc(value: json.Value) -> string {
 // verified — since a half-applied rename breaks a build silently. Whatever was
 // already appended is freed first, so a caller never tracks how far it got.
 @(private)
-decode_workspace_edit :: proc(
-    ask: ^Ask,
-    value: json.Value,
-    out: ^[dynamic]lang.Text_Edit,
-    ops: ^[dynamic]lang.Resource_Op,
-) -> bool {
+decode_workspace_edit :: proc(ask: ^Ask, value: json.Value, out: ^[dynamic]lang.Text_Edit, ops: ^[dynamic]lang.Resource_Op) -> bool {
     object, is_object := value.(json.Object)
     if !is_object {
         return false
     }
     edit_start := len(out^)
-    op_start := len(ops^)
-    ok := true
+    op_start   := len(ops^)
+    ok         := true
     if changes, has := object["documentChanges"].(json.Array); has {
         ok = decode_document_changes(ask, changes, out, ops)
     } else if change_map, has_map := object["changes"].(json.Object); has_map {
@@ -1260,12 +1230,7 @@ decode_workspace_edit :: proc(
 // `seq`, so the applier can run them in the order the server sent. A `kind` this
 // package cannot model at all refuses the whole set.
 @(private)
-decode_document_changes :: proc(
-    ask: ^Ask,
-    items: json.Array,
-    out: ^[dynamic]lang.Text_Edit,
-    ops: ^[dynamic]lang.Resource_Op,
-) -> bool {
+decode_document_changes :: proc(ask: ^Ask, items: json.Array, out: ^[dynamic]lang.Text_Edit, ops: ^[dynamic]lang.Resource_Op) -> bool {
     for item, index in items {
         object, is_object := item.(json.Object)
         if !is_object {
@@ -1281,8 +1246,8 @@ decode_document_changes :: proc(
             }
             continue
         }
-        doc, has_doc := object["textDocument"].(json.Object)
-        uri, has_uri := doc["uri"].(json.String)
+        doc, has_doc     := object["textDocument"].(json.Object)
+        uri, has_uri     := doc["uri"].(json.String)
         edits, has_edits := object["edits"].(json.Array)
         if !has_doc || !has_uri || !has_edits {
             return false
@@ -1393,7 +1358,7 @@ decode_text_edits :: proc(ask: ^Ask, uri: string, items: json.Array, out: ^[dyna
         if !is_object {
             return false
         }
-        new_text, has_text := object["newText"].(json.String)
+        new_text, has_text                                    := object["newText"].(json.String)
         start_line, start_char, end_line, end_char, has_range := range_of(object["range"])
         if !has_text || !has_range {
             return false
@@ -1409,13 +1374,7 @@ decode_text_edits :: proc(ask: ^Ask, uri: string, items: json.Array, out: ^[dyna
 // from the file's current contents so thor_apply_edits can verify it. False on
 // an inverted range, an unresolved path, or a file that could not be read.
 @(private)
-append_text_edit :: proc(
-    ask: ^Ask,
-    uri: string,
-    start_line, start_char, end_line, end_char: int,
-    new_text: string,
-    out: ^[dynamic]lang.Text_Edit,
-) -> bool {
+append_text_edit :: proc(ask: ^Ask, uri: string, start_line, start_char, end_line, end_char: int, new_text: string, out: ^[dynamic]lang.Text_Edit) -> bool {
     path, start, end, ok := resolve_range(ask, uri, start_line, start_char, end_line, end_char)
     if !ok || start > end {
         return false
@@ -1424,13 +1383,10 @@ append_text_edit :: proc(
     if !read || start < 0 || end > len(text) {
         return false
     }
-    append(out, lang.Text_Edit {
-        path     = strings.clone(path),
-        start    = start,
-        end      = end,
-        old_text = strings.clone(text[start:end]),
-        new_text = strings.clone(new_text),
-    })
+    append(
+        out,
+        lang.Text_Edit{path = strings.clone(path), start = start, end = end, old_text = strings.clone(text[start:end]), new_text = strings.clone(new_text)},
+    )
     return true
 }
 
@@ -1446,7 +1402,7 @@ append_symbol :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         return
     }
     // An absent kind or detail reads as 0 / "", their protocol defaults.
-    kind, _ := number(object["kind"])
+    kind, _   := number(object["kind"])
     detail, _ := object["detail"].(json.String)
 
     path: string
@@ -1455,7 +1411,7 @@ append_symbol :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
     if location, is_flat := object["location"].(json.Object); is_flat {
         // SymbolInformation: one range for the whole declaration, in a file that
         // need not be the one that was asked about.
-        uri, has_uri := location["uri"].(json.String)
+        uri, has_uri                                          := location["uri"].(json.String)
         start_line, start_char, end_line, end_char, has_range := range_of(location["range"])
         if has_uri && has_range {
             path, offset, _, placed = resolve_range(ask, string(uri), start_line, start_char, end_line, end_char)
@@ -1482,7 +1438,7 @@ append_symbol :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
     if placed {
         append(
             &res.symbols,
-            lang.Symbol {
+            lang.Symbol{
                 name = strings.clone(string(name)),
                 kind = strings.clone(symbol_kind_name(int(kind))),
                 signature = symbol_signature(ask, string(detail), path, offset),
@@ -1528,9 +1484,7 @@ signature_entry :: proc(value: json.Value, fallback_active: int) -> (lang.Signat
     if !has_label {
         return {}, false
     }
-    entry := lang.Signature_Entry {
-        label = strings.clone(string(label)),
-    }
+    entry := lang.Signature_Entry{label = strings.clone(string(label))}
 
     active := fallback_active
     if own, has_own := number(object["activeParameter"]); has_own {
@@ -1569,7 +1523,7 @@ parameter_span :: proc(label: string, value: json.Value) -> (start, end: int) {
     if !is_pair || len(pair) != 2 {
         return 0, 0
     }
-    first, has_first := number(pair[0])
+    first, has_first   := number(pair[0])
     second, has_second := number(pair[1])
     if !has_first || !has_second {
         return 0, 0
@@ -1615,14 +1569,7 @@ target_of :: proc(object: json.Object) -> (Target, bool) {
     if !ok {
         return {}, false
     }
-    return Target {
-            uri = string(uri),
-            line = start_line,
-            character = start_char,
-            end_line = end_line,
-            end_char = end_char,
-        },
-        true
+    return Target{uri = string(uri), line = start_line, character = start_char, end_line = end_line, end_char = end_char}, true
 }
 
 @(private)
@@ -1635,37 +1582,22 @@ resolve_target :: proc(ask: ^Ask, target: Target) -> (string, int, int, bool) {
 // server already holds, and the file on disk. Only the last needs the CRLF step —
 // the server read those bytes itself, so its characters count over them.
 @(private)
-resolve_range :: proc(
-    ask: ^Ask,
-    uri: string,
-    start_line, start_char, end_line, end_char: int,
-) -> (
-    path: string,
-    start, end: int,
-    ok: bool,
-) {
+resolve_range :: proc(ask: ^Ask, uri: string, start_line, start_char, end_line, end_char: int) -> (path: string, start, end: int, ok: bool) {
     named, is_file := uri_to_path(uri, context.temp_allocator)
     if !is_file {
         return "", 0, 0, false
     }
     if lang.path_equal(named, ask.req.path) {
-        return named,
-            offset_from_position(&ask.lines, start_line, start_char),
-            offset_from_position(&ask.lines, end_line, end_char),
-            true
+        return named, offset_from_position(&ask.lines, start_line, start_char), offset_from_position(&ask.lines, end_line, end_char), true
     }
-    if open_start, open_end, held := server_range_in_open(ask.server, named, start_line, start_char, end_line, end_char);
-       held {
+    if open_start, open_end, held := server_range_in_open(ask.server, named, start_line, start_char, end_line, end_char); held {
         return named, open_start, open_end, true
     }
     index := ask_raw_index(ask, named)
     if index == nil {
         return "", 0, 0, false
     }
-    return named,
-        lf_offset(index, offset_from_position(index, start_line, start_char)),
-        lf_offset(index, offset_from_position(index, end_line, end_char)),
-        true
+    return named, lf_offset(index, offset_from_position(index, start_line, start_char)), lf_offset(index, offset_from_position(index, end_line, end_char)), true
 }
 
 // The (line, character) of a Position object.
@@ -1691,7 +1623,7 @@ range_of :: proc(value: json.Value) -> (start_line, start_char, end_line, end_ch
         return 0, 0, 0, 0, false
     }
     from_line, from_char, has_start := position_of(object["start"])
-    to_line, to_char, has_end := position_of(object["end"])
+    to_line, to_char, has_end       := position_of(object["end"])
     if !has_start || !has_end {
         return 0, 0, 0, 0, false
     }
@@ -1739,7 +1671,7 @@ hover_separate :: proc(out: ^[dynamic]u8) {
 // be drawn as three characters and a backtick as one.
 @(private)
 plain_text :: proc(text: string) -> string {
-    out := make([dynamic]u8, context.temp_allocator)
+    out  := make([dynamic]u8, context.temp_allocator)
     rest := text
     for len(rest) > 0 {
         line := rest
@@ -1793,9 +1725,9 @@ identifier_byte :: proc(char: u8) -> bool {
 // The source line an offset falls on, trimmed — a picker row's code preview.
 @(private)
 source_line_at :: proc(text: string, offset: int) -> string {
-    at := clamp(offset, 0, len(text))
+    at    := clamp(offset, 0, len(text))
     start := strings.last_index_byte(text[:at], '\n') + 1 // -1 + 1 == 0 for the first line
-    end := len(text)
+    end   := len(text)
     if next := strings.index_byte(text[at:], '\n'); next >= 0 {
         end = at + next
     }

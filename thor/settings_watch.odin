@@ -5,8 +5,8 @@ import "core:strings"
 import rl "vendor:raylib"
 
 import "../lang/lsp"
-import "../setting"
 import "../prof"
+import "../setting"
 
 // Live settings reload. The config files live under settings/ and user/ (and,
 // for an initialized workspace, its .thor/ overlay) rather than the workspace tree the

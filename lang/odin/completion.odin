@@ -16,20 +16,81 @@ EXPECTED_TYPED_MAX :: 64
 
 // Keywords and basic type names offered for a bare prefix.
 @(private = "file")
-ODIN_KEYWORDS :: [?]string {
-    "auto_cast", "bit_field", "bit_set", "break", "case", "cast", "context",
-    "continue", "defer", "distinct", "do", "dynamic", "else", "enum",
-    "fallthrough", "for", "foreign", "if", "import", "in", "map", "matrix",
-    "not_in", "or_break", "or_continue", "or_else", "or_return", "package", "proc",
-    "return", "struct", "switch", "transmute", "typeid", "union", "using", "when", "where",
-    "bool", "b8", "b16", "b32", "b64",
-    "int", "i8", "i16", "i32", "i64", "i128",
-    "uint", "u8", "u16", "u32", "u64", "u128", "uintptr",
-    "f16", "f32", "f64",
-    "complex32", "complex64", "complex128",
-    "quaternion64", "quaternion128", "quaternion256",
-    "rune", "string", "cstring", "rawptr", "any", "byte",
-    "true", "false", "nil",
+ODIN_KEYWORDS :: [?]string{
+    "auto_cast",
+    "bit_field",
+    "bit_set",
+    "break",
+    "case",
+    "cast",
+    "context",
+    "continue",
+    "defer",
+    "distinct",
+    "do",
+    "dynamic",
+    "else",
+    "enum",
+    "fallthrough",
+    "for",
+    "foreign",
+    "if",
+    "import",
+    "in",
+    "map",
+    "matrix",
+    "not_in",
+    "or_break",
+    "or_continue",
+    "or_else",
+    "or_return",
+    "package",
+    "proc",
+    "return",
+    "struct",
+    "switch",
+    "transmute",
+    "typeid",
+    "union",
+    "using",
+    "when",
+    "where",
+    "bool",
+    "b8",
+    "b16",
+    "b32",
+    "b64",
+    "int",
+    "i8",
+    "i16",
+    "i32",
+    "i64",
+    "i128",
+    "uint",
+    "u8",
+    "u16",
+    "u32",
+    "u64",
+    "u128",
+    "uintptr",
+    "f16",
+    "f32",
+    "f64",
+    "complex32",
+    "complex64",
+    "complex128",
+    "quaternion64",
+    "quaternion128",
+    "quaternion256",
+    "rune",
+    "string",
+    "cstring",
+    "rawptr",
+    "any",
+    "byte",
+    "true",
+    "false",
+    "nil",
 }
 
 // The group a candidate is listed in, first to last.
@@ -68,10 +129,10 @@ Completer :: struct {
     prefix:    string,
     expected:  odinsema.Type_Id,
     items:     [dynamic]Candidate,
-    seen:      map[string]struct{},
-    typed:     int, // the declarations typed for the expected type
-    snippets:  bool, // a procedure candidate inserts a call snippet
-    arrow:     bool, // the members of `x->`: procedures only, the receiver is implicit
+    seen:      map[string]struct {},
+    typed:     int,    // the declarations typed for the expected type
+    snippets:  bool,   // a procedure candidate inserts a call snippet
+    arrow:     bool,   // the members of `x->`: procedures only, the receiver is implicit
     importing: string, // the import every candidate added now carries; "" when none
 }
 
@@ -84,11 +145,11 @@ completion :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     if !opened {
         return
     }
-    cm := Completer {
-        ctx      = &ctx,
+    cm := Completer{
+        ctx = &ctx,
         expected = odinsema.INVALID_TYPE,
-        items    = make([dynamic]Candidate, context.temp_allocator),
-        seen     = make(map[string]struct{}, context.temp_allocator),
+        items = make([dynamic]Candidate, context.temp_allocator),
+        seen = make(map[string]struct {}, context.temp_allocator),
     }
     collect(&cm)
     if len(cm.items) == 0 || lang.request_cancelled(req) {
@@ -116,7 +177,7 @@ emit :: proc(cm: ^Completer, res: ^lang.Result) {
     res.completions = out
     for cand, i in cm.items {
         item := lang.Completion_Item{start = cand.from, end = cand.from < 0 ? -1 : cand.to, preselect = i == 0 && cand.tier == .Expected}
-        ok := [5]bool{}
+        ok   := [5]bool{}
         item.label, ok[0] = clone_ok(cand.label)
         item.kind, ok[1] = clone_ok(cand.kind)
         item.detail, ok[2] = clone_ok(cand.detail)
@@ -170,10 +231,10 @@ completion_item_free :: proc(item: lang.Completion_Item) {
 // Gives `item` the edit that adds `import "<path>"` to the buffer. False when it cannot allocate.
 @(private = "file")
 add_import_edit :: proc(cm: ^Completer, item: ^lang.Completion_Item, import_path: string) -> bool {
-    at, text := import_insert(cm.ctx, import_path)
-    path, pok := clone_ok(cm.ctx.req.path)
+    at, text      := import_insert(cm.ctx, import_path)
+    path, pok     := clone_ok(cm.ctx.req.path)
     new_text, tok := clone_ok(text)
-    edits, merr := make([dynamic]lang.Text_Edit, 0, 1)
+    edits, merr   := make([dynamic]lang.Text_Edit, 0, 1)
     if !pok || !tok || merr != nil {
         delete(path)
         delete(new_text)
@@ -239,7 +300,7 @@ in_literal :: proc(ctx: ^Request_Context, off: int, numbers := true) -> bool {
         return false
     }
     _, end := odinsyntax.token_range(tok)
-    text := odinsyntax.syntax_token_text(tok)
+    text   := odinsyntax.syntax_token_text(tok)
     #partial switch tok.green.kind {
     case .Line_Comment, .File_Tag:
         return true
@@ -264,7 +325,20 @@ add :: proc(cm: ^Completer, label, kind, detail: string, tier: Tier, order := 0,
     if type != odinsema.INVALID_TYPE && type == cm.expected {
         t = .Expected
     }
-    append(&cm.items, Candidate{label = label, kind = kind, detail = detail, insert = insert, snippet = snippet, import_path = cm.importing, tier = t, order = order, from = -1})
+    append(
+        &cm.items,
+        Candidate{
+            label = label,
+            kind = kind,
+            detail = detail,
+            insert = insert,
+            snippet = snippet,
+            import_path = cm.importing,
+            tier = t,
+            order = order,
+            from = -1,
+        },
+    )
 }
 
 // The type a candidate shows; "" when it is not known.
@@ -296,14 +370,14 @@ dot_completions :: proc(cm: ^Completer, dot: int) {
     if c == nil {
         return
     }
-    file := cm.ctx.live.id
+    file  := cm.ctx.live.id
     n, ok := odinsema.expr_under(c, file, dot)
     if !ok {
         return
     }
     #partial switch n.green.kind {
     case .Selector_Expr:
-        sel, _ := odinsyntax.as_selector_expr(n)
+        sel, _               := odinsyntax.as_selector_expr(n)
         operand, has_operand := odinsyntax.selector_expr_operand(&sel)
         if !has_operand {
             return
@@ -340,7 +414,7 @@ Postfix :: struct {
 }
 
 @(private = "file")
-POSTFIXES :: [?]Postfix {
+POSTFIXES :: [?]Postfix{
     {"if", "if x {}", "if %% {\n\t$0\n}", postfix_any},
     {"ifnot", "if !x {}", "if !%% {\n\t$0\n}", postfix_bool},
     {"ifnil", "if x == nil {}", "if %% == nil {\n\t$0\n}", postfix_nilable},
@@ -373,8 +447,13 @@ postfix_bool :: proc(t: ^odinsema.Type_Table, id: odinsema.Type_Id) -> bool {
 @(private = "file")
 postfix_nilable :: proc(t: ^odinsema.Type_Table, id: odinsema.Type_Id) -> bool {
     #partial switch v in odinsema.type_get(t, odinsema.type_base(t, id)) {
-    case odinsema.Pointer_Type, odinsema.Multi_Pointer_Type, odinsema.Union_Type, odinsema.Proc_Type,
-         odinsema.Slice_Type, odinsema.Dynamic_Array_Type, odinsema.Map_Type:
+    case odinsema.Pointer_Type,
+        odinsema.Multi_Pointer_Type,
+        odinsema.Union_Type,
+        odinsema.Proc_Type,
+        odinsema.Slice_Type,
+        odinsema.Dynamic_Array_Type,
+        odinsema.Map_Type:
         return true
     case odinsema.Basic_Type:
         return v.kind == .Rawptr || v.kind == .Cstring || v.kind == .Typeid || v.kind == .Any
@@ -446,7 +525,7 @@ add_postfix :: proc(cm: ^Completer, operand: odinsyntax.Syntax_Node, type: odins
     }
     text := strings.trim_space(odinsyntax.node_text(operand))
     from := int(operand.offset)
-    to := clamp(cm.ctx.req.offset, from, len(cm.ctx.req.source))
+    to   := clamp(cm.ctx.req.offset, from, len(cm.ctx.req.source))
     if text == "" || to <= from {
         return
     }
@@ -459,10 +538,19 @@ add_postfix :: proc(cm: ^Completer, operand: odinsyntax.Syntax_Node, type: odins
         }
         cm.seen[pf.label] = {}
         snippet, _ := strings.replace_all(pf.template, "%%", escaped, context.temp_allocator)
-        append(&cm.items, Candidate{
-            label = pf.label, kind = "keyword", detail = pf.detail, snippet = snippet,
-            import_path = cm.importing, tier = .Postfix, from = from, to = to,
-        })
+        append(
+            &cm.items,
+            Candidate{
+                label = pf.label,
+                kind = "keyword",
+                detail = pf.detail,
+                snippet = snippet,
+                import_path = cm.importing,
+                tier = .Postfix,
+                from = from,
+                to = to,
+            },
+        )
     }
 }
 
@@ -489,11 +577,11 @@ unbound_alias_names :: proc(cm: ^Completer, alias: string, offset: int) {
 // The known packages the buffer does not import yet, without its own package.
 @(private = "file")
 importable_packages :: proc(cm: ^Completer) -> []Known_Package {
-    ctx := cm.ctx
-    all := known_packages(ctx.e, ctx.req.workspace)
+    ctx     := cm.ctx
+    all     := known_packages(ctx.e, ctx.req.workspace)
     imports := odinsema.db_imports(&ctx.snap, ctx.live.id)
-    own := ctx.live.path != "" ? live_dir(ctx) : ""
-    out := make([dynamic]Known_Package, 0, len(all), context.temp_allocator)
+    own     := ctx.live.path != "" ? live_dir(ctx) : ""
+    out     := make([dynamic]Known_Package, 0, len(all), context.temp_allocator)
     next: for p in all {
         if own != "" && same_dir(p.dir, own) {
             continue
@@ -532,12 +620,12 @@ assertion_completions :: proc(cm: ^Completer, paren: int) {
     if c == nil {
         return
     }
-    file := cm.ctx.live.id
+    file  := cm.ctx.live.id
     n, ok := odinsema.expr_under(c, file, paren)
     if !ok || n.green.kind != .Type_Assertion {
         return
     }
-    ta, _ := odinsyntax.as_type_assertion(n)
+    ta, _                := odinsyntax.as_type_assertion(n)
     operand, has_operand := odinsyntax.type_assertion_operand(&ta)
     if !has_operand {
         return
@@ -560,8 +648,8 @@ assertion_completions :: proc(cm: ^Completer, paren: int) {
 @(private = "file")
 add_members :: proc(cm: ^Completer, members: []odinsema.Member) {
     for m, i in members {
-        kind := "field"
-        detail := type_detail(cm, m.type)
+        kind       := "field"
+        detail     := type_detail(cm, m.type)
         p, is_proc := proc_type_of(cm, m.type)
         if cm.arrow && !is_proc {
             continue
@@ -669,7 +757,7 @@ add_package_names :: proc(cm: ^Completer, dir: string, own: bool, tier: Tier, bu
         sym: odinsema.Symbol
         for ref in refs {
             item := odinsema.package_item(view.sema_files, ref)
-            id := view.files[ref.file]
+            id   := view.files[ref.file]
             if !odinsema.package_ref_active(view.scope, ref) {
                 continue
             }
@@ -697,7 +785,7 @@ add_item :: proc(cm: ^Completer, item: ^odinsema.Item, sym: odinsema.Symbol, tie
         return
     }
     is_proc := item.kind == .Proc || item.kind == .Proc_Group
-    type := odinsema.INVALID_TYPE
+    type    := odinsema.INVALID_TYPE
     if cm.c != nil && cm.expected != odinsema.INVALID_TYPE && (item.kind == .Var || item.kind == .Const || is_proc) && cm.typed < EXPECTED_TYPED_MAX {
         cm.typed += 1
         type = odinsema.decl_type(cm.c, sym)
@@ -778,7 +866,7 @@ group_snippet :: proc(name: string) -> string {
 // Parameters with a default value get no stop.
 @(private = "file")
 proc_snippet :: proc(cm: ^Completer, name: string, p: odinsema.Proc_Type, skip_first := false) -> string {
-    params := make([dynamic]string, 0, len(p.params), context.temp_allocator)
+    params   := make([dynamic]string, 0, len(p.params), context.temp_allocator)
     optional := false
     for param, i in p.params {
         if skip_first && i == 0 {
@@ -806,7 +894,7 @@ signature_snippet :: proc(name, signature: string) -> string {
         return ""
     }
     rest := signature[sep + 2:]
-    at := strings.index(rest, "proc")
+    at   := strings.index(rest, "proc")
     if at < 0 {
         return ""
     }
@@ -819,10 +907,10 @@ signature_snippet :: proc(name, signature: string) -> string {
     if between := strings.trim_space(rest[:open]); between != "" && (len(between) < 2 || between[0] != '"' || between[len(between) - 1] != '"') {
         return ""
     }
-    pieces := make([dynamic]string, context.temp_allocator)
-    depth := 0
+    pieces      := make([dynamic]string, context.temp_allocator)
+    depth       := 0
     piece_start := open + 1
-    close := -1
+    close       := -1
     in_string: u8 = 0
     scan: for i := open + 1; i < len(rest); i += 1 {
         ch := rest[i]
@@ -865,7 +953,7 @@ signature_snippet :: proc(name, signature: string) -> string {
             break
         }
     }
-    params := make([dynamic]string, 0, len(pieces), context.temp_allocator)
+    params   := make([dynamic]string, 0, len(pieces), context.temp_allocator)
     optional := false
     for piece, i in pieces {
         if !named {
@@ -973,7 +1061,7 @@ hoisted_kind :: proc(kind: odinsema.Decl_Kind) -> bool {
 // Adds the locals in reach at `start`, innermost first, and the fields a `using` brings into scope.
 @(private = "file")
 add_locals :: proc(cm: ^Completer, start: int) {
-    ctx := cm.ctx
+    ctx     := cm.ctx
     m, merr := odinsema.scope_map_range(ctx.parsed, start, start, context.temp_allocator)
     if merr != nil {
         return
@@ -988,7 +1076,7 @@ add_locals :: proc(cm: ^Completer, start: int) {
     if inner < 0 {
         return
     }
-    file := ctx.live.id
+    file  := ctx.live.id
     depth := m.scopes[inner].proc_depth
     for s := inner; s >= 0; s = m.scopes[s].parent {
         for l in m.locals {
@@ -1005,7 +1093,7 @@ add_locals :: proc(cm: ^Completer, start: int) {
             if !l.is_using && (!strings.has_prefix(l.name, cm.prefix) || l.name in cm.seen) {
                 continue
             }
-            type := odinsema.INVALID_TYPE
+            type    := odinsema.INVALID_TYPE
             is_proc := l.kind == .Proc
             if cm.c != nil && (l.is_using || is_proc || (cm.expected != odinsema.INVALID_TYPE && cm.typed < EXPECTED_TYPED_MAX)) {
                 cm.typed += 1
@@ -1063,7 +1151,7 @@ add_using_fields :: proc(cm: ^Completer, members: []odinsema.Member) {
 // Adds the fields of the struct literal the word at `start` is an element of that it does not set yet.
 @(private = "file")
 add_field_names :: proc(cm: ^Completer, start: int) {
-    c := cm.c
+    c   := cm.c
     ctx := cm.ctx
     src := ctx.req.source
     if c == nil || ctx.parsed.tree == nil || ctx.parsed.tree.root == nil {
@@ -1081,9 +1169,9 @@ add_field_names :: proc(cm: ^Completer, start: int) {
         return
     }
     lit_node := tok.parent^
-    lit, _ := odinsyntax.as_comp_lit(lit_node)
-    file := ctx.live.id
-    type := odinsema.INVALID_TYPE
+    lit, _   := odinsyntax.as_comp_lit(lit_node)
+    file     := ctx.live.id
+    type     := odinsema.INVALID_TYPE
     if _, typed := odinsyntax.comp_lit_type(&lit); typed {
         type = odinsema.expr_type(c, file, lit_node).type
     } else {
@@ -1094,8 +1182,8 @@ add_field_names :: proc(cm: ^Completer, start: int) {
     case:
         return
     }
-    set := make(map[string]struct{}, context.temp_allocator)
-    it := odinsyntax.comp_lit_elems(&lit)
+    set := make(map[string]struct {}, context.temp_allocator)
+    it  := odinsyntax.comp_lit_elems(&lit)
     for elem in odinsyntax.child_iter_next(&it) {
         fv, is_fv := odinsyntax.as_field_value(elem)
         if !is_fv {

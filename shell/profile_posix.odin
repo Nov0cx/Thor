@@ -18,7 +18,7 @@ Known :: struct {
 // A login shell reads the profile files, so the terminal gets the same PATH and
 // environment a desktop terminal emulator would.
 @(private = "file")
-KNOWN := []Known {
+KNOWN := []Known{
     {"bash", "Bash", "bash", {"-l"}, {}, .Posix},
     {"zsh", "Zsh", "zsh", {"-l"}, {}, .Posix},
     {"fish", "Fish", "fish", {"-l"}, {}, .Fish},
@@ -30,9 +30,12 @@ KNOWN := []Known {
 // The directories a shell lands in outside PATH, so a shell that the editor's
 // own environment cannot see is still offered.
 @(private = "file")
-PREFIXES := []string {
-    "/bin", "/usr/bin", "/usr/local/bin", "/opt/homebrew/bin",
-    "/opt/local/bin",                 // MacPorts
+PREFIXES := []string{
+    "/bin",
+    "/usr/bin",
+    "/usr/local/bin",
+    "/opt/homebrew/bin",
+    "/opt/local/bin", // MacPorts
     "/home/linuxbrew/.linuxbrew/bin", // Linuxbrew
 }
 

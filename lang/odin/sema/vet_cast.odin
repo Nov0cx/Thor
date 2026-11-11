@@ -6,9 +6,9 @@ import odinsyntax "../syntax"
 
 // A `cast` or `transmute` to the type its operand already has.
 Vet_Cast :: struct {
-    offset:    int,    // the operand of a `cast`, the expression of a `transmute`
-    operand:   string, // borrows the text of the parse
-    type:      Type_Id,
+    offset:       int,    // the operand of a `cast`, the expression of a `transmute`
+    operand:      string, // borrows the text of the parse
+    type:         Type_Id,
     is_transmute: bool,
 }
 
@@ -17,10 +17,10 @@ Vet_Cast :: struct {
 // operand and anything inside a polymorphic procedure, which the compiler checks per instance, are not
 // reported.
 vet_cast :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (out: Vet_Cast, ok: bool) {
-    ce := odinsyntax.as_cast_expr(n) or_return
-    keyword := odinsyntax.cast_expr_keyword(&ce) or_return
-    type_node := odinsyntax.cast_expr_type(&ce) or_return
-    operand := odinsyntax.cast_expr_operand(&ce) or_return
+    ce           := odinsyntax.as_cast_expr(n) or_return
+    keyword      := odinsyntax.cast_expr_keyword(&ce) or_return
+    type_node    := odinsyntax.cast_expr_type(&ce) or_return
+    operand      := odinsyntax.cast_expr_operand(&ce) or_return
     is_transmute := keyword.green.kind == .Transmute
     if !is_transmute && keyword.green.kind != .Cast {
         return
@@ -28,7 +28,7 @@ vet_cast :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (out:
     if in_poly_proc(n) {
         return
     }
-    to := type_expr(c, file, type_node)
+    to   := type_expr(c, file, type_node)
     from := expr_type(c, file, operand)
     if to == INVALID_TYPE || from.mode != .Value || from.type != to {
         return
@@ -36,12 +36,7 @@ vet_cast :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (out:
     if type_has_unknown(&c.table, to) {
         return
     }
-    out = Vet_Cast {
-        offset    = int(operand.offset),
-        operand   = strings.trim_space(odinsyntax.node_text(operand)),
-        type      = to,
-        is_transmute = is_transmute,
-    }
+    out = Vet_Cast{offset = int(operand.offset), operand = strings.trim_space(odinsyntax.node_text(operand)), type = to, is_transmute = is_transmute}
     if is_transmute {
         out.offset = int(n.offset)
         out.operand = strings.trim_space(odinsyntax.node_text(n))

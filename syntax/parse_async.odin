@@ -19,7 +19,7 @@ Parse_Job :: struct {
     lang_id: string, // owned
     path:    string, // owned
     source:  string, // owned
-    done:    bool, // set by the worker
+    done:    bool,   // set by the worker
     worker:  ^thread.Thread,
 }
 

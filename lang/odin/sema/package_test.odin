@@ -36,7 +36,7 @@ test_package_scope_build_filter :: proc(t: ^testing.T) {
     add_file(t, &p, "pkg/os_linux.odin", "package pkg\n\nopen :: proc() {}\n")
     add_file(t, &p, "pkg/os_posix.odin", "#+build !windows\npackage pkg\n\nposix_only :: 1\n")
 
-    win := Target{os = .Windows, arch = .amd64}
+    win        := Target{os = .Windows, arch = .amd64}
     scope, err := package_scope(p.files[:], win)
     testing.expect_value(t, err, nil)
     defer package_scope_destroy(&scope)
@@ -53,7 +53,7 @@ test_package_scope_build_filter :: proc(t: ^testing.T) {
         testing.expect_value(t, package_item(p.files[:], opens[0]).name, "open")
     }
 
-    lin := Target{os = .Linux, arch = .amd64}
+    lin          := Target{os = .Linux, arch = .amd64}
     lscope, lerr := package_scope(p.files[:], lin)
     testing.expect_value(t, lerr, nil)
     defer package_scope_destroy(&lscope)
@@ -65,7 +65,11 @@ test_package_scope_build_filter :: proc(t: ^testing.T) {
 test_package_scope_conflicts :: proc(t: ^testing.T) {
     p: Test_Package
     defer destroy_package(&p)
-    add_file(t, &p, "pkg/a.odin", `package pkg
+    add_file(
+        t,
+        &p,
+        "pkg/a.odin",
+        `package pkg
 
 dup :: 1
 guarded :: 1
@@ -75,7 +79,8 @@ when ODIN_OS == .Linux {
     guarded :: 2
 }
 _ :: 3
-`)
+`,
+    )
     add_file(t, &p, "pkg/b.odin", `package pkg
 
 dup :: 2
@@ -106,7 +111,11 @@ _ :: 4
 test_package_scope_when_conflicts :: proc(t: ^testing.T) {
     p: Test_Package
     defer destroy_package(&p)
-    add_file(t, &p, "pkg/a.odin", `package pkg
+    add_file(
+        t,
+        &p,
+        "pkg/a.odin",
+        `package pkg
 
 when ODIN_OS == .Windows {
     open :: proc() {}
@@ -120,7 +129,8 @@ when MAYBE_FLAG {
 } else {
     flag :: 2
 }
-`)
+`,
+    )
     add_file(t, &p, "pkg/b.odin", `package pkg
 
 when ODIN_OS == .Windows {
@@ -129,7 +139,7 @@ when ODIN_OS == .Windows {
 }
 flag :: 3
 `)
-    win := Target{os = .Windows, arch = .amd64}
+    win        := Target{os = .Windows, arch = .amd64}
     scope, err := package_scope(p.files[:], win)
     testing.expect_value(t, err, nil)
     defer package_scope_destroy(&scope)
@@ -158,7 +168,7 @@ flag :: 3
         testing.expect(t, package_ref_active(&scope, ref), "an unknown guard is active")
     }
 
-    lin := Target{os = .Linux, arch = .amd64}
+    lin          := Target{os = .Linux, arch = .amd64}
     lscope, lerr := package_scope(p.files[:], lin)
     testing.expect_value(t, lerr, nil)
     defer package_scope_destroy(&lscope)

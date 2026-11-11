@@ -88,7 +88,7 @@ test_query_expected_type :: proc(t: ^testing.T) {
         return
     }
     defer check_end(&env)
-    cases := [?]Expected_Case {
+    cases := [?]Expected_Case{
         {".Green", "c: Color = ", "Color"},
         {".Blue", "c = ", "Color"},
         {"{.Red, .Green}", "flags: Colors = ", "Colors"},
@@ -135,19 +135,19 @@ test_query_expected_type :: proc(t: ^testing.T) {
     Typed_Case :: struct {
         at, after, want: string,
     }
-    typed := [?]Typed_Case {
+    typed := [?]Typed_Case{
         {".Blue", "c = ", "Color"},
         {"{.Red, .Green}", "flags: Colors = ", "Colors"},
         {"auto_cast i", "", "u8"},
         {".Green", "nested := [2]Point{{c = ", "Color"},
     }
     for k in typed {
-        off := query_offset(t, QUERY_SRC, k.at, k.after)
+        off   := query_offset(t, QUERY_SRC, k.at, k.after)
         n, ok := expr_node_at(&env.c, ANON_FILE, off, k.at)
         if !testing.expectf(t, ok, "%q: no expression node", k.at) {
             continue
         }
-        op := expr_type(&env.c, ANON_FILE, n, expected_type_at(&env.c, ANON_FILE, off))
+        op  := expr_type(&env.c, ANON_FILE, n, expected_type_at(&env.c, ANON_FILE, off))
         got := type_string(&env.c.table, op.type, context.temp_allocator)
         testing.expectf(t, got == k.want, "%q: got %q, want %q", k.at, got, k.want)
     }
@@ -208,7 +208,7 @@ v_vec: [3]f32
         name: string,
         want: string,
     }
-    cases := [?]Members_Case {
+    cases := [?]Members_Case{
         {"v_entity", "mid: Mid, pos: Point, next: ^Entity, base: Base, id: i64, depth: u8, name: string"},
         {"v_ptr", "mid: Mid, pos: Point, next: ^Entity, base: Base, id: i64, depth: u8, name: string"},
         {"v_packed", "lo: u8, hi: u8"},
@@ -226,11 +226,11 @@ v_vec: [3]f32
             continue
         }
         members := type_members(c, decl_type(c, sym), context.temp_allocator)
-        got := members_text(c, members)
+        got     := members_text(c, members)
         testing.expectf(t, got == k.want, "%s: got %q, want %q", k.name, got, k.want)
     }
     if sym, ok := find_symbol(c, ANON_FILE, "v_soa_vecs"); testing.expect(t, ok) {
-        vecs := decl_type(c, sym)
+        vecs       := decl_type(c, sym)
         hit, found := find_field(c, vecs, "z")
         testing.expect(t, found && type_string(&c.table, hit.type, context.temp_allocator) == "[4]f32")
         _, found = find_field(c, vecs, "w")
@@ -241,8 +241,10 @@ v_vec: [3]f32
         for m in members {
             want_depth := 0
             switch m.name {
-            case "base", "id", "depth": want_depth = 1
-            case "name":                want_depth = 2
+            case "base", "id", "depth":
+                want_depth = 1
+            case "name":
+                want_depth = 2
             }
             testing.expectf(t, m.depth == want_depth, "%s: depth %d, want %d", m.name, m.depth, want_depth)
             testing.expectf(t, m.kind == .Field && m.has_symbol, "%s: kind %v", m.name, m.kind)
@@ -286,8 +288,8 @@ test_query_selector_symbol :: proc(t: ^testing.T) {
         return
     }
     defer check_end(&env)
-    c := &env.c
-    cases := [?]Symbol_Case {
+    c     := &env.c
+    cases := [?]Symbol_Case{
         {"id", "_ = e.", "id", "Base :: struct { "},
         {"pos", "_ = e.", "pos", "Entity :: struct {"},
         {"Green", "_ = Color.", "Green", "Color :: enum { Red, "},
@@ -316,8 +318,17 @@ test_query_selector_symbol :: proc(t: ^testing.T) {
             continue
         }
         want := marker_offset(QUERY_SRC, k.decl, k.decl_after)
-        testing.expectf(t, file == ANON_FILE && start == want && end == want + len(k.decl),
-            "%q after %q: got [%d, %d), want [%d, %d)", k.at, k.after, start, end, want, want + len(k.decl))
+        testing.expectf(
+            t,
+            file == ANON_FILE && start == want && end == want + len(k.decl),
+            "%q after %q: got [%d, %d), want [%d, %d)",
+            k.at,
+            k.after,
+            start,
+            end,
+            want,
+            want + len(k.decl),
+        )
         if sym.item != LOCAL_ITEM {
             testing.expectf(t, sym.child >= 0, "%q after %q: a field must be an item child, got %v", k.at, k.after, sym)
         }
@@ -343,7 +354,7 @@ test_query_package_members :: proc(t: ^testing.T) {
         return
     }
     defer os.remove_all(dir)
-    app_src := `package app
+    app_src  := `package app
 
 import g "../geom"
 
@@ -352,7 +363,7 @@ use :: proc() {
     _ = g.Kind.Circle
 }
 `
-    app := put_file(t, dir, "app/app.odin", app_src)
+    app      := put_file(t, dir, "app/app.odin", app_src)
     geom_src := `package geom
 
 MAX :: 3
@@ -364,21 +375,21 @@ group :: proc{make_shape}
 @(private)
 hidden :: 1
 `
-    geom := put_file(t, dir, "geom/geom.odin", geom_src)
+    geom     := put_file(t, dir, "geom/geom.odin", geom_src)
     env: Check_Env
     if !check_begin(t, &env, Snapshot_Input{}) {
         return
     }
     defer check_end(&env)
-    c := &env.c
-    id := db_file_id(&env.snap, app)
+    c       := &env.c
+    id      := db_file_id(&env.snap, app)
     geom_id := db_file_id(&env.snap, geom)
-    r := lookup_name(c, id, "g", 0)
+    r       := lookup_name(c, id, "g", 0)
     if !testing.expect_value(t, r.kind, Resolved_Kind.Import) {
         return
     }
     members := operand_members(c, Operand{mode = .Package, dir = r.dir}, context.temp_allocator)
-    names := make([dynamic]string, context.temp_allocator)
+    names   := make([dynamic]string, context.temp_allocator)
     for m in members {
         append(&names, m.name)
         want_kind := Member_Kind.Package_Member
@@ -437,8 +448,8 @@ main :: proc() {
         return
     }
     defer check_end(&env)
-    c := &env.c
-    cases := [?]Under_Case {
+    c     := &env.c
+    cases := [?]Under_Case{
         {"+", "s := a ", "int"},
         {"a", "s := ", "int"},
         {")", "twice(a", "int"},

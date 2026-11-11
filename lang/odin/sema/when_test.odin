@@ -20,7 +20,7 @@ when_tree :: proc(t: ^testing.T, src: string) -> ^Item_Tree {
 // The state of `when cond { X :: 1 }` for `target`.
 @(private = "file")
 cond_state :: proc(t: ^testing.T, cond: string, target: Target) -> Tri {
-    src := strings.concatenate({"package p\n\nwhen ", cond, " {\n    X :: 1\n}\n"}, context.temp_allocator)
+    src  := strings.concatenate({"package p\n\nwhen ", cond, " {\n    X :: 1\n}\n"}, context.temp_allocator)
     tree := when_tree(t, src)
     defer item_tree_destroy(tree)
     if !testing.expectf(t, len(tree.guards) == 1, "%q: want one guard", cond) {
@@ -41,20 +41,15 @@ item_named :: proc(tree: ^Item_Tree, name: string) -> ^Item {
 
 @(test)
 test_when_conditions :: proc(t: ^testing.T) {
-    defines := []Target_Define {
-        {"FAST", true},
-        {"LEVEL", i64(3)},
-        {"NAME", "thor"},
-        {"ODIN_TEST", false},
-    }
-    win := Target{os = .Windows, arch = .amd64}
-    lin := Target{os = .Linux, arch = .i386, debug = true, defines = defines}
+    defines := []Target_Define{{"FAST", true}, {"LEVEL", i64(3)}, {"NAME", "thor"}, {"ODIN_TEST", false}}
+    win     := Target{os = .Windows, arch = .amd64}
+    lin     := Target{os = .Linux, arch = .i386, debug = true, defines = defines}
 
     Case :: struct {
         cond:     string,
         win, lin: Tri,
     }
-    cases := []Case {
+    cases := []Case{
         {"true", .True, .True},
         {"false", .False, .False},
         {"ODIN_OS == .Windows", .True, .False},
@@ -113,7 +108,7 @@ test_when_conditions :: proc(t: ^testing.T) {
 
 @(test)
 test_when_chains :: proc(t: ^testing.T) {
-    src := `package p
+    src  := `package p
 
 when ODIN_OS == .Windows {
     OS :: "windows"
@@ -156,10 +151,10 @@ PLAIN :: 0
         lin:   Tri,
         mac:   Tri,
     }
-    win := Target{os = .Windows, arch = .amd64}
-    lin := Target{os = .Linux, arch = .arm64}
-    mac := Target{os = .Darwin, arch = .arm64}
-    cases := []State {
+    win   := Target{os = .Windows, arch = .amd64}
+    lin   := Target{os = .Linux, arch = .arm64}
+    mac   := Target{os = .Darwin, arch = .arm64}
+    cases := []State{
         {"OS", 0, .True, .False, .False},
         {"OS", 1, .False, .True, .False},
         {"OS", 2, .False, .False, .True},
@@ -208,7 +203,7 @@ PLAIN :: 0
 
 @(test)
 test_when_do_body_and_foreign :: proc(t: ^testing.T) {
-    src := `package p
+    src  := `package p
 
 when ODIN_OS == .Linux do ONE :: 1
 
@@ -222,11 +217,11 @@ when ODIN_OS == .Windows {
 `
     tree := when_tree(t, src)
     defer item_tree_destroy(tree)
-    win := Target{os = .Windows, arch = .amd64}
-    lin := Target{os = .Linux, arch = .amd64}
-    one := item_named(tree, "ONE")
+    win   := Target{os = .Windows, arch = .amd64}
+    lin   := Target{os = .Linux, arch = .amd64}
+    one   := item_named(tree, "ONE")
     sleep := item_named(tree, "Sleep")
-    lib := item_named(tree, "lib")
+    lib   := item_named(tree, "lib")
     if !testing.expect(t, one != nil && sleep != nil && lib != nil) {
         return
     }
@@ -239,7 +234,7 @@ when ODIN_OS == .Windows {
 
 @(test)
 test_when_broken_conditions :: proc(t: ^testing.T) {
-    srcs := []string {
+    srcs := []string{
         "package p\nwhen ODIN_OS == {\n X :: 1\n}\n",
         "package p\nwhen {\n X :: 1\n}\n",
         "package p\nwhen #config(, ) {\n X :: 1\n}\n",
@@ -323,16 +318,16 @@ smoke_dir :: proc(t: ^testing.T, dir: string, total, known: ^int, depth: int) {
 // A `when` in a body gives the same answer as one at file scope.
 @(test)
 test_when_condition_in_body :: proc(t: ^testing.T) {
-    src := "package p\n\nf :: proc() {\n    when ODIN_OS == .Windows && !ODIN_DEBUG {\n        x := 1\n    }\n}\n"
+    src         := "package p\n\nf :: proc() {\n    when ODIN_OS == .Windows && !ODIN_DEBUG {\n        x := 1\n    }\n}\n"
     parsed, err := odinsyntax.parse(src)
     testing.expect_value(t, err, nil)
     defer odinsyntax.parse_destroy(&parsed)
     at := strings.index(src, "ODIN_OS")
-    n := odinsyntax.node_root(parsed.tree)
+    n  := odinsyntax.node_root(parsed.tree)
     cond: odinsyntax.Syntax_Node
     found := false
     for !found {
-        it := odinsyntax.child_iter(&n, {kinds = ~odinsyntax.Kind_Set{}})
+        it         := odinsyntax.child_iter(&n, {kinds = ~odinsyntax.Kind_Set{}})
         next_found := false
         for child in odinsyntax.child_iter_next(&it) {
             start, end := odinsyntax.node_range(child)
@@ -365,14 +360,11 @@ test_when_condition_in_body :: proc(t: ^testing.T) {
 test_guard_state_resolver :: proc(t: ^testing.T) {
     tree := when_tree(t, "package p\n\nwhen FLAG {\n    A :: 1\n} else when ODIN_OS == .Linux {\n    B :: 1\n} else {\n    C :: 1\n}\n")
     defer item_tree_destroy(tree)
-    answer := Tri.True
-    resolver := Guard_Resolver{
-        resolve = proc(data: rawptr, tree: ^Item_Tree, guard: int) -> Tri {
-            return (cast(^Tri)data)^
-        },
-        data = &answer,
-    }
-    target := Target{os = .Linux}
+    answer   := Tri.True
+    resolver := Guard_Resolver{resolve = proc(data: rawptr, tree: ^Item_Tree, guard: int) -> Tri {
+        return (cast(^Tri)data)^
+    }, data = &answer}
+    target   := Target{os = .Linux}
     a, b, c := item_named(tree, "A"), item_named(tree, "B"), item_named(tree, "C")
     if !testing.expect(t, a != nil && b != nil && c != nil) {
         return

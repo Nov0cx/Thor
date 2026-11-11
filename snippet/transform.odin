@@ -44,9 +44,9 @@ transform_apply :: proc(text: string, tr: Transform, allocator := context.temp_a
 
     b := strings.builder_make(0, len(text), allocator)
     groups: [common.MAX_CAPTURE_GROUPS][2]int
-    last := 0
+    last    := 0
     matched := false
-    for run := 0;; run += 1 {
+    for run := 0; ; run += 1 {
         if run > 0 {
             m.top_thread = 0
             m.current_rune = 0
@@ -98,7 +98,7 @@ transform_apply :: proc(text: string, tr: Transform, allocator := context.temp_a
 @(private)
 transform_parse :: proc(src: string, at: int) -> (tr: Transform, next: int, ok: bool) {
     pattern := strings.builder_make(context.temp_allocator)
-    i := at + 1
+    i       := at + 1
     for {
         if i >= len(src) {
             return
@@ -122,7 +122,7 @@ transform_parse :: proc(src: string, at: int) -> (tr: Transform, next: int, ok: 
 
     // A slash inside `${...}` belongs to the format (`${1:/upcase}`).
     format_start := i + 1
-    depth := 0
+    depth        := 0
     i = format_start
     for {
         if i >= len(src) {
@@ -215,14 +215,14 @@ transform_format :: proc(b: ^strings.Builder, text: string, groups: [][2]int, fo
             continue
         }
         n, after, ok := format_int(format, i + 2)
-        close := ok ? format_close(format, after) : -1
+        close        := ok ? format_close(format, after) : -1
         if close < 0 {
             strings.write_byte(b, c)
             i += 1
             continue
         }
         value := group(text, groups, n)
-        body := format[after:close]
+        body  := format[after:close]
         i = close + 1
         switch {
         case body == "":
@@ -324,9 +324,9 @@ format_case :: proc(value, name: string) -> string {
     case "capitalize":
         return capitalize(value)
     case "pascalcase", "camelcase":
-        b := strings.builder_make(0, len(value), context.temp_allocator)
+        b     := strings.builder_make(0, len(value), context.temp_allocator)
         first := true
-        rest := value
+        rest  := value
         for len(rest) > 0 {
             // A word is a run of letters and digits.
             start := 0
@@ -370,7 +370,7 @@ capitalize :: proc(value: string) -> string {
         return value
     }
     r, width := utf8.decode_rune_in_string(value)
-    b := strings.builder_make(0, len(value), context.temp_allocator)
+    b        := strings.builder_make(0, len(value), context.temp_allocator)
     strings.write_rune(&b, unicode.to_upper(r))
     strings.write_string(&b, value[width:])
     return strings.to_string(b)

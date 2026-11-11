@@ -26,34 +26,34 @@ GLOBAL_CONFIG :: "settings/lsp.lua"
 USER_CONFIG :: "user/lsp.lua"
 
 WORKSPACE_CONFIG_DIR :: ".thor"
-WORKSPACE_CONFIG :: "lsp.lua"
+WORKSPACE_CONFIG     :: "lsp.lua"
 
 // One configured language server. Every string and slice is owned by the Config
 // that holds it.
 Server_Config :: struct {
-    id:           string,   // owned; the key a workspace entry overlays on
-    name:         string,   // owned; display name, the id when the key is absent
-    extensions:   []string, // owned; each with its leading '.'
+    id:            string,   // owned; the key a workspace entry overlays on
+    name:          string,   // owned; display name, the id when the key is absent
+    extensions:    []string, // owned; each with its leading '.'
     // Exact file names it claims, for files whose extension names no language
     // ("Makefile") or names the wrong one ("CMakeLists.txt"). Matched ahead of
     // `extensions`, and kept verbatim — no leading dot is added.
-    filenames:    []string, // owned
-    command:      []string, // owned; [0] is the program, resolved on PATH when not absolute
-    cwd:          string,   // owned; empty is the workspace root
-    env:          []string, // owned; "K=V" overlay on the parent environment
-    root_markers: []string, // owned
-    init_options: string,   // owned; JSON text, "" when the key is absent
-    settings:     string,   // owned; JSON text, "" when the key is absent
+    filenames:     []string, // owned
+    command:       []string, // owned; [0] is the program, resolved on PATH when not absolute
+    cwd:           string,   // owned; empty is the workspace root
+    env:           []string, // owned; "K=V" overlay on the parent environment
+    root_markers:  []string, // owned
+    init_options:  string,   // owned; JSON text, "" when the key is absent
+    settings:      string,   // owned; JSON text, "" when the key is absent
     // Setup data the host acts on. This package never runs an installer, opens a
     // URL or runs a command; it only carries the text.
-    install:      string, // owned; the install command for this platform, "" when none
-    docs_url:     string, // owned
-    setup_command: string, // owned; a plugin command the host offers as "Configure..."
+    install:       string,   // owned; the install command for this platform, "" when none
+    docs_url:      string,   // owned
+    setup_command: string,   // owned; a plugin command the host offers as "Configure..."
     // The admin gate this entry starts at. Both seed the Server's own
     // admin_enabled/admin_features, which the settings then own outright.
-    features:     bit_set[lang.Request_Kind],
-    enabled:      bool,
-    override:     bool, // register ahead of the in-client Odin engine
+    features:      bit_set[lang.Request_Kind],
+    enabled:       bool,
+    override:      bool, // register ahead of the in-client Odin engine
 }
 
 // A complaint about one config file. A problem never removes a server another
@@ -94,9 +94,9 @@ config_workspace_commands :: proc(workspace: string, allocator := context.alloca
     if !ok {
         return nil
     }
-    scratch := Config {
-        servers   = make([dynamic]Server_Config, context.temp_allocator),
-        problems  = make([dynamic]Config_Problem, context.temp_allocator),
+    scratch := Config{
+        servers = make([dynamic]Server_Config, context.temp_allocator),
+        problems = make([dynamic]Config_Problem, context.temp_allocator),
         allocator = context.temp_allocator,
     }
     config_merge_file(&scratch, path)
@@ -124,10 +124,7 @@ config_workspace_commands :: proc(workspace: string, allocator := context.alloca
         for entry in server.env {
             fmt.sbprintf(&b, "  %s", entry)
         }
-        out[index] = Workspace_Command {
-            id   = strings.clone(server.id, allocator),
-            text = strings.clone(strings.to_string(b), allocator),
-        }
+        out[index] = Workspace_Command{id = strings.clone(server.id, allocator), text = strings.clone(strings.to_string(b), allocator)}
     }
     return out
 }
@@ -137,9 +134,9 @@ config_workspace_commands :: proc(workspace: string, allocator := context.alloca
 // must not remove the servers the shipped one names. The workspace file comes
 // with the folder, so it is read only when the host says the user allowed it.
 config_load :: proc(workspace: string, trust_workspace: bool, allocator := context.allocator) -> Config {
-    cfg := Config {
-        servers   = make([dynamic]Server_Config, allocator),
-        problems  = make([dynamic]Config_Problem, allocator),
+    cfg := Config{
+        servers = make([dynamic]Server_Config, allocator),
+        problems = make([dynamic]Config_Problem, allocator),
         workspace = strings.clone(workspace, allocator),
         allocator = allocator,
     }
@@ -196,11 +193,7 @@ config_problem_text :: proc(problem: Config_Problem, allocator := context.alloca
 config_report :: proc(cfg: ^Config, file, id, message: string) {
     append(
         &cfg.problems,
-        Config_Problem {
-            file = strings.clone(file, cfg.allocator),
-            id = strings.clone(id, cfg.allocator),
-            message = strings.clone(message, cfg.allocator),
-        },
+        Config_Problem{file = strings.clone(file, cfg.allocator), id = strings.clone(id, cfg.allocator), message = strings.clone(message, cfg.allocator)},
     )
 }
 
@@ -304,14 +297,7 @@ config_merge_value :: proc(cfg: ^Config, value: json.Value, path := "") {
         }
         at := config_index(cfg, string(id))
         if at < 0 {
-            append(
-                &cfg.servers,
-                Server_Config {
-                    id = strings.clone(string(id), cfg.allocator),
-                    features = lang.FEATURES_ALL,
-                    enabled = true,
-                },
-            )
+            append(&cfg.servers, Server_Config{id = strings.clone(string(id), cfg.allocator), features = lang.FEATURES_ALL, enabled = true})
             at = len(cfg.servers) - 1
         }
         server_overlay(cfg, &cfg.servers[at], entry, path)
@@ -374,7 +360,7 @@ config_expand :: proc(cfg: ^Config, id, field, text: string) -> string {
     if !strings.contains(text, "${") {
         return text
     }
-    b := strings.builder_make(context.temp_allocator)
+    b    := strings.builder_make(context.temp_allocator)
     rest := text
     for {
         open := strings.index(rest, "${")
@@ -436,7 +422,7 @@ config_home :: proc() -> string {
 // The keys an entry may hold. A key outside this list is reported once and left
 // alone, so a file written for a later version still loads here.
 @(private)
-KNOWN_KEYS :: [?]string {
+KNOWN_KEYS :: [?]string{
     "id",
     "name",
     "extensions",
@@ -461,7 +447,7 @@ KNOWN_KEYS :: [?]string {
 @(private)
 server_overlay :: proc(cfg: ^Config, server: ^Server_Config, entry: json.Object, path: string) {
     alloc := cfg.allocator
-    id := server.id
+    id    := server.id
 
     for key in entry {
         known := false
@@ -655,7 +641,7 @@ string_list :: proc(arr: json.Array, alloc: runtime.Allocator) -> []string {
         return nil
     }
     out := make([]string, count, alloc)
-    at := 0
+    at  := 0
     for item in arr {
         text, ok := item.(json.String)
         if !ok || text == "" {
@@ -696,7 +682,7 @@ env_list :: proc(obj: json.Object, alloc: runtime.Allocator) -> []string {
         return nil
     }
     out := make([]string, count, alloc)
-    at := 0
+    at  := 0
     for name, value in obj {
         text, ok := value.(json.String)
         if !ok || name == "" {

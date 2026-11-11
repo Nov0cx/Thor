@@ -11,7 +11,7 @@ import ui "../vendor/loom/loom"
 
 // The Problems panel: the diagnostics of the open files and of the other files of the checked packages, grouped by file.
 
-PROBLEMS_WIDTH :: 760
+PROBLEMS_WIDTH  :: 760
 PROBLEMS_HEIGHT :: 520
 
 // State of the Problems panel.
@@ -59,18 +59,12 @@ thor_problem_groups :: proc(thor: ^Thor, allocator := context.temp_allocator) ->
         }
         rows := make([]Problem, len(diags), allocator)
         for d, i in diags {
-            rows[i] = Problem {
-                offset   = d.start,
-                line     = d.line,
-                severity = d.severity,
-                message  = d.message,
-                code     = d.code,
-            }
+            rows[i] = Problem{offset = d.start, line = d.line, severity = d.severity, message = d.message, code = d.code}
         }
         slice.stable_sort_by(rows, proc(a, b: Problem) -> bool {
             return a.line < b.line
         })
-        append(&groups, Problem_Group {path = file.path, problems = rows})
+        append(&groups, Problem_Group{path = file.path, problems = rows})
     }
     problems_add_closed(thor, &groups, allocator)
     slice.sort_by(groups[:], proc(a, b: Problem_Group) -> bool {
@@ -95,19 +89,12 @@ problems_add_closed :: proc(thor: ^Thor, groups: ^[dynamic]Problem_Group, alloca
             }
         }
         if at < 0 {
-            append(groups, Problem_Group {path = pp.path})
+            append(groups, Problem_Group{path = pp.path})
             at = len(groups) - 1
         }
         rows := make([dynamic]Problem, 0, len(groups[at].problems) + 1, allocator)
         append(&rows, ..groups[at].problems)
-        append(&rows, Problem {
-            offset   = -1,
-            col      = pp.col,
-            line     = pp.line - 1,
-            severity = pp.severity,
-            message  = pp.message,
-            code     = pp.code,
-        })
+        append(&rows, Problem{offset = -1, col = pp.col, line = pp.line - 1, severity = pp.severity, message = pp.message, code = pp.code})
         groups[at].problems = rows[:]
     }
     for g in groups[first:] {
@@ -135,13 +122,13 @@ thor_package_problems_store :: proc(thor: ^Thor, res: ^lang.Result) {
         if file, _ := thor_find_open_file(thor, d.path); file != nil && !file.closed {
             continue
         }
-        pp := Package_Problem {
-            path     = strings.clone(d.path),
-            line     = d.line,
-            col      = d.col,
+        pp := Package_Problem{
+            path = strings.clone(d.path),
+            line = d.line,
+            col = d.col,
             severity = editor_severity(d.severity),
-            message  = strings.clone(d.message),
-            code     = d.code,
+            message = strings.clone(d.message),
+            code = d.code,
         }
         if _, err := append(&thor.package_problems, pp); err != nil {
             delete(pp.path)
@@ -227,9 +214,12 @@ thor_problem_jump :: proc(thor: ^Thor, path: string, p: Problem) {
 @(private = "file")
 problem_color :: proc(thor: ^Thor, severity: editview.Diagnostic_Severity) -> ui.Color {
     switch severity {
-    case .Error:   return thor.theme.error_color
-    case .Warning: return thor.theme.warning_color
-    case .Information, .Hint: return thor.theme.info_color
+    case .Error:
+        return thor.theme.error_color
+    case .Warning:
+        return thor.theme.warning_color
+    case .Information, .Hint:
+        return thor.theme.info_color
     }
     return thor.theme.muted_color
 }
@@ -237,10 +227,14 @@ problem_color :: proc(thor: ^Thor, severity: editview.Diagnostic_Severity) -> ui
 @(private = "file")
 problem_label :: proc(severity: editview.Diagnostic_Severity) -> string {
     switch severity {
-    case .Error:   return "error"
-    case .Warning: return "warning"
-    case .Information: return "info"
-    case .Hint:    return "hint"
+    case .Error:
+        return "error"
+    case .Warning:
+        return "warning"
+    case .Information:
+        return "info"
+    case .Hint:
+        return "hint"
     }
     return ""
 }
@@ -302,13 +296,7 @@ problems_box :: proc(thor: ^Thor) {
     groups := thor_problem_groups(thor)
     problems_header(thor, groups)
 
-    ui.scope(
-        {
-            key = "list",
-            flags = {.Clip, .Scroll_Y},
-            props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column, pad = ui.xy(8, 8), gap = {0, 2}},
-        },
-    )
+    ui.scope({key = "list", flags = {.Clip, .Scroll_Y}, props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column, pad = ui.xy(8, 8), gap = {0, 2}}})
     if len(groups) == 0 {
         ui.label("No problems.", {key = "none", props = {color = thor.theme.muted_color, pad = ui.xy(8, 8)}})
         return
@@ -331,15 +319,7 @@ problems_header :: proc(thor: ^Thor, groups: []Problem_Group) {
     ui.scope(
         {
             key = "header",
-            props = {
-                w = ui.Grow(1),
-                h = ui.FIT,
-                dir = .Row,
-                align = .Center,
-                gap = {10, 0},
-                pad = ui.xy(14, 12),
-                bg = thor.theme.second_background,
-            },
+            props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {10, 0}, pad = ui.xy(14, 12), bg = thor.theme.second_background},
         },
     )
     thor_icon_label(thor, "alert-circle", thor.theme.error_color)
@@ -375,7 +355,7 @@ problem_row :: proc(thor: ^Thor, path: string, p: Problem, index: int) {
     ui.push_id_int(i64(index))
     defer ui.pop_id()
     color := problem_color(thor, p.severity)
-    row := ui.scope(
+    row   := ui.scope(
         {
             key = "row",
             flags = {.Clickable},

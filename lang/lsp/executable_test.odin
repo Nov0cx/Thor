@@ -72,7 +72,7 @@ test_is_batch :: proc(t: ^testing.T) {
         path: string,
         want: bool,
     }
-    cases := []Case {
+    cases := []Case{
         {"C:/tools/tsserver.cmd", true},
         {"C:/tools/TSSERVER.BAT", true},
         {"C:/tools/clangd.exe", false},

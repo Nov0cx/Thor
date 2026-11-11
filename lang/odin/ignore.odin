@@ -8,56 +8,103 @@ import "core:strings"
 import lang ".."
 import odinsyntax "syntax"
 
-CODE_SYNTAX     :: "syntax/error"
-CODE_REDECLARED :: "name/redeclared"
-CODE_UNDECLARED :: "name/undeclared"
-CODE_PRIVATE    :: "name/private"
-CODE_IMPORT     :: "import/unresolved"
-CODE_CYCLE      :: "import/cycle"
-CODE_ARITY      :: "call/arity"
-CODE_NAMED      :: "call/named"
-CODE_NO_MEMBER  :: "type/no-member"
-CODE_SWITCH     :: "switch/non-exhaustive"
-CODE_ASSERT     :: "assert/static"
-CODE_MISMATCH   :: "type/mismatch"
-CODE_OVERLOAD   :: "call/overload"
-CODE_OVERFLOW   :: "const/overflow"
-CODE_RETURN     :: "flow/missing-return"
-CODE_OR_RETURN  :: "or_return/mismatch"
-CODE_WHERE      :: "poly/where"
-CODE_COUNT      :: "assign/count"
-CODE_UNREACHABLE       :: "flow/unreachable"
-CODE_UNREACHABLE_DEFER :: "flow/unreachable-defer"
-CODE_UNUSED_VAR        :: "vet/unused-variable"
-CODE_DEAD_STORE        :: "flow/dead-store"
-CODE_UNUSED_IMPORT     :: "vet/unused-import"
-CODE_SHADOWING         :: "vet/shadowing"
-CODE_USING_STMT        :: "vet/using-stmt"
-CODE_WHEN_SHADOWING    :: "vet/when-shadowing"
-CODE_FMT_VERBS         :: "api/fmt-verbs"
-CODE_IGNORED_ERROR     :: "api/ignored-error"
-CODE_DANGLING_SLICE    :: "mem/dangling-slice"
-CODE_TEMP_ESCAPE       :: "mem/temp-escape"
-CODE_DEFER_IN_LOOP     :: "defer/in-loop"
-CODE_DEPRECATED        :: "api/deprecated"
-CODE_RANGE_COPY        :: "perf/range-copy"
-CODE_SELF_ASSIGN       :: "logic/self-assign"
+CODE_SYNTAX             :: "syntax/error"
+CODE_REDECLARED         :: "name/redeclared"
+CODE_UNDECLARED         :: "name/undeclared"
+CODE_PRIVATE            :: "name/private"
+CODE_IMPORT             :: "import/unresolved"
+CODE_CYCLE              :: "import/cycle"
+CODE_ARITY              :: "call/arity"
+CODE_NAMED              :: "call/named"
+CODE_NO_MEMBER          :: "type/no-member"
+CODE_SWITCH             :: "switch/non-exhaustive"
+CODE_ASSERT             :: "assert/static"
+CODE_MISMATCH           :: "type/mismatch"
+CODE_OVERLOAD           :: "call/overload"
+CODE_OVERFLOW           :: "const/overflow"
+CODE_RETURN             :: "flow/missing-return"
+CODE_OR_RETURN          :: "or_return/mismatch"
+CODE_WHERE              :: "poly/where"
+CODE_COUNT              :: "assign/count"
+CODE_UNREACHABLE        :: "flow/unreachable"
+CODE_UNREACHABLE_DEFER  :: "flow/unreachable-defer"
+CODE_UNUSED_VAR         :: "vet/unused-variable"
+CODE_DEAD_STORE         :: "flow/dead-store"
+CODE_UNUSED_IMPORT      :: "vet/unused-import"
+CODE_SHADOWING          :: "vet/shadowing"
+CODE_USING_STMT         :: "vet/using-stmt"
+CODE_WHEN_SHADOWING     :: "vet/when-shadowing"
+CODE_FMT_VERBS          :: "api/fmt-verbs"
+CODE_IGNORED_ERROR      :: "api/ignored-error"
+CODE_DANGLING_SLICE     :: "mem/dangling-slice"
+CODE_TEMP_ESCAPE        :: "mem/temp-escape"
+CODE_DEFER_IN_LOOP      :: "defer/in-loop"
+CODE_DEPRECATED         :: "api/deprecated"
+CODE_RANGE_COPY         :: "perf/range-copy"
+CODE_SELF_ASSIGN        :: "logic/self-assign"
 CODE_IDENTICAL_BRANCHES :: "logic/identical-branches"
-CODE_CONST_CONDITION   :: "logic/const-condition"
-CODE_NAMING            :: "style/naming"
-CODE_LEAK              :: "mem/leak"
-CODE_DOUBLE_FREE       :: "mem/double-free"
-CODE_USE_AFTER_FREE    :: "mem/use-after-free"
-CODE_NIL_DEREF         :: "nil/deref"
-CODE_UNUSED_PROC       :: "vet/unused-procedure"
-CODE_CAST              :: "vet/cast"
-CODE_STYLE             :: "vet/style"
-CODE_SEMICOLON         :: "vet/semicolon"
-CODE_TABS              :: "vet/tabs"
+CODE_CONST_CONDITION    :: "logic/const-condition"
+CODE_NAMING             :: "style/naming"
+CODE_LEAK               :: "mem/leak"
+CODE_DOUBLE_FREE        :: "mem/double-free"
+CODE_USE_AFTER_FREE     :: "mem/use-after-free"
+CODE_NIL_DEREF          :: "nil/deref"
+CODE_UNUSED_PROC        :: "vet/unused-procedure"
+CODE_CAST               :: "vet/cast"
+CODE_STYLE              :: "vet/style"
+CODE_SEMICOLON          :: "vet/semicolon"
+CODE_TABS               :: "vet/tabs"
 
 // Every id the engine reports.
 @(private = "file")
-KNOWN_CODES := [?]string{CODE_SYNTAX, CODE_REDECLARED, CODE_UNDECLARED, CODE_PRIVATE, CODE_IMPORT, CODE_ARITY, CODE_NAMED, CODE_NO_MEMBER, CODE_SWITCH, CODE_ASSERT, CODE_MISMATCH, CODE_OVERLOAD, CODE_OVERFLOW, CODE_RETURN, CODE_OR_RETURN, CODE_WHERE, CODE_COUNT, CODE_CYCLE, CODE_UNREACHABLE, CODE_UNREACHABLE_DEFER, CODE_UNUSED_VAR, CODE_DEAD_STORE, CODE_UNUSED_IMPORT, CODE_SHADOWING, CODE_USING_STMT, CODE_WHEN_SHADOWING, CODE_FMT_VERBS, CODE_IGNORED_ERROR, CODE_DANGLING_SLICE, CODE_TEMP_ESCAPE, CODE_DEFER_IN_LOOP, CODE_DEPRECATED, CODE_RANGE_COPY, CODE_SELF_ASSIGN, CODE_IDENTICAL_BRANCHES, CODE_CONST_CONDITION, CODE_NAMING, CODE_LEAK, CODE_DOUBLE_FREE, CODE_USE_AFTER_FREE, CODE_NIL_DEREF, CODE_UNUSED_PROC, CODE_CAST, CODE_STYLE, CODE_SEMICOLON, CODE_TABS}
+KNOWN_CODES := [?]string{
+    CODE_SYNTAX,
+    CODE_REDECLARED,
+    CODE_UNDECLARED,
+    CODE_PRIVATE,
+    CODE_IMPORT,
+    CODE_ARITY,
+    CODE_NAMED,
+    CODE_NO_MEMBER,
+    CODE_SWITCH,
+    CODE_ASSERT,
+    CODE_MISMATCH,
+    CODE_OVERLOAD,
+    CODE_OVERFLOW,
+    CODE_RETURN,
+    CODE_OR_RETURN,
+    CODE_WHERE,
+    CODE_COUNT,
+    CODE_CYCLE,
+    CODE_UNREACHABLE,
+    CODE_UNREACHABLE_DEFER,
+    CODE_UNUSED_VAR,
+    CODE_DEAD_STORE,
+    CODE_UNUSED_IMPORT,
+    CODE_SHADOWING,
+    CODE_USING_STMT,
+    CODE_WHEN_SHADOWING,
+    CODE_FMT_VERBS,
+    CODE_IGNORED_ERROR,
+    CODE_DANGLING_SLICE,
+    CODE_TEMP_ESCAPE,
+    CODE_DEFER_IN_LOOP,
+    CODE_DEPRECATED,
+    CODE_RANGE_COPY,
+    CODE_SELF_ASSIGN,
+    CODE_IDENTICAL_BRANCHES,
+    CODE_CONST_CONDITION,
+    CODE_NAMING,
+    CODE_LEAK,
+    CODE_DOUBLE_FREE,
+    CODE_USE_AFTER_FREE,
+    CODE_NIL_DEREF,
+    CODE_UNUSED_PROC,
+    CODE_CAST,
+    CODE_STYLE,
+    CODE_SEMICOLON,
+    CODE_TABS,
+}
 
 // True for an id the engine reports.
 @(private)
@@ -108,7 +155,7 @@ Ignore :: struct {
 // code to its own line; `thor:ignore-file` applies to the whole file.
 @(private)
 apply_ignores :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) {
-    src := rc.req.source
+    src              := rc.req.source
     ignores, unknown := file_ignores(src)
     if len(ignores) == 0 && len(unknown) == 0 {
         return
@@ -171,9 +218,9 @@ read_ignore :: proc(src: string, start, end: int, out: ^[dynamic]Ignore, unknown
     if body != "" && !strings.is_space(rune(body[0])) {
         return
     }
-    ids := make([dynamic]string, context.temp_allocator)
+    ids           := make([dynamic]string, context.temp_allocator)
     first_unknown := len(unknown)
-    rest := body
+    rest          := body
     for {
         rest = strings.trim_left_space(rest)
         if rest == "" {

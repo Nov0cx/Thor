@@ -25,7 +25,7 @@ Undo_Entry :: struct {
 
 // Bounds on the undo history. Past either, the oldest nodes are dropped; the current one always stays.
 MAX_UNDO_ENTRIES :: 1024
-MAX_UNDO_BYTES :: 16 * 1024 * 1024
+MAX_UNDO_BYTES   :: 16 * 1024 * 1024
 
 // Node index that names no node.
 NO_NODE :: -1
@@ -176,11 +176,7 @@ node_hunks :: proc(node: ^Undo_Node, allocator := context.allocator) -> []Node_H
     }
     out := make([]Node_Hunk, len(spans), allocator)
     for s, i in spans {
-        out[i] = Node_Hunk {
-            pos      = s.lo,
-            inserted = s.hi - s.lo,
-            removed  = s.removed,
-        }
+        out[i] = Node_Hunk{pos = s.lo, inserted = s.hi - s.lo, removed = s.removed}
     }
     return out
 }
@@ -202,7 +198,7 @@ undo :: proc(state: ^State) {
         return
     }
     index := tree.current
-    node := &tree.nodes[index]
+    node  := &tree.nodes[index]
     apply_backward(state, node)
     tree.nodes[node.parent].active = index
     tree.current = node.parent
@@ -246,7 +242,7 @@ undo_earlier :: proc(state: ^State) -> bool {
     if len(tree.nodes) == 0 {
         return false
     }
-    seq := tree.nodes[tree.current].seq
+    seq  := tree.nodes[tree.current].seq
     best := NO_NODE
     for &node, i in tree.nodes {
         if node.live && node.seq < seq && (best == NO_NODE || node.seq > tree.nodes[best].seq) {
@@ -262,7 +258,7 @@ undo_later :: proc(state: ^State) -> bool {
     if len(tree.nodes) == 0 {
         return false
     }
-    seq := tree.nodes[tree.current].seq
+    seq  := tree.nodes[tree.current].seq
     best := NO_NODE
     for &node, i in tree.nodes {
         if node.live && node.seq > seq && (best == NO_NODE || node.seq < tree.nodes[best].seq) {
@@ -280,12 +276,12 @@ join_last_undo :: proc(state: ^State) {
     if !can_undo(state) {
         return
     }
-    index := tree.current
+    index        := tree.current
     parent_index := tree.nodes[index].parent
     if parent_index == tree.root || len(tree.nodes[parent_index].children) != 1 {
         return
     }
-    top := &tree.nodes[index]
+    top  := &tree.nodes[index]
     prev := &tree.nodes[parent_index]
     append(&prev.ops, ..top.ops[:])
     delete(top.ops)
@@ -302,10 +298,7 @@ join_last_undo :: proc(state: ^State) {
     delete(prev.children)
     prev.children = top.children
     prev.active = top.active
-    top^ = Undo_Node {
-        parent = NO_NODE,
-        active = NO_NODE,
-    }
+    top^ = Undo_Node{parent = NO_NODE, active = NO_NODE}
     append(&tree.free, index)
     tree.count -= 1
     tree.current = parent_index
@@ -381,7 +374,7 @@ tree_ensure :: proc(tree: ^Undo_Tree) {
     if len(tree.nodes) > 0 {
         return
     }
-    append(&tree.nodes, Undo_Node {parent = NO_NODE, active = NO_NODE, stamp = time.now(), live = true})
+    append(&tree.nodes, Undo_Node{parent = NO_NODE, active = NO_NODE, stamp = time.now(), live = true})
     tree.root = 0
     tree.current = 0
     tree.next_seq = 1
@@ -391,14 +384,7 @@ tree_ensure :: proc(tree: ^Undo_Tree) {
 // Adds `entry` as a new child of the current node and moves to it. The tree takes the entry.
 @(private)
 tree_push :: proc(tree: ^Undo_Tree, entry: Undo_Entry) {
-    node := Undo_Node {
-        entry  = entry,
-        parent = tree.current,
-        active = NO_NODE,
-        seq    = tree.next_seq,
-        stamp  = time.now(),
-        live   = true,
-    }
+    node := Undo_Node{entry = entry, parent = tree.current, active = NO_NODE, seq = tree.next_seq, stamp = time.now(), live = true}
     tree.next_seq += 1
     index: int
     if n := len(tree.free); n > 0 {
@@ -420,10 +406,7 @@ tree_push :: proc(tree: ^Undo_Tree, entry: Undo_Entry) {
 node_destroy :: proc(node: ^Undo_Node) {
     entry_destroy(&node.entry)
     delete(node.children)
-    node^ = Undo_Node {
-        parent = NO_NODE,
-        active = NO_NODE,
-    }
+    node^ = Undo_Node{parent = NO_NODE, active = NO_NODE}
 }
 
 @(private)
@@ -502,7 +485,7 @@ trim_undo_history :: proc(state: ^State) {
 // Drops the oldest leaf that is not the current node. False when there is none.
 @(private)
 drop_oldest_leaf :: proc(state: ^State) -> bool {
-    tree := &state.history
+    tree   := &state.history
     oldest := NO_NODE
     for &node, i in tree.nodes {
         if !node.live || i == tree.root || i == tree.current || len(node.children) > 0 {
@@ -515,7 +498,7 @@ drop_oldest_leaf :: proc(state: ^State) -> bool {
     if oldest == NO_NODE {
         return false
     }
-    node := &tree.nodes[oldest]
+    node   := &tree.nodes[oldest]
     parent := &tree.nodes[node.parent]
     for child, k in parent.children {
         if child == oldest {
@@ -538,7 +521,7 @@ drop_oldest_leaf :: proc(state: ^State) -> bool {
 // undone past. False when the root has branches or its child is the current node.
 @(private)
 fold_root :: proc(state: ^State) -> bool {
-    tree := &state.history
+    tree     := &state.history
     old_root := tree.root
     if len(tree.nodes[old_root].children) != 1 {
         return false
@@ -587,9 +570,9 @@ same_run :: proc(run, next: string) -> bool {
     if len(run) == 0 || len(next) == 0 {
         return false
     }
-    last, _ := utf8.decode_last_rune_in_string(run)
+    last, _  := utf8.decode_last_rune_in_string(run)
     first, _ := utf8.decode_rune_in_string(next)
-    class := run_class(last)
+    class    := run_class(last)
     return class != .Other && class == run_class(first)
 }
 

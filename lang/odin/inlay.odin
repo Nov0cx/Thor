@@ -24,7 +24,7 @@ Inlay_Ctx :: struct {
     lo, hi:     int,
     types:      bool,
     parameters: bool,
-    items:      map[int]int, // item index by name offset of the buffer's declarations
+    items:      map[int]int,              // item index by name offset of the buffer's declarations
     hints:      [dynamic]lang.Inlay_Hint, // temp-allocated labels
     steps:      int,
     cancelled:  bool,
@@ -47,15 +47,15 @@ inlay_hints :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     if c == nil {
         return
     }
-    ctx := Inlay_Ctx {
-        rc         = &rc,
-        c          = c,
-        lo         = 0,
-        hi         = len(req.source),
-        types      = types,
+    ctx := Inlay_Ctx{
+        rc = &rc,
+        c = c,
+        lo = 0,
+        hi = len(req.source),
+        types = types,
         parameters = parameters,
-        items      = make(map[int]int, len(rc.live.tree.items), context.temp_allocator),
-        hints      = make([dynamic]lang.Inlay_Hint, context.temp_allocator),
+        items = make(map[int]int, len(rc.live.tree.items), context.temp_allocator),
+        hints = make([dynamic]lang.Inlay_Hint, context.temp_allocator),
     }
     if req.end > req.offset {
         ctx.lo, ctx.hi = clamp(req.offset, 0, len(req.source)), clamp(req.end, 0, len(req.source))
@@ -121,13 +121,13 @@ value_decl_hints :: proc(ctx: ^Inlay_Ctx, n: odinsyntax.Syntax_Node) {
     if _, typed := odinsyntax.value_decl_type(&vd); typed {
         return
     }
-    names, has_names := odinsyntax.value_decl_names(&vd)
+    names, has_names   := odinsyntax.value_decl_names(&vd)
     values, has_values := odinsyntax.value_decl_values(&vd)
     if !has_names || !has_values {
         return
     }
     constant := odinsema.is_constant_decl(n)
-    vit := odinsyntax.expr_list_items(&values)
+    vit      := odinsyntax.expr_list_items(&values)
     for v in odinsyntax.child_iter_next(&vit) {
         if spells_type(ctx, v) || constant && names_no_value(ctx, v) {
             return
@@ -135,7 +135,7 @@ value_decl_hints :: proc(ctx: ^Inlay_Ctx, n: odinsyntax.Syntax_Node) {
     }
     // The hint goes between the colons: `x : int = v`, `X : int : v`.
     colon := -1
-    n := n
+    n     := n
     for child in odinsyntax.node_children(&n, context.temp_allocator) {
         if tok, is_token := child.(odinsyntax.Syntax_Token); is_token && tok.green.kind == .Colon {
             colon = int(tok.offset)
@@ -146,7 +146,7 @@ value_decl_hints :: proc(ctx: ^Inlay_Ctx, n: odinsyntax.Syntax_Node) {
         return
     }
     labels := make([dynamic]string, context.temp_allocator)
-    nit := odinsyntax.name_list_names(&names)
+    nit    := odinsyntax.name_list_names(&names)
     for name in odinsyntax.child_iter_next(&nit) {
         if name.green.kind != .Ident {
             return
@@ -160,13 +160,10 @@ value_decl_hints :: proc(ctx: ^Inlay_Ctx, n: odinsyntax.Syntax_Node) {
     if len(labels) == 0 {
         return
     }
-    append(&ctx.hints, lang.Inlay_Hint{
-        offset    = colon + 1,
-        label     = strings.join(labels[:], ", ", context.temp_allocator),
-        kind      = .Type,
-        pad_left  = true,
-        pad_right = true,
-    })
+    append(
+        &ctx.hints,
+        lang.Inlay_Hint{offset = colon + 1, label = strings.join(labels[:], ", ", context.temp_allocator), kind = .Type, pad_left = true, pad_right = true},
+    )
 }
 
 // Whether a constant's value is no value to type: a type, a procedure group or a directive.
@@ -182,7 +179,7 @@ names_no_value :: proc(ctx: ^Inlay_Ctx, value: odinsyntax.Syntax_Node) -> bool {
 // The type hints of the variables of a range `for`, after each name.
 @(private = "file")
 range_hints :: proc(ctx: ^Inlay_Ctx, n: odinsyntax.Syntax_Node) {
-    rs, _ := odinsyntax.as_range_stmt(n)
+    rs, _    := odinsyntax.as_range_stmt(n)
     vars, ok := odinsyntax.range_stmt_vars(&rs)
     if !ok {
         return
@@ -209,7 +206,7 @@ decl_label :: proc(ctx: ^Inlay_Ctx, name: odinsyntax.Syntax_Node) -> (string, bo
         return "", false
     }
     file := ctx.rc.live.id
-    sym := odinsema.local_symbol(file, int(name.offset))
+    sym  := odinsema.local_symbol(file, int(name.offset))
     if i, is_item := ctx.items[int(name.offset)]; is_item {
         sym = odinsema.Symbol{file = file, item = i32(i), child = -1}
     }
@@ -239,13 +236,13 @@ spells_type :: proc(ctx: ^Inlay_Ctx, value: odinsyntax.Syntax_Node) -> bool {
     value := value
     #partial switch value.green.kind {
     case .Comp_Lit:
-        lit, _ := odinsyntax.as_comp_lit(value)
+        lit, _   := odinsyntax.as_comp_lit(value)
         _, typed := odinsyntax.comp_lit_type(&lit)
         return typed
     case .Cast_Expr, .Auto_Cast_Expr, .Proc_Lit:
         return true
     case .Call_Expr:
-        ce, _ := odinsyntax.as_call_expr(value)
+        ce, _      := odinsyntax.as_call_expr(value)
         callee, ok := odinsyntax.call_expr_callee(&ce)
         if !ok {
             return false
@@ -262,15 +259,15 @@ spells_type :: proc(ctx: ^Inlay_Ctx, value: odinsyntax.Syntax_Node) -> bool {
 // The parameter hints of the positional arguments of a call.
 @(private = "file")
 call_hints :: proc(ctx: ^Inlay_Ctx, call: odinsyntax.Syntax_Node) {
-    ce, _ := odinsyntax.as_call_expr(call)
+    ce, _              := odinsyntax.as_call_expr(call)
     callee, has_callee := odinsyntax.call_expr_callee(&ce)
-    list, has_list := odinsyntax.call_expr_args(&ce)
+    list, has_list     := odinsyntax.call_expr_args(&ce)
     if !has_callee || !has_list {
         return
     }
     arg_text := make(map[int]string, context.temp_allocator)
-    count := 0
-    it := odinsyntax.arg_list_args(&list)
+    count    := 0
+    it       := odinsyntax.arg_list_args(&list)
     for arg in odinsyntax.child_iter_next(&it) {
         arg_text[int(arg.offset)] = odinsyntax.node_text(arg)
         count += 1
@@ -293,12 +290,10 @@ call_hints :: proc(ctx: ^Inlay_Ctx, call: odinsyntax.Syntax_Node) {
         if count == 1 && (strings.has_suffix(callee_name, p.name) || strings.has_prefix(callee_name, p.name)) {
             continue
         }
-        append(&ctx.hints, lang.Inlay_Hint{
-            offset    = p.offset,
-            label     = strings.concatenate({p.name, ":"}, context.temp_allocator),
-            kind      = .Parameter,
-            pad_right = true,
-        })
+        append(
+            &ctx.hints,
+            lang.Inlay_Hint{offset = p.offset, label = strings.concatenate({p.name, ":"}, context.temp_allocator), kind = .Parameter, pad_right = true},
+        )
     }
 }
 

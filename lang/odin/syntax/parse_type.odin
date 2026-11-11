@@ -19,8 +19,8 @@ parse_proc_operand :: proc(p: ^Parser) -> Expr {
         return {kind = .Proc_Group}
     }
     parse_signature(p)
-    sig_end := mark_end(p)
-    skipped := skip_newline_for_literal(p)
+    sig_end   := mark_end(p)
+    skipped   := skip_newline_for_literal(p)
     has_where := false
     if at(p) == .Where {
         wrap_range(p, cp, sig_end, .Proc_Type)
@@ -156,9 +156,9 @@ Field_Item :: struct {
 // the items are read as types, and become the names of the first field on a ':'.
 @(private)
 parse_field_list :: proc(p: ^Parser, follow: Token_Kind, mode: Field_Mode) {
-    typeid_ok := mode == .Params || mode == .Poly_Params
+    typeid_ok   := mode == .Params || mode == .Poly_Params
     ellipsis_ok := mode == .Params || mode == .Results
-    items := make([dynamic]Field_Item, 0, 8, context.temp_allocator)
+    items       := make([dynamic]Field_Item, 0, 8, context.temp_allocator)
     for at(p) != follow && at(p) != .Colon && at(p) != .EOF {
         item := Field_Item{start = mark(p)}
         parse_field_prefixes(p)
@@ -188,7 +188,7 @@ parse_field_list :: proc(p: ^Parser, follow: Token_Kind, mode: Field_Mode) {
     }
     for at(p) != follow && at(p) != .EOF {
         before := progress(p)
-        fcp := mark(p)
+        fcp    := mark(p)
         parse_field_prefixes(p)
         ncp := mark(p)
         parse_ident_list(p, typeid_ok)
@@ -222,7 +222,7 @@ parse_field_rest :: proc(p: ^Parser, start: int, mode: Field_Mode, follow: Token
         bump(p)
     }
     end := mark_end(p)
-    ok := allow(p, .Comma)
+    ok  := allow(p, .Comma)
     if !ok && at(p) == .Semicolon {
         if next, _ := lookahead(p, 1); !at_newline(p) || next != follow {
             error_at(p, p.prev_end, p.prev_end, .Expected_Token, .Comma, .Newline if at_newline(p) else .Semicolon)
@@ -244,7 +244,7 @@ parse_field_prefixes :: proc(p: ^Parser) {
             continue
         case .Hash:
             kind, tok := lookahead(p, 1)
-            name := token_text(p.src, tok) if kind == .Ident else ""
+            name      := token_text(p.src, tok) if kind == .Ident else ""
             switch name {
             case "simd", "type", "row_major", "column_major", "sparse", "soa":
                 return
@@ -412,7 +412,7 @@ parse_bit_field_type :: proc(p: ^Parser) -> Expr {
                 bump(p)
             }
             end := mark_end(p)
-            ok := list_separator(p, .Close_Brace)
+            ok  := list_separator(p, .Close_Brace)
             wrap_range(p, fcp, end, .Bit_Field_Field)
             if !ok {
                 break
@@ -504,7 +504,7 @@ parse_asm_specs :: proc(p: ^Parser) {
         case .Ident:
             parse_asm_spec(p)
         case .Hash:
-            ccp := mark(p)
+            ccp  := mark(p)
             name := parse_directive(p)
             switch name {
             case "volatile", "align_stack", "pure":
@@ -539,8 +539,10 @@ parse_asm_spec :: proc(p: ^Parser) {
     }
     if allow(p, .Eq) {
         #partial switch at(p) {
-        case .Ident: parse_ident(p)
-        case .Mod:   parse_asm_register(p)
+        case .Ident:
+            parse_ident(p)
+        case .Mod:
+            parse_asm_register(p)
         case:
             error_here(p, .Expected_Operand)
             parse_expr(p, true)
@@ -677,7 +679,7 @@ parse_asm_instruction :: proc(p: ^Parser) {
     if allow(p, .Semicolon) {
         return
     }
-    cp := mark(p)
+    cp   := mark(p)
     kind := at(p)
     switch {
     case kind == .Ident || token_is_keyword(kind):

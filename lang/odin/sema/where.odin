@@ -20,7 +20,7 @@ where_failing :: proc(c: ^Checker, p: Proc_Type, env: []Binding) -> (odinsyntax.
     if !ok {
         return {}, false
     }
-    lit, _ := odinsyntax.as_proc_lit(node)
+    lit, _             := odinsyntax.as_proc_lit(node)
     clause, has_clause := odinsyntax.proc_lit_where_clause(&lit)
     if !has_clause {
         return {}, false
@@ -50,23 +50,23 @@ where_value :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (v
     n := n
     #partial switch n.green.kind {
     case .Paren_Expr:
-        pe, _ := odinsyntax.as_paren_expr(n)
+        pe, _     := odinsyntax.as_paren_expr(n)
         inner, ok := odinsyntax.paren_expr_expr(&pe)
         if !ok {
             return false, false
         }
         return where_value(c, file, inner)
     case .Unary_Expr:
-        u, _ := odinsyntax.as_unary_expr(n)
-        op, has_op := odinsyntax.unary_expr_op(&u)
+        u, _                 := odinsyntax.as_unary_expr(n)
+        op, has_op           := odinsyntax.unary_expr_op(&u)
         operand, has_operand := odinsyntax.unary_expr_operand(&u)
         if has_op && has_operand && op.green.kind == .Not {
             v, ok := where_value(c, file, operand)
             return !v, ok
         }
     case .Binary_Expr:
-        b, _ := odinsyntax.as_binary_expr(n)
-        op, has_op := odinsyntax.binary_expr_op(&b)
+        b, _         := odinsyntax.as_binary_expr(n)
+        op, has_op   := odinsyntax.binary_expr_op(&b)
         lhs, has_lhs := odinsyntax.binary_expr_lhs(&b)
         rhs, has_rhs := odinsyntax.binary_expr_rhs(&b)
         if !has_op || !has_lhs || !has_rhs {
@@ -139,7 +139,7 @@ intrinsic_call :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) ->
         return
     }
     callee, has_callee := odinsyntax.call_expr_callee(&call)
-    list, has_list := odinsyntax.call_expr_args(&call)
+    list, has_list     := odinsyntax.call_expr_args(&call)
     if !has_callee || !has_list {
         return
     }
@@ -157,7 +157,7 @@ intrinsic_call :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) ->
         name = name[dot + 1:]
     }
     out := make([dynamic]odinsyntax.Syntax_Node, 0, 2, c.tmp)
-    it := odinsyntax.arg_list_args(&list)
+    it  := odinsyntax.arg_list_args(&list)
     for arg in odinsyntax.child_iter_next(&it) {
         if _, err := append(&out, arg); !note_alloc(c, err) {
             return "", nil, false
@@ -189,9 +189,9 @@ type_intrinsic :: proc(c: ^Checker, file: File_Id, name: string, args: []odinsyn
     if !is_type || arg == INVALID_TYPE {
         return INVALID_TYPE, false
     }
-    t := &c.table
+    t    := &c.table
     base := type_base(t, arg)
-    out := INVALID_TYPE
+    out  := INVALID_TYPE
     switch name {
     case "type_base_type":
         out = base
@@ -199,15 +199,24 @@ type_intrinsic :: proc(c: ^Checker, file: File_Id, name: string, args: []odinsyn
         out = core_type(c, arg)
     case "type_elem_type":
         #partial switch v in type_get(t, base) {
-        case Pointer_Type:           out = v.elem
-        case Multi_Pointer_Type:     out = v.elem
-        case Array_Type:             out = v.elem
-        case Enumerated_Array_Type:  out = v.elem
-        case Slice_Type:             out = v.elem
-        case Dynamic_Array_Type:     out = v.elem
-        case Simd_Type:              out = v.elem
-        case Matrix_Type:            out = v.elem
-        case Soa_Type:               out = v.elem
+        case Pointer_Type:
+            out = v.elem
+        case Multi_Pointer_Type:
+            out = v.elem
+        case Array_Type:
+            out = v.elem
+        case Enumerated_Array_Type:
+            out = v.elem
+        case Slice_Type:
+            out = v.elem
+        case Dynamic_Array_Type:
+            out = v.elem
+        case Simd_Type:
+            out = v.elem
+        case Matrix_Type:
+            out = v.elem
+        case Soa_Type:
+            out = v.elem
         case Basic_Type:
             out = component_of(c, base)
             if out == INVALID_TYPE {
@@ -224,11 +233,16 @@ type_intrinsic :: proc(c: ^Checker, file: File_Id, name: string, args: []odinsyn
             if out == INVALID_TYPE {
                 if l, lok := layout_of(c, base); lok {
                     switch l.size {
-                    case 1:  out = type_basic(.U8)
-                    case 2:  out = type_basic(.U16)
-                    case 4:  out = type_basic(.U32)
-                    case 8:  out = type_basic(.U64)
-                    case 16: out = type_basic(.U128)
+                    case 1:
+                        out = type_basic(.U8)
+                    case 2:
+                        out = type_basic(.U16)
+                    case 4:
+                        out = type_basic(.U32)
+                    case 8:
+                        out = type_basic(.U64)
+                    case 16:
+                        out = type_basic(.U128)
                     }
                 }
             }
@@ -284,8 +298,8 @@ type_predicate :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) ->
     if _, unbound := type_get(&c.table, arg).(Poly_Param_Type); unbound {
         return false, false
     }
-    t := &c.table
-    base := type_base(t, arg)
+    t     := &c.table
+    base  := type_base(t, arg)
     shape := type_get(t, base)
     switch name {
     case "type_has_field":
@@ -330,53 +344,108 @@ type_predicate :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) ->
     }
     basic, is_basic := shape.(Basic_Type)
     switch name[len("type_is_"):] {
-    case "integer":          return type_is_integer(t, base), true
-    case "unsigned":         return basic_unsigned(c, base), true
-    case "float":            return type_is_float(t, base), true
-    case "complex":          return type_is_complex(t, base), true
-    case "quaternion":       return type_is_quaternion(t, base), true
-    case "numeric":          return type_is_numeric(t, base), true
-    case "string":           return type_is_string(t, base), true
-    case "boolean":          return type_is_boolean(t, base), true
-    case "cstring":          return is_basic && (basic.kind == .Cstring || basic.kind == .Cstring16), true
-    case "string16":         return is_basic && basic.kind == .String16, true
-    case "cstring16":        return is_basic && basic.kind == .Cstring16, true
-    case "rune":             return is_basic && basic.kind == .Rune, true
-    case "rawptr":           return is_basic && basic.kind == .Rawptr, true
-    case "any":              return is_basic && basic.kind == .Any, true
-    case "typeid":           return is_basic && basic.kind == .Typeid, true
-    case "named":            return arg != base, true
-    case "pointer":          _, ok := shape.(Pointer_Type); return ok, true
-    case "multi_pointer":    _, ok := shape.(Multi_Pointer_Type); return ok, true
-    case "slice":            _, ok := shape.(Slice_Type); return ok, true
-    case "dynamic_array":    _, ok := shape.(Dynamic_Array_Type); return ok, true
-    case "array":            _, ok := shape.(Array_Type); return ok, true
-    case "enumerated_array": _, ok := shape.(Enumerated_Array_Type); return ok, true
-    case "map":              _, ok := shape.(Map_Type); return ok, true
-    case "struct":           _, ok := shape.(Struct_Type); return ok, true
-    case "union":            _, ok := shape.(Union_Type); return ok, true
-    case "enum":             _, ok := shape.(Enum_Type); return ok, true
-    case "bit_set":          _, ok := shape.(Bit_Set_Type); return ok, true
-    case "bit_field":        _, ok := shape.(Bit_Field_Type); return ok, true
-    case "proc":             _, ok := shape.(Proc_Type); return ok, true
-    case "matrix":           _, ok := shape.(Matrix_Type); return ok, true
-    case "simd_vector":      _, ok := shape.(Simd_Type); return ok, true
-    case "dereferenceable":  _, ok := shape.(Pointer_Type); return ok, true
+    case "integer":
+        return type_is_integer(t, base), true
+    case "unsigned":
+        return basic_unsigned(c, base), true
+    case "float":
+        return type_is_float(t, base), true
+    case "complex":
+        return type_is_complex(t, base), true
+    case "quaternion":
+        return type_is_quaternion(t, base), true
+    case "numeric":
+        return type_is_numeric(t, base), true
+    case "string":
+        return type_is_string(t, base), true
+    case "boolean":
+        return type_is_boolean(t, base), true
+    case "cstring":
+        return is_basic && (basic.kind == .Cstring || basic.kind == .Cstring16), true
+    case "string16":
+        return is_basic && basic.kind == .String16, true
+    case "cstring16":
+        return is_basic && basic.kind == .Cstring16, true
+    case "rune":
+        return is_basic && basic.kind == .Rune, true
+    case "rawptr":
+        return is_basic && basic.kind == .Rawptr, true
+    case "any":
+        return is_basic && basic.kind == .Any, true
+    case "typeid":
+        return is_basic && basic.kind == .Typeid, true
+    case "named":
+        return arg != base, true
+    case "pointer":
+        _, ok := shape.(Pointer_Type)
+        return ok, true
+    case "multi_pointer":
+        _, ok := shape.(Multi_Pointer_Type)
+        return ok, true
+    case "slice":
+        _, ok := shape.(Slice_Type)
+        return ok, true
+    case "dynamic_array":
+        _, ok := shape.(Dynamic_Array_Type)
+        return ok, true
+    case "array":
+        _, ok := shape.(Array_Type)
+        return ok, true
+    case "enumerated_array":
+        _, ok := shape.(Enumerated_Array_Type)
+        return ok, true
+    case "map":
+        _, ok := shape.(Map_Type)
+        return ok, true
+    case "struct":
+        _, ok := shape.(Struct_Type)
+        return ok, true
+    case "union":
+        _, ok := shape.(Union_Type)
+        return ok, true
+    case "enum":
+        _, ok := shape.(Enum_Type)
+        return ok, true
+    case "bit_set":
+        _, ok := shape.(Bit_Set_Type)
+        return ok, true
+    case "bit_field":
+        _, ok := shape.(Bit_Field_Type)
+        return ok, true
+    case "proc":
+        _, ok := shape.(Proc_Type)
+        return ok, true
+    case "matrix":
+        _, ok := shape.(Matrix_Type)
+        return ok, true
+    case "simd_vector":
+        _, ok := shape.(Simd_Type)
+        return ok, true
+    case "dereferenceable":
+        _, ok := shape.(Pointer_Type)
+        return ok, true
     case "matrix_row_major":
         m, ok := shape.(Matrix_Type)
         return ok && m.row_major, ok
     case "matrix_column_major":
         m, ok := shape.(Matrix_Type)
         return ok && !m.row_major, ok
-    case "ordered":          return type_ordered(c, arg, false)
-    case "ordered_numeric":  return type_ordered(c, arg, true)
-    case "comparable":       return type_comparable(c, arg, 0)
-    case "valid_map_key":    return type_comparable(c, arg, 0)
-    case "simple_compare":   return type_simple_compare(c, arg, 0)
+    case "ordered":
+        return type_ordered(c, arg, false)
+    case "ordered_numeric":
+        return type_ordered(c, arg, true)
+    case "comparable":
+        return type_comparable(c, arg, 0)
+    case "valid_map_key":
+        return type_comparable(c, arg, 0)
+    case "simple_compare":
+        return type_simple_compare(c, arg, 0)
     case "sliceable":
         #partial switch v in shape {
-        case Basic_Type:                                    return v.kind == .String || v.kind == .String16, true
-        case Array_Type, Slice_Type, Dynamic_Array_Type, Multi_Pointer_Type: return true, true
+        case Basic_Type:
+            return v.kind == .String || v.kind == .String16, true
+        case Array_Type, Slice_Type, Dynamic_Array_Type, Multi_Pointer_Type:
+            return true, true
         }
         return false, true
     case "indexable":
@@ -396,8 +465,10 @@ type_predicate :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) ->
         }
         little, big := basic_endian(basic.kind)
         switch name {
-        case "type_is_endian_little": return little, true
-        case "type_is_endian_big":    return big, true
+        case "type_is_endian_little":
+            return little, true
+        case "type_is_endian_big":
+            return big, true
         }
         return !little && !big, true
     case "specialized_polymorphic_record":
@@ -408,8 +479,10 @@ type_predicate :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) ->
             return false, true
         }
         #partial switch v in shape {
-        case Struct_Type: return len(v.params) > 0, true
-        case Union_Type:  return len(v.params) > 0, true
+        case Struct_Type:
+            return len(v.params) > 0, true
+        case Union_Type:
+            return len(v.params) > 0, true
         }
         return false, true
     }
@@ -420,8 +493,10 @@ type_predicate :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) ->
 @(private = "file")
 basic_endian :: proc(kind: Basic_Kind) -> (little, big: bool) {
     #partial switch kind {
-    case .I16le ..= .U128le, .F16le ..= .F64le: return true, false
-    case .I16be ..= .U128be, .F16be ..= .F64be: return false, true
+    case .I16le ..= .U128le, .F16le ..= .F64le:
+        return true, false
+    case .I16be ..= .U128be, .F16be ..= .F64be:
+        return false, true
     }
     return false, false
 }

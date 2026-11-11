@@ -15,11 +15,11 @@ Build :: struct {
     avail:     f32,
     y:         f32,
     source:    string,
-    color:     ui.Color, // the body text color of the container being laid out
+    color:     ui.Color,          // the body text color of the container being laid out
     refs:      map[string]string, // lower-case label to url, which borrows the source
     footnotes: [dynamic]Footnote,
     slugs:     map[string]int, // how often each heading slug was taken
-    details:   int, // the `<details>` blocks laid out so far
+    details:   int,            // the `<details>` blocks laid out so far
 }
 
 @(private)
@@ -51,13 +51,7 @@ CHECK_BOX :: f32(12)
 TOGGLE_INDENT :: f32(18)
 
 @(private = "file")
-ALERT_TITLES := [Alert_Kind]string {
-    .Note      = "Note",
-    .Tip       = "Tip",
-    .Important = "Important",
-    .Warning   = "Warning",
-    .Caution   = "Caution",
-}
+ALERT_TITLES := [Alert_Kind]string{.Note = "Note", .Tip = "Tip", .Important = "Important", .Warning = "Warning", .Caution = "Caution"}
 
 // Parses the source into the page's item list: the blocks first, so a
 // reference defined at the end resolves at the start, then each block laid out
@@ -65,22 +59,22 @@ ALERT_TITLES := [Alert_Kind]string {
 // page, so the caller keeps the source alive as long as the page.
 layout :: proc(page: ^Page, source: string, avail: f32, base: i32, pal: Palette, m: Metrics) {
     page_clear(page)
-    b := Build {
-        page      = page,
-        pal       = pal,
-        m         = m,
-        base      = base,
-        avail     = avail,
-        y         = PAD_TOP,
-        source    = source,
-        color     = pal.text,
-        refs      = make(map[string]string, 0, context.temp_allocator),
+    b := Build{
+        page = page,
+        pal = pal,
+        m = m,
+        base = base,
+        avail = avail,
+        y = PAD_TOP,
+        source = source,
+        color = pal.text,
+        refs = make(map[string]string, 0, context.temp_allocator),
         footnotes = make([dynamic]Footnote, context.temp_allocator),
-        slugs     = make(map[string]int, 0, context.temp_allocator),
+        slugs = make(map[string]int, 0, context.temp_allocator),
     }
 
     lines := make([dynamic]string, context.temp_allocator)
-    it := source
+    it    := source
     for line in strings.split_lines_iterator(&it) {
         append(&lines, line)
     }
@@ -121,7 +115,7 @@ layout_block :: proc(b: ^Build, blk: ^Block, x, w: f32, tight: bool) {
     switch blk.kind {
     case .Paragraph:
         tokens := make([dynamic]Token, context.temp_allocator)
-        st := inline_begin(b, &tokens)
+        st     := inline_begin(b, &tokens)
         for line in blk.lines {
             inline_line(&st, line, b.color)
         }
@@ -168,7 +162,7 @@ heading_size :: proc(base: i32, level: int) -> i32 {
 @(private = "file")
 emit_heading :: proc(b: ^Build, blk: ^Block, x, w: f32) {
     level := blk.level
-    size := heading_size(b.base, level)
+    size  := heading_size(b.base, level)
     b.y += f32(b.base) * (level <= 2 ? 0.6 : 0.3)
 
     anchor := heading_slug(b, blk.lines)
@@ -177,7 +171,7 @@ emit_heading :: proc(b: ^Build, blk: ^Block, x, w: f32) {
     }
 
     tokens := make([dynamic]Token, context.temp_allocator)
-    st := inline_begin(b, &tokens)
+    st     := inline_begin(b, &tokens)
     for line in blk.lines {
         inline_line(&st, line, b.pal.heading, {.Bold})
     }
@@ -232,30 +226,19 @@ heading_slug :: proc(b: ^Build, lines: []string) -> string {
 // takes its kind's color and title.
 @(private = "file")
 emit_quote :: proc(b: ^Build, blk: ^Block, x, w: f32) {
-    top := b.y
-    bar := b.pal.accent
+    top   := b.y
+    bar   := b.pal.accent
     saved := b.color
     b.color = b.pal.quote
     if blk.kind == .Alert {
         bar = b.pal.alert[blk.alert]
         b.color = b.pal.text
         title := ALERT_TITLES[blk.alert]
-        tw := measure(b.m, title, b.base, {.Bold})
-        h := line_height(b.m, b.base)
+        tw    := measure(b.m, title, b.base, {.Bold})
+        h     := line_height(b.m, b.base)
         append(
             &b.page.items,
-            Item {
-                kind = .Text,
-                x = x + QUOTE_INDENT,
-                y = b.y,
-                w = tw,
-                h = h,
-                text = title,
-                size = b.base,
-                color = bar,
-                style = {.Bold},
-                src = -1,
-            },
+            Item{kind = .Text, x = x + QUOTE_INDENT, y = b.y, w = tw, h = h, text = title, size = b.base, color = bar, style = {.Bold}, src = -1},
         )
         b.y += h + f32(b.base) * 0.2
     }
@@ -291,17 +274,17 @@ emit_list :: proc(b: ^Build, blk: ^Block, x, w: f32) {
 @(private = "file")
 emit_marker :: proc(b: ^Build, list, item: ^Block, n: int, x: f32) {
     line_h := line_height(b.m, b.base)
-    mid := b.y + line_h * 0.5
+    mid    := b.y + line_h * 0.5
     if item.task != .None {
         box := Item{kind = .Rect, x = x + 6, y = mid - CHECK_BOX * 0.5, w = CHECK_BOX, h = CHECK_BOX, src = -1}
         if item.task == .Done {
             box.color = b.pal.accent
             append(&b.page.items, box)
             check := "✓"
-            cw := measure(b.m, check, b.base - 3)
+            cw    := measure(b.m, check, b.base - 3)
             append(
                 &b.page.items,
-                Item {
+                Item{
                     kind = .Text,
                     x = box.x + (CHECK_BOX - cw) * 0.5,
                     y = mid - line_height(b.m, b.base - 3) * 0.5,
@@ -339,10 +322,7 @@ emit_marker :: proc(b: ^Build, list, item: ^Block, n: int, x: f32) {
         return
     }
     // A square, not a glyph: the bullet character is not in every face.
-    append(
-        &b.page.items,
-        Item{kind = .Rect, x = x + 8, y = mid - BULLET * 0.5, w = BULLET, h = BULLET, color = b.pal.accent, src = -1},
-    )
+    append(&b.page.items, Item{kind = .Rect, x = x + 8, y = mid - BULLET * 0.5, w = BULLET, h = BULLET, color = b.pal.accent, src = -1})
 }
 
 // A `<details>` block: its summary row is the toggle, and its blocks show
@@ -351,15 +331,12 @@ emit_marker :: proc(b: ^Build, list, item: ^Block, n: int, x: f32) {
 emit_details :: proc(b: ^Build, blk: ^Block, x, w: f32) {
     ref := b.details
     b.details += 1
-    open := b.page.open[ref]
+    open   := b.page.open[ref]
     line_h := line_height(b.m, b.base)
-    top := b.y
+    top    := b.y
     tokens := inline(b, blk.summary, b.color)
-    h := wrap_run(b, tokens[:], x + TOGGLE_INDENT, b.y, w - TOGGLE_INDENT, b.base)
-    append(
-        &b.page.items,
-        Item{kind = .Toggle, x = x, y = top, w = w, h = max(h, line_h), size = open ? 1 : 0, ref = ref, color = b.pal.accent, src = -1},
-    )
+    h      := wrap_run(b, tokens[:], x + TOGGLE_INDENT, b.y, w - TOGGLE_INDENT, b.base)
+    append(&b.page.items, Item{kind = .Toggle, x = x, y = top, w = w, h = max(h, line_h), size = open ? 1 : 0, ref = ref, color = b.pal.accent, src = -1})
     b.y += h
     if open && len(blk.children) > 0 {
         b.y += block_gap(b, false)
@@ -389,7 +366,7 @@ emit_footnotes :: proc(b: ^Build) {
         }
         append(
             &b.page.items,
-            Item {
+            Item{
                 kind = .Text,
                 y = b.y,
                 w = measure(b.m, note.label, size),
@@ -401,7 +378,7 @@ emit_footnotes :: proc(b: ^Build) {
             },
         )
         tokens := make([dynamic]Token, context.temp_allocator)
-        st := inline_begin(b, &tokens)
+        st     := inline_begin(b, &tokens)
         for line in note.lines {
             inline_line(&st, line, b.pal.quote)
         }
@@ -429,11 +406,11 @@ emit_code_block :: proc(b: ^Build, blk: ^Block, x, w: f32) {
         at:   int, // the offset of `text` in `code`
     }
     line_h := line_height(b.m, b.base)
-    max_w := w - CODE_PAD * 2
-    rows := make([dynamic]Row, 0, len(blk.lines), context.temp_allocator)
-    at := 0
+    max_w  := w - CODE_PAD * 2
+    rows   := make([dynamic]Row, 0, len(blk.lines), context.temp_allocator)
+    at     := 0
     for line in blk.lines {
-        rest := line
+        rest   := line
         offset := at
         for {
             n := fit(b, rest, max_w, b.base)
@@ -447,19 +424,16 @@ emit_code_block :: proc(b: ^Build, blk: ^Block, x, w: f32) {
         at += len(line) + 1
     }
 
-    top := b.y
+    top    := b.y
     height := line_h * f32(len(rows)) + CODE_PAD * 2
     append(&b.page.items, Item{kind = .Rect, x = x, y = top, w = w, h = height, color = b.pal.code_bg, src = -1})
-    ty := top + CODE_PAD
+    ty   := top + CODE_PAD
     next := 0
     for row in rows {
         emit_code_row(b, row.text, row.at, spans, &next, x + CODE_PAD, ty, line_h)
         ty += line_h
     }
-    append(
-        &b.page.items,
-        Item{kind = .Copy, x = x, y = top, w = w, h = height, text = code, url = blk.lang, size = b.base, color = b.pal.quote, src = -1},
-    )
+    append(&b.page.items, Item{kind = .Copy, x = x, y = top, w = w, h = height, text = code, url = blk.lang, size = b.base, color = b.pal.quote, src = -1})
     b.y = top + height
 }
 
@@ -481,16 +455,13 @@ emit_code_row :: proc(b: ^Build, text: string, at: int, spans: []Color_Span, nex
             return
         }
         w := measure(b.m, text, b.base)
-        append(
-            &b.page.items,
-            Item{kind = .Text, x = pen^, y = y, w = w, h = line_h, text = text, size = b.base, color = color, src = src_of(b, text)},
-        )
+        append(&b.page.items, Item{kind = .Text, x = pen^, y = y, w = w, h = line_h, text = text, size = b.base, color = color, src = src_of(b, text)})
         pen^ += w
     }
     for k := next^; k < len(spans) && spans[k].start < end; k += 1 {
         span := spans[k]
-        lo := clamp(span.start, pos, end)
-        hi := clamp(span.end, pos, end)
+        lo   := clamp(span.start, pos, end)
+        hi   := clamp(span.end, pos, end)
         if lo >= hi {
             continue
         }
@@ -553,22 +524,15 @@ token_width :: proc(b: ^Build, tok: Token, size: i32) -> f32 {
 // the height it takes. A row breaks before a token that has a space before it;
 // glued tokens stay on one row. With `emit` false nothing is added to the page.
 @(private)
-wrap_run :: proc(
-    b: ^Build,
-    tokens: []Token,
-    x, y, max_w: f32,
-    size: i32,
-    align := Align.Left,
-    emit := true,
-) -> f32 {
+wrap_run :: proc(b: ^Build, tokens: []Token, x, y, max_w: f32, size: i32, align := Align.Left, emit := true) -> f32 {
     line_h := line_height(b.m, size)
     if len(tokens) == 0 {
         return line_h
     }
     space_w := measure(b.m, " ", size)
-    row := make([dynamic]Placed, context.temp_allocator)
-    row_w := f32(0)
-    row_y := y
+    row     := make([dynamic]Placed, context.temp_allocator)
+    row_w   := f32(0)
+    row_y   := y
 
     i := 0
     for i < len(tokens) {
@@ -593,10 +557,7 @@ wrap_run :: proc(
                 case .Right:
                     left += max_w - w
                 }
-                append(
-                    &b.page.items,
-                    Item{kind = .Image, x = left, y = row_y, w = w, h = h, text = tok.text, url = tok.url, src = -1},
-                )
+                append(&b.page.items, Item{kind = .Image, x = left, y = row_y, w = w, h = h, text = tok.text, url = tok.url, src = -1})
             }
             row_y += h + IMAGE_GAP
             i += 1
@@ -607,7 +568,7 @@ wrap_run :: proc(
         for last < len(tokens) && tokens[last].glue && !tokens[last - 1].brk && !tokens[last].image {
             last += 1
         }
-        first := len(row)
+        first  := len(row)
         unit_w := f32(0)
         for k in i ..< last {
             w := token_width(b, tokens[k], size)
@@ -652,16 +613,9 @@ wrap_run :: proc(
 // cap a chip with a rule under it, a link an underline right after its text, a
 // struck token a line through it.
 @(private = "file")
-emit_row :: proc(
-    b: ^Build,
-    tokens: []Token,
-    row: []Placed,
-    x, y, max_w, row_w: f32,
-    size: i32,
-    align: Align,
-) {
+emit_row :: proc(b: ^Build, tokens: []Token, row: []Placed, x, y, max_w, row_w: f32, size: i32, align: Align) {
     line_h := line_height(b.m, size)
-    left := x
+    left   := x
     switch align {
     case .Left:
     case .Center:
@@ -670,19 +624,16 @@ emit_row :: proc(
         left += max(0, max_w - row_w)
     }
     for placed, n in row {
-        tok := tokens[placed.token]
-        tx := left + placed.x
-        tw := placed.w
+        tok   := tokens[placed.token]
+        tx    := left + placed.x
+        tw    := placed.w
         // A link's underline runs on under the space to the next word of it.
         under := tw
         if tok.link && n + 1 < len(row) && tokens[row[n + 1].token].url == tok.url {
             under = row[n + 1].x - placed.x
         }
         if tok.code {
-            append(
-                &b.page.items,
-                Item{kind = .Rect, x = tx - 2, y = y, w = tw + 4, h = line_h, color = b.pal.code_bg, src = -1},
-            )
+            append(&b.page.items, Item{kind = .Rect, x = tx - 2, y = y, w = tw + 4, h = line_h, color = b.pal.code_bg, src = -1})
         }
         if tok.kbd {
             append(&b.page.items, Item{kind = .Rect, x = tx, y = y + 1, w = tw, h = line_h - 2, color = b.pal.code_bg, src = -1})
@@ -694,7 +645,7 @@ emit_row :: proc(
         // is hit-tested against it.
         append(
             &b.page.items,
-            Item {
+            Item{
                 kind = .Text,
                 x = tx,
                 y = y,
@@ -709,16 +660,10 @@ emit_row :: proc(
             },
         )
         if tok.link {
-            append(
-                &b.page.items,
-                Item{kind = .Rect, x = tx, y = y + line_h - 3, w = max(tw, under), h = 1, color = tok.color, src = -1},
-            )
+            append(&b.page.items, Item{kind = .Rect, x = tx, y = y + line_h - 3, w = max(tw, under), h = 1, color = tok.color, src = -1})
         }
         if tok.strike {
-            append(
-                &b.page.items,
-                Item{kind = .Rect, x = tx, y = y + line_h * 0.5, w = tw, h = 1, color = tok.color, src = -1},
-            )
+            append(&b.page.items, Item{kind = .Rect, x = tx, y = y + line_h * 0.5, w = tw, h = 1, color = tok.color, src = -1})
         }
     }
 }

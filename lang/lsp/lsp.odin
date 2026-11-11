@@ -40,7 +40,7 @@ client_create :: proc(workspace: string, trust_workspace: bool, allocator := con
 
 // Wraps the client as a lang.Backend for lang.manager_register.
 client_backend :: proc(c: ^Client) -> lang.Backend {
-    return lang.Backend {
+    return lang.Backend{
         data = c,
         name = "lsp",
         handles = handles,
@@ -89,7 +89,7 @@ client_overrides :: proc(c: ^Client, ext: string) -> bool {
 // only `state` moves after that.
 @(private)
 handles :: proc(data: rawptr, ext: string) -> bool {
-    c := cast(^Client)data
+    c          := cast(^Client)data
     servers, n := client_servers_for(c, ext)
     for s in servers[:n] {
         if server_state(s) != .Failed {
@@ -104,7 +104,7 @@ handles :: proc(data: rawptr, ext: string) -> bool {
 // and its state. The Manager's own gate is the fourth, above this.
 @(private)
 supports :: proc(data: rawptr, ext: string, kind: lang.Request_Kind) -> bool {
-    c := cast(^Client)data
+    c          := cast(^Client)data
     servers, n := client_servers_for(c, ext)
     for s in servers[:n] {
         if server_supports(s, kind) {
@@ -119,9 +119,9 @@ supports :: proc(data: rawptr, ext: string, kind: lang.Request_Kind) -> bool {
 // pool worker and blocks: a start and a round trip both wait on a pipe.
 @(private)
 resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
-    c := cast(^Client)data
+    c          := cast(^Client)data
     servers, n := client_servers_for(c, req.ext)
-    links := make([dynamic]lang.Link, context.temp_allocator)
+    links      := make([dynamic]lang.Link, context.temp_allocator)
     for s in servers[:n] {
         id := link_id(s)
         if !origin_names(req.backend, id) {
@@ -169,7 +169,7 @@ poll :: proc(data: rawptr, res: ^lang.Result) -> bool {
     start := c.poll_next % len(c.servers)
     for offset in 0 ..< len(c.servers) {
         index := (start + offset) % len(c.servers)
-        s := c.servers[index]
+        s     := c.servers[index]
         if !server_admin_enabled(s) {
             continue
         }
@@ -187,7 +187,7 @@ poll :: proc(data: rawptr, res: ^lang.Result) -> bool {
 // one of its advertised trigger characters.
 @(private)
 on_type_trigger :: proc(data: rawptr, ext: string, char: string) -> bool {
-    c := cast(^Client)data
+    c          := cast(^Client)data
     servers, n := client_servers_for(c, ext)
     for s in servers[:n] {
         if server_state(s) != .Ready || !server_supports(s, .Format_On_Type) {
@@ -206,7 +206,7 @@ on_type_trigger :: proc(data: rawptr, ext: string, char: string) -> bool {
 // sends it.
 @(private)
 notify :: proc(data: rawptr, event: lang.Doc_Event, path, ext, source: string, revision: u64) {
-    c := cast(^Client)data
+    c          := cast(^Client)data
     servers, n := client_servers_for(c, ext)
     for s in servers[:n] {
         server_notify(s, event, path, source, revision)
@@ -310,7 +310,7 @@ Server_Status :: struct {
     restarts:        int,
     last_error:      string, // "" while it never failed
     latched:         bool,   // on hold after repeated deadline misses
-    enabled:        bool,
+    enabled:         bool,
     features:        bit_set[lang.Request_Kind],
     install_command: string, // already chosen for this platform
     docs_url:        string,
@@ -321,9 +321,7 @@ Server_Status :: struct {
 // One server's status by id. `probe` false leaves `exe`/`installed` unset, for a
 // caller that keeps the PATH lookup itself: it walks every PATH directory, and a
 // table of dozens of servers must not repeat that on every redraw.
-client_server_status :: proc(
-    c: ^Client, id: string, allocator := context.temp_allocator, probe := true,
-) -> (Server_Status, bool) {
+client_server_status :: proc(c: ^Client, id: string, allocator := context.temp_allocator, probe := true) -> (Server_Status, bool) {
     if c == nil {
         return {}, false
     }
@@ -331,22 +329,22 @@ client_server_status :: proc(
         if s.config.id != id {
             continue
         }
-        status := Server_Status {
-            id              = strings.clone(s.config.id, allocator),
-            name            = strings.clone(server_display_name(s.config), allocator),
-            state           = server_state(s),
-            extensions      = strings_clone(s.config.extensions, allocator),
-            filenames       = strings_clone(s.config.filenames, allocator),
-            command         = strings_clone(s.config.command, allocator),
-            root            = server_root_copy(s, allocator),
-            restarts        = server_restarts(s),
-            last_error      = server_last_error(s, allocator),
-            latched         = server_latched(s),
-            enabled        = server_admin_enabled(s),
-            features        = server_admin_features(s),
+        status := Server_Status{
+            id = strings.clone(s.config.id, allocator),
+            name = strings.clone(server_display_name(s.config), allocator),
+            state = server_state(s),
+            extensions = strings_clone(s.config.extensions, allocator),
+            filenames = strings_clone(s.config.filenames, allocator),
+            command = strings_clone(s.config.command, allocator),
+            root = server_root_copy(s, allocator),
+            restarts = server_restarts(s),
+            last_error = server_last_error(s, allocator),
+            latched = server_latched(s),
+            enabled = server_admin_enabled(s),
+            features = server_admin_features(s),
             install_command = strings.clone(s.config.install, allocator),
-            docs_url        = strings.clone(s.config.docs_url, allocator),
-            setup_command   = strings.clone(s.config.setup_command, allocator),
+            docs_url = strings.clone(s.config.docs_url, allocator),
+            setup_command = strings.clone(s.config.setup_command, allocator),
         }
         if probe && len(s.config.command) > 0 {
             status.exe, status.installed = executable_find(s.config.command[0], s.workspace, allocator)
@@ -368,7 +366,7 @@ client_server_status :: proc(
 // so a language served by several says so. "" when none does.
 client_key_sharers :: proc(c: ^Client, key, self: string, allocator := context.temp_allocator) -> string {
     servers, n := client_servers_for(c, key)
-    ids := make([dynamic]string, context.temp_allocator)
+    ids        := make([dynamic]string, context.temp_allocator)
     for s in servers[:n] {
         if s.config.id != self {
             append(&ids, s.config.id)

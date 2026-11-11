@@ -63,19 +63,24 @@ f :: proc(u: union { int, bool }) {
 @(test)
 test_live_vet :: proc(t: ^testing.T) {
     root := fixture(t, "live_vet", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     res := live_check(e, VET_SRC, root, fixture_path(root, "app/main.odin"))
     defer free_live(&res)
-    expect_errors(t, &res, VET_SRC, {
-        {"\"core:strings\"", "'strings' declared but not used", 0},
-        {"len ::", "Declaration of 'len' within a global 'when' shadows the builtin 'len'", 0},
-        {"x := 2", "Declaration of 'x' shadows declaration at line 14", 0},
-        {"g := 3", "Declaration of 'g' shadows declaration at line 7", 0},
-        {"y := 5", "'y' declared but not used", 0},
-        {"n in u", "Declaration of 'n' shadows declaration at line 38", 0},
-    })
+    expect_errors(
+        t,
+        &res,
+        VET_SRC,
+        {
+            {"\"core:strings\"", "'strings' declared but not used", 0},
+            {"len ::", "Declaration of 'len' within a global 'when' shadows the builtin 'len'", 0},
+            {"x := 2", "Declaration of 'x' shadows declaration at line 14", 0},
+            {"g := 3", "Declaration of 'g' shadows declaration at line 7", 0},
+            {"y := 5", "'y' declared but not used", 0},
+            {"n in u", "Declaration of 'n' shadows declaration at line 38", 0},
+        },
+    )
     for d in res.report.items {
         testing.expect_value(t, d.severity, lang.Diagnostic_Severity.Warning)
         testing.expect(t, !d.lint, "a vet item is no lint: the on-save check reports it too")
@@ -85,17 +90,23 @@ test_live_vet :: proc(t: ^testing.T) {
 // A `#+vet !name` tag and an id set "off" each turn a check off.
 @(test)
 test_live_vet_tags_and_config :: proc(t: ^testing.T) {
-    root := fixture(t, "live_vet_off", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" }, diagnostics = { ["vet/unused-import"] = "off" } }`}})
-    e := engine_create()
+    root := fixture(
+        t,
+        "live_vet_off",
+        {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" }, diagnostics = { ["vet/unused-import"] = "off" } }`}},
+    )
+    e    := engine_create()
     defer engine_destroy(e)
 
     src := "#+vet !shadowing\n" + VET_SRC
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
     defer free_live(&res)
-    expect_errors(t, &res, src, {
-        {"len ::", "Declaration of 'len' within a global 'when' shadows the builtin 'len'", 0},
-        {"y := 5", "'y' declared but not used", 0},
-    })
+    expect_errors(
+        t,
+        &res,
+        src,
+        {{"len ::", "Declaration of 'len' within a global 'when' shadows the builtin 'len'", 0}, {"y := 5", "'y' declared but not used", 0}},
+    )
 }
 
 @(test)
@@ -104,7 +115,7 @@ test_vet_code :: proc(t: ^testing.T) {
         message: string,
         code:    string,
     }
-    cases := []Case {
+    cases := []Case{
         {"'x' declared but not used ", CODE_UNUSED_VAR},
         {"Declaration of 'x' shadows declaration at line 25", CODE_SHADOWING},
         {"Declaration of 'x' from 'using' shadows declaration at line 25", CODE_SHADOWING},
@@ -140,7 +151,7 @@ test_vet_line_helpers :: proc(t: ^testing.T) {
 // `thor:ignore` comment drops one, and the config sets another one's severity.
 @(test)
 test_check_vet_lines :: proc(t: ^testing.T) {
-    src := `package app
+    src        := `package app
 
 import "core:fmt"
 
@@ -156,10 +167,7 @@ f :: proc() {
 	z := 1
 }
 `
-    rel := fixture(t, "check_vet", {
-        {".thor/odin-analyzer.lua", `return { diagnostics = { ["vet/shadowing"] = "error" } }`},
-        {"app/main.odin", src},
-    })
+    rel        := fixture(t, "check_vet", {{".thor/odin-analyzer.lua", `return { diagnostics = { ["vet/shadowing"] = "error" } }`}, {"app/main.odin", src}})
     // The compiler runs in the workspace, so the paths it is given must be absolute.
     root, aerr := filepath.abs(rel, context.temp_allocator)
     if !testing.expect_value(t, aerr, nil) {
@@ -202,7 +210,7 @@ f :: proc() {
 // the body, and is unused when nothing does. A use in the signature always counts.
 @(test)
 test_live_vet_poly_imports :: proc(t: ^testing.T) {
-    src := `package app
+    src  := `package app
 
 import "core:fmt"
 import "core:strings"
@@ -218,25 +226,27 @@ never :: proc(v: $T) {
 
 sig :: proc(a: mem.Allocator, v: $T) {}
 `
-    root := fixture(t, "live_vet_poly", {
-        {".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`},
-        {"app/other.odin", "package app\n\nuse :: proc() {\n\tcalled(1)\n}\n"},
-    })
-    e := engine_create()
+    root := fixture(
+        t,
+        "live_vet_poly",
+        {
+            {".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`},
+            {"app/other.odin", "package app\n\nuse :: proc() {\n\tcalled(1)\n}\n"},
+        },
+    )
+    e    := engine_create()
     defer engine_destroy(e)
 
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
     defer free_live(&res)
-    expect_errors(t, &res, src, {
-        {"\"core:strings\"", "'strings' declared but not used", 0},
-    })
+    expect_errors(t, &res, src, {{"\"core:strings\"", "'strings' declared but not used", 0}})
 }
 
 // A field a `using` brings in shadows a variable as the compiler reports it: at the variable the
 // `using` names, once per `using`, the lowest shadowed line first.
 @(test)
 test_live_vet_using_shadowing :: proc(t: ^testing.T) {
-    src := `#+feature using-stmt
+    src  := `#+feature using-stmt
 package app
 
 Point :: struct {
@@ -294,15 +304,20 @@ global :: proc() {
 }
 `
     root := fixture(t, "live_vet_using", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
     defer free_live(&res)
-    expect_errors(t, &res, src, {
-        {"p: Point", "Declaration of 'b' from 'using' shadows declaration at line 15", 0},
-        {"pp: ^Point", "Declaration of 'z' from 'using' shadows declaration at line 25", 0},
-        {"q: Point", "Declaration of 'a' from 'using' shadows declaration at line 33", 0},
-        {"w: struct", "Declaration of 'g' from 'using' shadows declaration at line 12", 0},
-    })
+    expect_errors(
+        t,
+        &res,
+        src,
+        {
+            {"p: Point", "Declaration of 'b' from 'using' shadows declaration at line 15", 0},
+            {"pp: ^Point", "Declaration of 'z' from 'using' shadows declaration at line 25", 0},
+            {"q: Point", "Declaration of 'a' from 'using' shadows declaration at line 33", 0},
+            {"w: struct", "Declaration of 'g' from 'using' shadows declaration at line 12", 0},
+        },
+    )
 }

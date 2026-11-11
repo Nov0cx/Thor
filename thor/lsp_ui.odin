@@ -34,14 +34,14 @@ Lsp_Action :: enum {
 }
 
 @(private = "file")
-LSP_ACTION_NAMES := [Lsp_Action]string {
+LSP_ACTION_NAMES := [Lsp_Action]string{
     .Restart = "restart",
-    .Add     = "add",
-    .Rescan  = "rescan",
+    .Add = "add",
+    .Rescan = "rescan",
     .Install = "install",
-    .Docs    = "docs",
-    .Setup   = "setup",
-    .Open    = "open",
+    .Docs = "docs",
+    .Setup = "setup",
+    .Open = "open",
 }
 
 // Whether a program was found on PATH, kept between populates. The lookup stats
@@ -63,7 +63,7 @@ thor_lsp_action_name :: proc(id: string) -> (action: Lsp_Action, argument: strin
     if !strings.has_prefix(id, LSP_ACTION_PREFIX) {
         return .Restart, "", false
     }
-    rest := id[len(LSP_ACTION_PREFIX):]
+    rest  := id[len(LSP_ACTION_PREFIX):]
     colon := strings.index_byte(rest, ':')
     if colon < 0 {
         return .Restart, "", false
@@ -85,31 +85,25 @@ thor_lsp_group :: proc(id: string) -> string {
 
 // Opens Settings on this category, for the command and the menu row.
 thor_cmd_open_language_servers :: proc(data: rawptr) {
-    thor_open_settings_view(cast(^Thor) data, LSP_CATEGORY)
+    thor_open_settings_view(cast(^Thor)data, LSP_CATEGORY)
 }
 
 // Picks one configured server and restarts it, for the palette. Ids, not
 // display names: an id is the key lsp.lua names it by, and the picker is where
 // a user who edits that file looks.
 thor_cmd_restart_one_language_server :: proc(data: rawptr) {
-    thor := cast(^Thor) data
-    ids := lsp.client_server_ids(thor.lsp_client, context.temp_allocator)
+    thor := cast(^Thor)data
+    ids  := lsp.client_server_ids(thor.lsp_client, context.temp_allocator)
     if len(ids) == 0 {
         thor_flash_status(thor, "No language servers are configured", is_error = true)
         return
     }
-    thor_palette_pick(
-        thor,
-        "Restart which language server?",
-        ids,
-        thor_lsp_pick_restart,
-        thor,
-    )
+    thor_palette_pick(thor, "Restart which language server?", ids, thor_lsp_pick_restart, thor)
 }
 
 @(private = "file")
 thor_lsp_pick_restart :: proc(data: rawptr, choice: string) {
-    thor_request_server_restart(cast(^Thor) data, choice)
+    thor_request_server_restart(cast(^Thor)data, choice)
 }
 
 // Builds the whole category. Called from thor_populate_settings_view, so it is
@@ -139,13 +133,7 @@ thor_lsp_populate_problems :: proc(thor: ^Thor) {
     }
 
     view := &thor.settings
-    thor_settings_begin_group(
-        view,
-        "language_servers.problems",
-        "Configuration Problems",
-        value = fmt.tprintf("%d", len(problems)),
-        tone = .Bad,
-    )
+    thor_settings_begin_group(view, "language_servers.problems", "Configuration Problems", value = fmt.tprintf("%d", len(problems)), tone = .Bad)
     for problem, index in problems {
         label := problem.id != "" ? problem.id : "lsp.lua"
         if problem.file != "" {
@@ -177,7 +165,7 @@ thor_lsp_problem_names :: proc(problems: []lsp.Config_Problem, path: string) -> 
 // feature group settings_ui.odin's own row ids drive.
 @(private = "file")
 thor_lsp_populate_server :: proc(thor: ^Thor, id: string) {
-    view := &thor.settings
+    view          := &thor.settings
     status, found := lsp.client_server_status(thor.lsp_client, id, context.temp_allocator, probe = false)
     if !found {
         return
@@ -186,12 +174,10 @@ thor_lsp_populate_server :: proc(thor: ^Thor, id: string) {
     status.exe = probe.exe
     status.installed = probe.installed
 
-    on, features := thor_backend_gate(thor, &thor.config, id)
+    on, features          := thor_backend_gate(thor, &thor.config, id)
     summary, summary_tone := thor_lsp_summary(status, on)
 
-    thor_settings_begin_group(
-        view, thor_lsp_group(id), status.name, collapsed = true, value = summary, tone = summary_tone,
-    )
+    thor_settings_begin_group(view, thor_lsp_group(id), status.name, collapsed = true, value = summary, tone = summary_tone)
 
     info :: proc(view: ^Settings_State, id, field, label, value: string, tone := Settings_Tone.Normal) {
         // Ids stay distinct per server, so a row always names one thing even
@@ -240,16 +226,14 @@ thor_lsp_populate_server :: proc(thor: ^Thor, id: string) {
         return
     }
     thor_settings_begin_group(
-        view, thor_language_backend_feature_group(id), fmt.tprintf("%s Features", status.name), collapsed = true,
+        view,
+        thor_language_backend_feature_group(id),
+        fmt.tprintf("%s Features", status.name),
+        collapsed = true,
         value = fmt.tprintf("%d of %d on", card(features), len(lang.Request_Kind)),
     )
     for kind in lang.Request_Kind {
-        thor_settings_add_choice(
-            view,
-            thor_language_backend_feature_id(id, kind),
-            LANGUAGE_FEATURE_LABELS[kind],
-            thor_on_off_label(kind in features),
-        )
+        thor_settings_add_choice(view, thor_language_backend_feature_id(id, kind), LANGUAGE_FEATURE_LABELS[kind], thor_on_off_label(kind in features))
     }
     thor_settings_end_group(view)
 }
@@ -312,7 +296,7 @@ thor_lsp_probes_destroy :: proc(thor: ^Thor) {
 // An action row was pressed. Every verb here either changes nothing or defers
 // its work: a reload destroys the widget tree this call stands on.
 thor_on_setting_action :: proc(data: rawptr, id: string) {
-    thor := cast(^Thor) data
+    thor                 := cast(^Thor)data
     action, argument, ok := thor_lsp_action_name(id)
     if !ok {
         return
@@ -354,20 +338,13 @@ thor_lsp_install :: proc(thor: ^Thor, id: string) {
     delete(thor.lsp_install_command)
     thor.lsp_install_command = strings.clone(status.install_command)
     delete(thor.lsp_install_prompt)
-    thor.lsp_install_prompt = strings.clone(
-        fmt.tprintf("Install %s with: %s", status.name, status.install_command),
-    )
-    thor_palette_confirm(
-        thor,
-        thor.lsp_install_prompt,
-        thor_lsp_confirm_install,
-        thor,
-    )
+    thor.lsp_install_prompt = strings.clone(fmt.tprintf("Install %s with: %s", status.name, status.install_command))
+    thor_palette_confirm(thor, thor.lsp_install_prompt, thor_lsp_confirm_install, thor)
 }
 
 @(private = "file")
 thor_lsp_confirm_install :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor    := cast(^Thor)data
     command := thor.lsp_install_command
     if command == "" {
         return
@@ -411,10 +388,6 @@ thor_lsp_run_setup :: proc(thor: ^Thor, id: string) {
     if !plugin.manager_run_command(&thor.plugins, status.setup_command) {
         // The plugin that answers it may be waiting for its permissions, which
         // Settings' own Plugins section is where the user grants.
-        thor_flash_status(
-            thor,
-            fmt.tprintf("No plugin answers %q — check Settings > Plugins", status.setup_command),
-            is_error = true,
-        )
+        thor_flash_status(thor, fmt.tprintf("No plugin answers %q — check Settings > Plugins", status.setup_command), is_error = true)
     }
 }

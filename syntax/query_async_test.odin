@@ -88,7 +88,7 @@ test_tree_ready_parses_on_a_worker :: proc(t: ^testing.T) {
 // A destroy while a first parse runs waits for it.
 @(test)
 test_tree_destroy_waits_for_a_parse :: proc(t: ^testing.T) {
-    h := highlighter_create()
+    h      := highlighter_create()
     source := strings.repeat("local value = 1\n", ASYNC_PARSE_MIN / 8, context.temp_allocator)
     testing.expect(t, !tree_ready(&h, "big.lua", source, "lua"), "a large buffer with no tree reported ready")
     highlighter_destroy(&h)

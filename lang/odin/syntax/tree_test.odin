@@ -53,7 +53,7 @@ tree_token_error :: proc(tree: ^Green_Tree, toks: []Token) -> string {
 
 @(test)
 test_dump_flat :: proc(t: ^testing.T) {
-    src := "x := 1\n"
+    src       := "x := 1\n"
     tree, err := build_flat(src, lex_all(src, context.temp_allocator))
     if !testing.expect_value(t, err, nil) {
         return
@@ -69,14 +69,14 @@ test_dump_flat :: proc(t: ^testing.T) {
   Newline@6..7 "\n" {Implicit_Semi}
   EOF@7..7 ""
 `
-    got := debug_dump(tree, context.temp_allocator)
+    got  := debug_dump(tree, context.temp_allocator)
     testing.expect_value(t, got, want)
 }
 
 @(test)
 test_builder_nesting :: proc(t: ^testing.T) {
-    src := "a b c"
-    toks := lex_all(src, context.temp_allocator)
+    src       := "a b c"
+    toks      := lex_all(src, context.temp_allocator)
     tree, err := tree_create(src)
     if !testing.expect_value(t, err, nil) {
         return
@@ -105,7 +105,7 @@ test_builder_nesting :: proc(t: ^testing.T) {
         testing.expect_value(t, inner.text_len, 1)
     }
 
-    root := node_root(tree)
+    root       := node_root(tree)
     tok, found := node_token_at(root, 2, context.temp_allocator)
     if testing.expect(t, found) {
         testing.expect_value(t, syntax_token_text(tok), "b")
@@ -127,8 +127,8 @@ test_builder_nesting :: proc(t: ^testing.T) {
 
 @(test)
 test_builder_checkpoint_and_wrap :: proc(t: ^testing.T) {
-    src := "a+b c"
-    toks := lex_all(src, context.temp_allocator)
+    src       := "a+b c"
+    toks      := lex_all(src, context.temp_allocator)
     tree, err := tree_create(src)
     if !testing.expect_value(t, err, nil) {
         return
@@ -168,8 +168,8 @@ test_builder_checkpoint_and_wrap :: proc(t: ^testing.T) {
 
 @(test)
 test_token_at_every_offset :: proc(t: ^testing.T) {
-    src := "package p\n\nf :: proc() { /* c */ return }\n"
-    toks := lex_all(src, context.temp_allocator)
+    src       := "package p\n\nf :: proc() { /* c */ return }\n"
+    toks      := lex_all(src, context.temp_allocator)
     tree, err := build_flat(src, toks)
     if !testing.expect_value(t, err, nil) {
         return
@@ -188,8 +188,16 @@ test_token_at_every_offset :: proc(t: ^testing.T) {
         if !testing.expectf(t, found, "no token at %d", off) {
             return
         }
-        testing.expectf(t, got.offset == want.offset && got.green.kind == want.kind,
-            "offset %d: got %v@%d, want %v@%d", off, got.green.kind, got.offset, want.kind, want.offset)
+        testing.expectf(
+            t,
+            got.offset == want.offset && got.green.kind == want.kind,
+            "offset %d: got %v@%d, want %v@%d",
+            off,
+            got.green.kind,
+            got.offset,
+            want.kind,
+            want.offset,
+        )
     }
     last, found := node_token_at(root, u32(len(src)), context.temp_allocator)
     testing.expect(t, found && last.green.kind == .EOF)
@@ -199,7 +207,7 @@ test_token_at_every_offset :: proc(t: ^testing.T) {
 
 @(test)
 test_children_positions :: proc(t: ^testing.T) {
-    src := "a+b"
+    src       := "a+b"
     tree, err := build_flat(src, lex_all(src, context.temp_allocator))
     if !testing.expect_value(t, err, nil) {
         return
@@ -216,8 +224,8 @@ test_children_positions :: proc(t: ^testing.T) {
 
 @(test)
 test_node_with_many_children :: proc(t: ^testing.T) {
-    src := strings.repeat("x;", 40_000, context.temp_allocator)
-    toks := lex_all(src, context.temp_allocator)
+    src       := strings.repeat("x;", 40_000, context.temp_allocator)
+    toks      := lex_all(src, context.temp_allocator)
     tree, err := build_flat(src, toks)
     if !testing.expect_value(t, err, nil) {
         return
@@ -231,9 +239,9 @@ test_node_with_many_children :: proc(t: ^testing.T) {
 
 @(test)
 test_token_element_round_trip :: proc(t: ^testing.T) {
-    e := token_element(.Block_Comment, {.Unterminated, .Implicit_Semi}, max(u32))
+    e           := token_element(.Block_Comment, {.Unterminated, .Implicit_Semi}, max(u32))
     tok, is_tok := element_token(e)
-    _, is_node := element_node(e)
+    _, is_node  := element_node(e)
     testing.expect(t, is_tok && !is_node)
     testing.expect_value(t, tok, Green_Token{.Block_Comment, {.Unterminated, .Implicit_Semi}, max(u32)})
     testing.expect_value(t, element_len(e), max(u32))

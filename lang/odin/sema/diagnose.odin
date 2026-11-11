@@ -25,7 +25,7 @@ call_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) -
         return {}
     }
     callee, has_callee := odinsyntax.call_expr_callee(&ce)
-    list, has_list := odinsyntax.call_expr_args(&ce)
+    list, has_list     := odinsyntax.call_expr_args(&ce)
     if !has_callee || !has_list {
         return {}
     }
@@ -51,8 +51,8 @@ call_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) -
         return {}
     }
     offsets := make([dynamic]int, 0, len(args), c.tmp)
-    al, _ := odinsyntax.as_arg_list(odinsyntax.Syntax_Node(list))
-    it := odinsyntax.arg_list_args(&al)
+    al, _   := odinsyntax.as_arg_list(odinsyntax.Syntax_Node(list))
+    it      := odinsyntax.arg_list_args(&al)
     for arg in odinsyntax.child_iter_next(&it) {
         if _, err := append(&offsets, int(arg.offset)); !note_alloc(c, err) {
             return {}
@@ -70,9 +70,9 @@ call_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) -
     if !ok {
         return {}
     }
-    first := len(with) - len(args)
+    first   := len(with) - len(args)
     _, miss := match_slots(c, p, with)
-    out := Call_Problem{kind = miss.kind, offset = int(call.offset)}
+    out     := Call_Problem{kind = miss.kind, offset = int(call.offset)}
     switch miss.kind {
     case .None:
     case .Missing:
@@ -109,7 +109,7 @@ group_call :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) -> 
         return {}, nil, false
     }
     callee, has_callee := odinsyntax.call_expr_callee(&ce)
-    list, has_list := odinsyntax.call_expr_args(&ce)
+    list, has_list     := odinsyntax.call_expr_args(&ce)
     if !has_callee || !has_list {
         return {}, nil, false
     }
@@ -297,7 +297,7 @@ poly_bound_elsewhere :: proc(c: ^Checker, p: Proc_Type, k: int) -> bool {
     if !ok {
         return false
     }
-    pt, _ := odinsyntax.as_proc_type(node)
+    pt, _            := odinsyntax.as_proc_type(node)
     list, has_params := odinsyntax.proc_type_params(&pt)
     if !has_params {
         return false
@@ -325,7 +325,7 @@ poly_bound_elsewhere :: proc(c: ^Checker, p: Proc_Type, k: int) -> bool {
         return false
     }
     text := odinsyntax.node_text(infos[k].type)
-    own := false
+    own  := false
     bare := false
     for i := 0; i < len(text); {
         if !is_ident_byte(text[i]) && text[i] != '$' {
@@ -333,8 +333,8 @@ poly_bound_elsewhere :: proc(c: ^Checker, p: Proc_Type, k: int) -> bool {
             continue
         }
         dollar := text[i] == '$'
-        start := dollar ? i + 1 : i
-        end := start
+        start  := dollar ? i + 1 : i
+        end    := start
         for end < len(text) && is_ident_byte(text[end]) {
             end += 1
         }
@@ -376,11 +376,30 @@ intrinsic_proc :: proc(c: ^Checker, p: Proc_Type) -> bool {
 BUILTIN_ARITY := [?]struct {
     name: string,
     n:    int,
-} {
-    {"len", 1}, {"cap", 1}, {"size_of", 1}, {"align_of", 1}, {"type_of", 1}, {"typeid_of", 1},
-    {"type_info_of", 1}, {"real", 1}, {"imag", 1}, {"jmag", 1}, {"kmag", 1}, {"conj", 1}, {"abs", 1},
-    {"clamp", 3}, {"expand_values", 1}, {"transpose", 1}, {"matrix_flatten", 1}, {"outer_product", 2},
-    {"hadamard_product", 2}, {"raw_data", 1}, {"complex", 2}, {"soa_unzip", 1}, {"unreachable", 0},
+}{
+    {"len", 1},
+    {"cap", 1},
+    {"size_of", 1},
+    {"align_of", 1},
+    {"type_of", 1},
+    {"typeid_of", 1},
+    {"type_info_of", 1},
+    {"real", 1},
+    {"imag", 1},
+    {"jmag", 1},
+    {"kmag", 1},
+    {"conj", 1},
+    {"abs", 1},
+    {"clamp", 3},
+    {"expand_values", 1},
+    {"transpose", 1},
+    {"matrix_flatten", 1},
+    {"outer_product", 2},
+    {"hadamard_product", 2},
+    {"raw_data", 1},
+    {"complex", 2},
+    {"soa_unzip", 1},
+    {"unreachable", 0},
 }
 
 Arity_Kind :: enum u8 {
@@ -411,14 +430,14 @@ arity_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) 
         return {}
     }
     callee, has_callee := odinsyntax.call_expr_callee(&ce)
-    list, has_list := odinsyntax.call_expr_args(&ce)
+    list, has_list     := odinsyntax.call_expr_args(&ce)
     if !has_callee || !has_list || !strings.has_suffix(odinsyntax.node_text(odinsyntax.Syntax_Node(list)), ")") {
         return {}
     }
-    got := 0
+    got   := 0
     extra := -1
     al, _ := odinsyntax.as_arg_list(odinsyntax.Syntax_Node(list))
-    it := odinsyntax.arg_list_args(&al)
+    it    := odinsyntax.arg_list_args(&al)
     args: [2]odinsyntax.Syntax_Node
     for arg in odinsyntax.child_iter_next(&it) {
         if arg.green.kind == .Field_Value || arg.green.kind == .Spread_Expr {
@@ -430,7 +449,7 @@ arity_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) 
         got += 1
     }
     _, list_end := odinsyntax.node_range(odinsyntax.Syntax_Node(list))
-    close := int(list_end) - 1
+    close       := int(list_end) - 1
     // `builtin.len` is named as written, `builtin.min` by its own name.
     if base, is_builtin := builtin_callee(c, file, callee); is_builtin {
         name := odinsyntax.node_text(callee)
@@ -491,7 +510,7 @@ arity_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) 
 builtin_callee :: proc(c: ^Checker, file: File_Id, callee: odinsyntax.Syntax_Node) -> (string, bool) {
     if callee.green.kind == .Ident {
         name := odinsyntax.node_text(callee)
-        r := lookup_name(c, file, name, int(callee.offset))
+        r    := lookup_name(c, file, name, int(callee.offset))
         if r.kind == .Item && r.builtin || r.kind == .None && is_builtin_proc(name) {
             return name, true
         }
@@ -502,7 +521,7 @@ builtin_callee :: proc(c: ^Checker, file: File_Id, callee: odinsyntax.Syntax_Nod
         return "", false
     }
     operand, has_operand := odinsyntax.selector_expr_operand(&sel)
-    field, has_field := odinsyntax.selector_expr_field(&sel)
+    field, has_field     := odinsyntax.selector_expr_field(&sel)
     if !has_operand || !has_field {
         return "", false
     }
@@ -593,12 +612,12 @@ member_problem :: proc(c: ^Checker, file: File_Id, selector: odinsyntax.Syntax_N
         return {}
     }
     operand, has_operand := odinsyntax.selector_expr_operand(&sel)
-    field, has_field := odinsyntax.selector_expr_field(&sel)
+    field, has_field     := odinsyntax.selector_expr_field(&sel)
     if !has_operand || !has_field {
         return {}
     }
     name := odinsyntax.node_text(odinsyntax.Syntax_Node(field))
-    op := expr_type(c, file, operand)
+    op   := expr_type(c, file, operand)
     #partial switch op.mode {
     case .Type:
         e, is_enum := type_get(&c.table, type_base(&c.table, op.type)).(Enum_Type)
@@ -667,17 +686,17 @@ switch_missing :: proc(c: ^Checker, file: File_Id, sw: odinsyntax.Syntax_Node, a
     defer scratch_end(temp)
     #partial switch sw.green.kind {
     case .Switch_Stmt:
-        s, _ := odinsyntax.as_switch_stmt(sw)
-        tag, has_tag := odinsyntax.switch_stmt_tag(&s)
+        s, _           := odinsyntax.as_switch_stmt(sw)
+        tag, has_tag   := odinsyntax.switch_stmt_tag(&s)
         body, has_body := odinsyntax.switch_stmt_body(&s)
         if !has_tag || !has_body {
             return nil
         }
         return enum_missing(c, file, expr_type(c, file, tag).type, odinsyntax.Syntax_Node(body), allocator)
     case .Type_Switch_Stmt:
-        s, _ := odinsyntax.as_type_switch_stmt(sw)
+        s, _                 := odinsyntax.as_type_switch_stmt(sw)
         subject, has_subject := odinsyntax.type_switch_stmt_subject(&s)
-        body, has_body := odinsyntax.type_switch_stmt_body(&s)
+        body, has_body       := odinsyntax.type_switch_stmt_body(&s)
         if !has_subject || !has_body {
             return nil
         }
@@ -689,11 +708,11 @@ switch_missing :: proc(c: ^Checker, file: File_Id, sw: odinsyntax.Syntax_Node, a
 // The case value lists of a switch body; false when a clause is `case:`.
 @(private = "file")
 case_lists :: proc(c: ^Checker, body: odinsyntax.Syntax_Node) -> ([]odinsyntax.Syntax_Node, bool) {
-    body := body
+    body  := body
     lists := make([dynamic]odinsyntax.Syntax_Node, c.tmp)
-    it := odinsyntax.child_iter(&body, {kinds = {.Case_Clause}})
+    it    := odinsyntax.child_iter(&body, {kinds = {.Case_Clause}})
     for clause in odinsyntax.child_iter_next(&it) {
-        cc, _ := odinsyntax.as_case_clause(clause)
+        cc, _      := odinsyntax.as_case_clause(clause)
         values, ok := odinsyntax.case_clause_values(&cc)
         if !ok {
             return nil, false
@@ -720,13 +739,13 @@ enum_missing :: proc(c: ^Checker, file: File_Id, t: Type_Id, body: odinsyntax.Sy
         return nil
     }
     for list in lists {
-        list := list
+        list  := list
         el, _ := odinsyntax.as_expr_list(list)
         items := odinsyntax.expr_list_items(&el)
         for v in odinsyntax.child_iter_next(&items) {
             lo, hi: i64
             if b, is_binary := odinsyntax.as_binary_expr(v); is_binary {
-                op, _ := odinsyntax.binary_expr_op(&b)
+                op, _        := odinsyntax.binary_expr_op(&b)
                 lhs, has_lhs := odinsyntax.binary_expr_lhs(&b)
                 rhs, has_rhs := odinsyntax.binary_expr_rhs(&b)
                 if op.green.kind != .Range_Full && op.green.kind != .Range_Half {
@@ -794,7 +813,7 @@ union_missing :: proc(c: ^Checker, file: File_Id, t: Type_Id, body: odinsyntax.S
         return nil
     }
     for list in lists {
-        list := list
+        list  := list
         el, _ := odinsyntax.as_expr_list(list)
         items := odinsyntax.expr_list_items(&el)
         for v in odinsyntax.child_iter_next(&items) {
@@ -838,7 +857,7 @@ static_assert_fails :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_
         return
     }
     callee, has_callee := odinsyntax.call_expr_callee(&ce)
-    list, has_list := odinsyntax.call_expr_args(&ce)
+    list, has_list     := odinsyntax.call_expr_args(&ce)
     if !has_callee || !has_list {
         return
     }
@@ -936,8 +955,7 @@ assignable :: proc(c: ^Checker, to: Type_Id, op: Operand, any_int := false) -> A
 @(private = "file")
 plain_type :: proc(c: ^Checker, t: Type_Id) -> bool {
     #partial switch v in type_get(&c.table, type_base(&c.table, t)) {
-    case Basic_Type, Untyped_Type, Pointer_Type, Multi_Pointer_Type, Slice_Type, Enumerated_Array_Type,
-         Dynamic_Array_Type, Map_Type, Bit_Set_Type, Enum_Type:
+    case Basic_Type, Untyped_Type, Pointer_Type, Multi_Pointer_Type, Slice_Type, Enumerated_Array_Type, Dynamic_Array_Type, Map_Type, Bit_Set_Type, Enum_Type:
         return true
     case Array_Type:
         return v.len >= 0
@@ -951,10 +969,10 @@ plain_type :: proc(c: ^Checker, t: Type_Id) -> bool {
 
 // A value that cannot be assigned to the type its place takes.
 Type_Problem :: struct {
-    value:    odinsyntax.Syntax_Node,
-    op:       Operand, // the value as typed against `to`
-    to:       Type_Id,
-    overflow: bool,    // an untyped integer constant the integer type `to` cannot hold
+    value:     odinsyntax.Syntax_Node,
+    op:        Operand, // the value as typed against `to`
+    to:        Type_Id,
+    overflow:  bool,   // an untyped integer constant the integer type `to` cannot hold
     truncated: bool,   // a float literal the integer type `to` cannot take as it is
     got:       string, // a float literal: its exact value as the compiler prints it
 }
@@ -993,7 +1011,7 @@ const_arith_overflow :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_No
     unary := false
     #partial switch n.green.kind {
     case .Binary_Expr:
-        b, _ := odinsyntax.as_binary_expr(n)
+        b, _           := odinsyntax.as_binary_expr(n)
         op_tok, has_op := odinsyntax.binary_expr_op(&b)
         has_lhs, has_rhs: bool
         lhs_n, has_lhs = odinsyntax.binary_expr_lhs(&b)
@@ -1003,7 +1021,7 @@ const_arith_overflow :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_No
         }
         op = op_tok.green.kind
     case .Unary_Expr:
-        u, _ := odinsyntax.as_unary_expr(n)
+        u, _           := odinsyntax.as_unary_expr(n)
         op_tok, has_op := odinsyntax.unary_expr_op(&u)
         has_lhs: bool
         lhs_n, has_lhs = odinsyntax.unary_expr_operand(&u)
@@ -1024,7 +1042,7 @@ const_arith_overflow :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_No
         return {}, false
     }
     whole := expr_type(c, file, n)
-    t := &c.table
+    t     := &c.table
     if whole.mode != .Const || whole.type == INVALID_TYPE || type_is_untyped(t, whole.type) || !type_is_integer(t, whole.type) {
         return {}, false
     }
@@ -1077,8 +1095,8 @@ no_value_calls :: proc(c: ^Checker, file: File_Id, stmt: odinsyntax.Syntax_Node,
     places := 0
     #partial switch stmt.green.kind {
     case .Assign_Stmt:
-        as, _ := odinsyntax.as_assign_stmt(stmt)
-        op, has_op := odinsyntax.assign_stmt_op(&as)
+        as, _        := odinsyntax.as_assign_stmt(stmt)
+        op, has_op   := odinsyntax.assign_stmt_op(&as)
         lhs, has_lhs := odinsyntax.assign_stmt_lhs(&as)
         rhs, has_rhs := odinsyntax.assign_stmt_rhs(&as)
         if !has_op || op.green.kind != .Eq || !has_lhs || !has_rhs {
@@ -1093,7 +1111,7 @@ no_value_calls :: proc(c: ^Checker, file: File_Id, stmt: odinsyntax.Syntax_Node,
         if is_constant_decl(stmt) {
             return nil
         }
-        vd, _ := odinsyntax.as_value_decl(stmt)
+        vd, _            := odinsyntax.as_value_decl(stmt)
         names, has_names := odinsyntax.value_decl_names(&vd)
         list, has_values := odinsyntax.value_decl_values(&vd)
         if !has_names || !has_values {
@@ -1108,7 +1126,7 @@ no_value_calls :: proc(c: ^Checker, file: File_Id, stmt: odinsyntax.Syntax_Node,
         return nil
     }
     nodes := make([dynamic]odinsyntax.Syntax_Node, context.temp_allocator)
-    vit := odinsyntax.expr_list_items(&values)
+    vit   := odinsyntax.expr_list_items(&values)
     for v in odinsyntax.child_iter_next(&vit) {
         append(&nodes, v)
     }
@@ -1124,7 +1142,7 @@ no_value_operands :: proc(c: ^Checker, file: File_Id, node: odinsyntax.Syntax_No
     nodes := make([dynamic]odinsyntax.Syntax_Node, context.temp_allocator)
     #partial switch node.green.kind {
     case .Call_Expr:
-        ce, _ := odinsyntax.as_call_expr(node)
+        ce, _          := odinsyntax.as_call_expr(node)
         list, has_list := odinsyntax.call_expr_args(&ce)
         if !has_list {
             return nil
@@ -1134,7 +1152,7 @@ no_value_operands :: proc(c: ^Checker, file: File_Id, node: odinsyntax.Syntax_No
             append(&nodes, arg)
         }
     case .Return_Stmt:
-        rs, _ := odinsyntax.as_return_stmt(node)
+        rs, _              := odinsyntax.as_return_stmt(node)
         values, has_values := odinsyntax.return_stmt_values(&rs)
         if !has_values {
             return nil
@@ -1156,7 +1174,7 @@ no_value_filter :: proc(c: ^Checker, file: File_Id, nodes: []odinsyntax.Syntax_N
         if v.green.kind != .Call_Expr {
             continue
         }
-        ce, _ := odinsyntax.as_call_expr(v)
+        ce, _              := odinsyntax.as_call_expr(v)
         callee, has_callee := odinsyntax.call_expr_callee(&ce)
         if !has_callee {
             continue
@@ -1182,11 +1200,11 @@ conversion_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_N
         return {}, false
     }
     callee, has_callee := odinsyntax.call_expr_callee(&ce)
-    list, has_list := odinsyntax.call_expr_args(&ce)
+    list, has_list     := odinsyntax.call_expr_args(&ce)
     if !has_callee || !has_list {
         return {}, false
     }
-    it := odinsyntax.arg_list_args(&list)
+    it           := odinsyntax.arg_list_args(&list)
     arg, has_arg := odinsyntax.child_iter_next(&it)
     if _, more := odinsyntax.child_iter_next(&it); !has_arg || more || arg.green.kind == .Field_Value || arg.green.kind == .Spread_Expr {
         return {}, false
@@ -1281,7 +1299,7 @@ min_max_mismatches :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_N
         return nil
     }
     callee, has_callee := odinsyntax.call_expr_callee(&ce)
-    list, has_list := odinsyntax.call_expr_args(&ce)
+    list, has_list     := odinsyntax.call_expr_args(&ce)
     if !has_callee || !has_list || callee.green.kind != .Ident {
         return nil
     }
@@ -1296,8 +1314,8 @@ min_max_mismatches :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_N
     temp := scratch_begin(c)
     defer scratch_end(temp)
     args := make([dynamic]odinsyntax.Syntax_Node, c.tmp)
-    to := INVALID_TYPE
-    it := odinsyntax.arg_list_args(&list)
+    to   := INVALID_TYPE
+    it   := odinsyntax.arg_list_args(&list)
     for arg in odinsyntax.child_iter_next(&it) {
         if arg.green.kind == .Field_Value || arg.green.kind == .Spread_Expr {
             return nil
@@ -1318,7 +1336,7 @@ min_max_mismatches :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_N
     }
     out := make([dynamic]Type_Problem, allocator)
     for arg in args {
-        op := expr_type(c, file, arg, to)
+        op            := expr_type(c, file, arg, to)
         u, is_untyped := type_get(&c.table, op.type).(Untyped_Type)
         if op.mode == .Const && is_untyped && u.kind == .String {
             append(&out, Type_Problem{value = arg, op = op, to = to})
@@ -1341,7 +1359,7 @@ min_max_order_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Synta
         return {}, false
     }
     callee, has_callee := odinsyntax.call_expr_callee(&ce)
-    list, has_list := odinsyntax.call_expr_args(&ce)
+    list, has_list     := odinsyntax.call_expr_args(&ce)
     if !has_callee || !has_list || callee.green.kind != .Ident {
         return {}, false
     }
@@ -1354,7 +1372,7 @@ min_max_order_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Synta
     if expr_type(c, file, callee).mode != .Builtin {
         return {}, false
     }
-    i := 0
+    i  := 0
     it := odinsyntax.arg_list_args(&list)
     for arg in odinsyntax.child_iter_next(&it) {
         if arg.green.kind == .Field_Value || arg.green.kind == .Spread_Expr {
@@ -1382,7 +1400,7 @@ argument_mismatches :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_
         return nil
     }
     callee, has_callee := odinsyntax.call_expr_callee(&ce)
-    list, has_list := odinsyntax.call_expr_args(&ce)
+    list, has_list     := odinsyntax.call_expr_args(&ce)
     if !has_callee || !has_list {
         return nil
     }
@@ -1399,7 +1417,7 @@ argument_mismatches :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_
     }
     // An intrinsic takes more than its signature says; only a string or bool constant for a number is wrong.
     intrinsic := intrinsic_proc(c, p)
-    temp := scratch_begin(c)
+    temp      := scratch_begin(c)
     defer scratch_end(temp)
     args := call_args(c, file, odinsyntax.Syntax_Node(list), {})
     if len(args) == 0 {
@@ -1414,7 +1432,7 @@ argument_mismatches :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_
     if !ok {
         return nil
     }
-    first := len(with) - len(args)
+    first       := len(with) - len(args)
     slots, miss := match_slots(c, p, with)
     if miss.kind != .None {
         return nil
@@ -1472,7 +1490,7 @@ generic_params :: proc(c: ^Checker, p: Proc_Type, with: []Call_Arg, slots: []int
     if !ok {
         return nil, nil
     }
-    pt, _ := odinsyntax.as_proc_type(node)
+    pt, _            := odinsyntax.as_proc_type(node)
     list, has_params := odinsyntax.proc_type_params(&pt)
     if !has_params {
         return nil, nil
@@ -1483,7 +1501,7 @@ generic_params :: proc(c: ^Checker, p: Proc_Type, with: []Call_Arg, slots: []int
     }
     // A parameter before the last `$` declaration may name a type the `$` name shadows only later.
     declares := make([]bool, len(infos), c.tmp)
-    last := -1
+    last     := -1
     for info, k in infos {
         if info.poly_name || info.has_type && strings.contains_rune(odinsyntax.node_text(info.type), '$') {
             last = k
@@ -1519,8 +1537,8 @@ assign_mismatches :: proc(c: ^Checker, file: File_Id, stmt: odinsyntax.Syntax_No
     overflow_only := false
     #partial switch stmt.green.kind {
     case .Assign_Stmt:
-        as, _ := odinsyntax.as_assign_stmt(stmt)
-        op, has_op := odinsyntax.assign_stmt_op(&as)
+        as, _        := odinsyntax.as_assign_stmt(stmt)
+        op, has_op   := odinsyntax.assign_stmt_op(&as)
         lhs, has_lhs := odinsyntax.assign_stmt_lhs(&as)
         rhs, has_rhs := odinsyntax.assign_stmt_rhs(&as)
         if !has_op || !has_lhs || !has_rhs {
@@ -1544,10 +1562,10 @@ assign_mismatches :: proc(c: ^Checker, file: File_Id, stmt: odinsyntax.Syntax_No
         values = rhs
     case .Value_Decl:
         overflow_only = is_constant_decl(stmt)
-        vd, _ := odinsyntax.as_value_decl(stmt)
+        vd, _               := odinsyntax.as_value_decl(stmt)
         type_node, has_type := odinsyntax.value_decl_type(&vd)
-        names, has_names := odinsyntax.value_decl_names(&vd)
-        list, has_values := odinsyntax.value_decl_values(&vd)
+        names, has_names    := odinsyntax.value_decl_names(&vd)
+        list, has_values    := odinsyntax.value_decl_values(&vd)
         if !has_type || !has_names || !has_values {
             return nil
         }
@@ -1571,7 +1589,7 @@ op_assign_mismatches :: proc(c: ^Checker, file: File_Id, op: odinsyntax.Token_Ki
     lhs, rhs := lhs, rhs
     place, value: odinsyntax.Syntax_Node
     count := 0
-    it := odinsyntax.expr_list_items(&lhs)
+    it    := odinsyntax.expr_list_items(&lhs)
     for n in odinsyntax.child_iter_next(&it) {
         place = n
         count += 1
@@ -1596,7 +1614,7 @@ op_assign_mismatches :: proc(c: ^Checker, file: File_Id, op: odinsyntax.Token_Ki
     case .String, .Cstring, .String16, .Cstring16, .Rawptr, .Typeid, .Any:
         return nil
     }
-    vop := expr_type(c, file, value, lop.type)
+    vop           := expr_type(c, file, value, lop.type)
     u, is_untyped := type_get(&c.table, vop.type).(Untyped_Type)
     if vop.mode != .Const || !is_untyped {
         return nil
@@ -1633,7 +1651,7 @@ return_mismatches :: proc(c: ^Checker, file: File_Id, ret: odinsyntax.Syntax_Nod
     }
     lit: odinsyntax.Syntax_Node
     found := false
-    path := node_path(c, file, int(ret.offset))
+    path  := node_path(c, file, int(ret.offset))
     #reverse for n in path {
         if n.green.kind == .Proc_Lit {
             lit, found = n, true
@@ -1643,7 +1661,7 @@ return_mismatches :: proc(c: ^Checker, file: File_Id, ret: odinsyntax.Syntax_Nod
     if !found {
         return nil
     }
-    pl, _ := odinsyntax.as_proc_lit(lit)
+    pl, _        := odinsyntax.as_proc_lit(lit)
     pt, has_type := odinsyntax.proc_lit_type(&pl)
     if !has_type {
         return nil
@@ -1668,9 +1686,9 @@ return_mismatches :: proc(c: ^Checker, file: File_Id, ret: odinsyntax.Syntax_Nod
 // `overflow_only` only the integer constants their places cannot hold.
 @(private = "file")
 value_mismatches :: proc(c: ^Checker, file: File_Id, places: []Type_Id, list: odinsyntax.Expr_List, overflow_only: bool, allocator: mem.Allocator) -> []Type_Problem {
-    list := list
+    list  := list
     nodes := make([dynamic]odinsyntax.Syntax_Node, c.tmp)
-    it := odinsyntax.expr_list_items(&list)
+    it    := odinsyntax.expr_list_items(&list)
     for v in odinsyntax.child_iter_next(&it) {
         if v.green.kind == .Field_Value {
             return nil
@@ -1707,7 +1725,7 @@ builtin_call :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> b
     n := n
     #partial switch n.green.kind {
     case .Call_Expr:
-        ce, _ := odinsyntax.as_call_expr(n)
+        ce, _      := odinsyntax.as_call_expr(n)
         callee, ok := odinsyntax.call_expr_callee(&ce)
         if !ok {
             return false
@@ -1772,7 +1790,7 @@ or_return_fits :: proc(c: ^Checker, file: File_Id, operand: odinsyntax.Syntax_No
 or_return_check :: proc(c: ^Checker, file: File_Id, operand: odinsyntax.Syntax_Node) -> (Or_Return_Problem, bool) {
     lit: odinsyntax.Syntax_Node
     found := false
-    path := node_path(c, file, int(operand.offset))
+    path  := node_path(c, file, int(operand.offset))
     #reverse for p in path {
         if p.green.kind == .Proc_Lit {
             lit, found = p, true
@@ -1782,7 +1800,7 @@ or_return_check :: proc(c: ^Checker, file: File_Id, operand: odinsyntax.Syntax_N
     if !found {
         return {}, false
     }
-    pl, _ := odinsyntax.as_proc_lit(lit)
+    pl, _        := odinsyntax.as_proc_lit(lit)
     pt, has_type := odinsyntax.proc_lit_type(&pl)
     if !has_type {
         return {}, false
@@ -1857,7 +1875,7 @@ where_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) 
         return "", false
     }
     callee, has_callee := odinsyntax.call_expr_callee(&ce)
-    list, has_list := odinsyntax.call_expr_args(&ce)
+    list, has_list     := odinsyntax.call_expr_args(&ce)
     if !has_callee || !has_list {
         return "", false
     }
@@ -1910,11 +1928,20 @@ where_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) 
 @(private = "file")
 one_value :: proc(c: ^Checker, file: File_Id, v: odinsyntax.Syntax_Node) -> bool {
     #partial switch v.green.kind {
-    case .Literal, .Comp_Lit, .Implicit_Selector, .Binary_Expr, .Ternary_Expr, .Ternary_If_Expr,
-         .Ternary_When_Expr, .Proc_Lit, .Cast_Expr, .Auto_Cast_Expr, .Slice_Expr:
+    case .Literal,
+        .Comp_Lit,
+        .Implicit_Selector,
+        .Binary_Expr,
+        .Ternary_Expr,
+        .Ternary_If_Expr,
+        .Ternary_When_Expr,
+        .Proc_Lit,
+        .Cast_Expr,
+        .Auto_Cast_Expr,
+        .Slice_Expr:
         return true
     case .Call_Expr:
-        ce, _ := odinsyntax.as_call_expr(v)
+        ce, _      := odinsyntax.as_call_expr(v)
         callee, ok := odinsyntax.call_expr_callee(&ce)
         if !ok {
             return false
@@ -1936,8 +1963,8 @@ assign_count :: proc(c: ^Checker, file: File_Id, stmt: odinsyntax.Syntax_Node) -
     list: odinsyntax.Expr_List
     #partial switch stmt.green.kind {
     case .Assign_Stmt:
-        as, _ := odinsyntax.as_assign_stmt(stmt)
-        op, has_op := odinsyntax.assign_stmt_op(&as)
+        as, _        := odinsyntax.as_assign_stmt(stmt)
+        op, has_op   := odinsyntax.assign_stmt_op(&as)
         lhs, has_lhs := odinsyntax.assign_stmt_lhs(&as)
         rhs, has_rhs := odinsyntax.assign_stmt_rhs(&as)
         if !has_op || !has_lhs || !has_rhs || op.green.kind != .Eq {
@@ -1953,9 +1980,9 @@ assign_count :: proc(c: ^Checker, file: File_Id, stmt: odinsyntax.Syntax_Node) -
         if is_constant_decl(stmt) {
             return
         }
-        vd, _ := odinsyntax.as_value_decl(stmt)
+        vd, _            := odinsyntax.as_value_decl(stmt)
         names, has_names := odinsyntax.value_decl_names(&vd)
-        rhs, has_values := odinsyntax.value_decl_values(&vd)
+        rhs, has_values  := odinsyntax.value_decl_values(&vd)
         if !has_names || !has_values {
             return
         }
@@ -1971,7 +1998,7 @@ assign_count :: proc(c: ^Checker, file: File_Id, stmt: odinsyntax.Syntax_Node) -
     temp := scratch_begin(c)
     defer scratch_end(temp)
     nodes := make([dynamic]odinsyntax.Syntax_Node, c.tmp)
-    it := odinsyntax.expr_list_items(&list)
+    it    := odinsyntax.expr_list_items(&list)
     for v in odinsyntax.child_iter_next(&it) {
         if v.green.kind == .Field_Value {
             return

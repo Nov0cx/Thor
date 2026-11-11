@@ -45,8 +45,8 @@ When_Guard :: struct {
     expr:     int,    // the compiled condition in Item_Tree.conds; -1 for a final `else`
     start:    int,    // the branch range: the condition (or `else` body) to the end of its body
     end:      int,
-    previous: int,    // the earlier branch of the chain, whose condition is false here; -1 when none
-    parent:   int,    // the enclosing guard; -1 at file scope
+    previous: int, // the earlier branch of the chain, whose condition is false here; -1 when none
+    parent:   int, // the enclosing guard; -1 at file scope
 }
 
 // A member of a procedure group: `name`, or `operand.name` when it is qualified.
@@ -67,24 +67,24 @@ Item :: struct {
     signature:    string, // the declaration head on one line, from the name or `using`: "add :: proc(a, b: int) -> int"
     doc:          string, // the `//` lines or the `/* */` comment directly above the declaration, markers stripped; "" when none
     attributes:   []Item_Attribute,
-    guard:        int,  // innermost When_Guard; -1 when none
-    in_foreign:   bool, // declared in a foreign block
-    path:         string, // Import and Foreign_Import: the unquoted path
-    path_offset:  int,    // Import and Foreign_Import: the opening quote of the path; -1 when none
-    children:     []Item, // struct and bit_field fields, enum members
+    guard:        int,            // innermost When_Guard; -1 when none
+    in_foreign:   bool,           // declared in a foreign block
+    path:         string,         // Import and Foreign_Import: the unquoted path
+    path_offset:  int,            // Import and Foreign_Import: the opening quote of the path; -1 when none
+    children:     []Item,         // struct and bit_field fields, enum members
     members:      []Group_Member, // Proc_Group: the members that are a name or `operand.name`
-    type_offset:  int, // the type expression; -1 when absent
-    value_offset: int, // the value expression; -1 when absent
-    value_index:  int, // the result of a multi-value value the name takes; -1 when the value is its own
+    type_offset:  int,            // the type expression; -1 when absent
+    value_offset: int,            // the value expression; -1 when absent
+    value_index:  int,            // the result of a multi-value value the name takes; -1 when the value is its own
 }
 
 // The declarations of one file. Proc bodies are not read. Every string is a copy in `arena`.
 Item_Tree :: struct {
     arena:          virtual.Arena,
     package_name:   string,
-    package_offset: int, // -1 when the file has no package clause
-    package_doc:    string, // the `//` lines or the `/* */` comment directly above the package clause, markers stripped
-    tags:           []string, // file tags as `#+build ...`; the legacy `//+` form is rewritten to `#+`
+    package_offset: int,        // -1 when the file has no package clause
+    package_doc:    string,     // the `//` lines or the `/* */` comment directly above the package clause, markers stripped
+    tags:           []string,   // file tags as `#+build ...`; the legacy `//+` form is rewritten to `#+`
     private:        Visibility, // from `#+private` / `#+private file`
     items:          []Item,
     guards:         []When_Guard,
@@ -123,20 +123,16 @@ item_tree :: proc(parsed: odinsyntax.Parse, allocator := context.allocator) -> (
     if parsed.tree == nil || parsed.tree.root == nil {
         return tree, nil
     }
-    b := Builder {
-        tree  = tree,
-        alloc = virtual.arena_allocator(&tree.arena),
-        text  = parsed.tree.text,
-    }
+    b := Builder{tree = tree, alloc = virtual.arena_allocator(&tree.arena), text = parsed.tree.text}
     runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
     b.guards = make([dynamic]When_Guard, context.temp_allocator)
     b.conds = make([dynamic]Cond_Expr, context.temp_allocator)
     items := make([dynamic]Item, context.temp_allocator)
 
     root_node := odinsyntax.node_root(parsed.tree)
-    root, _ := odinsyntax.as_root(root_node)
+    root, _   := odinsyntax.as_root(root_node)
     read_header(&b, &root)
-    ctx := Decl_Context{guard = -1, visibility = tree.private}
+    ctx   := Decl_Context{guard = -1, visibility = tree.private}
     decls := odinsyntax.root_decls(&root)
     for n in odinsyntax.child_iter_next(&decls) {
         walk_decl(&b, n, ctx, &items)
@@ -212,7 +208,7 @@ append_tag :: proc(b: ^Builder, tags: ^[dynamic]string, text: string) {
 // The name of a `#+name rest` tag and the rest.
 tag_split :: proc(tag: string) -> (name, rest: string) {
     body := strings.trim_prefix(tag, "#+")
-    end := 0
+    end  := 0
     for end < len(body) && body[end] != ' ' && body[end] != '\t' {
         end += 1
     }
@@ -266,7 +262,7 @@ walk_block :: proc(b: ^Builder, n: odinsyntax.Syntax_Node, ctx: Decl_Context, ou
 
 @(private = "file")
 walk_when :: proc(b: ^Builder, n: odinsyntax.Syntax_Node, ctx: Decl_Context, previous: int, out: ^[dynamic]Item) {
-    w, _ := odinsyntax.as_when_stmt(n)
+    w, _  := odinsyntax.as_when_stmt(n)
     guard := When_Guard{expr = -1, previous = previous, parent = ctx.guard}
     guard.start = int(n.offset)
     guard.end = guard.start
@@ -312,12 +308,12 @@ push_guard :: proc(b: ^Builder, guard: When_Guard) -> int {
 
 @(private)
 add_value_decl :: proc(b: ^Builder, n: ^odinsyntax.Syntax_Node, ctx: Decl_Context, out: ^[dynamic]Item) {
-    v, _ := odinsyntax.as_value_decl(n^)
+    v, _       := odinsyntax.as_value_decl(n^)
     start, end := odinsyntax.node_range(n^)
-    doc := doc_above(b, n.parent, n.offset)
+    doc        := doc_above(b, n.parent, n.offset)
 
-    vis := ctx.visibility
-    attrs := make([dynamic]Item_Attribute, context.temp_allocator)
+    vis       := ctx.visibility
+    attrs     := make([dynamic]Item_Attribute, context.temp_allocator)
     attr_iter := odinsyntax.value_decl_attributes(&v)
     for attr in odinsyntax.child_iter_next(&attr_iter) {
         attr := attr
@@ -334,7 +330,7 @@ add_value_decl :: proc(b: ^Builder, n: ^odinsyntax.Syntax_Node, ctx: Decl_Contex
             colons += 1
         }
     }
-    constant := colons >= 2
+    constant    := colons >= 2
     type_offset := -1
     if type, ok := odinsyntax.value_decl_type(&v); ok {
         type_offset = int(type.offset)
@@ -354,22 +350,22 @@ add_value_decl :: proc(b: ^Builder, n: ^odinsyntax.Syntax_Node, ctx: Decl_Contex
             continue
         }
         value, result, has_value := decl_value(n, int(name.offset))
-        item := Item {
-            name         = clone(b, odinsyntax.node_text(name)),
-            kind         = .Var,
-            visibility   = vis,
-            name_offset  = int(name.offset),
-            start        = int(start),
-            end          = int(end),
-            doc          = doc,
-            attributes   = attributes,
-            guard        = ctx.guard,
-            in_foreign   = ctx.in_foreign,
-            type_offset  = type_offset,
+        item                     := Item{
+            name = clone(b, odinsyntax.node_text(name)),
+            kind = .Var,
+            visibility = vis,
+            name_offset = int(name.offset),
+            start = int(start),
+            end = int(end),
+            doc = doc,
+            attributes = attributes,
+            guard = ctx.guard,
+            in_foreign = ctx.in_foreign,
+            type_offset = type_offset,
             value_offset = -1,
-            value_index  = result,
+            value_index = result,
         }
-        cut := end
+        cut                      := end
         if has_value {
             item.value_offset = int(value.offset)
             cut = value_cut(value, end)
@@ -392,20 +388,20 @@ add_value_decl :: proc(b: ^Builder, n: ^odinsyntax.Syntax_Node, ctx: Decl_Contex
 
 @(private = "file")
 add_import :: proc(b: ^Builder, n: ^odinsyntax.Syntax_Node, ctx: Decl_Context, out: ^[dynamic]Item) {
-    imp, _ := odinsyntax.as_import_decl(n^)
-    start, end := odinsyntax.node_range(n^)
-    item := Item {
-        kind         = .Import,
-        visibility   = .File,
-        start        = int(start),
-        end          = int(end),
-        guard        = ctx.guard,
-        signature    = token_text(b, n^, start, end),
-        doc          = doc_above(b, n.parent, n.offset),
-        path_offset  = -1,
-        type_offset  = -1,
+    imp, _             := odinsyntax.as_import_decl(n^)
+    start, end         := odinsyntax.node_range(n^)
+    item               := Item{
+        kind = .Import,
+        visibility = .File,
+        start = int(start),
+        end = int(end),
+        guard = ctx.guard,
+        signature = token_text(b, n^, start, end),
+        doc = doc_above(b, n.parent, n.offset),
+        path_offset = -1,
+        type_offset = -1,
         value_offset = -1,
-        value_index  = -1,
+        value_index = -1,
     }
     path_tok, has_path := odinsyntax.import_decl_path(&imp)
     if has_path {
@@ -421,7 +417,7 @@ add_import :: proc(b: ^Builder, n: ^odinsyntax.Syntax_Node, ctx: Decl_Context, o
     if item.name == "" {
         return
     }
-    attrs := make([dynamic]Item_Attribute, context.temp_allocator)
+    attrs     := make([dynamic]Item_Attribute, context.temp_allocator)
     attr_iter := odinsyntax.child_iter(n, {kinds = {.Attribute}})
     for attr in odinsyntax.child_iter_next(&attr_iter) {
         attr := attr
@@ -435,20 +431,20 @@ add_import :: proc(b: ^Builder, n: ^odinsyntax.Syntax_Node, ctx: Decl_Context, o
 
 @(private = "file")
 add_foreign_import :: proc(b: ^Builder, n: ^odinsyntax.Syntax_Node, ctx: Decl_Context, out: ^[dynamic]Item) {
-    imp, _ := odinsyntax.as_foreign_import_decl(n^)
-    start, end := odinsyntax.node_range(n^)
-    item := Item {
-        kind         = .Foreign_Import,
-        visibility   = .File,
-        start        = int(start),
-        end          = int(end),
-        guard        = ctx.guard,
-        signature    = token_text(b, n^, start, end),
-        doc          = doc_above(b, n.parent, n.offset),
-        path_offset  = -1,
-        type_offset  = -1,
+    imp, _         := odinsyntax.as_foreign_import_decl(n^)
+    start, end     := odinsyntax.node_range(n^)
+    item           := Item{
+        kind = .Foreign_Import,
+        visibility = .File,
+        start = int(start),
+        end = int(end),
+        guard = ctx.guard,
+        signature = token_text(b, n^, start, end),
+        doc = doc_above(b, n.parent, n.offset),
+        path_offset = -1,
+        type_offset = -1,
         value_offset = -1,
-        value_index  = -1,
+        value_index = -1,
     }
     name, has_name := odinsyntax.foreign_import_decl_name(&imp)
     if has_name {
@@ -482,7 +478,7 @@ add_foreign_import :: proc(b: ^Builder, n: ^odinsyntax.Syntax_Node, ctx: Decl_Co
 // The visibility a `private` attribute element sets, if the attribute has one.
 @(private = "file")
 attribute_visibility :: proc(b: ^Builder, attr: ^odinsyntax.Syntax_Node) -> (vis: Visibility, found: bool) {
-    a, _ := odinsyntax.as_attribute(attr^)
+    a, _  := odinsyntax.as_attribute(attr^)
     elems := odinsyntax.attribute_elems(&a)
     for elem in odinsyntax.child_iter_next(&elems) {
         name, value := attribute_element(elem)
@@ -497,7 +493,7 @@ attribute_visibility :: proc(b: ^Builder, attr: ^odinsyntax.Syntax_Node) -> (vis
 
 @(private = "file")
 read_attributes :: proc(b: ^Builder, attr: ^odinsyntax.Syntax_Node, out: ^[dynamic]Item_Attribute) {
-    a, _ := odinsyntax.as_attribute(attr^)
+    a, _  := odinsyntax.as_attribute(attr^)
     elems := odinsyntax.attribute_elems(&a)
     for elem in odinsyntax.child_iter_next(&elems) {
         name, value := attribute_element(elem)
@@ -580,15 +576,63 @@ classify :: proc(value: odinsyntax.Syntax_Node) -> Item_Kind {
 @(private = "file")
 is_builtin_type :: proc(name: string) -> bool {
     switch name {
-    case "bool", "b8", "b16", "b32", "b64",
-         "int", "i8", "i16", "i32", "i64", "i128",
-         "uint", "u8", "u16", "u32", "u64", "u128", "uintptr",
-         "i16le", "i32le", "i64le", "i128le", "u16le", "u32le", "u64le", "u128le",
-         "i16be", "i32be", "i64be", "i128be", "u16be", "u32be", "u64be", "u128be",
-         "f16", "f32", "f64", "f16le", "f32le", "f64le", "f16be", "f32be", "f64be",
-         "complex32", "complex64", "complex128",
-         "quaternion64", "quaternion128", "quaternion256",
-         "rune", "string", "cstring", "string16", "cstring16", "rawptr", "typeid", "any":
+    case "bool",
+        "b8",
+        "b16",
+        "b32",
+        "b64",
+        "int",
+        "i8",
+        "i16",
+        "i32",
+        "i64",
+        "i128",
+        "uint",
+        "u8",
+        "u16",
+        "u32",
+        "u64",
+        "u128",
+        "uintptr",
+        "i16le",
+        "i32le",
+        "i64le",
+        "i128le",
+        "u16le",
+        "u32le",
+        "u64le",
+        "u128le",
+        "i16be",
+        "i32be",
+        "i64be",
+        "i128be",
+        "u16be",
+        "u32be",
+        "u64be",
+        "u128be",
+        "f16",
+        "f32",
+        "f64",
+        "f16le",
+        "f32le",
+        "f64le",
+        "f16be",
+        "f32be",
+        "f64be",
+        "complex32",
+        "complex64",
+        "complex128",
+        "quaternion64",
+        "quaternion128",
+        "quaternion256",
+        "rune",
+        "string",
+        "cstring",
+        "string16",
+        "cstring16",
+        "rawptr",
+        "typeid",
+        "any":
         return true
     }
     return false
@@ -601,7 +645,7 @@ value_cut :: proc(value: odinsyntax.Syntax_Node, decl_end: u32) -> u32 {
     #partial switch value.green.kind {
     case .Proc_Lit:
         p, _ := odinsyntax.as_proc_lit(value)
-        cut := decl_end
+        cut  := decl_end
         if pt, ok := odinsyntax.proc_lit_type(&p); ok {
             _, cut = odinsyntax.node_range(odinsyntax.Syntax_Node(pt))
         }
@@ -651,7 +695,7 @@ direct_token_offset :: proc(n: odinsyntax.Syntax_Node, kind: odinsyntax.Token_Ki
 @(private = "file")
 read_children :: proc(b: ^Builder, value: odinsyntax.Syntax_Node) -> []Item {
     value := value
-    out := make([dynamic]Item, context.temp_allocator)
+    out   := make([dynamic]Item, context.temp_allocator)
     #partial switch value.green.kind {
     case .Distinct_Type:
         d, _ := odinsyntax.as_distinct_type(value)
@@ -659,20 +703,20 @@ read_children :: proc(b: ^Builder, value: odinsyntax.Syntax_Node) -> []Item {
             return read_children(b, inner)
         }
     case .Struct_Type:
-        s, _ := odinsyntax.as_struct_type(value)
+        s, _     := odinsyntax.as_struct_type(value)
         list, ok := odinsyntax.struct_type_fields(&s)
         if !ok {
             break
         }
         fields := odinsyntax.field_list_fields(&list)
         for field in odinsyntax.child_iter_next(&fields) {
-            field := field
-            f, _ := odinsyntax.as_field(field)
+            field      := field
+            f, _       := odinsyntax.as_field(field)
             names, nok := odinsyntax.field_names(&f)
             if !nok {
                 continue
             }
-            _, end := odinsyntax.node_range(field)
+            _, end      := odinsyntax.node_range(field)
             type_offset := -1
             if type, tok := odinsyntax.field_type(&f); tok {
                 type_offset = int(type.offset)
@@ -689,13 +733,13 @@ read_children :: proc(b: ^Builder, value: odinsyntax.Syntax_Node) -> []Item {
             }
         }
     case .Bit_Field_Type:
-        bf, _ := odinsyntax.as_bit_field_type(value)
+        bf, _  := odinsyntax.as_bit_field_type(value)
         fields := odinsyntax.bit_field_type_fields(&bf)
         for field in odinsyntax.child_iter_next(&fields) {
             field := field
-            f, _ := odinsyntax.as_bit_field_field(field)
+            f, _  := odinsyntax.as_bit_field_field(field)
             if name, ok := odinsyntax.bit_field_field_name(&f); ok {
-                _, end := odinsyntax.node_range(field)
+                _, end      := odinsyntax.node_range(field)
                 type_offset := -1
                 if type, tok := odinsyntax.bit_field_field_type(&f); tok {
                     type_offset = int(type.offset)
@@ -704,7 +748,7 @@ read_children :: proc(b: ^Builder, value: odinsyntax.Syntax_Node) -> []Item {
             }
         }
     case .Enum_Type:
-        e, _ := odinsyntax.as_enum_type(value)
+        e, _    := odinsyntax.as_enum_type(value)
         members := odinsyntax.enum_type_members(&e)
         for member in odinsyntax.child_iter_next(&members) {
             member := member
@@ -728,7 +772,7 @@ read_children :: proc(b: ^Builder, value: odinsyntax.Syntax_Node) -> []Item {
 // The members of a procedure group that are a name or `operand.name`; other expressions are skipped.
 @(private = "file")
 read_members :: proc(b: ^Builder, value: odinsyntax.Syntax_Node) -> []Group_Member {
-    out := make([dynamic]Group_Member, context.temp_allocator)
+    out       := make([dynamic]Group_Member, context.temp_allocator)
     group, ok := odinsyntax.as_proc_group(value)
     if !ok {
         return nil
@@ -740,9 +784,9 @@ read_members :: proc(b: ^Builder, value: odinsyntax.Syntax_Node) -> []Group_Memb
         case .Ident:
             m.name = clone(b, odinsyntax.node_text(member))
         case .Selector_Expr:
-            sel, _ := odinsyntax.as_selector_expr(member)
+            sel, _               := odinsyntax.as_selector_expr(member)
             operand, has_operand := odinsyntax.selector_expr_operand(&sel)
-            field, has_field := odinsyntax.selector_expr_field(&sel)
+            field, has_field     := odinsyntax.selector_expr_field(&sel)
             if !has_operand || !has_field || operand.green.kind != .Ident {
                 continue
             }
@@ -761,21 +805,29 @@ read_members :: proc(b: ^Builder, value: odinsyntax.Syntax_Node) -> []Group_Memb
 
 // Appends the field or member `name` of `decl`. Its signature starts at `using_offset` when that is not -1.
 @(private = "file")
-push_child :: proc(b: ^Builder, out: ^[dynamic]Item, kind: Item_Kind, decl, name: odinsyntax.Syntax_Node, end: u32, type_offset, value_offset: int, using_offset := -1) {
+push_child :: proc(
+    b: ^Builder,
+    out: ^[dynamic]Item,
+    kind: Item_Kind,
+    decl, name: odinsyntax.Syntax_Node,
+    end: u32,
+    type_offset, value_offset: int,
+    using_offset := -1,
+) {
     start, _ := odinsyntax.node_range(decl)
-    head := using_offset >= 0 ? u32(using_offset) : name.offset
-    item := Item {
-        name         = clone(b, odinsyntax.node_text(name)),
-        kind         = kind,
-        name_offset  = int(name.offset),
-        start        = int(start),
-        end          = int(end),
-        guard        = -1,
-        signature    = token_text(b, decl, head, end),
-        doc          = doc_above(b, decl.parent, decl.offset),
-        type_offset  = type_offset,
+    head     := using_offset >= 0 ? u32(using_offset) : name.offset
+    item     := Item{
+        name = clone(b, odinsyntax.node_text(name)),
+        kind = kind,
+        name_offset = int(name.offset),
+        start = int(start),
+        end = int(end),
+        guard = -1,
+        signature = token_text(b, decl, head, end),
+        doc = doc_above(b, decl.parent, decl.offset),
+        type_offset = type_offset,
         value_offset = value_offset,
-        value_index  = -1,
+        value_index = -1,
     }
     if _, err := append(out, item); err != nil && b.err == nil {
         b.err = err
@@ -790,9 +842,9 @@ doc_above :: proc(b: ^Builder, parent: ^odinsyntax.Syntax_Node, offset: u32) -> 
     if parent == nil || parent.green == nil {
         return ""
     }
-    kids := odinsyntax.green_children(parent.green)
+    kids  := odinsyntax.green_children(parent.green)
     index := -1
-    pos := parent.offset
+    pos   := parent.offset
     for child, i in kids {
         if _, is_node := odinsyntax.element_node(child); is_node && pos == offset {
             index = i
@@ -806,9 +858,9 @@ doc_above :: proc(b: ^Builder, parent: ^odinsyntax.Syntax_Node, offset: u32) -> 
     if index < 0 {
         return ""
     }
-    lines := make([dynamic]string, context.temp_allocator)
+    lines    := make([dynamic]string, context.temp_allocator)
     newlines := 0
-    end := offset
+    end      := offset
     scan: for i := index - 1; i >= 0; i -= 1 {
         tok, is_token := odinsyntax.element_token(kids[i])
         if !is_token {
@@ -867,9 +919,9 @@ block_doc :: proc(text: string) -> string {
         line = strings.trim_right(line, " \t\r")
     }
     lines[0] = strings.trim_space(lines[0])
-    rest := lines[1:]
+    rest    := lines[1:]
     starred := true
-    indent := max(int)
+    indent  := max(int)
     for line in rest {
         trimmed := strings.trim_left(line, " \t")
         if trimmed == "" {
@@ -923,7 +975,7 @@ starts_line :: proc(text: string, offset: int) -> bool {
 // The tokens of `n` in [lo, hi) on one line: comments dropped, each run of trivia one space.
 @(private = "file")
 token_text :: proc(b: ^Builder, n: odinsyntax.Syntax_Node, lo, hi: u32) -> string {
-    sb := strings.builder_make(context.temp_allocator)
+    sb    := strings.builder_make(context.temp_allocator)
     space := false
     write_tokens(&sb, b.text, n.green, n.offset, lo, hi, &space)
     return clone(b, strings.to_string(sb))

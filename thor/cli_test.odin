@@ -98,7 +98,7 @@ test_cli_fmt_args :: proc(t: ^testing.T) {
 // The formatter keeps the line ending of the source and refuses a syntax error.
 @(test)
 test_fmt_source :: proc(t: ^testing.T) {
-    config := Fmt_Config{opts = format.default_options()}
+    config  := Fmt_Config{opts = format.default_options()}
     out, ok := fmt_source("package p\r\n\r\nx :: 1\r\n", config)
     testing.expect(t, ok)
     testing.expect(t, strings.contains(out, "\r\n") && !strings.contains(out, "\n\n"), "CRLF must stay CRLF")

@@ -28,8 +28,8 @@ Green_Element :: distinct u64
 Green_Tree :: struct {
     arena:      virtual.Arena,
     root:       ^Green_Node,
-    text:       string,       // in the arena or in `pages`; "" once a newer tree took the pages
-    pages:      []byte,       // owned; the pages a reparsed tree keeps its text in, nil when none
+    text:       string,      // in the arena or in `pages`; "" once a newer tree took the pages
+    pages:      []byte,      // owned; the pages a reparsed tree keeps its text in, nil when none
     base:       ^Green_Tree, // owned; the older tree whose nodes this one shares, nil when none
     generation: u16,         // length of the base chain
 }
@@ -52,7 +52,7 @@ NODE_BYTES_PER_TOKEN :: 20
 
 // Bytes of the nodes a splice along `path` makes.
 @(private)
-splice_bytes :: proc "contextless" (path: []Spine_Step) -> int {
+splice_bytes :: proc "contextless"(path: []Spine_Step) -> int {
     n := 0
     for step in path {
         kids := len(green_children(step.node))
@@ -140,29 +140,29 @@ tree_allocator :: #force_inline proc(tree: ^Green_Tree) -> mem.Allocator {
     return virtual.arena_allocator(&tree.arena)
 }
 
-token_element :: #force_inline proc "contextless" (kind: Token_Kind, flags: Token_Flags, len: u32) -> Green_Element {
+token_element :: #force_inline proc "contextless"(kind: Token_Kind, flags: Token_Flags, len: u32) -> Green_Element {
     return Green_Element(1 | u64(kind) << 8 | u64(transmute(u8)flags) << 16 | u64(len) << 32)
 }
 
-node_element :: #force_inline proc "contextless" (node: ^Green_Node) -> Green_Element {
+node_element :: #force_inline proc "contextless"(node: ^Green_Node) -> Green_Element {
     return Green_Element(uintptr(node))
 }
 
-element_node :: #force_inline proc "contextless" (e: Green_Element) -> (^Green_Node, bool) {
+element_node :: #force_inline proc "contextless"(e: Green_Element) -> (^Green_Node, bool) {
     if e & 1 != 0 {
         return nil, false
     }
     return (^Green_Node)(uintptr(e)), true
 }
 
-element_token :: #force_inline proc "contextless" (e: Green_Element) -> (Green_Token, bool) {
+element_token :: #force_inline proc "contextless"(e: Green_Element) -> (Green_Token, bool) {
     if e & 1 == 0 {
         return {}, false
     }
     return Green_Token{Token_Kind(e >> 8), transmute(Token_Flags)u8(e >> 16), u32(e >> 32)}, true
 }
 
-element_len :: #force_inline proc "contextless" (e: Green_Element) -> u32 {
+element_len :: #force_inline proc "contextless"(e: Green_Element) -> u32 {
     if e & 1 != 0 {
         return u32(e >> 32)
     }
@@ -170,7 +170,7 @@ element_len :: #force_inline proc "contextless" (e: Green_Element) -> u32 {
 }
 
 // The children of `node`.
-green_children :: #force_inline proc "contextless" (node: ^Green_Node) -> []Green_Element {
+green_children :: #force_inline proc "contextless"(node: ^Green_Node) -> []Green_Element {
     data := ([^]Green_Element)(uintptr(node) + size_of(Green_Node))
     if node.count == BIG_COUNT {
         return data[1:][:int(data[0])]
@@ -196,7 +196,7 @@ builder_start_node :: proc(b: ^Green_Builder, kind: Syntax_Kind) {
 }
 
 // A point among the open node's children that a later node can start at.
-builder_checkpoint :: #force_inline proc "contextless" (b: ^Green_Builder) -> int {
+builder_checkpoint :: #force_inline proc "contextless"(b: ^Green_Builder) -> int {
     return len(b.children)
 }
 
@@ -230,9 +230,9 @@ builder_token :: #force_inline proc(b: ^Green_Builder, kind: Token_Kind, flags: 
 // A node and its children array, in one arena allocation.
 @(private)
 make_node :: proc(b: ^Green_Builder, kind: Syntax_Kind, children: []Green_Element) -> (node: ^Green_Node, err: mem.Allocator_Error) {
-    big := len(children) >= int(BIG_COUNT)
+    big   := len(children) >= int(BIG_COUNT)
     slots := len(children) + (1 if big else 0)
-    size := size_of(Green_Node) + slots * size_of(Green_Element)
+    size  := size_of(Green_Node) + slots * size_of(Green_Element)
     if size > len(b.block) {
         b.block = virtual.arena_alloc(&b.tree.arena, uint(max(size, b.next)), align_of(Green_Element)) or_return
         b.next = NODE_BLOCK
@@ -260,7 +260,7 @@ make_node :: proc(b: ^Green_Builder, kind: Syntax_Kind, children: []Green_Elemen
 // Closes the open node and adds it to its parent, or makes it the root.
 builder_finish_node :: proc(b: ^Green_Builder) -> mem.Allocator_Error {
     frame := pop(&b.stack)
-    node := make_node(b, frame.kind, b.children[frame.first:]) or_return
+    node  := make_node(b, frame.kind, b.children[frame.first:]) or_return
     resize(&b.children, frame.first)
     if len(b.stack) == 0 {
         b.tree.root = node
@@ -318,7 +318,7 @@ build_flat :: proc(src: string, toks: []Token, allocator := context.allocator) -
 }
 
 // The text under the tree's root. Equal to the source when the tree is whole.
-tree_root_text :: proc "contextless" (tree: ^Green_Tree) -> string {
+tree_root_text :: proc "contextless"(tree: ^Green_Tree) -> string {
     if tree.root == nil {
         return ""
     }

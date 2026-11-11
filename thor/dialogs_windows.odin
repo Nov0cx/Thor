@@ -27,25 +27,16 @@ thor_pick_file :: proc(title: string, initial: string, allocator := context.allo
 // file. Every failure reads as a cancel: the dialog reports one as a failed
 // HRESULT (ERROR_CANCELLED), so the two cannot be told apart.
 @(private = "file")
-thor_pick_shell_item :: proc(
-    title: string,
-    initial: string,
-    folders: bool,
-    allocator: runtime.Allocator,
-) -> (string, bool) {
+thor_pick_shell_item :: proc(title: string, initial: string, folders: bool, allocator: runtime.Allocator) -> (string, bool) {
     // The dialog needs an initialized apartment; raylib may already have done
     // it, in which case the matching uninit is not ours.
     owns_com := win32.CoInitializeEx(nil, .APARTMENTTHREADED) == win32.S_OK
-    defer if owns_com {win32.CoUninitialize()}
+    defer if owns_com {
+        win32.CoUninitialize()
+    }
 
     dialog: ^win32.IFileOpenDialog
-    hr := win32.CoCreateInstance(
-        win32.CLSID_FileOpenDialog,
-        nil,
-        win32.CLSCTX_INPROC_SERVER,
-        win32.IID_IFileOpenDialog,
-        cast(^win32.LPVOID) &dialog,
-    )
+    hr := win32.CoCreateInstance(win32.CLSID_FileOpenDialog, nil, win32.CLSCTX_INPROC_SERVER, win32.IID_IFileOpenDialog, cast(^win32.LPVOID)&dialog)
     if win32.FAILED(hr) || dialog == nil {
         return "", false
     }
@@ -70,19 +61,14 @@ thor_pick_shell_item :: proc(
         // The shell parses backslash paths only.
         native, _ := strings.replace_all(initial, "/", "\\", context.temp_allocator)
         folder: ^win32.IShellItem
-        created := win32.SHCreateItemFromParsingName(
-            win32.utf8_to_wstring(native, context.temp_allocator),
-            nil,
-            win32.IID_IShellItem,
-            cast(^rawptr) &folder,
-        )
+        created := win32.SHCreateItemFromParsingName(win32.utf8_to_wstring(native, context.temp_allocator), nil, win32.IID_IShellItem, cast(^rawptr)&folder)
         if win32.SUCCEEDED(created) && folder != nil {
             dialog->SetFolder(folder)
             folder->Release()
         }
     }
 
-    if win32.FAILED(dialog->Show(cast(win32.HWND) rl.GetWindowHandle())) {
+    if win32.FAILED(dialog->Show(cast(win32.HWND)rl.GetWindowHandle())) {
         return "", false
     }
 

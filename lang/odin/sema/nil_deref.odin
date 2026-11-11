@@ -61,7 +61,7 @@ Nil_Walk :: struct {
     c:           ^Checker,
     file:        File_Id,
     refs:        [dynamic]Name_Ref,
-    locals:      map[int]bool,         // the name offsets of the plain variables of the body
+    locals:      map[int]bool, // the name offsets of the plain variables of the body
     cands:       [dynamic]Nil_Cand,
     places:      map[string]int,       // `<root offset><path>` to a candidate
     root_places: map[int][dynamic]int, // the candidates of a local
@@ -76,7 +76,10 @@ Nil_Walk :: struct {
 // A branch on `x == nil` or `x != nil` narrows it, through `!`, `&&` and `||`. A local whose address
 // is taken, that is compared in any other way, that has attributes or that `using` names is left
 // out, since a path that tests it may rule the nil out.
-nil_deref :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.Syntax_Node, allocator := context.allocator) -> (out: [dynamic]Nil_Use, err: mem.Allocator_Error) {
+nil_deref :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.Syntax_Node, allocator := context.allocator) -> (
+    out: [dynamic]Nil_Use,
+    err: mem.Allocator_Error,
+) {
     out = make([dynamic]Nil_Use, allocator) or_return
     pl, is_lit := odinsyntax.as_proc_lit(lit)
     if !is_lit || m == nil {
@@ -87,7 +90,7 @@ nil_deref :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.Syn
         return
     }
     lit_start, lit_end := odinsyntax.node_range(lit)
-    depth := -1
+    depth              := -1
     for s in m.scopes {
         if s.start == int(lit_start) && s.end == int(lit_end) {
             depth = s.proc_depth
@@ -97,18 +100,18 @@ nil_deref :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.Syn
     if depth < 0 {
         return
     }
-    alloc := context.temp_allocator
-    w := Nil_Walk {
-        c           = c,
-        file        = file,
-        refs        = make([dynamic]Name_Ref, alloc),
-        locals      = make(map[int]bool, alloc),
-        cands       = make([dynamic]Nil_Cand, alloc),
-        places      = make(map[string]int, alloc),
+    alloc  := context.temp_allocator
+    w      := Nil_Walk{
+        c = c,
+        file = file,
+        refs = make([dynamic]Name_Ref, alloc),
+        locals = make(map[int]bool, alloc),
+        cands = make([dynamic]Nil_Cand, alloc),
+        places = make(map[string]int, alloc),
         root_places = make(map[int][dynamic]int, alloc),
-        root_skip   = make(map[int]bool, alloc),
-        handled     = make(map[u32]bool, alloc),
-        guard       = make([dynamic]Nil_Fact, alloc),
+        root_skip = make(map[int]bool, alloc),
+        handled = make(map[u32]bool, alloc),
+        guard = make([dynamic]Nil_Fact, alloc),
     }
     in_lit := locals_between(m, int(lit_start), int(lit_end), alloc)
     for li in in_lit {
@@ -126,11 +129,13 @@ nil_deref :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.Syn
             append(&w.refs, r) or_return
         }
     }
-    slice.sort_by(w.refs[:], proc(a, b: Name_Ref) -> bool {return a.start < b.start})
+    slice.sort_by(w.refs[:], proc(a, b: Name_Ref) -> bool {
+        return a.start < b.start
+    })
     for li in in_lit {
         l := m.locals[li]
         if w.locals[l.name_offset] {
-            t := decl_type(w.c, local_symbol(w.file, l.name_offset))
+            t              := decl_type(w.c, local_symbol(w.file, l.name_offset))
             kind, to_array := nil_type_kind(w.c, t)
             if kind == .None {
                 continue
@@ -145,7 +150,9 @@ nil_deref :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.Syn
     mark_conditions(&w, body)
     exclude_tested(&w, body)
     nil_flow(&w, lit, &out) or_return
-    slice.sort_by(out[:], proc(a, b: Nil_Use) -> bool {return a.offset < b.offset})
+    slice.sort_by(out[:], proc(a, b: Nil_Use) -> bool {
+        return a.offset < b.offset
+    })
     return
 }
 
@@ -230,7 +237,7 @@ place_chain :: proc(n: odinsyntax.Syntax_Node, elems: bool) -> (root: odinsyntax
             }
             ie, _ := odinsyntax.as_index_expr(cur)
             index := odinsyntax.index_expr_index(&ie) or_return
-            seg := "[?]"
+            seg   := "[?]"
             if index.green.kind == .Literal {
                 if k, parsed := strconv.parse_int(odinsyntax.node_text(index), 0); parsed && k >= 0 {
                     seg = strings.concatenate({"[", odinsyntax.node_text(index), "]"}, context.temp_allocator)
@@ -280,7 +287,7 @@ path_under :: proc(cand, path: string) -> bool {
 // not a plain field: the record has a `using` or `#subtype` field, or it is a raw union.
 @(private)
 path_type :: proc(c: ^Checker, t: Type_Id, path: string) -> (Type_Id, bool) {
-    t := t
+    t    := t
     rest := path
     for len(rest) > 0 {
         if rest[0] == '[' {
@@ -288,7 +295,7 @@ path_type :: proc(c: ^Checker, t: Type_Id, path: string) -> (Type_Id, bool) {
             if end < 0 {
                 return INVALID_TYPE, false
             }
-            k, parsed := strconv.parse_int(rest[1:end], 0)
+            k, parsed     := strconv.parse_int(rest[1:end], 0)
             arr, is_array := type_get(&c.table, type_base(&c.table, t)).(Array_Type)
             if !parsed || !is_array || k < 0 || arr.len < 0 || i64(k) >= arr.len {
                 return INVALID_TYPE, false
@@ -307,7 +314,7 @@ path_type :: proc(c: ^Checker, t: Type_Id, path: string) -> (Type_Id, bool) {
             }
         }
         rest = rest[1:]
-        end := strings.index_any(rest, ".[")
+        end  := strings.index_any(rest, ".[")
         name := rest if end < 0 else rest[:end]
         rest = "" if end < 0 else rest[end:]
         next := INVALID_TYPE
@@ -358,7 +365,9 @@ nil_ref :: proc(w: ^Nil_Walk, start: int) -> (Name_Ref, bool) {
 // The reference that starts at `start` in `refs`, which is sorted by start.
 @(private)
 ref_lookup :: proc(refs: []Name_Ref, start: int) -> (Name_Ref, bool) {
-    i, found := slice.binary_search_by(refs, start, proc(r: Name_Ref, s: int) -> slice.Ordering {return slice.cmp(r.start, s)})
+    i, found := slice.binary_search_by(refs, start, proc(r: Name_Ref, s: int) -> slice.Ordering {
+        return slice.cmp(r.start, s)
+    })
     if !found {
         return {}, false
     }
@@ -388,7 +397,7 @@ nil_cand :: proc(w: ^Nil_Walk, n: odinsyntax.Syntax_Node) -> (int, bool) {
 strip_parens :: proc(n: odinsyntax.Syntax_Node) -> odinsyntax.Syntax_Node {
     n := n
     for n.green.kind == .Paren_Expr {
-        pe, _ := odinsyntax.as_paren_expr(n)
+        pe, _     := odinsyntax.as_paren_expr(n)
         inner, ok := odinsyntax.paren_expr_expr(&pe)
         if !ok {
             break
@@ -401,8 +410,8 @@ strip_parens :: proc(n: odinsyntax.Syntax_Node) -> odinsyntax.Syntax_Node {
 @(private)
 nil_items :: proc(list: odinsyntax.Expr_List) -> [dynamic]odinsyntax.Syntax_Node {
     list := list
-    out := make([dynamic]odinsyntax.Syntax_Node, context.temp_allocator)
-    it := odinsyntax.expr_list_items(&list)
+    out  := make([dynamic]odinsyntax.Syntax_Node, context.temp_allocator)
+    it   := odinsyntax.expr_list_items(&list)
     for item in odinsyntax.child_iter_next(&it) {
         append(&out, item)
     }
@@ -423,8 +432,8 @@ is_empty_comp_lit :: proc(n: odinsyntax.Syntax_Node) -> bool {
     if inner.green.kind != .Comp_Lit {
         return false
     }
-    cl, _ := odinsyntax.as_comp_lit(inner)
-    elems := odinsyntax.comp_lit_elems(&cl)
+    cl, _  := odinsyntax.as_comp_lit(inner)
+    elems  := odinsyntax.comp_lit_elems(&cl)
     _, has := odinsyntax.child_iter_next(&elems)
     return !has
 }
@@ -432,13 +441,13 @@ is_empty_comp_lit :: proc(n: odinsyntax.Syntax_Node) -> bool {
 // The place compared with `nil` by the comparison `b`, and whether the operator is `==`.
 @(private = "file")
 nil_compare :: proc(w: ^Nil_Walk, b: odinsyntax.Binary_Expr) -> (cand: int, is_eq: bool, ok: bool) {
-    b := b
+    b  := b
     op := odinsyntax.binary_expr_op(&b) or_return
     if op.green.kind != .Cmp_Eq && op.green.kind != .Not_Eq {
         return
     }
-    lhs := odinsyntax.binary_expr_lhs(&b) or_return
-    rhs := odinsyntax.binary_expr_rhs(&b) or_return
+    lhs   := odinsyntax.binary_expr_lhs(&b) or_return
+    rhs   := odinsyntax.binary_expr_rhs(&b) or_return
     place := lhs
     switch {
     case is_nil_literal(rhs):
@@ -466,7 +475,7 @@ cond_facts :: proc(w: ^Nil_Walk, n: odinsyntax.Syntax_Node, truth: bool, out: ^[
             }
         }
     case .Binary_Expr:
-        b, _ := odinsyntax.as_binary_expr(n)
+        b, _       := odinsyntax.as_binary_expr(n)
         op, has_op := odinsyntax.binary_expr_op(&b)
         if !has_op {
             return
@@ -528,7 +537,7 @@ mark_spine :: proc(w: ^Nil_Walk, n: odinsyntax.Syntax_Node) {
             }
         }
     case .Binary_Expr:
-        b, _ := odinsyntax.as_binary_expr(n)
+        b, _       := odinsyntax.as_binary_expr(n)
         op, has_op := odinsyntax.binary_expr_op(&b)
         if !has_op {
             return
@@ -588,7 +597,7 @@ exclude_tested :: proc(w: ^Nil_Walk, n: odinsyntax.Syntax_Node) {
         }
     case .Range_Stmt:
         // `for &e in a` stores through a reference to each element.
-        rs, _ := odinsyntax.as_range_stmt(n)
+        rs, _          := odinsyntax.as_range_stmt(n)
         vars, has_vars := odinsyntax.range_stmt_vars(&rs)
         if has_vars && strings.contains(odinsyntax.node_text(odinsyntax.Syntax_Node(vars)), "&") {
             if operand, ok := odinsyntax.range_stmt_expr(&rs); ok {
@@ -603,7 +612,7 @@ exclude_tested :: proc(w: ^Nil_Walk, n: odinsyntax.Syntax_Node) {
             }
         }
     case .Value_Decl:
-        v, _ := odinsyntax.as_value_decl(n)
+        v, _  := odinsyntax.as_value_decl(n)
         attrs := odinsyntax.value_decl_attributes(&v)
         if _, has_attrs := odinsyntax.child_iter_next(&attrs); has_attrs {
             if names, ok := odinsyntax.value_decl_names(&v); ok {
@@ -625,7 +634,7 @@ exclude_tested :: proc(w: ^Nil_Walk, n: odinsyntax.Syntax_Node) {
 // followed, since a comparison of its part says nothing about it.
 @(private = "file")
 exclude_root :: proc(w: ^Nil_Walk, n: odinsyntax.Syntax_Node, always: bool) {
-    n := n
+    n     := n
     exact := true
     for {
         next: odinsyntax.Syntax_Node
@@ -746,7 +755,7 @@ deref_event :: proc(w: ^Nil_Walk, operand: odinsyntax.Syntax_Node, mode: Nil_Use
         return
     }
     cand := w.cands[index]
-    ok := false
+    ok   := false
     switch mode {
     case .Deref:
         ok = !cand.is_proc && !cand.multi
@@ -787,7 +796,7 @@ step_nil_events :: proc(w: ^Nil_Walk, s: Cfg_Step, out: ^[dynamic]Nil_Event) {
 
 @(private = "file")
 decl_nil_events :: proc(w: ^Nil_Walk, n: odinsyntax.Syntax_Node, out: ^[dynamic]Nil_Event) {
-    v, _ := odinsyntax.as_value_decl(n)
+    v, _             := odinsyntax.as_value_decl(n)
     names, has_names := odinsyntax.value_decl_names(&v)
     if !has_names {
         return
@@ -799,14 +808,14 @@ decl_nil_events :: proc(w: ^Nil_Walk, n: odinsyntax.Syntax_Node, out: ^[dynamic]
         items = nil_items(values)
     }
     it := odinsyntax.name_list_names(&names)
-    i := 0
+    i  := 0
     for name in odinsyntax.child_iter_next(&it) {
         defer i += 1
         places, is_root := w.root_places[int(name.offset)]
         if !is_root {
             continue
         }
-        nil_value := !has_values || i < len(items) && is_nil_literal(items[i])
+        nil_value  := !has_values || i < len(items) && is_nil_literal(items[i])
         zero_value := !has_values || i < len(items) && is_empty_comp_lit(items[i])
         for index in places {
             kind := Nil_Kind.Reset
@@ -820,7 +829,7 @@ decl_nil_events :: proc(w: ^Nil_Walk, n: odinsyntax.Syntax_Node, out: ^[dynamic]
 
 @(private = "file")
 assign_nil_events :: proc(w: ^Nil_Walk, n: odinsyntax.Syntax_Node, out: ^[dynamic]Nil_Event) {
-    a, _ := odinsyntax.as_assign_stmt(n)
+    a, _         := odinsyntax.as_assign_stmt(n)
     lhs, has_lhs := odinsyntax.assign_stmt_lhs(&a)
     rhs, has_rhs := odinsyntax.assign_stmt_rhs(&a)
     if !has_lhs || !has_rhs {
@@ -836,7 +845,7 @@ assign_nil_events :: proc(w: ^Nil_Walk, n: odinsyntax.Syntax_Node, out: ^[dynami
         walk_nil(w, target, out)
         root, path, is_chain := flatten_place(target, true)
         // A variable index may store into any element below its prefix.
-        any_element := false
+        any_element          := false
         if !is_chain {
             root, path, any_element = dynamic_prefix(target)
             if !any_element {
@@ -851,8 +860,8 @@ assign_nil_events :: proc(w: ^Nil_Walk, n: odinsyntax.Syntax_Node, out: ^[dynami
         if !is_root {
             continue
         }
-        paired := plain && len(targets) == len(values) && !any_element
-        set_nil := paired && is_nil_literal(values[i])
+        paired   := plain && len(targets) == len(values) && !any_element
+        set_nil  := paired && is_nil_literal(values[i])
         set_zero := paired && is_empty_comp_lit(values[i])
         for index in places {
             cand_path := w.cands[index].path
@@ -873,13 +882,13 @@ assign_nil_events :: proc(w: ^Nil_Walk, n: odinsyntax.Syntax_Node, out: ^[dynami
 @(private = "file")
 nil_flow :: proc(w: ^Nil_Walk, lit: odinsyntax.Syntax_Node, out: ^[dynamic]Nil_Use) -> mem.Allocator_Error {
     alloc := context.temp_allocator
-    g := cfg_cached(w.c, w.file, lit)
+    g     := cfg_cached(w.c, w.file, lit)
     if g == nil {
         return nil
     }
-    reach := cfg_reachable(g, alloc)
-    events := make([][][dynamic]Nil_Event, len(g.blocks), alloc)
-    facts_true := make([][dynamic]Nil_Fact, len(g.blocks), alloc)
+    reach       := cfg_reachable(g, alloc)
+    events      := make([][][dynamic]Nil_Event, len(g.blocks), alloc)
+    facts_true  := make([][dynamic]Nil_Fact, len(g.blocks), alloc)
     facts_false := make([][dynamic]Nil_Fact, len(g.blocks), alloc)
     for blk, b in g.blocks {
         if !reach[b] {
@@ -910,7 +919,7 @@ nil_flow :: proc(w: ^Nil_Walk, lit: odinsyntax.Syntax_Node, out: ^[dynamic]Nil_U
         }
     }
 
-    words := (len(w.cands) + 63) / 64
+    words   := (len(w.cands) + 63) / 64
     out_nil := make([]Bits, len(g.blocks), alloc)
     for b in 0 ..< len(g.blocks) {
         out_nil[b] = make(Bits, words, alloc)
@@ -918,9 +927,9 @@ nil_flow :: proc(w: ^Nil_Walk, lit: odinsyntax.Syntax_Node, out: ^[dynamic]Nil_U
             word = ~u64(0)
         }
     }
-    cur := make(Bits, words, alloc)
+    cur       := make(Bits, words, alloc)
     edge_bits := make(Bits, words, alloc)
-    enter := proc(g: ^Cfg, b: int, preds: [][dynamic]int, out_nil: []Bits, cur, edge_bits: Bits, facts_true, facts_false: [][dynamic]Nil_Fact) {
+    enter     := proc(g: ^Cfg, b: int, preds: [][dynamic]int, out_nil: []Bits, cur, edge_bits: Bits, facts_true, facts_false: [][dynamic]Nil_Fact) {
         if Block_Id(b) == g.entry || len(preds[b]) == 0 {
             for &word in cur {
                 word = 0

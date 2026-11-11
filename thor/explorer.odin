@@ -7,26 +7,26 @@ import "core:os"
 import "core:slice"
 import "core:strings"
 
-import ui "../vendor/loom/loom"
 import "../prof"
+import ui "../vendor/loom/loom"
 
-EXPLORER_ROW_H :: f32(26)
-EXPLORER_INDENT :: f32(16)
+EXPLORER_ROW_H     :: f32(26)
+EXPLORER_INDENT    :: f32(16)
 // Width of the fold-chevron column, held open on every row.
 EXPLORER_CHEVRON_W :: f32(16)
-EXPLORER_ICON :: f32(16)
+EXPLORER_ICON      :: f32(16)
 // Width of the git status letter at the right edge of a file row.
-EXPLORER_STATUS_W :: f32(12)
+EXPLORER_STATUS_W  :: f32(12)
 // Gap between the panel edge and the first column of a row.
-EXPLORER_PAD_L :: f32(6)
+EXPLORER_PAD_L     :: f32(6)
 
 Explorer_Node :: struct {
     name:        string, // owned
     path:        string, // owned, full path
     is_dir:      bool,
     expanded:    bool,
-    loaded:      bool, // directory contents read from disk
-    load_failed: bool, // the last read of this directory failed
+    loaded:      bool,           // directory contents read from disk
+    load_failed: bool,           // the last read of this directory failed
     parent:      ^Explorer_Node, // nil for the root; used for keyboard navigation
     children:    [dynamic]^Explorer_Node,
 }
@@ -38,29 +38,29 @@ Explorer_Row :: struct {
 }
 
 Explorer :: struct {
-    root:           ^Explorer_Node, // owned
+    root:             ^Explorer_Node,        // owned
     // Visible rows in draw order, kept between frames. Every change to the node
     // tree or its expanded set must set rows_dirty.
-    rows:           [dynamic]Explorer_Row, // owned
-    rows_dirty:     bool,
-    selected_path:  string, // owned; the row the caret sits on
+    rows:             [dynamic]Explorer_Row, // owned
+    rows_dirty:       bool,
+    selected_path:    string, // owned; the row the caret sits on
     // Full selection, always holding selected_path. Ctrl-click toggles a row in
     // or out, shift-click takes the range from select_anchor. Keys are owned.
-    multi_selected: map[string]bool,
-    select_anchor:  string, // owned; row a shift-click ranges from
+    multi_selected:   map[string]bool,
+    select_anchor:    string,          // owned; row a shift-click ranges from
     // Left-button drag-to-move. `sources` is filled on press and cleared on
     // release; `dragging` only flips once the press leaves the row it started on.
-    drag_sources:   [dynamic]string, // owned
-    dragging:       bool,
-    drag_target:    string, // owned; "" when the hover is not a valid drop
+    drag_sources:     [dynamic]string, // owned
+    dragging:         bool,
+    drag_target:      string, // owned; "" when the hover is not a valid drop
     // Pressing inside a multi-selection keeps it whole so the group can be
     // dragged; a release without a drag collapses it to the pressed row.
     pending_collapse: string, // owned
     // Last frame's panel rect and the folder the hovered row drops into. A drop
     // from the shell lands after the frame that saw the cursor, so the answer is
     // read from here rather than hit-tested again.
-    panel_rect:     ui.Rect,
-    hover_dir:      string, // borrowed from a live node, "" when nothing is hovered
+    panel_rect:       ui.Rect,
+    hover_dir:        string, // borrowed from a live node, "" when nothing is hovered
 }
 
 thor_explorer_init :: proc(thor: ^Thor, root_path: string) {
@@ -133,7 +133,7 @@ thor_explorer_refresh :: proc(thor: ^Thor) {
 
 // The rows currently selected, in a temporary slice by default.
 thor_explorer_selection :: proc(thor: ^Thor, allocator := context.temp_allocator) -> []string {
-    e := &thor.explorer
+    e     := &thor.explorer
     paths := make([dynamic]string, 0, len(e.multi_selected), allocator)
     for path in e.multi_selected {
         append(&paths, path)
@@ -462,19 +462,14 @@ explorer_drop_dir :: proc(e: ^Explorer, node: ^Explorer_Node) -> string {
 }
 
 thor_explorer_view :: proc(thor: ^Thor) {
-    e := &thor.explorer
+    e    := &thor.explorer
     rows := explorer_visible_rows(e)
 
     panel := ui.scope(
         {
             key = "explorer",
             flags = {.Clip, .Scroll_Y, .Clickable, .Focusable},
-            props = {
-                w = ui.Grow(1),
-                h = ui.Grow(1),
-                dir = .Column,
-                bg = thor.theme.second_background,
-            },
+            props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column, bg = thor.theme.second_background},
         },
     )
     thor.region_rects[.Explorer] = panel.rect
@@ -487,10 +482,7 @@ thor_explorer_view :: proc(thor: ^Thor) {
     }
 
     if len(rows) == 0 {
-        ui.label(
-            "No files",
-            {key = "empty", props = {pad = ui.xy(12, 8), color = thor.theme.disabled}},
-        )
+        ui.label("No files", {key = "empty", props = {pad = ui.xy(12, 8), color = thor.theme.disabled}})
         if panel.right_clicked {
             explorer_right_click_root(thor)
         }
@@ -550,8 +542,8 @@ thor_explorer_view :: proc(thor: ^Thor) {
 
 @(private = "file")
 explorer_row :: proc(thor: ^Thor, node: ^Explorer_Node, depth: int) -> ui.Interaction {
-    e := &thor.explorer
-    on := node.path in e.multi_selected
+    e    := &thor.explorer
+    on   := node.path in e.multi_selected
     drop := e.dragging && e.drag_target == node.path
 
     it := ui.scope(
@@ -566,10 +558,7 @@ explorer_row :: proc(thor: ^Thor, node: ^Explorer_Node, depth: int) -> ui.Intera
                 gap = {4, 0},
                 pad = {l = EXPLORER_PAD_L + f32(depth) * EXPLORER_INDENT, r = 6},
                 bg = on ? thor.theme.selection_background : ui.Color{0, 0, 0, 0},
-                border = {
-                    width = ui.all(drop ? 1 : 0),
-                    color = thor.theme.accent_color,
-                },
+                border = {width = ui.all(drop ? 1 : 0), color = thor.theme.accent_color},
                 cursor = .Pointer,
             },
             hover = {bg = on ? thor.theme.selection_background : thor.theme.buttons},
@@ -586,16 +575,7 @@ explorer_row :: proc(thor: ^Thor, node: ^Explorer_Node, depth: int) -> ui.Intera
     // The chevron column is reserved on a file row as well, so a file icon and a
     // folder icon sit at the same indent.
     ui.begin(
-        {
-            key = "chevron",
-            props = {
-                w = ui.Px(EXPLORER_CHEVRON_W),
-                min_w = EXPLORER_CHEVRON_W,
-                h = ui.Px(EXPLORER_ROW_H),
-                justify = .Center,
-                align = .Center,
-            },
-        },
+        {key = "chevron", props = {w = ui.Px(EXPLORER_CHEVRON_W), min_w = EXPLORER_CHEVRON_W, h = ui.Px(EXPLORER_ROW_H), justify = .Center, align = .Center}},
     )
     if node.is_dir {
         thor_icon_label(thor, node.expanded ? "chevron-down" : "chevron-right", thor.theme.muted_color)
@@ -612,33 +592,21 @@ explorer_row :: proc(thor: ^Thor, node: ^Explorer_Node, depth: int) -> ui.Intera
     }
 
     status := thor_tree_git_status(thor, node.path, node.is_dir)
-    color := node.is_dir ? thor.theme.foreground : thor.theme.primary_text_color
+    color  := node.is_dir ? thor.theme.foreground : thor.theme.primary_text_color
     if node.load_failed {
         color = thor.theme.danger_color
     } else if status != .None {
         color = explorer_status_color(thor, status)
     }
 
-    ui.label(
-        node.name,
-        {key = "name", props = {w = ui.Grow(1), color = color, text_wrap = .Ellipsis}},
-    )
+    ui.label(node.name, {key = "name", props = {w = ui.Grow(1), color = color, text_wrap = .Ellipsis}})
 
     // Files only: a folder keeps the tint alone. The fixed width keeps the
     // letter whole when a long name shrinks the row.
     if status != .None && !node.is_dir {
         ui.label(
             git_status_letter(status),
-            {
-                key = "status",
-                props = {
-                    w = ui.Px(EXPLORER_STATUS_W),
-                    min_w = EXPLORER_STATUS_W,
-                    text_align = .End,
-                    color = color,
-                    text_wrap = .None,
-                },
-            },
+            {key = "status", props = {w = ui.Px(EXPLORER_STATUS_W), min_w = EXPLORER_STATUS_W, text_align = .End, color = color, text_wrap = .None}},
         )
     }
 
@@ -738,13 +706,8 @@ explorer_right_click_root :: proc(thor: ^Thor) {
 // Tracks the live drag: the target folder while the pointer is inside the panel,
 // and the move (or drag-out) the release performs.
 @(private = "file")
-explorer_drag :: proc(
-    thor: ^Thor,
-    panel: ui.Interaction,
-    hovered: ^Explorer_Node,
-    released: bool,
-) {
-    e := &thor.explorer
+explorer_drag :: proc(thor: ^Thor, panel: ui.Interaction, hovered: ^Explorer_Node, released: bool) {
+    e      := &thor.explorer
     inside := ui.rect_contains(panel.rect, ui.mouse_pos())
 
     if e.dragging {
@@ -784,7 +747,7 @@ explorer_drag :: proc(
 
 @(private = "file")
 explorer_keys :: proc(thor: ^Thor) {
-    e := &thor.explorer
+    e    := &thor.explorer
     rows := explorer_visible_rows(e)
     if len(rows) == 0 {
         return

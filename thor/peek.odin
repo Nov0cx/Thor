@@ -34,8 +34,8 @@ Peek :: struct {
     editor:      editview.Editor,
     scroll:      ui.Vec2,
     file:        ^Open_File, // borrowed; the target's tab, nil until it is found or opened
-    opened_here: bool, // the peek opened the target's tab
-    placed:      bool, // the caret is on the target
+    opened_here: bool,       // the peek opened the target's tab
+    placed:      bool,       // the caret is on the target
 }
 
 // Asks for the definition under the caret of the active pane, to show in a peek.
@@ -51,16 +51,7 @@ thor_peek_definition :: proc(thor: ^Thor) {
     }
     thor_peek_close(thor)
     caret := textedit.primary_cursor(&file.state).caret
-    id := lang.manager_request(
-        &thor.lang_manager,
-        .Definition,
-        file.path,
-        ext,
-        textedit.text(&file.state),
-        caret,
-        file.state.revision,
-        thor.workspace_dir,
-    )
+    id    := lang.manager_request(&thor.lang_manager, .Definition, file.path, ext, textedit.text(&file.state), caret, file.state.revision, thor.workspace_dir)
     if id == 0 {
         return
     }
@@ -116,7 +107,7 @@ thor_peek_select :: proc(thor: ^Thor, index: int) {
     peek.index = index
     peek.placed = false
     target := peek.targets[index]
-    file := thor_open_file_at(thor, thor_abs_path(target.path))
+    file   := thor_open_file_at(thor, thor_abs_path(target.path))
     if file == nil {
         file = thor_open_file_tab(thor, target.path, activate = false)
         peek.opened_here = file != nil
@@ -174,16 +165,17 @@ thor_peek_tick :: proc(thor: ^Thor) {
     if !peek.open {
         return
     }
-    outer := thor_peek_outer_file(thor)
-    editor := thor_pane_editor(thor, peek.pane)
+    outer          := thor_peek_outer_file(thor)
+    editor         := thor_pane_editor(thor, peek.pane)
     line, has_zone := editview.editor_zone_line(editor)
     if outer == nil || !thor_same_path(outer.path, peek.anchor_path) || !has_zone || peek.pane >= thor_pane_count(thor) {
         thor_peek_close(thor)
         return
     }
     peek.anchor_line = line
-    if thor.focus_owner == thor_pane_key(peek.pane) && editor.state != nil &&
-       textedit.state_line_index(editor.state, textedit.primary_cursor(editor.state).caret) != line {
+    if thor.focus_owner == thor_pane_key(peek.pane) &&
+        editor.state != nil &&
+        textedit.state_line_index(editor.state, textedit.primary_cursor(editor.state).caret) != line {
         thor_peek_close(thor)
         return
     }
@@ -212,9 +204,9 @@ thor_peek_bind :: proc(thor: ^Thor) {
     }
     if !peek.placed && peek.index < len(peek.targets) {
         target := peek.targets[peek.index]
-        text := textedit.text(&file.state)
-        start := clamp(target.start, 0, len(text))
-        end := clamp(target.end, start, len(text))
+        text   := textedit.text(&file.state)
+        start  := clamp(target.start, 0, len(text))
+        end    := clamp(target.end, start, len(text))
         textedit.select_range(&file.state, end, start)
         if end == start {
             textedit.set_single_cursor(&file.state, start)
@@ -228,7 +220,7 @@ thor_peek_bind :: proc(thor: ^Thor) {
 // Ctrl+S in the peek saves the target's buffer.
 @(private = "file")
 thor_peek_save :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if file := thor.peek.file; file != nil && thor.peek.open {
         thor_save_explicit(thor, file)
     }
@@ -313,7 +305,7 @@ thor_peek_destroy :: proc(thor: ^Thor) {
 
 // Declares the peek in the zone of `outer`, the editor of its pane, whose node is at `pane_rect`.
 thor_peek_view :: proc(thor: ^Thor, outer: ^editview.Editor, pane_rect: ui.Rect) {
-    peek := &thor.peek
+    peek     := &thor.peek
     rect, ok := editview.editor_zone_rect(outer)
     if !ok {
         return
@@ -342,7 +334,7 @@ thor_peek_view :: proc(thor: ^Thor, outer: ^editview.Editor, pane_rect: ui.Rect)
         label := "Loading..."
         if peek.index < len(peek.targets) {
             target := peek.targets[peek.index]
-            line := 0
+            line   := 0
             if peek.file != nil && peek.file.loaded {
                 line = textedit.state_line_index(&peek.file.state, clamp(target.start, 0, len(textedit.text(&peek.file.state)))) + 1
             }
@@ -350,7 +342,13 @@ thor_peek_view :: proc(thor: ^Thor, outer: ^editview.Editor, pane_rect: ui.Rect)
         }
         ui.leaf({key = "peek_title", text = label, props = {color = thor.theme.text, font_size = f32(outer.font_size) - 1}})
         if len(peek.targets) > 1 {
-            ui.leaf({key = "peek_count", text = fmt.tprintf("%d of %d", peek.index + 1, len(peek.targets)), props = {color = thor.theme.muted_color, font_size = f32(outer.font_size) - 2}})
+            ui.leaf(
+                {
+                    key = "peek_count",
+                    text = fmt.tprintf("%d of %d", peek.index + 1, len(peek.targets)),
+                    props = {color = thor.theme.muted_color, font_size = f32(outer.font_size) - 2},
+                },
+            )
             if ui.button("<", {key = "peek_prev"}).clicked {
                 thor_peek_select(thor, (peek.index + len(peek.targets) - 1) % len(peek.targets))
             }

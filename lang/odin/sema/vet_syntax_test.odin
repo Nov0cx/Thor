@@ -26,7 +26,7 @@ expect_snippets :: proc(t: ^testing.T, got: []string, want: []string, loc := #ca
 
 @(test)
 test_vet_semicolons :: proc(t: ^testing.T) {
-    src := "package p\n\nA :: struct {\n\tx: int,\n};\n\nf :: proc() {\n\tx := 1; y := 2\n\t_ = x; _ = y;\n\tfor i := 0; i < 3; i += 1 { g(); }\n\tif a, b := h();\n\t    a {\n\t}\n\t;\n}\n"
+    src         := "package p\n\nA :: struct {\n\tx: int,\n};\n\nf :: proc() {\n\tx := 1; y := 2\n\t_ = x; _ = y;\n\tfor i := 0; i < 3; i += 1 { g(); }\n\tif a, b := h();\n\t    a {\n\t}\n\t;\n}\n"
     parsed, err := odinsyntax.parse(src, context.temp_allocator)
     testing.expect_value(t, err, nil)
     got, gerr := vet_semicolons(parsed, context.temp_allocator)
@@ -36,7 +36,7 @@ test_vet_semicolons :: proc(t: ^testing.T) {
 
 @(test)
 test_vet_tabs :: proc(t: ^testing.T) {
-    src := "package p\n\n g :: proc() {\n }\n\nE :: enum {\n  A,\n\tB,\n}\n\nS :: struct {\n\ta: int,\n  b: int,\n}\n\nf :: proc(\n  a: int,\n) -> (\n  r: int,\n) {\n\tx := 1\n  y := 2\n\t _ = x\n\tswitch x {\n  case 1:\n\t\ty = 3\n\t}\n\t_ = y\n    return 0\n}\n"
+    src         := "package p\n\n g :: proc() {\n }\n\nE :: enum {\n  A,\n\tB,\n}\n\nS :: struct {\n\ta: int,\n  b: int,\n}\n\nf :: proc(\n  a: int,\n) -> (\n  r: int,\n) {\n\tx := 1\n  y := 2\n\t _ = x\n\tswitch x {\n  case 1:\n\t\ty = 3\n\t}\n\t_ = y\n    return 0\n}\n"
     parsed, err := odinsyntax.parse(src, context.temp_allocator)
     testing.expect_value(t, err, nil)
     got, gerr := vet_tabs(parsed, context.temp_allocator)
@@ -46,7 +46,7 @@ test_vet_tabs :: proc(t: ^testing.T) {
 
 @(test)
 test_vet_style :: proc(t: ^testing.T) {
-    src := "package p\n\nE :: enum {\n\tA,\n\tB\n}\n\nf :: proc(\n\ta: int,\n\tb: int\n) {\n\tx := []int{\n\t\t1,\n\t\t2\n\t}\n\ty := []int{1,\n\t\t2}\n\tg(\n\t\t1,\n\t\t2,\n\t)\n\t_ = x\n\t_ = y\n}\n"
+    src         := "package p\n\nE :: enum {\n\tA,\n\tB\n}\n\nf :: proc(\n\ta: int,\n\tb: int\n) {\n\tx := []int{\n\t\t1,\n\t\t2\n\t}\n\ty := []int{1,\n\t\t2}\n\tg(\n\t\t1,\n\t\t2,\n\t)\n\t_ = x\n\t_ = y\n}\n"
     parsed, err := odinsyntax.parse(src, context.temp_allocator)
     testing.expect_value(t, err, nil)
     got, gerr := vet_style(parsed, context.temp_allocator)

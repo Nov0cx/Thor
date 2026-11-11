@@ -26,9 +26,9 @@ Console_Link_Proc :: #type proc(data: rawptr, line: string) -> (start: int, end:
 // Opens the source location a clicked scrollback line names.
 Console_Activate_Proc :: #type proc(data: rawptr, line: string)
 
-CONSOLE_PAD_X :: f32(10)
-CONSOLE_PAD_Y :: f32(6)
-CONSOLE_SCROLLBACK :: 5000
+CONSOLE_PAD_X       :: f32(10)
+CONSOLE_PAD_Y       :: f32(6)
+CONSOLE_SCROLLBACK  :: 5000
 // Lines one wheel notch moves, and the arrow keys an alternate-screen program
 // gets instead when it reads no mouse.
 CONSOLE_WHEEL_LINES :: 3
@@ -37,38 +37,38 @@ CONSOLE_WHEEL_LINES :: 3
 CURSOR_BLINK_PERIOD :: 1.0
 
 Console :: struct {
-    term:           ^vt.Term, // owned
-    font_size:      i32,
+    term:          ^vt.Term, // owned
+    font_size:     i32,
     // The face the grid is measured and drawn in, so the cell advance cannot
     // drift from the glyphs.
-    family:         string, // borrowed, owned by the font package
+    family:        string, // borrowed, owned by the font package
     // Lines scrolled back from the newest output; 0 pins the view to the bottom.
-    scroll:         int,
+    scroll:        int,
     // The grid the view last measured, which is what the shell was told.
-    cols, rows:     int,
+    cols, rows:    int,
     // Cell selection over the scrollback-plus-screen sequence.
-    sel_anchor:     vt.Position,
-    sel_cursor:     vt.Position,
-    has_selection:  bool,
-    selecting:      bool,
+    sel_anchor:    vt.Position,
+    sel_cursor:    vt.Position,
+    has_selection: bool,
+    selecting:     bool,
     // A mouse button is down for a program that reads the mouse, so a move is
     // reported as a drag.
-    mouse_button:   vt.Mouse_Button,
-    mouse_held:     bool,
+    mouse_button:  vt.Mouse_Button,
+    mouse_held:    bool,
     // The cell the last reported move was in, so one move is not sent twice.
-    mouse_cell:     vt.Position,
+    mouse_cell:    vt.Position,
     // Set by an open, consumed by the view: the grid takes the keyboard on the
     // frame the terminal first shows.
-    focus_pending:  bool,
-    focused:        bool,
+    focus_pending: bool,
+    focused:       bool,
     // When the cursor last moved, so the blink starts solid after a keystroke.
-    blink_base:     f64,
-    on_write:       Console_Write_Proc,
-    on_resize:      Console_Resize_Proc,
-    write_data:     rawptr,
-    on_link:        Console_Link_Proc,
-    on_activate:    Console_Activate_Proc,
-    link_data:      rawptr,
+    blink_base:    f64,
+    on_write:      Console_Write_Proc,
+    on_resize:     Console_Resize_Proc,
+    write_data:    rawptr,
+    on_link:       Console_Link_Proc,
+    on_activate:   Console_Activate_Proc,
+    link_data:     rawptr,
 }
 
 thor_console_init :: proc(console: ^Console, font_size: i32) {
@@ -84,23 +84,13 @@ thor_console_destroy :: proc(console: ^Console) {
     console.term = nil
 }
 
-thor_console_set_on_write :: proc(
-    console: ^Console,
-    on_write: Console_Write_Proc,
-    on_resize: Console_Resize_Proc,
-    data: rawptr,
-) {
+thor_console_set_on_write :: proc(console: ^Console, on_write: Console_Write_Proc, on_resize: Console_Resize_Proc, data: rawptr) {
     console.on_write = on_write
     console.on_resize = on_resize
     console.write_data = data
 }
 
-thor_console_set_on_link :: proc(
-    console: ^Console,
-    on_link: Console_Link_Proc,
-    on_activate: Console_Activate_Proc,
-    data: rawptr,
-) {
+thor_console_set_on_link :: proc(console: ^Console, on_link: Console_Link_Proc, on_activate: Console_Activate_Proc, data: rawptr) {
     console.on_link = on_link
     console.on_activate = on_activate
     console.link_data = data
@@ -113,7 +103,7 @@ thor_console_apply_theme :: proc(thor: ^Thor, console: ^Console) {
     if t == nil {
         return
     }
-    base := [8][3]u8 {
+    base := [8][3]u8{
         rgb_of(thor.theme.second_background),
         rgb_of(thor.theme.danger_color),
         rgb_of(thor.theme.success_color),
@@ -160,11 +150,7 @@ thor_console_feed :: proc(console: ^Console, bytes: []u8) {
     // the newest line, so every line the output added moves it one further back.
     // A view at the bottom stays at the bottom, which is what follows the output.
     if console.scroll > 0 {
-        console.scroll = clamp(
-            console.scroll + console_history(console) - before,
-            0,
-            console_history(console),
-        )
+        console.scroll = clamp(console.scroll + console_history(console) - before, 0, console_history(console))
     }
 }
 
@@ -236,12 +222,7 @@ thor_console_copy :: proc(console: ^Console) {
         thor_console_copy_all(console)
         return
     }
-    text := vt.term_text_range(
-        console.term,
-        console.sel_anchor,
-        console.sel_cursor,
-        context.temp_allocator,
-    )
+    text := vt.term_text_range(console.term, console.sel_anchor, console.sel_cursor, context.temp_allocator)
     if text == "" {
         return
     }
@@ -279,43 +260,27 @@ console_history :: proc(console: ^Console) -> int {
 }
 
 thor_console_view :: proc(thor: ^Thor, console: ^Console) {
-    ui.scope(
-        {
-            key = "console",
-            props = {
-                w = ui.Grow(1),
-                h = ui.Grow(1),
-                dir = .Column,
-                bg = thor.theme.background,
-            },
-        },
-    )
+    ui.scope({key = "console", props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column, bg = thor.theme.background}})
     console_grid(thor, console)
 }
 
 @(private = "file")
 console_grid :: proc(thor: ^Thor, console: ^Console) {
     cell_w := console_cell_width(console)
-    row_h := f32(font.line_height(console.font_size))
+    row_h  := f32(font.line_height(console.font_size))
 
     grid := ui.begin(
         {
             key = "grid",
             flags = {.Clip, .Clickable, .Focusable, .Draggable, .Wheel},
-            props = {
-                w = ui.Grow(1),
-                h = ui.Grow(1),
-                dir = .Column,
-                pad = ui.xy(CONSOLE_PAD_X, CONSOLE_PAD_Y),
-                cursor = .Text,
-            },
+            props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column, pad = ui.xy(CONSOLE_PAD_X, CONSOLE_PAD_Y), cursor = .Text},
         },
     )
     // Enter and Space are bytes for the shell, not a click on the grid.
     grid = thor_mouse_only(thor, grid)
 
     console_sync_size(console, grid.rect, cell_w, row_h)
-    first := console_first_line(console)
+    first  := console_first_line(console)
     lo, hi := console_selection_range(console)
 
     for row in 0 ..< console.rows {
@@ -410,13 +375,7 @@ Console_Style :: struct {
 }
 
 @(private = "file")
-console_row :: proc(
-    thor: ^Thor,
-    console: ^Console,
-    index: int,
-    cell_w, row_h: f32,
-    lo, hi: vt.Position,
-) {
+console_row :: proc(thor: ^Thor, console: ^Console, index: int, cell_w, row_h: f32, lo, hi: vt.Position) {
     term := console.term
     line := term == nil ? nil : vt.term_line(term, index)
 
@@ -429,11 +388,11 @@ console_row :: proc(
     console_row_cursor(thor, console, index, cell_w, row_h)
 
     link_start, link_end := console_link_columns(console, line, index)
-    end := console_row_end(line)
+    end                  := console_row_end(line)
 
     x := 0
     for x < end {
-        style := console_style(thor, console, line, index, x, lo, hi, link_start, link_end)
+        style   := console_style(thor, console, line, index, x, lo, hi, link_start, link_end)
         run_end := x + 1
         for run_end < end {
             next := console_style(thor, console, line, index, run_end, lo, hi, link_start, link_end)
@@ -477,7 +436,7 @@ console_row :: proc(
 @(private = "file")
 console_decorations :: proc(style: Console_Style, width, row_h: f32) {
     if style.underline != .None {
-        y := row_h - 2
+        y     := row_h - 2
         color := style.ul[3] == 0 ? style.fg : style.ul
         switch style.underline {
         case .None:
@@ -514,22 +473,15 @@ console_row_end :: proc(line: ^vt.Line) -> int {
 }
 
 @(private = "file")
-console_style :: proc(
-    thor: ^Thor,
-    console: ^Console,
-    line: ^vt.Line,
-    index, col: int,
-    lo, hi: vt.Position,
-    link_start, link_end: int,
-) -> Console_Style {
+console_style :: proc(thor: ^Thor, console: ^Console, line: ^vt.Line, index, col: int, lo, hi: vt.Position, link_start, link_end: int) -> Console_Style {
     term := console.term
     cell := line.cells[col]
 
-    fg := console_color(console, cell.fg, term.default_fg)
+    fg       := console_color(console, cell.fg, term.default_fg)
     bg_solid := console_color(console, cell.bg, term.default_bg)
     // A default background is left to the panel, so the terminal is as
     // transparent as the rest of the editor's chrome.
-    bg := cell.bg.kind == .Default ? ui.Color{0, 0, 0, 0} : bg_solid
+    bg       := cell.bg.kind == .Default ? ui.Color{0, 0, 0, 0} : bg_solid
 
     if .Bold in cell.attrs && cell.fg.kind == .Indexed && cell.fg.v[0] < 8 {
         fg = console_color(console, vt.color_indexed(int(cell.fg.v[0]) + 8), term.default_fg)
@@ -544,13 +496,7 @@ console_style :: proc(
         fg = bg_solid
     }
 
-    style := Console_Style {
-        fg        = fg,
-        bg        = bg,
-        underline = cell.underline,
-        strike    = .Strike in cell.attrs,
-        overline  = .Overline in cell.attrs,
-    }
+    style := Console_Style{fg = fg, bg = bg, underline = cell.underline, strike = .Strike in cell.attrs, overline = .Overline in cell.attrs}
     if cell.ul.kind != .Default {
         style.ul = console_color(console, cell.ul, term.default_fg)
     }
@@ -594,19 +540,13 @@ console_row_cursor :: proc(thor: ^Thor, console: ^Console, index: int, cell_w, r
     }
     if term.cursor_blink && console.focused {
         phase := rl.GetTime() - console.blink_base
-        if phase - f64(int(phase / CURSOR_BLINK_PERIOD)) * CURSOR_BLINK_PERIOD >
-           CURSOR_BLINK_PERIOD * 0.5 {
+        if phase - f64(int(phase / CURSOR_BLINK_PERIOD)) * CURSOR_BLINK_PERIOD > CURSOR_BLINK_PERIOD * 0.5 {
             return
         }
     }
 
-    color := ui.Color {
-        term.cursor_color[0],
-        term.cursor_color[1],
-        term.cursor_color[2],
-        console.focused ? 255 : 110,
-    }
-    x := f32(term.cur.x) * cell_w
+    color := ui.Color{term.cursor_color[0], term.cursor_color[1], term.cursor_color[2], console.focused ? 255 : 110}
+    x     := f32(term.cur.x) * cell_w
     switch term.cursor_style {
     case .Block:
         ui.paint_rect({x, 0, cell_w, row_h}, color)
@@ -631,18 +571,11 @@ console_link_columns :: proc(console: ^Console, line: ^vt.Line, index: int) -> (
     if !ok {
         return 0, 0
     }
-    return vt.column_of_offset(console.term, line, start),
-        vt.column_of_offset(console.term, line, end)
+    return vt.column_of_offset(console.term, line, start), vt.column_of_offset(console.term, line, end)
 }
 
 @(private = "file")
-console_input :: proc(
-    thor: ^Thor,
-    console: ^Console,
-    grid: ui.Interaction,
-    cell_w, row_h: f32,
-    first: int,
-) {
+console_input :: proc(thor: ^Thor, console: ^Console, grid: ui.Interaction, cell_w, row_h: f32, first: int) {
     if console.term == nil {
         return
     }
@@ -674,15 +607,9 @@ console_input :: proc(
 
 // Wheel, selection drag and the mouse reports a program asked for.
 @(private = "file")
-console_mouse :: proc(
-    thor: ^Thor,
-    console: ^Console,
-    grid: ui.Interaction,
-    cell_w, row_h: f32,
-    first: int,
-) {
-    term := console.term
-    mods := console_mods()
+console_mouse :: proc(thor: ^Thor, console: ^Console, grid: ui.Interaction, cell_w, row_h: f32, first: int) {
+    term      := console.term
+    mods      := console_mods()
     // Shift is the escape hatch: it always means "select", even while a program
     // is reading the mouse.
     reporting := term.mouse_track != .Off && .Shift not_in mods
@@ -696,7 +623,7 @@ console_mouse :: proc(
         return
     }
 
-    line, col := console_cell_at(console, grid, cell_w, row_h, first)
+    line, col  := console_cell_at(console, grid, cell_w, row_h, first)
     screen_row := line - (vt.term_total_lines(term) - console.rows)
 
     if reporting {
@@ -726,15 +653,7 @@ console_mouse :: proc(
 // none of: without mouse reporting it reads arrow keys, which is what a pager
 // scrolls on.
 @(private = "file")
-console_wheel :: proc(
-    console: ^Console,
-    grid: ui.Interaction,
-    notches: int,
-    cell_w, row_h: f32,
-    first: int,
-    reporting: bool,
-    mods: vt.Mods,
-) {
+console_wheel :: proc(console: ^Console, grid: ui.Interaction, notches: int, cell_w, row_h: f32, first: int, reporting: bool, mods: vt.Mods) {
     term := console.term
     if reporting {
         line, col := console_cell_at(console, grid, cell_w, row_h, first)
@@ -756,20 +675,11 @@ console_wheel :: proc(
         }
         return
     }
-    console.scroll = clamp(
-        console.scroll + notches * CONSOLE_WHEEL_LINES,
-        0,
-        console_history(console),
-    )
+    console.scroll = clamp(console.scroll + notches * CONSOLE_WHEEL_LINES, 0, console_history(console))
 }
 
 @(private = "file")
-console_mouse_report :: proc(
-    console: ^Console,
-    grid: ui.Interaction,
-    col, row: int,
-    mods: vt.Mods,
-) {
+console_mouse_report :: proc(console: ^Console, grid: ui.Interaction, col, row: int, mods: vt.Mods) {
     term := console.term
     if grid.pressed {
         console.mouse_button = .Left
@@ -782,8 +692,7 @@ console_mouse_report :: proc(
     }
     if grid.released && console.mouse_held {
         console.mouse_held = false
-        if report, ok := vt.encode_mouse(term, console.mouse_button, .Release, col, row, mods);
-           ok {
+        if report, ok := vt.encode_mouse(term, console.mouse_button, .Release, col, row, mods); ok {
             thor_console_write(console, report)
         }
         return
@@ -799,15 +708,10 @@ console_mouse_report :: proc(
 
 // The cell the pointer is over, as a scrollback-plus-screen position.
 @(private = "file")
-console_cell_at :: proc(
-    console: ^Console,
-    grid: ui.Interaction,
-    cell_w, row_h: f32,
-    first: int,
-) -> (line: int, col: int) {
+console_cell_at :: proc(console: ^Console, grid: ui.Interaction, cell_w, row_h: f32, first: int) -> (line: int, col: int) {
     mouse := ui.mouse_pos()
-    x := mouse.x - (grid.rect.x + CONSOLE_PAD_X)
-    y := mouse.y - (grid.rect.y + CONSOLE_PAD_Y)
+    x     := mouse.x - (grid.rect.x + CONSOLE_PAD_X)
+    y     := mouse.y - (grid.rect.y + CONSOLE_PAD_Y)
     col = clamp(int(x / max(cell_w, 1)), 0, max(console.cols - 1, 0))
     row := clamp(int(y / max(row_h, 1)), 0, max(console.rows - 1, 0))
     line = clamp(first + row, 0, max(vt.term_total_lines(console.term) - 1, 0))

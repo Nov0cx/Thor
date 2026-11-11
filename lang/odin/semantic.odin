@@ -35,19 +35,19 @@ Decl_Range :: struct {
 // The state of one semantic tokens request. Everything is temp-allocated.
 @(private = "file")
 Semantic_Ctx :: struct {
-    rc:          ^Request_Context,
-    c:           ^odinsema.Checker, // nil when the checker cannot start
-    m:           ^odinsema.Scope_Map,
-    lo, hi:      int,
-    items:       map[int]int, // item index by name offset of the buffer's declarations
-    free_memo:   map[string]Name_Class, // a free name names the same declaration in the whole file
-    sel_memo:    map[string]Name_Class, // by operand declaration and field name
-    using_memo:  map[string]Name_Class, // by scope, `using`s in reach and name; undeclared when no `using` gives the name
-    decls:       [dynamic]Decl_Range,
-    path:        [dynamic]odinsyntax.Syntax_Node,
-    tokens:      [dynamic]lang.Semantic_Token,
-    undeclared:  bool, // an undeclared name can be marked
-    strict:      bool, // a buffer in the build sees only the declarations active for the target
+    rc:         ^Request_Context,
+    c:          ^odinsema.Checker, // nil when the checker cannot start
+    m:          ^odinsema.Scope_Map,
+    lo, hi:     int,
+    items:      map[int]int,           // item index by name offset of the buffer's declarations
+    free_memo:  map[string]Name_Class, // a free name names the same declaration in the whole file
+    sel_memo:   map[string]Name_Class, // by operand declaration and field name
+    using_memo: map[string]Name_Class, // by scope, `using`s in reach and name; undeclared when no `using` gives the name
+    decls:      [dynamic]Decl_Range,
+    path:       [dynamic]odinsyntax.Syntax_Node,
+    tokens:     [dynamic]lang.Semantic_Token,
+    undeclared: bool, // an undeclared name can be marked
+    strict:     bool, // a buffer in the build sees only the declarations active for the target
 }
 
 // Fills res.tokens with the classified identifiers of the buffer, or of [req.offset, req.end) when the request has a range.
@@ -93,19 +93,19 @@ semantic_classify :: proc(rc: ^Request_Context, lo, hi: int, strict := false, wh
         odinsema.scope_map_destroy(m, context.temp_allocator)
     }
 
-    ctx := Semantic_Ctx {
-        rc         = rc,
-        c          = request_checker(rc),
-        m          = m,
-        lo         = lo,
-        hi         = hi,
-        items      = make(map[int]int, len(rc.live.tree.items), context.temp_allocator),
-        free_memo  = make(map[string]Name_Class, 256, context.temp_allocator),
-        sel_memo   = make(map[string]Name_Class, 256, context.temp_allocator),
+    ctx := Semantic_Ctx{
+        rc = rc,
+        c = request_checker(rc),
+        m = m,
+        lo = lo,
+        hi = hi,
+        items = make(map[int]int, len(rc.live.tree.items), context.temp_allocator),
+        free_memo = make(map[string]Name_Class, 256, context.temp_allocator),
+        sel_memo = make(map[string]Name_Class, 256, context.temp_allocator),
         using_memo = make(map[string]Name_Class, 16, context.temp_allocator),
-        decls      = make([dynamic]Decl_Range, context.temp_allocator),
-        path       = make([dynamic]odinsyntax.Syntax_Node, context.temp_allocator),
-        tokens     = make([dynamic]lang.Semantic_Token, 0, len(m.refs), context.temp_allocator),
+        decls = make([dynamic]Decl_Range, context.temp_allocator),
+        path = make([dynamic]odinsyntax.Syntax_Node, context.temp_allocator),
+        tokens = make([dynamic]lang.Semantic_Token, 0, len(m.refs), context.temp_allocator),
     }
     for item, i in rc.live.tree.items {
         ctx.items[item.name_offset] = i
@@ -154,7 +154,7 @@ with_inactive :: proc(rc: ^Request_Context, tokens: []lang.Semantic_Token, lo, h
     if !rc.live.in_build || tree == nil || len(tree.guards) == 0 {
         return tokens
     }
-    src := rc.req.source
+    src     := rc.req.source
     regions := make([dynamic]lang.Semantic_Token, context.temp_allocator)
     for g, i in tree.guards {
         if g.start >= g.end || g.end > len(src) || g.end <= lo || g.start >= hi {
@@ -181,7 +181,7 @@ with_inactive :: proc(rc: ^Request_Context, tokens: []lang.Semantic_Token, lo, h
         return a.start < b.start
     })
     out := make([dynamic]lang.Semantic_Token, 0, len(tokens) + len(regions), context.temp_allocator)
-    r := 0
+    r   := 0
     for tok in tokens {
         for r < len(regions) && regions[r].end <= tok.start {
             append(&out, regions[r])
@@ -271,7 +271,7 @@ using_class :: proc(ctx: ^Semantic_Ctx, ref: odinsema.Name_Ref) -> (Name_Class, 
 // reach. Each outer `using` is before or after the whole scope, so the key fixes what it names.
 @(private = "file")
 using_key :: proc(ctx: ^Semantic_Ctx, ref: odinsema.Name_Ref) -> string {
-    m := ctx.m
+    m     := ctx.m
     inner := -1
     for s, i in m.scopes {
         if s.start <= ref.start && ref.start < s.end && (inner < 0 || s.start >= m.scopes[inner].start) {
@@ -661,7 +661,7 @@ is_proc_type :: proc(c: ^odinsema.Checker, type: odinsema.Type_Id) -> bool {
 @(private = "file")
 collect_decls :: proc(ctx: ^Semantic_Ctx) {
     root := odinsyntax.node_root(ctx.rc.parsed.tree)
-    pos := int(root.offset)
+    pos  := int(root.offset)
     for child in odinsyntax.green_children(root.green) {
         n := int(odinsyntax.element_len(child))
         if _, is_node := odinsyntax.element_node(child); is_node {
@@ -723,7 +723,7 @@ undeclared_allowed :: proc(ctx: ^Semantic_Ctx) -> bool {
 // True when the enum type `n` has a member `name`, which its member values may read.
 @(private = "file")
 enum_declares :: proc(n: odinsyntax.Syntax_Node, name: string) -> bool {
-    e, _ := odinsyntax.as_enum_type(n)
+    e, _    := odinsyntax.as_enum_type(n)
     members := odinsyntax.enum_type_members(&e)
     for m in odinsyntax.child_iter_next(&members) {
         member := m
@@ -754,7 +754,7 @@ undeclared_at :: proc(ctx: ^Semantic_Ctx, offset: int, name: string) -> bool {
         case .Asm_Template, .Asm_Group, .Asm_Directive:
             return false
         case .Call_Expr:
-            call, _ := odinsyntax.as_call_expr(n)
+            call, _    := odinsyntax.as_call_expr(n)
             callee, ok := odinsyntax.call_expr_callee(&call)
             if !ok {
                 return false
@@ -772,7 +772,7 @@ undeclared_at :: proc(ctx: ^Semantic_Ctx, offset: int, name: string) -> bool {
             }
         }
     }
-    rc := ctx.rc
+    rc    := ctx.rc
     cands := make([dynamic]Def_Candidate, context.temp_allocator)
     package_candidates(rc, live_dir(rc), name, "", true, &cands)
     for c in cands {

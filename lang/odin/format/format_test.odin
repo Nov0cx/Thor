@@ -20,7 +20,7 @@ test_refuses_syntax_error :: proc(t: ^testing.T) {
 
 @(test)
 test_idempotent_default :: proc(t: ^testing.T) {
-    src := "package p\nFoo::struct{x:int,y:int}\n"
+    src     := "package p\nFoo::struct{x:int,y:int}\n"
     out, ok := format(src, default_options())
     defer delete(out)
     testing.expect(t, ok)
@@ -34,7 +34,7 @@ test_idempotent_default :: proc(t: ^testing.T) {
 test_brace_style_allman :: proc(t: ^testing.T) {
     opts := default_options()
     opts.brace_style = .Allman
-    src := "package p\nf :: proc() {\n\treturn\n}\n"
+    src     := "package p\nf :: proc() {\n\treturn\n}\n"
     out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
@@ -47,7 +47,7 @@ test_brace_style_allman :: proc(t: ^testing.T) {
 test_brace_style_allman_bodies :: proc(t: ^testing.T) {
     opts := default_options()
     opts.brace_style = .Allman
-    src := "package p\nS :: struct {\n\tx: int,\n}\nE :: enum u8 {\n\tA,\n}\nU :: union #no_nil {\n\tint,\n}\nB :: bit_field u8 {\n\ta: u8 | 4,\n}\nN :: struct {}\nf :: proc(x: int) {\n\tswitch x {\n\tcase 1:\n\t}\n}\n"
+    src     := "package p\nS :: struct {\n\tx: int,\n}\nE :: enum u8 {\n\tA,\n}\nU :: union #no_nil {\n\tint,\n}\nB :: bit_field u8 {\n\ta: u8 | 4,\n}\nN :: struct {}\nf :: proc(x: int) {\n\tswitch x {\n\tcase 1:\n\t}\n}\n"
     out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
@@ -73,7 +73,7 @@ test_tabs_false_uses_spaces :: proc(t: ^testing.T) {
     opts := default_options()
     opts.tabs = false
     opts.spaces = 2
-    src := "package p\nFoo :: struct {\n\tx: int,\n}\n"
+    src     := "package p\nFoo :: struct {\n\tx: int,\n}\n"
     out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
@@ -84,7 +84,7 @@ test_tabs_false_uses_spaces :: proc(t: ^testing.T) {
 test_spaces_around_colons :: proc(t: ^testing.T) {
     opts := default_options()
     opts.spaces_around_colons = true
-    src := "package p\nx: int = 1\n"
+    src     := "package p\nx: int = 1\n"
     out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
@@ -93,7 +93,7 @@ test_spaces_around_colons :: proc(t: ^testing.T) {
 
 @(test)
 test_align_struct_fields :: proc(t: ^testing.T) {
-    src := "package p\nFoo :: struct {\n\tx: int,\n\tlonger: string,\n}\n"
+    src     := "package p\nFoo :: struct {\n\tx: int,\n\tlonger: string,\n}\n"
     out, ok := format(src, default_options())
     defer delete(out)
     testing.expect(t, ok)
@@ -105,7 +105,7 @@ test_align_struct_fields :: proc(t: ^testing.T) {
 test_align_struct_fields_off :: proc(t: ^testing.T) {
     opts := default_options()
     opts.align_struct_fields = false
-    src := "package p\nFoo :: struct {\n\tx: int,\n\tlonger: string,\n}\n"
+    src     := "package p\nFoo :: struct {\n\tx: int,\n\tlonger: string,\n}\n"
     out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
@@ -114,7 +114,7 @@ test_align_struct_fields_off :: proc(t: ^testing.T) {
 
 @(test)
 test_align_run_breaks_on_blank_line :: proc(t: ^testing.T) {
-    src := "package p\nFoo :: struct {\n\tx: int,\n\tlonger: string,\n\n\ta: int,\n\tbb: string,\n}\n"
+    src     := "package p\nFoo :: struct {\n\tx: int,\n\tlonger: string,\n\n\ta: int,\n\tbb: string,\n}\n"
     out, ok := format(src, default_options())
     defer delete(out)
     testing.expect(t, ok)
@@ -124,7 +124,7 @@ test_align_run_breaks_on_blank_line :: proc(t: ^testing.T) {
 
 @(test)
 test_align_run_spans_own_line_comment :: proc(t: ^testing.T) {
-    src := "package p\nFoo :: struct {\n\tx: int,\n\tlonger: string,\n\t// note\n\ta: int,\n\tbb: string,\n}\n"
+    src     := "package p\nFoo :: struct {\n\tx: int,\n\tlonger: string,\n\t// note\n\ta: int,\n\tbb: string,\n}\n"
     out, ok := format(src, default_options())
     defer delete(out)
     testing.expect(t, ok)
@@ -134,7 +134,7 @@ test_align_run_spans_own_line_comment :: proc(t: ^testing.T) {
 
 @(test)
 test_align_run_breaks_on_blank_line_after_comment :: proc(t: ^testing.T) {
-    src := "package p\nFoo :: struct {\n\tx: int,\n\tlonger: string,\n\t// note\n\n\ta: int,\n\tbb: string,\n}\n"
+    src     := "package p\nFoo :: struct {\n\tx: int,\n\tlonger: string,\n\t// note\n\n\ta: int,\n\tbb: string,\n}\n"
     out, ok := format(src, default_options())
     defer delete(out)
     testing.expect(t, ok)
@@ -146,7 +146,7 @@ test_align_run_breaks_on_blank_line_after_comment :: proc(t: ^testing.T) {
 test_align_constants_and_enum_span_comment :: proc(t: ^testing.T) {
     opts := default_options()
     opts.align_constant_definitions = true
-    src := "package p\nA :: 1\n// note\nLONGER :: 2\nE :: enum {\n\ta = 1,\n\t// note\n\tlonger = 2,\n}\n"
+    src     := "package p\nA :: 1\n// note\nLONGER :: 2\nE :: enum {\n\ta = 1,\n\t// note\n\tlonger = 2,\n}\n"
     out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
@@ -156,7 +156,7 @@ test_align_constants_and_enum_span_comment :: proc(t: ^testing.T) {
 
 @(test)
 test_align_run_keeps_trailing_comment :: proc(t: ^testing.T) {
-    src := "package p\nFoo :: struct {\n\tx: int, // why\n\tlonger: string,\n}\n"
+    src     := "package p\nFoo :: struct {\n\tx: int, // why\n\tlonger: string,\n}\n"
     out, ok := format(src, default_options())
     defer delete(out)
     testing.expect(t, ok)
@@ -168,7 +168,7 @@ test_align_run_keeps_trailing_comment :: proc(t: ^testing.T) {
 test_align_fields_spaces_around_colons :: proc(t: ^testing.T) {
     opts := default_options()
     opts.spaces_around_colons = true
-    src := "package p\nFoo :: struct {\n\tx: int,\n\tlonger: string,\n}\n"
+    src     := "package p\nFoo :: struct {\n\tx: int,\n\tlonger: string,\n}\n"
     out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
@@ -178,7 +178,7 @@ test_align_fields_spaces_around_colons :: proc(t: ^testing.T) {
 
 @(test)
 test_align_fields_using_prefix_in_cell :: proc(t: ^testing.T) {
-    src := "package p\nFoo :: struct {\n\tusing base: Bar,\n\tx: int,\n}\n"
+    src     := "package p\nFoo :: struct {\n\tusing base: Bar,\n\tx: int,\n}\n"
     out, ok := format(src, default_options())
     defer delete(out)
     testing.expect(t, ok)
@@ -188,7 +188,7 @@ test_align_fields_using_prefix_in_cell :: proc(t: ^testing.T) {
 
 @(test)
 test_align_fields_multiline_type_not_padded :: proc(t: ^testing.T) {
-    src := "package p\nFoo :: struct {\n\tx: int,\n\tinner: struct {\n\t\ta: int,\n\t\tbb: int,\n\t},\n}\n"
+    src     := "package p\nFoo :: struct {\n\tx: int,\n\tinner: struct {\n\t\ta: int,\n\t\tbb: int,\n\t},\n}\n"
     out, ok := format(src, default_options())
     defer delete(out)
     testing.expect(t, ok)
@@ -199,7 +199,7 @@ test_align_fields_multiline_type_not_padded :: proc(t: ^testing.T) {
 test_align_struct_values_comp_lit :: proc(t: ^testing.T) {
     opts := default_options()
     opts.exp_multiline_composite_literals = true
-    src := "package p\nv := Foo{\n\ta = 1,\n\tlonger = 2,\n}\n"
+    src     := "package p\nv := Foo{\n\ta = 1,\n\tlonger = 2,\n}\n"
     out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
@@ -211,7 +211,7 @@ test_align_struct_values_comp_lit :: proc(t: ^testing.T) {
 test_align_struct_values_off :: proc(t: ^testing.T) {
     opts := default_options()
     opts.align_struct_values = false
-    src := "package p\nE :: enum {\n\tA = 1,\n\tLong = 2,\n}\n"
+    src     := "package p\nE :: enum {\n\tA = 1,\n\tLong = 2,\n}\n"
     out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
@@ -220,7 +220,7 @@ test_align_struct_values_off :: proc(t: ^testing.T) {
 
 @(test)
 test_align_values_break_on_bare_member :: proc(t: ^testing.T) {
-    src := "package p\nE :: enum {\n\tA = 1,\n\tBare,\n\tCcc = 2,\n\tDddd = 3,\n}\n"
+    src     := "package p\nE :: enum {\n\tA = 1,\n\tBare,\n\tCcc = 2,\n\tDddd = 3,\n}\n"
     out, ok := format(src, default_options())
     defer delete(out)
     testing.expect(t, ok)
@@ -231,7 +231,7 @@ test_align_values_break_on_bare_member :: proc(t: ^testing.T) {
 
 @(test)
 test_align_enum_values :: proc(t: ^testing.T) {
-    src := "package p\nE :: enum {\n\tA = 1,\n\tLong = 2,\n}\n"
+    src     := "package p\nE :: enum {\n\tA = 1,\n\tLong = 2,\n}\n"
     out, ok := format(src, default_options())
     defer delete(out)
     testing.expect(t, ok)
@@ -241,7 +241,7 @@ test_align_enum_values :: proc(t: ^testing.T) {
 
 @(test)
 test_align_bit_field :: proc(t: ^testing.T) {
-    src := "package p\nB :: bit_field u32 {\n\ta: int | 3,\n\tlonger: uint | 4,\n}\n"
+    src     := "package p\nB :: bit_field u32 {\n\ta: int | 3,\n\tlonger: uint | 4,\n}\n"
     out, ok := format(src, default_options())
     defer delete(out)
     testing.expect(t, ok)
@@ -253,7 +253,7 @@ test_align_bit_field :: proc(t: ^testing.T) {
 test_align_constant_definitions :: proc(t: ^testing.T) {
     opts := default_options()
     opts.align_constant_definitions = true
-    src := "package p\nA :: 1\nLONGER :: 2\n"
+    src     := "package p\nA :: 1\nLONGER :: 2\n"
     out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
@@ -265,7 +265,7 @@ test_align_constant_definitions :: proc(t: ^testing.T) {
 test_align_constant_definitions_off :: proc(t: ^testing.T) {
     opts := default_options()
     opts.align_constant_definitions = false
-    src := "package p\nA :: 1\nLONGER :: 2\n"
+    src     := "package p\nA :: 1\nLONGER :: 2\n"
     out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
@@ -276,7 +276,7 @@ test_align_constant_definitions_off :: proc(t: ^testing.T) {
 test_align_struct_declarations :: proc(t: ^testing.T) {
     opts := default_options()
     opts.align_struct_declarations = true
-    src := "package p\nA :: struct {}\nLonger :: enum {}\n"
+    src     := "package p\nA :: struct {}\nLonger :: enum {}\n"
     out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
@@ -289,7 +289,7 @@ test_align_decl_runs_do_not_mix_kinds :: proc(t: ^testing.T) {
     opts := default_options()
     opts.align_constant_definitions = true
     opts.align_struct_declarations = true
-    src := "package p\nMAX :: 64\nFoo :: struct {}\n"
+    src     := "package p\nMAX :: 64\nFoo :: struct {}\n"
     out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
@@ -299,7 +299,7 @@ test_align_decl_runs_do_not_mix_kinds :: proc(t: ^testing.T) {
 
 @(test)
 test_sort_imports :: proc(t: ^testing.T) {
-    src := "package p\n\nimport \"core:strings\"\nimport \"core:fmt\"\n"
+    src     := "package p\n\nimport \"core:strings\"\nimport \"core:fmt\"\n"
     out, ok := format(src, default_options())
     defer delete(out)
     testing.expect(t, ok)
@@ -310,7 +310,7 @@ test_sort_imports :: proc(t: ^testing.T) {
 test_sort_imports_off :: proc(t: ^testing.T) {
     opts := default_options()
     opts.sort_imports = false
-    src := "package p\n\nimport \"core:strings\"\nimport \"core:fmt\"\n"
+    src     := "package p\n\nimport \"core:strings\"\nimport \"core:fmt\"\n"
     out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
@@ -319,7 +319,7 @@ test_sort_imports_off :: proc(t: ^testing.T) {
 
 @(test)
 test_sort_imports_ranks_collections_first :: proc(t: ^testing.T) {
-    src := "package p\n\nimport \"core:fmt\"\nimport \"../msvc\"\n"
+    src     := "package p\n\nimport \"core:fmt\"\nimport \"../msvc\"\n"
     out, ok := format(src, default_options())
     defer delete(out)
     testing.expect(t, ok)
@@ -328,7 +328,7 @@ test_sort_imports_ranks_collections_first :: proc(t: ^testing.T) {
 
 @(test)
 test_sort_imports_comment_pins_run :: proc(t: ^testing.T) {
-    src := "package p\n\nimport \"core:strings\"\n// keep\nimport \"core:fmt\"\n"
+    src     := "package p\n\nimport \"core:strings\"\n// keep\nimport \"core:fmt\"\n"
     out, ok := format(src, default_options())
     defer delete(out)
     testing.expect(t, ok)
@@ -337,7 +337,7 @@ test_sort_imports_comment_pins_run :: proc(t: ^testing.T) {
 
 @(test)
 test_sort_imports_blank_line_splits_runs :: proc(t: ^testing.T) {
-    src := "package p\n\nimport \"core:strings\"\nimport \"core:fmt\"\n\nimport \"core:os\"\nimport \"core:mem\"\n"
+    src     := "package p\n\nimport \"core:strings\"\nimport \"core:fmt\"\n\nimport \"core:os\"\nimport \"core:mem\"\n"
     out, ok := format(src, default_options())
     defer delete(out)
     testing.expect(t, ok)
@@ -347,7 +347,7 @@ test_sort_imports_blank_line_splits_runs :: proc(t: ^testing.T) {
 
 @(test)
 test_sort_imports_keeps_binding_name :: proc(t: ^testing.T) {
-    src := "package p\n\nimport \"core:strings\"\nimport rl \"vendor:raylib\"\n"
+    src     := "package p\n\nimport \"core:strings\"\nimport rl \"vendor:raylib\"\n"
     out, ok := format(src, default_options())
     defer delete(out)
     testing.expect(t, ok)
@@ -358,7 +358,7 @@ test_sort_imports_keeps_binding_name :: proc(t: ^testing.T) {
 test_space_single_line_blocks :: proc(t: ^testing.T) {
     opts := default_options()
     opts.space_single_line_blocks = true
-    src := "package p\nf :: proc() { return }\n"
+    src     := "package p\nf :: proc() { return }\n"
     out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
@@ -371,7 +371,7 @@ test_space_single_line_blocks :: proc(t: ^testing.T) {
 
 @(test)
 test_space_single_line_blocks_off :: proc(t: ^testing.T) {
-    src := "package p\nf :: proc() { return }\n"
+    src     := "package p\nf :: proc() { return }\n"
     out, ok := format(src, default_options())
     defer delete(out)
     testing.expect(t, ok)
@@ -382,7 +382,7 @@ test_space_single_line_blocks_off :: proc(t: ^testing.T) {
 test_space_single_line_blocks_multiline_untouched :: proc(t: ^testing.T) {
     opts := default_options()
     opts.space_single_line_blocks = true
-    src := "package p\nf :: proc() {\n\treturn\n}\n"
+    src     := "package p\nf :: proc() {\n\treturn\n}\n"
     out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
@@ -393,7 +393,7 @@ test_space_single_line_blocks_multiline_untouched :: proc(t: ^testing.T) {
 test_space_single_line_blocks_comment_untouched :: proc(t: ^testing.T) {
     opts := default_options()
     opts.space_single_line_blocks = true
-    src := "package p\nf :: proc() { return /* x */ }\n"
+    src     := "package p\nf :: proc() { return /* x */ }\n"
     out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
@@ -404,7 +404,7 @@ test_space_single_line_blocks_comment_untouched :: proc(t: ^testing.T) {
 test_character_width_wraps_call :: proc(t: ^testing.T) {
     opts := default_options()
     opts.character_width = 20
-    src := "package p\nf :: proc() {\n\tlongish_call(alpha, beta, gamma)\n}\n"
+    src     := "package p\nf :: proc() {\n\tlongish_call(alpha, beta, gamma)\n}\n"
     out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
@@ -414,7 +414,7 @@ test_character_width_wraps_call :: proc(t: ^testing.T) {
 
 @(test)
 test_character_width_hugs_when_it_fits :: proc(t: ^testing.T) {
-    src := "package p\nf :: proc() {\n\tg(a, b)\n}\n"
+    src     := "package p\nf :: proc() {\n\tg(a, b)\n}\n"
     out, ok := format(src, default_options())
     defer delete(out)
     testing.expect(t, ok)
@@ -425,7 +425,7 @@ test_character_width_hugs_when_it_fits :: proc(t: ^testing.T) {
 test_character_width_proc_lit_arg_hugs :: proc(t: ^testing.T) {
     opts := default_options()
     opts.character_width = 20
-    src := "package p\nf :: proc() {\n\tg(a, proc() {\n\t\treturn\n\t})\n}\n"
+    src     := "package p\nf :: proc() {\n\tg(a, proc() {\n\t\treturn\n\t})\n}\n"
     out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
@@ -436,7 +436,7 @@ test_character_width_proc_lit_arg_hugs :: proc(t: ^testing.T) {
 test_character_width_wraps_proc_params :: proc(t: ^testing.T) {
     opts := default_options()
     opts.character_width = 24
-    src := "package p\nf :: proc(alpha: int, beta: string, gamma: bool) {\n\treturn\n}\n"
+    src     := "package p\nf :: proc(alpha: int, beta: string, gamma: bool) {\n\treturn\n}\n"
     out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
@@ -448,7 +448,7 @@ test_character_width_wraps_proc_params :: proc(t: ^testing.T) {
 test_character_width_wraps_comp_lit :: proc(t: ^testing.T) {
     opts := default_options()
     opts.character_width = 20
-    src := "package p\nv := Foo{alpha, beta, gamma}\n"
+    src     := "package p\nv := Foo{alpha, beta, gamma}\n"
     out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
@@ -460,7 +460,7 @@ test_character_width_wraps_comp_lit :: proc(t: ^testing.T) {
 test_character_width_wraps_binary_chain :: proc(t: ^testing.T) {
     opts := default_options()
     opts.character_width = 30
-    src := "package p\nf :: proc() {\n\tif alpha_one && beta_two && gamma_three {\n\t}\n}\n"
+    src     := "package p\nf :: proc() {\n\tif alpha_one && beta_two && gamma_three {\n\t}\n}\n"
     out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
@@ -469,8 +469,8 @@ test_character_width_wraps_binary_chain :: proc(t: ^testing.T) {
 
 @(test)
 test_format_window_prints_only_overlapping_decls :: proc(t: ^testing.T) {
-    src := "package p\n\na :: proc(){x:=1}\n\n// keep\nb :: proc(){y:=2}\n"
-    lo := strings.index(src, "b ::")
+    src     := "package p\n\na :: proc(){x:=1}\n\n// keep\nb :: proc(){y:=2}\n"
+    lo      := strings.index(src, "b ::")
     out, ok := format_window(src, lo, lo + 3, default_options())
     defer delete(out)
     testing.expect(t, ok)
@@ -487,8 +487,8 @@ test_format_window_prints_only_overlapping_decls :: proc(t: ^testing.T) {
 test_format_window_widens_to_alignment_run :: proc(t: ^testing.T) {
     opts := default_options()
     opts.align_constant_definitions = true
-    src := "package p\n\nA::1\nLONGER::2\n"
-    lo := strings.index(src, "A::")
+    src     := "package p\n\nA::1\nLONGER::2\n"
+    lo      := strings.index(src, "A::")
     out, ok := format_window(src, lo, lo + 1, opts)
     defer delete(out)
     testing.expect(t, ok)
@@ -499,7 +499,7 @@ test_format_window_widens_to_alignment_run :: proc(t: ^testing.T) {
 test_character_width_wraps_case_list_at_commas :: proc(t: ^testing.T) {
     opts := default_options()
     opts.character_width = 40
-    src := "package p\nf :: proc() {\n\tswitch {\n\tcase alpha in set, beta in set, gamma in set:\n\t\treturn\n\t}\n}\n"
+    src     := "package p\nf :: proc() {\n\tswitch {\n\tcase alpha in set, beta in set, gamma in set:\n\t\treturn\n\t}\n}\n"
     out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
@@ -510,8 +510,8 @@ test_character_width_wraps_case_list_at_commas :: proc(t: ^testing.T) {
 // A case label sits at the level of its switch; indent_cases moves it one level in.
 @(test)
 test_case_indentation :: proc(t: ^testing.T) {
-    src := "package p\nf :: proc(x: int) {\n\tswitch x {\n\tcase 1:\n\t\tg()\n\t}\n}\n"
-    opts := default_options()
+    src     := "package p\nf :: proc(x: int) {\n\tswitch x {\n\tcase 1:\n\t\tg()\n\t}\n}\n"
+    opts    := default_options()
     out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
@@ -529,7 +529,7 @@ test_case_indentation :: proc(t: ^testing.T) {
 // inline_single_stmt_case keeps a body on its own line when a comment comes before it.
 @(test)
 test_inline_case_keeps_comments :: proc(t: ^testing.T) {
-    src := "package p\nf :: proc(x: int) {\n\tswitch x {\n\tcase 1: // a\n\t\treturn\n\tcase 2:\n\t\t// b\n\t\tg()\n\tcase 3:\n\t\tg() // c\n\t}\n}\n"
+    src  := "package p\nf :: proc(x: int) {\n\tswitch x {\n\tcase 1: // a\n\t\treturn\n\tcase 2:\n\t\t// b\n\t\tg()\n\tcase 3:\n\t\tg() // c\n\t}\n}\n"
     opts := default_options()
     opts.inline_single_stmt_case = true
     out, ok := format(src, opts)
@@ -543,7 +543,7 @@ test_inline_case_keeps_comments :: proc(t: ^testing.T) {
 // A for header without a post statement has one space before its body.
 @(test)
 test_for_without_post :: proc(t: ^testing.T) {
-    src := "package p\nf :: proc() {\n\tfor i := 0; i < 3; {\n\t\ti += 1\n\t}\n}\n"
+    src     := "package p\nf :: proc() {\n\tfor i := 0; i < 3; {\n\t\ti += 1\n\t}\n}\n"
     out, ok := format(src, default_options())
     defer delete(out)
     testing.expect(t, ok)
@@ -552,7 +552,7 @@ test_for_without_post :: proc(t: ^testing.T) {
 
 @(test)
 test_binary_chain_stays_flat_when_it_fits :: proc(t: ^testing.T) {
-    src := "package p\nf :: proc() {\n\tx := a + b + c\n}\n"
+    src     := "package p\nf :: proc() {\n\tx := a + b + c\n}\n"
     out, ok := format(src, default_options())
     defer delete(out)
     testing.expect(t, ok)
@@ -563,7 +563,7 @@ test_binary_chain_stays_flat_when_it_fits :: proc(t: ^testing.T) {
 test_character_width_wraps_result_list :: proc(t: ^testing.T) {
     opts := default_options()
     opts.character_width = 40
-    src := "package p\nf :: proc() -> (alpha: int, beta: string, gamma: bool) {\n\treturn\n}\n"
+    src     := "package p\nf :: proc() -> (alpha: int, beta: string, gamma: bool) {\n\treturn\n}\n"
     out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
@@ -576,7 +576,7 @@ test_comp_lit_group_off_under_exp_multiline :: proc(t: ^testing.T) {
     opts := default_options()
     opts.character_width = 20
     opts.exp_multiline_composite_literals = true
-    src := "package p\nv := Foo{alpha, beta, gamma}\n"
+    src     := "package p\nv := Foo{alpha, beta, gamma}\n"
     out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
@@ -591,7 +591,7 @@ test_comp_lit_group_off_under_exp_multiline :: proc(t: ^testing.T) {
 test_character_width_zero :: proc(t: ^testing.T) {
     opts := default_options()
     opts.character_width = 0
-    src := "package p\nf :: proc() {\n\tg(a, b)\n}\n"
+    src     := "package p\nf :: proc() {\n\tg(a, b)\n}\n"
     out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
@@ -600,7 +600,7 @@ test_character_width_zero :: proc(t: ^testing.T) {
 
 @(test)
 test_asm_template_round_trip :: proc(t: ^testing.T) {
-    src := `package p
+    src     := `package p
 
 f :: proc() -> int {
 	g := asm(a: int, b: int) -> (int) [x: int = %rax, y -> x, #volatile, #clobber %rcx] {
@@ -647,7 +647,7 @@ f :: proc() -> int {
 
 @(test)
 test_asm_body_keeps_comments :: proc(t: ^testing.T) {
-    src := `package p
+    src     := `package p
 
 f :: proc() {
 	asm() {
@@ -684,7 +684,7 @@ comment_anchors :: proc(src: string) -> [dynamic]Comment_Anchor {
         case .EOF:
             return out
         case .Comment:
-            append(&out, Comment_Anchor {strings.trim_right_space(tok.text), tokens})
+            append(&out, Comment_Anchor{strings.trim_right_space(tok.text), tokens})
         case .Semicolon, .Comma:
         case:
             tokens += 1
@@ -753,7 +753,7 @@ assert_round_trip :: proc(t: ^testing.T, path: string) {
         return
     }
     defer delete(src)
-    source := string(src)
+    source   := string(src)
     // The token-stream comparison is order-sensitive and sort_imports is
     // exactly a reordering, so meaning is checked with sorting off; the
     // defaults then get the two checks that survive a reorder (below).
@@ -791,7 +791,7 @@ assert_round_trip :: proc(t: ^testing.T, path: string) {
     defer delete(after)
     if len(before) != len(after) {
         fmt.println("TOKEN COUNT MISMATCH:", path, "before:", len(before), "after:", len(after))
-        n := min(len(before), len(after))
+        n        := min(len(before), len(after))
         diverged := false
         for i in 0 ..< n {
             if before[i].kind != after[i].kind || before[i].text != after[i].text {
@@ -1046,22 +1046,14 @@ test_bare_block_has_no_leading_space :: proc(t: ^testing.T) {
 // A block comment over several lines adds no blank line after it.
 @(test)
 test_multi_line_block_comment_keeps_its_gap :: proc(t: ^testing.T) {
-    expect_keeps(
-        t,
-        "package p\nf :: proc() {\n\ta := 1\n\t/* one\n\t   two */\n\tb := 2\n}\n",
-        "\ta := 1\n\t/* one\n\t   two */\n\tb := 2\n",
-    )
+    expect_keeps(t, "package p\nf :: proc() {\n\ta := 1\n\t/* one\n\t   two */\n\tb := 2\n}\n", "\ta := 1\n\t/* one\n\t   two */\n\tb := 2\n")
     expect_keeps(t, "package p\n/*\nhead\n*/\nX :: 1\n", "*/\nX :: 1\n")
     expect_keeps(t, "package p\nX :: 1 /* a\nb */\nY :: 2\n", "b */\nY :: 2\n")
 }
 
 @(test)
 test_stacked_attributes_keep_their_order :: proc(t: ^testing.T) {
-    expect_keeps(
-        t,
-        "package p\n@(private)\n@(require_results)\nf :: proc() -> int {\n\treturn 1\n}\n",
-        "@(private)\n@(require_results)\nf ::",
-    )
+    expect_keeps(t, "package p\n@(private)\n@(require_results)\nf :: proc() -> int {\n\treturn 1\n}\n", "@(private)\n@(require_results)\nf ::")
 }
 
 @(test)
@@ -1158,39 +1150,21 @@ test_comments_inside_lists_stay_in_place :: proc(t: ^testing.T) {
     Case :: struct {
         src, want: string,
     }
-    cases := []Case {
-        {
-            "package p\nf :: proc() {\n\tfoo(a, // first\n\t\tb)\n\tx := 1\n}\n",
-            "package p\nf :: proc() {\n\tfoo(\n\t\ta, // first\n\t\tb,\n\t)\n\tx := 1\n}\n",
-        },
+    cases := []Case{
+        {"package p\nf :: proc() {\n\tfoo(a, // first\n\t\tb)\n\tx := 1\n}\n", "package p\nf :: proc() {\n\tfoo(\n\t\ta, // first\n\t\tb,\n\t)\n\tx := 1\n}\n"},
         {
             "package p\ng :: proc(\n\t// the count\n\tn: int,\n\tm: int, // the other\n) {\n}\n",
             "package p\ng :: proc(\n\t// the count\n\tn: int,\n\tm: int, // the other\n) {}\n",
         },
-        {
-            "package p\nw := []int{\n\t1, // one\n\t2,\n\t// end\n}\n",
-            "package p\nw := []int{\n\t1, // one\n\t2,\n\t// end\n}\n",
-        },
-        {
-            "package p\ny := a + // why\n\tb\nz := a + /* c */ b\n",
-            "package p\ny := a + // why\n\tb\nz := a + /* c */ b\n",
-        },
+        {"package p\nw := []int{\n\t1, // one\n\t2,\n\t// end\n}\n", "package p\nw := []int{\n\t1, // one\n\t2,\n\t// end\n}\n"},
+        {"package p\ny := a + // why\n\tb\nz := a + /* c */ b\n", "package p\ny := a + // why\n\tb\nz := a + /* c */ b\n"},
         {
             "package p\nf :: proc() {\n\tx := a[/* i */ 0]\n\ty := b[0 /* j */]\n\tz := c. /* f */ d\n}\n",
             "package p\nf :: proc() {\n\tx := a[/* i */ 0]\n\ty := b[0 /* j */]\n\tz := c. /* f */ d\n}\n",
         },
-        {
-            "package p\nf :: proc() {\n\tx := a[0, // row\n\t\t1]\n\tw := 2\n}\n",
-            "package p\nf :: proc() {\n\tx := a[0, // row\n\t\t1]\n\tw := 2\n}\n",
-        },
-        {
-            "package p\nf :: proc() {\n\tx := (a + // why\n\t\tb)\n\tw := 2\n}\n",
-            "package p\nf :: proc() {\n\tx := (a + // why\n\t\tb)\n\tw := 2\n}\n",
-        },
-        {
-            "package p\nf :: proc() {\n\tx := (// lead\n\t\ta)\n\tw := 2\n}\n",
-            "package p\nf :: proc() {\n\tx := (// lead\n\t\ta)\n\tw := 2\n}\n",
-        },
+        {"package p\nf :: proc() {\n\tx := a[0, // row\n\t\t1]\n\tw := 2\n}\n", "package p\nf :: proc() {\n\tx := a[0, // row\n\t\t1]\n\tw := 2\n}\n"},
+        {"package p\nf :: proc() {\n\tx := (a + // why\n\t\tb)\n\tw := 2\n}\n", "package p\nf :: proc() {\n\tx := (a + // why\n\t\tb)\n\tw := 2\n}\n"},
+        {"package p\nf :: proc() {\n\tx := (// lead\n\t\ta)\n\tw := 2\n}\n", "package p\nf :: proc() {\n\tx := (// lead\n\t\ta)\n\tw := 2\n}\n"},
     }
     for c in cases {
         out, ok := format(c.src, default_options())
@@ -1208,7 +1182,7 @@ test_comments_inside_lists_stay_in_place :: proc(t: ^testing.T) {
 test_comment_column_over_aligned_fields :: proc(t: ^testing.T) {
     opts := default_options()
     opts.tabs = false
-    src := "package p\nS :: struct {\n    a: int, // c1\n    bbbbbb: i8, // c2\n    c: f32,\n}\n"
+    src     := "package p\nS :: struct {\n    a: int, // c1\n    bbbbbb: i8, // c2\n    c: f32,\n}\n"
     out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
@@ -1220,7 +1194,7 @@ test_comment_column_over_aligned_fields :: proc(t: ^testing.T) {
 test_comment_column_enum_and_off :: proc(t: ^testing.T) {
     opts := default_options()
     opts.tabs = false
-    src := "package p\nE :: enum {\n    A, // x\n    Longer, // y\n}\n"
+    src     := "package p\nE :: enum {\n    A, // x\n    Longer, // y\n}\n"
     out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
@@ -1236,7 +1210,7 @@ test_comment_column_enum_and_off :: proc(t: ^testing.T) {
 test_comment_column_case_and_decls :: proc(t: ^testing.T) {
     opts := default_options()
     opts.tabs = false
-    src := "package p\nA :: 1 // one\nLONGER :: 2 // two\n\nf :: proc(x: int) {\n    switch x {\n    case 1: // a\n    case 22222: // b\n    }\n}\n"
+    src     := "package p\nA :: 1 // one\nLONGER :: 2 // two\n\nf :: proc(x: int) {\n    switch x {\n    case 1: // a\n    case 22222: // b\n    }\n}\n"
     out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
@@ -1251,11 +1225,11 @@ test_comment_column_case_and_decls :: proc(t: ^testing.T) {
 test_format_window_matches_full_with_comment_runs :: proc(t: ^testing.T) {
     opts := default_options()
     opts.tabs = false
-    src := "package p\n\nA :: 1 // one\nLONGER :: 2 // two\n\nZ :: 3\n"
+    src      := "package p\n\nA :: 1 // one\nLONGER :: 2 // two\n\nZ :: 3\n"
     full, ok := format(src, opts)
     defer delete(full)
     testing.expect(t, ok)
-    lo := strings.index(src, "A ::")
+    lo       := strings.index(src, "A ::")
     win, ok2 := format_window(src, lo, lo + 1, opts)
     defer delete(win)
     testing.expect(t, ok2)
@@ -1266,7 +1240,7 @@ test_format_window_matches_full_with_comment_runs :: proc(t: ^testing.T) {
 test_align_typed_and_variable_runs :: proc(t: ^testing.T) {
     opts := default_options()
     opts.tabs = false
-    src := "package p\nf :: proc() {\n    a := 1\n    longer := 2\n\n    x: int = 1\n    yyyy: f32 = 2\n}\n\nA: int : 1\nLONGER: f32 : 2\n"
+    src     := "package p\nf :: proc() {\n    a := 1\n    longer := 2\n\n    x: int = 1\n    yyyy: f32 = 2\n}\n\nA: int : 1\nLONGER: f32 : 2\n"
     out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
@@ -1283,7 +1257,7 @@ test_align_typed_and_variable_runs :: proc(t: ^testing.T) {
 test_align_field_defaults :: proc(t: ^testing.T) {
     opts := default_options()
     opts.tabs = false
-    src := "package p\nS :: struct {\n    a: int \"p\",\n    bbb: f32 \"q\",\n    c: i8,\n    d: string \"x\",\n    ee: u8 \"y\",\n}\n"
+    src     := "package p\nS :: struct {\n    a: int \"p\",\n    bbb: f32 \"q\",\n    c: i8,\n    d: string \"x\",\n    ee: u8 \"y\",\n}\n"
     out, ok := format(src, opts)
     defer delete(out)
     testing.expect(t, ok)
@@ -1308,7 +1282,12 @@ expect_stable :: proc(t: ^testing.T, src, want: string, opts: Options, loc := #c
 
 @(test)
 test_foreign_import_expr_keeps_braces :: proc(t: ^testing.T) {
-    expect_stable(t, "package p\nforeign import lib { platform.DIR + \"blake3\" }\n", "package p\nforeign import lib {platform.DIR + \"blake3\"}\n", default_options())
+    expect_stable(
+        t,
+        "package p\nforeign import lib { platform.DIR + \"blake3\" }\n",
+        "package p\nforeign import lib {platform.DIR + \"blake3\"}\n",
+        default_options(),
+    )
     expect_stable(t, "package p\nforeign import lib { \"blake3\" }\n", "package p\nforeign import lib \"blake3\"\n", default_options())
 }
 
@@ -1324,7 +1303,7 @@ test_else_after_do_body_own_line :: proc(t: ^testing.T) {
 test_expanded_literal_aligns_first_pass :: proc(t: ^testing.T) {
     opts := default_options()
     opts.exp_multiline_composite_literals = true
-    src := "package p\nf :: proc() -> T {\n\treturn {data = r, put = proc() {\n\t\tg()\n\t}}\n}\n"
+    src  := "package p\nf :: proc() -> T {\n\treturn {data = r, put = proc() {\n\t\tg()\n\t}}\n}\n"
     want := "package p\nf :: proc() -> T {\n\treturn {\n\t\tdata = r,\n\t\tput  = proc() {\n\t\t\tg()\n\t\t},\n\t}\n}\n"
     expect_stable(t, src, want, opts)
 }
@@ -1340,6 +1319,16 @@ test_trailing_comment_stays_after_its_item :: proc(t: ^testing.T) {
     opts := default_options()
     opts.exp_multiline_composite_literals = true
     expect_stable(t, "package p\nx := T{a = 1, bbb = 2, // c\n\td = 3}\n", "package p\nx := T{\n\ta   = 1,\n\tbbb = 2, // c\n\td   = 3,\n}\n", opts)
-    expect_stable(t, "package p\nS :: struct {a: int, bbb: int, // c\n\td: int}\n", "package p\nS :: struct {\n\ta:   int,\n\tbbb: int, // c\n\td:   int,\n}\n", opts)
-    expect_stable(t, "package p\nf :: proc() {\n\ta := 1; bbb := 2 // c\n\td := 3\n}\n", "package p\nf :: proc() {\n\ta   := 1\n\tbbb := 2 // c\n\td   := 3\n}\n", opts)
+    expect_stable(
+        t,
+        "package p\nS :: struct {a: int, bbb: int, // c\n\td: int}\n",
+        "package p\nS :: struct {\n\ta:   int,\n\tbbb: int, // c\n\td:   int,\n}\n",
+        opts,
+    )
+    expect_stable(
+        t,
+        "package p\nf :: proc() {\n\ta := 1; bbb := 2 // c\n\td := 3\n}\n",
+        "package p\nf :: proc() {\n\ta   := 1\n\tbbb := 2 // c\n\td   := 3\n}\n",
+        opts,
+    )
 }

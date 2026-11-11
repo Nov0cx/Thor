@@ -9,12 +9,12 @@ import lang ".."
 // Runs a Type_Definition request at the first occurrence of `needle` in `source`, plus `skip` bytes.
 @(private = "file")
 type_definition_at :: proc(e: ^Engine, source, needle: string, workspace := "", path := "buffer.odin", skip := 0) -> lang.Result {
-    req := lang.Request {
-        kind      = .Type_Definition,
-        path      = path,
-        ext       = ".odin",
-        source    = source,
-        offset    = strings.index(source, needle) + skip,
+    req := lang.Request{
+        kind = .Type_Definition,
+        path = path,
+        ext = ".odin",
+        source = source,
+        offset = strings.index(source, needle) + skip,
         workspace = workspace,
     }
     res := lang.Result{kind = .Type_Definition}
@@ -88,7 +88,7 @@ test_type_definition_local :: proc(t: ^testing.T) {
     defer engine_destroy(e)
 
     player := strings.index(TYPES_SRC, "Player ::")
-    res := type_definition_at(e, TYPES_SRC, "p := ")
+    res    := type_definition_at(e, TYPES_SRC, "p := ")
     expect_type_jump(t, &res, "buffer.odin", player)
     free_type_definition(&res)
 
@@ -104,7 +104,7 @@ test_type_definition_through_constructors :: proc(t: ^testing.T) {
     defer engine_destroy(e)
 
     player := strings.index(TYPES_SRC, "Player ::")
-    res := type_definition_at(e, TYPES_SRC, "_ = ptr", skip = 4)
+    res    := type_definition_at(e, TYPES_SRC, "_ = ptr", skip = 4)
     expect_type_jump(t, &res, "buffer.odin", player)
     free_type_definition(&res)
 
@@ -139,7 +139,7 @@ test_type_definition_declarations :: proc(t: ^testing.T) {
     defer engine_destroy(e)
 
     player := strings.index(TYPES_SRC, "Player ::")
-    res := type_definition_at(e, TYPES_SRC, "current:")
+    res    := type_definition_at(e, TYPES_SRC, "current:")
     expect_type_jump(t, &res, "buffer.odin", player)
     free_type_definition(&res)
 
@@ -177,11 +177,11 @@ test_type_definition_cross_package :: proc(t: ^testing.T) {
     defer engine_destroy(e)
 
     lib_src := "package lib\n\nThing :: struct {\n\tn: int,\n}\n\ncreate :: proc() -> ^Thing {\n\treturn nil\n}\n"
-    root := fixture(t, "typedef_package", {{"lib/thing.odin", lib_src}})
+    root    := fixture(t, "typedef_package", {{"lib/thing.odin", lib_src}})
     defer os.remove_all(root)
 
     main_src := "package app\n\nimport \"../lib\"\n\nmain :: proc() {\n\tx := lib.create()\n\t_ = x\n}\n"
-    res := type_definition_at(e, main_src, "_ = x", root, fixture_path(root, "app/main.odin"), skip = 4)
+    res      := type_definition_at(e, main_src, "_ = x", root, fixture_path(root, "app/main.odin"), skip = 4)
     expect_type_jump(t, &res, "thing.odin", strings.index(lib_src, "Thing ::"))
     free_type_definition(&res)
 }

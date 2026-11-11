@@ -70,22 +70,38 @@ parse_destroy :: proc(result: ^Parse, allocator := context.allocator) {
 error_message :: proc(e: Syntax_Error, allocator := context.allocator) -> string {
     found := token_name(e.found)
     switch e.code {
-    case .Expected_Token:    return fmt.aprintf("expected %s, got %s", token_name(e.expected), found, allocator = allocator)
-    case .Expected_Expr:     return fmt.aprintf("expected an expression, got %s", found, allocator = allocator)
-    case .Expected_Type:     return fmt.aprintf("expected a type, got %s", found, allocator = allocator)
-    case .Expected_Stmt:     return fmt.aprintf("expected a statement, got %s", found, allocator = allocator)
-    case .Expected_Decl:     return strings.clone("expected a declaration after an attribute", allocator)
-    case .Expected_Package:  return strings.clone("expected a package declaration at the start of the file", allocator)
-    case .Expected_Selector: return fmt.aprintf("expected a selector, got %s", found, allocator = allocator)
-    case .Expected_Operand:  return fmt.aprintf("expected an operand, got %s", found, allocator = allocator)
-    case .Unexpected_Token:  return fmt.aprintf("unexpected %s", found, allocator = allocator)
-    case .Too_Deep:          return strings.clone("expression nested too deep", allocator)
-    case .Unterminated:      return fmt.aprintf("unterminated %s", found, allocator = allocator)
-    case .Malformed:         return fmt.aprintf("malformed %s", found, allocator = allocator)
-    case .Bad_Directive:     return strings.clone("unknown or misplaced directive", allocator)
-    case .Not_Allowed:       return fmt.aprintf("%s is not allowed here", found, allocator = allocator)
-    case .Do_Body:           return strings.clone("'do' for procedure bodies is not allowed, prefer {}", allocator)
-    case .Late_File_Tag:     return strings.clone("lines starting with #+ (file tags) are only allowed before the package line", allocator)
+    case .Expected_Token:
+        return fmt.aprintf("expected %s, got %s", token_name(e.expected), found, allocator = allocator)
+    case .Expected_Expr:
+        return fmt.aprintf("expected an expression, got %s", found, allocator = allocator)
+    case .Expected_Type:
+        return fmt.aprintf("expected a type, got %s", found, allocator = allocator)
+    case .Expected_Stmt:
+        return fmt.aprintf("expected a statement, got %s", found, allocator = allocator)
+    case .Expected_Decl:
+        return strings.clone("expected a declaration after an attribute", allocator)
+    case .Expected_Package:
+        return strings.clone("expected a package declaration at the start of the file", allocator)
+    case .Expected_Selector:
+        return fmt.aprintf("expected a selector, got %s", found, allocator = allocator)
+    case .Expected_Operand:
+        return fmt.aprintf("expected an operand, got %s", found, allocator = allocator)
+    case .Unexpected_Token:
+        return fmt.aprintf("unexpected %s", found, allocator = allocator)
+    case .Too_Deep:
+        return strings.clone("expression nested too deep", allocator)
+    case .Unterminated:
+        return fmt.aprintf("unterminated %s", found, allocator = allocator)
+    case .Malformed:
+        return fmt.aprintf("malformed %s", found, allocator = allocator)
+    case .Bad_Directive:
+        return strings.clone("unknown or misplaced directive", allocator)
+    case .Not_Allowed:
+        return fmt.aprintf("%s is not allowed here", found, allocator = allocator)
+    case .Do_Body:
+        return strings.clone("'do' for procedure bodies is not allowed, prefer {}", allocator)
+    case .Late_File_Tag:
+        return strings.clone("lines starting with #+ (file tags) are only allowed before the package line", allocator)
     }
     return ""
 }
@@ -93,17 +109,28 @@ error_message :: proc(e: Syntax_Error, allocator := context.allocator) -> string
 // The spelling of a token kind in a message.
 token_name :: proc(kind: Token_Kind) -> string {
     #partial switch kind {
-    case .Newline:      return "newline"
-    case .EOF:          return "end of file"
-    case .Ident:        return "identifier"
-    case .Integer:      return "integer"
-    case .Float:        return "float"
-    case .Imag:         return "imaginary number"
-    case .Rune:         return "rune"
-    case .String:       return "string"
-    case .File_Tag:     return "file tag"
-    case .Error:        return "invalid character"
-    case .Block_Comment: return "block comment"
+    case .Newline:
+        return "newline"
+    case .EOF:
+        return "end of file"
+    case .Ident:
+        return "identifier"
+    case .Integer:
+        return "integer"
+    case .Float:
+        return "float"
+    case .Imag:
+        return "imaginary number"
+    case .Rune:
+        return "rune"
+    case .String:
+        return "string"
+    case .File_Tag:
+        return "file tag"
+    case .Error:
+        return "invalid character"
+    case .Block_Comment:
+        return "block comment"
     }
     if text := TOKEN_TEXT[kind]; text != "" {
         return fmt.tprintf("'%s'", text)
@@ -279,8 +306,10 @@ bump :: proc(p: ^Parser) {
     emit(p, p.cur)
     p.emitted = p.cur + 1
     #partial switch tok.kind {
-    case .Open_Brace:  p.open_braces += 1
-    case .Close_Brace: p.open_braces = max(p.open_braces - 1, 0) // a stray '}' opens no block below 0
+    case .Open_Brace:
+        p.open_braces += 1
+    case .Close_Brace:
+        p.open_braces = max(p.open_braces - 1, 0) // a stray '}' opens no block below 0
     }
     p.prev_end = token_end(tok)
     p.prev_kind = p.kind
@@ -452,8 +481,7 @@ bump_balanced :: proc(p: ^Parser) {
 @(private)
 is_stmt_sync :: proc(kind: Token_Kind) -> bool {
     #partial switch kind {
-    case .Package, .Foreign, .Import, .If, .For, .When, .Return, .Switch,
-         .Defer, .Using, .Break, .Continue, .Fallthrough, .Hash, .At:
+    case .Package, .Foreign, .Import, .If, .For, .When, .Return, .Switch, .Defer, .Using, .Break, .Continue, .Fallthrough, .Hash, .At:
         return true
     }
     return false

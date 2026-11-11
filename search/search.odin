@@ -59,7 +59,7 @@ scan_regex :: proc(text, pattern: string, opts: Options, out: ^[dynamic]Match, c
     // the scan position alone. Such a pattern is tried again at each line start.
     anchored := starts_anchored(pattern)
     last_end := -1
-    pos := 0 // where the next run of the engine starts
+    pos      := 0 // where the next run of the engine starts
     for {
         capture, _, ok := regex.match_iterator(&it)
         if !ok || len(capture.pos) == 0 {
@@ -91,7 +91,7 @@ scan_regex :: proc(text, pattern: string, opts: Options, out: ^[dynamic]Match, c
         }
         last_end = end
 
-        match := Match {start = start, end = end}
+        match := Match{start = start, end = end}
         if captures != nil {
             match.group_first = len(captures)
             match.group_count = len(capture.pos)
@@ -145,9 +145,12 @@ expand :: proc(text: string, match: Match, captures: [][2]int, template: string,
         next := template[i + 1]
         if c == '\\' {
             switch next {
-            case 'n':  strings.write_byte(&b, '\n')
-            case 't':  strings.write_byte(&b, '\t')
-            case '\\': strings.write_byte(&b, '\\')
+            case 'n':
+                strings.write_byte(&b, '\n')
+            case 't':
+                strings.write_byte(&b, '\t')
+            case '\\':
+                strings.write_byte(&b, '\\')
             case:
                 strings.write_byte(&b, c)
                 continue
@@ -188,9 +191,8 @@ scan_literal :: proc(text, query: string, opts: Options, out: ^[dynamic]Match) {
     // path still covers every ASCII query.
     if !opts.case_sensitive && !is_ascii(query) {
         for i := 0; i < len(text); {
-            if width, found := fold_match_at(text, i, query);
-               found && (!opts.whole_word || word_bounded(text, i, i + width)) {
-                append(out, Match {start = i, end = i + width})
+            if width, found := fold_match_at(text, i, query); found && (!opts.whole_word || word_bounded(text, i, i + width)) {
+                append(out, Match{start = i, end = i + width})
                 i += width
                 continue
             }
@@ -200,13 +202,13 @@ scan_literal :: proc(text, query: string, opts: Options, out: ^[dynamic]Match) {
         return
     }
 
-    n := len(query)
+    n    := len(query)
     skip := skip_table(query, opts.case_sensitive)
-    i := 0
+    i    := 0
     for i + n <= len(text) {
         if match_at(text, i, query, opts.case_sensitive) {
             if !opts.whole_word || word_bounded(text, i, i + n) {
-                append(out, Match {start = i, end = i + n})
+                append(out, Match{start = i, end = i + n})
                 i += n
                 continue
             }
@@ -253,13 +255,7 @@ fold_match_at :: proc(text: string, pos: int, query: string) -> (int, bool) {
 
 @(private)
 is_word_byte :: proc(b: u8) -> bool {
-    return(
-        b == '_' ||
-        (b >= '0' && b <= '9') ||
-        (b >= 'a' && b <= 'z') ||
-        (b >= 'A' && b <= 'Z') ||
-        b >= 0x80 \
-    )
+    return (b == '_' || (b >= '0' && b <= '9') || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || b >= 0x80)
 }
 
 // True when [start, end) is not glued to an identifier character on either side.

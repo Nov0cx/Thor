@@ -11,15 +11,7 @@ import lang ".."
 // Runs a Semantic_Tokens request over `source`. Free the tokens with delete.
 @(private = "file")
 semantic_at :: proc(e: ^Engine, source: string, workspace := "", path := "buffer.odin", offset := 0, end := 0) -> lang.Result {
-    req := lang.Request {
-        kind      = .Semantic_Tokens,
-        path      = path,
-        ext       = ".odin",
-        source    = source,
-        offset    = offset,
-        end       = end,
-        workspace = workspace,
-    }
+    req := lang.Request{kind = .Semantic_Tokens, path = path, ext = ".odin", source = source, offset = offset, end = end, workspace = workspace}
     res := lang.Result{kind = .Semantic_Tokens}
     resolve(e, &req, &res)
     return res
@@ -61,7 +53,16 @@ expect_none :: proc(t: ^testing.T, res: ^lang.Result, src, needle: string, after
 expect_ordered :: proc(t: ^testing.T, res: ^lang.Result, src: string, loc := #caller_location) {
     cut := 0
     for tok, i in res.tokens {
-        if !testing.expectf(t, tok.start >= cut && tok.start < tok.end && tok.end <= len(src), "token %d [%d, %d) after %d", i, tok.start, tok.end, cut, loc = loc) {
+        if !testing.expectf(
+            t,
+            tok.start >= cut && tok.start < tok.end && tok.end <= len(src),
+            "token %d [%d, %d) after %d",
+            i,
+            tok.start,
+            tok.end,
+            cut,
+            loc = loc,
+        ) {
             return
         }
         cut = tok.end
@@ -254,7 +255,7 @@ test_semantic_cross_package :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    lib_src := `package lib
+    lib_src  := `package lib
 
 Shape :: struct {
 	width: int,
@@ -280,8 +281,8 @@ main :: proc() {
 	_ = m
 }
 `
-    root := fixture(t, "semantic_packages", {{"lib/lib.odin", lib_src}, {"app/main.odin", main_src}})
-    res := semantic_at(e, main_src, workspace = root, path = fixture_path(root, "app/main.odin"))
+    root     := fixture(t, "semantic_packages", {{"lib/lib.odin", lib_src}, {"app/main.odin", main_src}})
+    res      := semantic_at(e, main_src, workspace = root, path = fixture_path(root, "app/main.odin"))
     defer delete(res.tokens)
     expect_ordered(t, &res, main_src)
 
@@ -304,7 +305,7 @@ test_semantic_unresolved_only_when_undeclared :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    main_src := `package app
+    main_src    := `package app
 
 Point :: struct { x: int }
 
@@ -325,12 +326,12 @@ main :: proc() {
 sibling_proc :: proc() -> int { return 1 }
 `
     // Out of the build on every target but its own, and still a declaration of the package.
-    other_src := `package app
+    other_src   := `package app
 
 posix_only :: 1
 `
-    root := fixture(t, "semantic_unresolved", {{"app/main.odin", main_src}, {"app/sibling.odin", sibling_src}, {"app/other_haiku.odin", other_src}})
-    res := semantic_at(e, main_src, workspace = root, path = fixture_path(root, "app/main.odin"))
+    root        := fixture(t, "semantic_unresolved", {{"app/main.odin", main_src}, {"app/sibling.odin", sibling_src}, {"app/other_haiku.odin", other_src}})
+    res         := semantic_at(e, main_src, workspace = root, path = fixture_path(root, "app/main.odin"))
     defer delete(res.tokens)
     expect_ordered(t, &res, main_src)
 
@@ -365,8 +366,8 @@ test_semantic_range_request :: proc(t: ^testing.T) {
     defer engine_destroy(e)
 
     src := KINDS_SRC
-    lo := strings.index(src, "scale ::")
-    hi := strings.index(src, "fmt.println")
+    lo  := strings.index(src, "scale ::")
+    hi  := strings.index(src, "fmt.println")
     res := semantic_at(e, src, offset = lo, end = hi)
     defer delete(res.tokens)
     expect_ordered(t, &res, src)
@@ -389,10 +390,10 @@ test_semantic_real_files :: proc(t: ^testing.T) {
             continue
         }
         defer delete(data)
-        src := string(data)
+        src   := string(data)
         start := time.tick_now()
-        res := semantic_at(e, src, workspace = ".", path = path)
-        cold := time.tick_since(start)
+        res   := semantic_at(e, src, workspace = ".", path = path)
+        cold  := time.tick_since(start)
         delete(res.tokens)
         start = time.tick_now()
         res = semantic_at(e, src, workspace = ".", path = path)

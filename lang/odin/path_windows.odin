@@ -1,9 +1,9 @@
 #+build windows
 package odin
 
-import win32 "core:sys/windows"
 import "base:runtime"
 import "core:strings"
+import win32 "core:sys/windows"
 
 // Resolves `path` to the spelling Windows itself considers canonical: opening
 // the handle already follows symlinks and reparse points and dereferences an
@@ -13,7 +13,7 @@ import "core:strings"
 // FILE_FLAG_BACKUP_SEMANTICS is what lets a directory open, not just a file.
 path_real :: proc(path: string, allocator: runtime.Allocator) -> (string, bool) {
     wide_path := win32.utf8_to_wstring(path, context.temp_allocator)
-    handle := win32.CreateFileW(
+    handle    := win32.CreateFileW(
         wide_path,
         0,
         win32.FILE_SHARE_READ | win32.FILE_SHARE_WRITE | win32.FILE_SHARE_DELETE,
@@ -28,7 +28,7 @@ path_real :: proc(path: string, allocator: runtime.Allocator) -> (string, bool) 
     defer win32.CloseHandle(handle)
 
     buf := make([]u16, win32.MAX_PATH_WIDE, context.temp_allocator)
-    n := win32.GetFinalPathNameByHandleW(handle, win32.wstring(raw_data(buf)), win32.DWORD(len(buf)), 0)
+    n   := win32.GetFinalPathNameByHandleW(handle, win32.wstring(raw_data(buf)), win32.DWORD(len(buf)), 0)
     if n == 0 || int(n) >= len(buf) {
         return "", false
     }
@@ -55,8 +55,8 @@ path_real :: proc(path: string, allocator: runtime.Allocator) -> (string, bool) 
 @(private)
 path_short_form :: proc(path: string, allocator: runtime.Allocator) -> (string, bool) {
     wide_path := win32.utf8_to_wstring(path, context.temp_allocator)
-    buf := make([]u16, win32.MAX_PATH_WIDE, context.temp_allocator)
-    n := win32.GetShortPathNameW(wide_path, win32.wstring(raw_data(buf)), win32.DWORD(len(buf)))
+    buf       := make([]u16, win32.MAX_PATH_WIDE, context.temp_allocator)
+    n         := win32.GetShortPathNameW(wide_path, win32.wstring(raw_data(buf)), win32.DWORD(len(buf)))
     if n == 0 || int(n) >= len(buf) {
         return "", false
     }

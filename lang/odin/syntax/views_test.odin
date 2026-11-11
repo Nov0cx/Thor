@@ -6,8 +6,10 @@ import "core:testing"
 // Why an accessor result in the tree is wrong, or "" when none is. Every result must be a direct
 // child of the node it was asked of; with `accepted`, every required accessor must find its child.
 view_error :: proc(tree: ^Green_Tree, accepted: bool) -> string {
-    @(static) by_kind: [Syntax_Kind][]View_Accessor
-    @(static) grouped: bool
+    @(static)
+    by_kind: [Syntax_Kind][]View_Accessor
+    @(static)
+    grouped: bool
     if !grouped {
         start := 0
         for i in 1 ..= len(VIEW_ACCESSORS) {
@@ -31,8 +33,10 @@ view_error :: proc(tree: ^Green_Tree, accepted: bool) -> string {
             es, ee := element_range(e)
             parent: ^Syntax_Node
             switch v in e {
-            case Syntax_Node:  parent = v.parent
-            case Syntax_Token: parent = v.parent
+            case Syntax_Node:
+                parent = v.parent
+            case Syntax_Token:
+                parent = v.parent
             }
             if parent != n || es < ns || ee > ne {
                 return fmt.tprintf("%v@%d: %s gives %d..%d, not a child", n.green.kind, n.offset, acc.name, es, ee)
@@ -76,7 +80,7 @@ first_node :: proc(t: ^testing.T, src: string, kind: Syntax_Kind, loc := #caller
         }
         return nil
     }
-    root := new_clone(node_root(result.tree), context.temp_allocator)
+    root  := new_clone(node_root(result.tree), context.temp_allocator)
     found := find(root, kind)
     testing.expectf(t, found != nil, "no %v in %q", kind, src, loc = loc)
     return found, result.tree
@@ -96,7 +100,7 @@ text_of :: proc(e: $T, ok: bool) -> string {
 
 @(private = "file")
 iter_texts :: proc(it: Child_Iter) -> []string {
-    it := it
+    it  := it
     out := make([dynamic]string, context.temp_allocator)
     for c in child_iter_next(&it) {
         append(&out, node_text(c))
@@ -145,24 +149,24 @@ test_view_value_decl :: proc(t: ^testing.T) {
 
 @(test)
 test_view_proc :: proc(t: ^testing.T) {
-    src := "package p\nf :: proc \"c\" (#no_alias a: ^int, b := 2, $T: typeid) -> (r: int, ok: bool) { return }\n"
+    src     := "package p\nf :: proc \"c\" (#no_alias a: ^int, b := 2, $T: typeid) -> (r: int, ok: bool) { return }\n"
     n, tree := first_node(t, src, .Proc_Lit)
     if n == nil {
         return
     }
     defer tree_destroy(tree, context.temp_allocator)
-    lit, _ := as_proc_lit(n^)
+    lit, _      := as_proc_lit(n^)
     typ, typ_ok := proc_lit_type(&lit)
     testing.expect(t, typ_ok)
     testing.expect_value(t, text_of(proc_type_calling_convention(&typ)), "\"c\"")
     params, params_ok := proc_type_params(&typ)
     testing.expect(t, params_ok)
-    it := param_list_fields(&params)
+    it         := param_list_fields(&params)
     want_types := []string{"^int", "<missing>", "typeid"}
     want_names := []string{"a", "b", "$T"}
-    i := 0
+    i          := 0
     for f in child_iter_next(&it) {
-        field := Field(f)
+        field    := Field(f)
         names, _ := field_names(&field)
         if i < len(want_types) {
             testing.expect_value(t, text_of(field_type(&field)), want_types[i])
@@ -312,7 +316,7 @@ test_view_stmts :: proc(t: ^testing.T) {
         testing.expect_value(t, text_of(type_switch_stmt_vars(&s)), "v")
         testing.expect_value(t, text_of(type_switch_stmt_subject(&s)), "u")
         blk, _ := type_switch_stmt_body(&s)
-        cases := block_stmts(&blk)
+        cases  := block_stmts(&blk)
         testing.expect(t, cases.parent != nil)
         c, tree2 := first_node(t, fmt.tprintf(body, "switch x { case 1, 2: y(); z() }"), .Case_Clause)
         if c == nil {
@@ -333,15 +337,15 @@ test_view_types :: proc(t: ^testing.T) {
             return
         }
         defer tree_destroy(tree, context.temp_allocator)
-        s, _ := as_struct_type(n^)
+        s, _          := as_struct_type(n^)
         _, has_params := struct_type_params(&s)
         testing.expect(t, has_params)
         fields, _ := struct_type_fields(&s)
-        it := field_list_fields(&fields)
-        f1, _ := child_iter_next(&it)
-        field1 := Field(f1)
+        it        := field_list_fields(&fields)
+        f1, _     := child_iter_next(&it)
+        field1    := Field(f1)
         testing.expect_value(t, text_of(field_tag(&field1)), "`tag`")
-        f2, _ := child_iter_next(&it)
+        f2, _  := child_iter_next(&it)
         field2 := Field(f2)
         testing.expect_value(t, text_of(field_using(&field2)), "using")
         testing.expect_value(t, text_of(field_type(&field2)), "int")

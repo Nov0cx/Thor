@@ -10,7 +10,7 @@ test_undo_tree_keeps_branch :: proc(t: ^testing.T) {
 
     insert_text(&state, "aa")
     insert_text(&state, "bb")
-    bb := history_current(&state)
+    bb    := history_current(&state)
     bb_id := content_id(&state)
     undo(&state)
     insert_text(&state, "cc")
@@ -138,8 +138,7 @@ test_undo_trim_drops_branch_first :: proc(t: ^testing.T) {
     }
     testing.expect_value(t, text(&state), "")
 
-    for undo_later(&state) {
-    }
+    for undo_later(&state) {}
     insert_text(&state, "ee")
     testing.expect_value(t, state.history.count, MAX_UNDO_ENTRIES)
     for can_undo(&state) {

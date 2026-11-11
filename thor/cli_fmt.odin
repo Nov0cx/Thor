@@ -15,13 +15,12 @@ import "../lang/odin/format"
 
 FMT_CONFIG_DIR :: ".thor"
 
-FMT_EXIT_OK :: 0
-FMT_EXIT_DIFF :: 1 // `--check` found a file that needs formatting
+FMT_EXIT_OK    :: 0
+FMT_EXIT_DIFF  :: 1 // `--check` found a file that needs formatting
 FMT_EXIT_ERROR :: 2 // an unreadable or unwritable file, or a syntax error
 FMT_EXIT_USAGE :: 64
 
-FMT_USAGE ::
-`Usage: thor fmt [option] path...
+FMT_USAGE :: `Usage: thor fmt [option] path...
        thor fmt [option] -
 
   path             An Odin file, or a folder. A folder takes every .odin file
@@ -127,9 +126,9 @@ fmt_stdin :: proc(parsed: Fmt_Args) -> int {
         return FMT_EXIT_ERROR
     }
     defer delete(data)
-    cwd, _ := os.get_working_directory(context.temp_allocator)
-    config := fmt_config_for(cwd)
-    source := string(data)
+    cwd, _  := os.get_working_directory(context.temp_allocator)
+    config  := fmt_config_for(cwd)
+    source  := string(data)
     out, ok := fmt_source(source, config)
     if !ok {
         fmt.eprintln("thor fmt: <stdin>: syntax error, left as it is")
@@ -152,7 +151,7 @@ fmt_stdin :: proc(parsed: Fmt_Args) -> int {
 @(private = "file")
 fmt_paths :: proc(parsed: Fmt_Args) -> int {
     files := make([dynamic]string)
-    code := FMT_EXIT_OK
+    code  := FMT_EXIT_OK
     for arg in parsed.paths {
         if !fmt_collect(arg, &files) {
             fmt.eprintfln("thor fmt: %s: no such file or folder", arg)
@@ -175,13 +174,13 @@ fmt_paths :: proc(parsed: Fmt_Args) -> int {
         }
         defer delete(data)
 
-        workspace := fmt_workspace(path)
+        workspace     := fmt_workspace(path)
         config, known := configs[workspace]
         if !known {
             config = fmt_config_for(workspace)
             configs[strings.clone(workspace, context.allocator)] = config
         }
-        source := string(data)
+        source  := string(data)
         out, ok := fmt_source(source, config)
         if !ok {
             fmt.eprintfln("thor fmt: %s: syntax error, left as it is", path)
@@ -272,7 +271,7 @@ fmt_workspace :: proc(path: string) -> string {
     if aerr != nil {
         return ""
     }
-    dir := filepath.dir(absolute)
+    dir     := filepath.dir(absolute)
     current := dir
     for {
         if os.is_dir(filepath.join({current, FMT_CONFIG_DIR}, context.temp_allocator) or_else "") {

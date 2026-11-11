@@ -64,7 +64,7 @@ target_proc :: proc(rc: ^Request_Context) -> (target: Ref_Target, lit: odinsynta
 // The parameter list of a procedure literal.
 @(private = "file")
 lit_params :: proc(lit: ^odinsyntax.Syntax_Node) -> (odinsyntax.Param_List, bool) {
-    pl, _ := odinsyntax.as_proc_lit(lit^)
+    pl, _        := odinsyntax.as_proc_lit(lit^)
     pt, has_type := odinsyntax.proc_lit_type(&pl)
     if !has_type {
         return {}, false
@@ -92,7 +92,7 @@ change_signature_offer :: proc(rc: ^Request_Context, res: ^lang.Result) {
     if _, flat_ok := flatten_params(list); !flat_ok {
         return
     }
-    sb := strings.builder_make(context.temp_allocator)
+    sb   := strings.builder_make(context.temp_allocator)
     toks := make([dynamic]Label_Token, context.temp_allocator)
     write_label_tokens(&sb, odinsyntax.Syntax_Node(list), &toks)
     text := strings.to_string(sb)
@@ -103,11 +103,11 @@ change_signature_offer :: proc(rc: ^Request_Context, res: ^lang.Result) {
 // One entry per parameter name of `list`. False when a parameter has no name.
 @(private = "file")
 flatten_params :: proc(list: odinsyntax.Param_List) -> ([]Sig_Param, bool) {
-    out := make([dynamic]Sig_Param, context.temp_allocator)
+    out  := make([dynamic]Sig_Param, context.temp_allocator)
     list := list
-    it := odinsyntax.param_list_fields(&list)
+    it   := odinsyntax.param_list_fields(&list)
     for fnode in odinsyntax.child_iter_next(&it) {
-        field, _ := odinsyntax.as_field(fnode)
+        field, _         := odinsyntax.as_field(fnode)
         names, has_names := odinsyntax.field_names(&field)
         if !has_names {
             return nil, false
@@ -174,7 +174,7 @@ first_of_kind :: proc(n: odinsyntax.Syntax_Node, kind: odinsyntax.Syntax_Kind) -
         found.parent = nil
         return found, true
     }
-    n := n
+    n  := n
     it := odinsyntax.child_iter(&n, {kinds = ALL_NODES})
     for c in odinsyntax.child_iter_next(&it) {
         if found, ok := first_of_kind(c, kind); ok {
@@ -240,18 +240,18 @@ change_signature_edits :: proc(rc: ^Request_Context, text: string, allocator: me
         }
     }
     ls, le := odinsyntax.node_range(odinsyntax.Syntax_Node(list))
-    sc := Sig_Change {
-        rc          = rc,
-        name        = target.name,
-        old         = old,
-        new         = new,
-        from_old    = from_old,
+    sc     := Sig_Change{
+        rc = rc,
+        name = target.name,
+        old = old,
+        new = new,
+        from_old = from_old,
         decl_offset = target.decl,
-        list_start  = int(ls) + 1,
-        list_end    = int(le) - 1,
-        list_text   = strings.trim_space(text),
-        edits       = make([dynamic]File_Edit, allocator),
-        allocator   = allocator,
+        list_start = int(ls) + 1,
+        list_end = int(le) - 1,
+        list_text = strings.trim_space(text),
+        edits = make([dynamic]File_Edit, allocator),
+        allocator = allocator,
     }
     if !visit_references(rc, target, true, visit_sig_file, &sc) {
         if sc.reason != "" {
@@ -278,10 +278,10 @@ hit_place :: proc(f: Ref_File, offset: int) -> string {
 // Adds the edits of one file: the declaration's parameter list and each call's arguments.
 @(private = "file")
 visit_sig_file :: proc(data: rawptr, f: Ref_File) -> bool {
-    sc := cast(^Sig_Change)data
+    sc        := cast(^Sig_Change)data
     in_buffer := odinsema.path_key(f.path) == sc.rc.live.key
-    source := ""
-    root := odinsyntax.node_root(f.parsed.tree)
+    source    := ""
+    root      := odinsyntax.node_root(f.parsed.tree)
     for offset in f.hits {
         tok, found := odinsyntax.node_token_at(root, u32(offset), context.temp_allocator)
         if !found || tok.parent == nil {
@@ -315,7 +315,7 @@ visit_sig_file :: proc(data: rawptr, f: Ref_File) -> bool {
 callee_call_of :: proc(ident: ^odinsyntax.Syntax_Node) -> (odinsyntax.Syntax_Node, bool) {
     callee := ident
     if p := ident.parent; p != nil && p.green.kind == .Selector_Expr {
-        sel, _ := odinsyntax.as_selector_expr(p^)
+        sel, _           := odinsyntax.as_selector_expr(p^)
         field, has_field := odinsyntax.selector_expr_field(&sel)
         if !has_field || field.offset != ident.offset {
             return {}, false
@@ -326,7 +326,7 @@ callee_call_of :: proc(ident: ^odinsyntax.Syntax_Node) -> (odinsyntax.Syntax_Nod
     if parent == nil || parent.green.kind != .Call_Expr {
         return {}, false
     }
-    ce, _ := odinsyntax.as_call_expr(parent^)
+    ce, _         := odinsyntax.as_call_expr(parent^)
     c, has_callee := odinsyntax.call_expr_callee(&ce)
     if !has_callee || c.offset != callee.offset || c.green != callee.green {
         return {}, false
@@ -340,13 +340,10 @@ append_sig_edit :: proc(sc: ^Sig_Change, f: Ref_File, source: ^string, start, en
     if source^ == "" {
         source^ = strings.clone(f.source, sc.allocator)
     }
-    append(&sc.edits, File_Edit {
-        path = strings.clone(f.path, sc.allocator),
-        source = source^,
-        start = start,
-        end = end,
-        text = strings.clone(text, sc.allocator),
-    })
+    append(
+        &sc.edits,
+        File_Edit{path = strings.clone(f.path, sc.allocator), source = source^, start = start, end = end, text = strings.clone(text, sc.allocator)},
+    )
 }
 
 // One argument of the rewritten call.
@@ -361,8 +358,8 @@ Sig_Arg :: struct {
 // Rewrites the arguments of `call` to the new parameter order.
 @(private = "file")
 rewrite_call :: proc(sc: ^Sig_Change, f: Ref_File, source: ^string, call: odinsyntax.Syntax_Node) -> bool {
-    call := call
-    ce, _ := odinsyntax.as_call_expr(call)
+    call           := call
+    ce, _          := odinsyntax.as_call_expr(call)
     args, has_args := odinsyntax.call_expr_args(&ce)
     if !has_args {
         return true
@@ -372,21 +369,21 @@ rewrite_call :: proc(sc: ^Sig_Change, f: Ref_File, source: ^string, call: odinsy
         sc.reason = fmt.aprintf("the call at %s is not closed", hit_place(f, int(call.offset)), allocator = sc.allocator)
         return false
     }
-    old := sc.old
+    old   := sc.old
     fixed := len(old)
     if fixed > 0 && old[fixed - 1].variadic {
         fixed -= 1
     }
     bound := make([]string, len(old), context.temp_allocator)
     named := make([]bool, len(old), context.temp_allocator)
-    rest := make([dynamic]string, context.temp_allocator)
-    pos := 0
-    it := odinsyntax.arg_list_args(&args)
+    rest  := make([dynamic]string, context.temp_allocator)
+    pos   := 0
+    it    := odinsyntax.arg_list_args(&args)
     for a in odinsyntax.child_iter_next(&it) {
         if fv, is_named := odinsyntax.as_field_value(a); is_named {
-            n, has_name := odinsyntax.field_value_name(&fv)
+            n, has_name  := odinsyntax.field_value_name(&fv)
             v, has_value := odinsyntax.field_value_value(&fv)
-            idx := param_index(old, odinsyntax.node_text(n))
+            idx          := param_index(old, odinsyntax.node_text(n))
             if !has_name || !has_value || idx < 0 {
                 sc.reason = fmt.aprintf("the call at %s names an unknown parameter", hit_place(f, int(a.offset)), allocator = sc.allocator)
                 return false
@@ -411,7 +408,7 @@ rewrite_call :: proc(sc: ^Sig_Change, f: Ref_File, source: ^string, call: odinsy
         }
     }
 
-    out := make([dynamic]Sig_Arg, context.temp_allocator)
+    out        := make([dynamic]Sig_Arg, context.temp_allocator)
     named_mode := false
     for p, i in sc.new {
         oi := sc.from_old[i]
@@ -483,8 +480,12 @@ zero_text :: proc(type_text: string) -> string {
     case "int", "uint", "rune", "byte":
         return "0"
     }
-    if strings.has_prefix(t, "^") || strings.has_prefix(t, "[]") || strings.has_prefix(t, "[^]") ||
-       strings.has_prefix(t, "[dynamic]") || strings.has_prefix(t, "map[") || strings.has_prefix(t, "proc") {
+    if strings.has_prefix(t, "^") ||
+        strings.has_prefix(t, "[]") ||
+        strings.has_prefix(t, "[^]") ||
+        strings.has_prefix(t, "[dynamic]") ||
+        strings.has_prefix(t, "map[") ||
+        strings.has_prefix(t, "proc") {
         return "nil"
     }
     if is_number_type(t) {

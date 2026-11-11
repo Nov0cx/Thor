@@ -5,7 +5,7 @@ import "core:testing"
 
 @(test)
 test_whats_new_section_reads_one_version :: proc(t: ^testing.T) {
-    text := "# 2026.12.0\n\n- new\n\n# 2026.11.1\r\n\r\n- middle\r\n\r\n# 2026.11.0\n\n- old\n"
+    text     := "# 2026.12.0\n\n- new\n\n# 2026.11.1\r\n\r\n- middle\r\n\r\n# 2026.11.0\n\n- old\n"
     body, ok := whats_new_section(text, "2026.11.1")
     testing.expect(t, ok)
     testing.expect_value(t, body, "- middle")

@@ -25,10 +25,10 @@ Conflict :: struct {
 // A declaration under a `when` that is false for the target stays in `names` for navigation, is in
 // `inactive` and never conflicts. One under a `when` the evaluator cannot decide is active but never conflicts.
 Package_Scope :: struct {
-    name:      string,                      // owned; the package name of the first file in the build
-    files:     [dynamic]int,                // owned; the files in the build
+    name:      string,                       // owned; the package name of the first file in the build
+    files:     [dynamic]int,                 // owned; the files in the build
     names:     map[string][dynamic]Item_Ref, // owned, keys included
-    inactive:  map[Item_Ref]struct{},        // owned; the items under a false `when`
+    inactive:  map[Item_Ref]struct {},       // owned; the items under a false `when`
     conflicts: [dynamic]Conflict,            // owned
     allocator: mem.Allocator,
 }
@@ -39,7 +39,7 @@ package_scope :: proc(files: []Package_File, target: Target, allocator := contex
     scope.allocator = allocator
     scope.files = make([dynamic]int, allocator) or_return
     scope.names = make(map[string][dynamic]Item_Ref, allocator)
-    scope.inactive = make(map[Item_Ref]struct{}, allocator)
+    scope.inactive = make(map[Item_Ref]struct {}, allocator)
     scope.conflicts = make([dynamic]Conflict, allocator) or_return
     defer if err != nil {
         package_scope_destroy(&scope)
@@ -59,7 +59,7 @@ package_scope :: proc(files: []Package_File, target: Target, allocator := contex
             }
             refs, found := &scope.names[item.name]
             if !found {
-                key := strings.clone(item.name, allocator) or_return
+                key        := strings.clone(item.name, allocator) or_return
                 list, lerr := make([dynamic]Item_Ref, scope.allocator)
                 if lerr != nil {
                     delete(key, allocator)

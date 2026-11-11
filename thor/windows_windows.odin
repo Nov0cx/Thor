@@ -14,15 +14,15 @@ Window_Handle :: win32.HWND
 // raylib's), so the handful of window calls used here are resolved at runtime —
 // the same trick as thor/dialogs_windows.odin and ui/keymap_windows.odin.
 @(private = "file")
-Is_Window_Proc :: #type proc "system" (hwnd: win32.HWND) -> win32.BOOL
+Is_Window_Proc :: #type proc "system"(hwnd: win32.HWND) -> win32.BOOL
 @(private = "file")
-Is_Iconic_Proc :: #type proc "system" (hwnd: win32.HWND) -> win32.BOOL
+Is_Iconic_Proc :: #type proc "system"(hwnd: win32.HWND) -> win32.BOOL
 @(private = "file")
-Show_Window_Proc :: #type proc "system" (hwnd: win32.HWND, cmd: win32.c_int) -> win32.BOOL
+Show_Window_Proc :: #type proc "system"(hwnd: win32.HWND, cmd: win32.c_int) -> win32.BOOL
 @(private = "file")
-Set_Foreground_Proc :: #type proc "system" (hwnd: win32.HWND) -> win32.BOOL
+Set_Foreground_Proc :: #type proc "system"(hwnd: win32.HWND) -> win32.BOOL
 @(private = "file")
-Window_Pid_Proc :: #type proc "system" (hwnd: win32.HWND, pid: ^win32.DWORD) -> win32.DWORD
+Window_Pid_Proc :: #type proc "system"(hwnd: win32.HWND, pid: ^win32.DWORD) -> win32.DWORD
 
 @(private = "file")
 User32 :: struct {
@@ -61,11 +61,11 @@ thor_load_user32 :: proc() -> ^User32 {
         log.warn("Could not load user32.dll; existing windows cannot be raised")
         return &user32
     }
-    user32.is_window = cast(Is_Window_Proc) GetProcAddress(lib, "IsWindow")
-    user32.is_iconic = cast(Is_Iconic_Proc) GetProcAddress(lib, "IsIconic")
-    user32.show_window = cast(Show_Window_Proc) GetProcAddress(lib, "ShowWindow")
-    user32.set_foreground = cast(Set_Foreground_Proc) GetProcAddress(lib, "SetForegroundWindow")
-    user32.window_pid = cast(Window_Pid_Proc) GetProcAddress(lib, "GetWindowThreadProcessId")
+    user32.is_window = cast(Is_Window_Proc)GetProcAddress(lib, "IsWindow")
+    user32.is_iconic = cast(Is_Iconic_Proc)GetProcAddress(lib, "IsIconic")
+    user32.show_window = cast(Show_Window_Proc)GetProcAddress(lib, "ShowWindow")
+    user32.set_foreground = cast(Set_Foreground_Proc)GetProcAddress(lib, "SetForegroundWindow")
+    user32.window_pid = cast(Window_Pid_Proc)GetProcAddress(lib, "GetWindowThreadProcessId")
     return &user32
 }
 
@@ -74,7 +74,7 @@ SW_RESTORE :: 9
 
 // This window's handle, widened for the record.
 thor_native_window :: proc() -> i64 {
-    return cast(i64) cast(uintptr) rl.GetWindowHandle()
+    return cast(i64)cast(uintptr)rl.GetWindowHandle()
 }
 
 // A record is live while its handle names a window the recorded process still
@@ -85,11 +85,11 @@ thor_window_live :: proc(hwnd: i64, pid: int) -> (Window_Handle, Window_State) {
         return nil, .Unknown
     }
 
-    handle := cast(win32.HWND) cast(uintptr) cast(uint) hwnd
+    handle := cast(win32.HWND)cast(uintptr)cast(uint)hwnd
     if hwnd != 0 && u32.is_window(handle) {
         owner: win32.DWORD
         u32.window_pid(handle, &owner)
-        if cast(int) owner == pid {
+        if cast(int)owner == pid {
             return handle, .Live
         }
     }

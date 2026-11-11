@@ -27,7 +27,7 @@ probe_handles :: proc(data: rawptr, ext: string) -> bool {
 
 @(private = "file")
 probe_resolve :: proc(data: rawptr, req: ^Request, res: ^Result) {
-    p := cast(^Probe) data
+    p := cast(^Probe)data
     sync.atomic_add(&p.started, 1)
     for !sync.atomic_load(&p.release) {
         time.sleep(time.Millisecond)
@@ -69,7 +69,7 @@ push_handles :: proc(data: rawptr, ext: string) -> bool {
 
 @(private = "file")
 push_supports :: proc(data: rawptr, ext: string, kind: Request_Kind) -> bool {
-    p := cast(^Push_Probe) data
+    p := cast(^Push_Probe)data
     return kind not_in p.unsupported
 }
 
@@ -80,7 +80,7 @@ push_resolve :: proc(data: rawptr, req: ^Request, res: ^Result) {
 
 @(private = "file")
 push_poll :: proc(data: rawptr, res: ^Result) -> bool {
-    p := cast(^Push_Probe) data
+    p := cast(^Push_Probe)data
     if len(p.queued) == 0 {
         return false
     }
@@ -97,34 +97,20 @@ push_poll :: proc(data: rawptr, res: ^Result) -> bool {
     res.report.items = make([dynamic]Diagnostic, p.allocator)
     append(
         &res.report.items,
-        Diagnostic{
-            path = strings.clone("/w/a.push", p.allocator),
-            line = 1,
-            col = 1,
-            severity = .Error,
-            message = strings.clone("pushed", p.allocator),
-        },
+        Diagnostic{path = strings.clone("/w/a.push", p.allocator), line = 1, col = 1, severity = .Error, message = strings.clone("pushed", p.allocator)},
     )
     return true
 }
 
 @(private = "file")
 push_notify :: proc(data: rawptr, event: Doc_Event, path, ext, source: string, revision: u64) {
-    p := cast(^Push_Probe) data
+    p := cast(^Push_Probe)data
     append(&p.events, event)
 }
 
 @(private = "file")
 push_backend :: proc(p: ^Push_Probe) -> Backend {
-    return Backend {
-        data = p,
-        name = "push",
-        handles = push_handles,
-        resolve = push_resolve,
-        supports = push_supports,
-        poll = push_poll,
-        notify = push_notify,
-    }
+    return Backend{data = p, name = "push", handles = push_handles, resolve = push_resolve, supports = push_supports, poll = push_poll, notify = push_notify}
 }
 
 // Spins (bounded, so a wedged worker fails the test instead of hanging it) until
@@ -142,7 +128,7 @@ wait_for :: proc(counter: ^int, want: int) -> bool {
 
 @(private = "file")
 count_results :: proc(user: rawptr, res: ^Result) {
-    n := cast(^int) user
+    n := cast(^int)user
     n^ += 1
 }
 
@@ -278,7 +264,7 @@ test_cancel_kind_leaves_others :: proc(t: ^testing.T) {
     manager_register(&m, probe_backend(&p))
 
     hover := manager_request(&m, .Hover, "a.probe", ".probe", "", 0, 0, "")
-    defn := manager_request(&m, .Definition, "a.probe", ".probe", "", 0, 0, "")
+    defn  := manager_request(&m, .Definition, "a.probe", ".probe", "", 0, 0, "")
     testing.expect(t, wait_for(&p.started, 2), "both workers never started")
 
     // Cancelling by kind must not touch a request of a different kind.
@@ -451,7 +437,7 @@ test_debounce_cancelled_never_dispatches :: proc(t: ^testing.T) {
     // An explicit request supersedes a queued one of the same kind: only the
     // explicit one runs, so the debounced answer can't land on top of it.
     queued := manager_request_debounced(&m, .Completion, "a.probe", ".probe", "", 0, 0, "")
-    now := manager_request_latest(&m, .Completion, "a.probe", ".probe", "", 0, 0, "")
+    now    := manager_request_latest(&m, .Completion, "a.probe", ".probe", "", 0, 0, "")
     testing.expect(t, queued != now, "expected a fresh id for the explicit request")
     testing.expectf(t, manager_flush_debounced(&m, force = true) == 0, "the queued request should have been dropped")
 
@@ -482,12 +468,7 @@ test_exclusive_kind_waits_in_its_slot :: proc(t: ^testing.T) {
     manager_request_debounced(&m, .Diagnostics, "a.probe", ".probe", "", 0, 0, "")
     testing.expectf(t, manager_flush_debounced(&m, force = true) == 0, "the queued check dispatched under a running one")
     testing.expect(t, manager_debounce_pending(&m, .Diagnostics), "the queued check should still hold its slot")
-    testing.expectf(
-        t,
-        sync.atomic_load(&p.started) == 1,
-        "the queued check took a worker (%d started)",
-        sync.atomic_load(&p.started),
-    )
+    testing.expectf(t, sync.atomic_load(&p.started) == 1, "the queued check took a worker (%d started)", sync.atomic_load(&p.started))
 
     // Once the run is reaped the gate opens and the held slot dispatches.
     sync.atomic_store(&p.release, true)
@@ -496,12 +477,7 @@ test_exclusive_kind_waits_in_its_slot :: proc(t: ^testing.T) {
     delivered += drain_manager(&m)
 
     testing.expect(t, !manager_debounce_pending(&m, .Diagnostics), "the slot should empty once the run is reaped")
-    testing.expectf(
-        t,
-        sync.atomic_load(&p.started) == 2,
-        "the queued check should run after the first (%d started)",
-        sync.atomic_load(&p.started),
-    )
+    testing.expectf(t, sync.atomic_load(&p.started) == 2, "the queued check should run after the first (%d started)", sync.atomic_load(&p.started))
     testing.expectf(t, delivered == 1, "expected only the queued check's result (got %d)", delivered)
 }
 
@@ -520,11 +496,7 @@ test_disabled_manager_refuses_requests :: proc(t: ^testing.T) {
     manager_set_enabled(&m, false)
     testing.expect(t, !manager_supports(&m, ".probe"), "a disabled manager must claim no extension")
     testing.expectf(t, manager_request(&m, .Hover, "a.probe", ".probe", "", 0, 0, "") == 0, "a disabled manager dispatched")
-    testing.expectf(
-        t,
-        manager_request_debounced(&m, .Completion, "a.probe", ".probe", "", 0, 0, "") == 0,
-        "a disabled manager queued a debounced request",
-    )
+    testing.expectf(t, manager_request_debounced(&m, .Completion, "a.probe", ".probe", "", 0, 0, "") == 0, "a disabled manager queued a debounced request")
     testing.expect(t, !manager_debounce_pending(&m, .Completion), "a refused request must fill no slot")
 
     manager_set_enabled(&m, true)
@@ -669,13 +641,13 @@ test_pushed_result_of_gated_kind_is_dropped :: proc(t: ^testing.T) {
 
 @(private = "file")
 Apply_Answer :: struct {
-    calls: int, // on_applied invocations seen
+    calls: int,  // on_applied invocations seen
     last:  bool, // its most recent `applied` argument
 }
 
 @(private = "file")
 record_apply_answer :: proc(token: rawptr, applied: bool) {
-    a := cast(^Apply_Answer) token
+    a := cast(^Apply_Answer)token
     a.calls += 1
     a.last = applied
 }
@@ -733,11 +705,7 @@ test_supports_gates_kind_not_extension :: proc(t: ^testing.T) {
     testing.expect(t, manager_allows(&m, ".push", .Definition), "a supported kind should be allowed")
 
     testing.expectf(t, manager_request(&m, .Rename, "a.push", ".push", "", 0, 0, "", "x") == 0, "the unsupported kind dispatched")
-    testing.expectf(
-        t,
-        manager_request_debounced(&m, .Rename, "a.push", ".push", "", 0, 0, "") == 0,
-        "the unsupported kind filled a debounce slot",
-    )
+    testing.expectf(t, manager_request_debounced(&m, .Rename, "a.push", ".push", "", 0, 0, "") == 0, "the unsupported kind filled a debounce slot")
     testing.expect(t, !manager_debounce_pending(&m, .Rename), "a refused request must fill no slot")
 
     testing.expect(t, manager_request(&m, .Definition, "a.push", ".push", "", 0, 0, "") != 0, "a supported kind was refused")
@@ -870,7 +838,7 @@ Undispatched_Probe :: struct {
 
 @(private = "file")
 record_undispatched :: proc(user: rawptr, res: ^Result) {
-    g := cast(^Undispatched_Probe) user
+    g := cast(^Undispatched_Probe)user
     g.seen += 1
     g.id = res.id
     g.revision = res.revision
@@ -897,7 +865,7 @@ chain_handles :: proc(data: rawptr, ext: string) -> bool {
 
 @(private = "file")
 chain_resolve :: proc(data: rawptr, req: ^Request, res: ^Result) {
-    p := cast(^Chain_Probe) data
+    p := cast(^Chain_Probe)data
     p.resolved += 1
     if !p.answers {
         return
@@ -912,7 +880,7 @@ chain_resolve :: proc(data: rawptr, req: ^Request, res: ^Result) {
 
 @(private = "file")
 chain_notify :: proc(data: rawptr, event: Doc_Event, path, ext, source: string, revision: u64) {
-    (cast(^Chain_Probe) data).events += 1
+    (cast(^Chain_Probe)data).events += 1
 }
 
 @(private = "file")
@@ -932,7 +900,7 @@ Chain_Seen :: struct {
 
 @(private = "file")
 record_chain :: proc(user: rawptr, res: ^Result) {
-    s := cast(^Chain_Seen) user
+    s := cast(^Chain_Seen)user
     s.seen += 1
     s.ok = res.ok
     s.hover = strings.clone(res.hover.text)
@@ -948,8 +916,12 @@ record_chain :: proc(user: rawptr, res: ^Result) {
 @(private = "file")
 chain_seen_destroy :: proc(s: ^Chain_Seen) {
     delete(s.hover)
-    for l in s.labels {delete(l)}
-    for o in s.origins {delete(o)}
+    for l in s.labels {
+        delete(l)
+    }
+    for o in s.origins {
+        delete(o)
+    }
     delete(s.labels)
     delete(s.origins)
     delete(s.highlights)
@@ -974,7 +946,7 @@ test_chain_falls_through_a_backend_that_finds_nothing :: proc(t: ^testing.T) {
     m: Manager
     manager_init(&m)
     defer manager_destroy(&m)
-    first := Chain_Probe{id = "first"}
+    first  := Chain_Probe{id = "first"}
     second := Chain_Probe{id = "second", answers = true, label = "from-second"}
     manager_register(&m, chain_backend(&first))
     manager_register(&m, chain_backend(&second))
@@ -991,7 +963,7 @@ test_chain_first_answer_stops_at_the_first_backend_that_answers :: proc(t: ^test
     m: Manager
     manager_init(&m)
     defer manager_destroy(&m)
-    first := Chain_Probe{id = "first", answers = true, label = "one"}
+    first  := Chain_Probe{id = "first", answers = true, label = "one"}
     second := Chain_Probe{id = "second", answers = true, label = "two"}
     manager_register(&m, chain_backend(&first))
     manager_register(&m, chain_backend(&second))
@@ -1007,7 +979,7 @@ test_chain_merges_completions_and_names_each_origin :: proc(t: ^testing.T) {
     m: Manager
     manager_init(&m)
     defer manager_destroy(&m)
-    first := Chain_Probe{id = "first", answers = true, label = "alpha"}
+    first  := Chain_Probe{id = "first", answers = true, label = "alpha"}
     second := Chain_Probe{id = "second", answers = true, label = "beta"}
     manager_register(&m, chain_backend(&first))
     manager_register(&m, chain_backend(&second))
@@ -1028,7 +1000,7 @@ test_chain_merge_sorts_and_dedups_interleaved_highlights :: proc(t: ^testing.T) 
     m: Manager
     manager_init(&m)
     defer manager_destroy(&m)
-    first := Chain_Probe{id = "first", answers = true, label = "a", highlights = {1, 5, 9}}
+    first  := Chain_Probe{id = "first", answers = true, label = "a", highlights = {1, 5, 9}}
     second := Chain_Probe{id = "second", answers = true, label = "b", highlights = {2, 5, 7}}
     manager_register(&m, chain_backend(&first))
     manager_register(&m, chain_backend(&second))
@@ -1049,7 +1021,7 @@ test_chain_request_backend_routes_to_its_producer :: proc(t: ^testing.T) {
     m: Manager
     manager_init(&m)
     defer manager_destroy(&m)
-    first := Chain_Probe{id = "first", answers = true, label = "one"}
+    first  := Chain_Probe{id = "first", answers = true, label = "one"}
     second := Chain_Probe{id = "second", answers = true, label = "two"}
     manager_register(&m, chain_backend(&first))
     manager_register(&m, chain_backend(&second))
@@ -1069,7 +1041,7 @@ test_chain_notify_reaches_every_claimant :: proc(t: ^testing.T) {
     m: Manager
     manager_init(&m)
     defer manager_destroy(&m)
-    first := Chain_Probe{id = "first"}
+    first  := Chain_Probe{id = "first"}
     second := Chain_Probe{id = "second"}
     manager_register(&m, chain_backend(&first))
     manager_register(&m, chain_backend(&second))

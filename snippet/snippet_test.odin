@@ -68,11 +68,7 @@ test_nested_stop_depth :: proc(t: ^testing.T) {
 
 @(test)
 test_file_and_clipboard_variables :: proc(t: ^testing.T) {
-    vars := Vars {
-        filename  = "src/main.odin",
-        workspace = "work/thor",
-        clipboard = "pasted",
-    }
+    vars := Vars{filename = "src/main.odin", workspace = "work/thor", clipboard = "pasted"}
     snip := parse("$TM_FILEPATH|$TM_FILENAME|$TM_FILENAME_BASE|$CLIPBOARD|$WORKSPACE_NAME", vars)
     defer destroy(&snip)
     testing.expect_value(t, snip.text, "src/main.odin|main.odin|main|pasted|thor")
@@ -80,30 +76,15 @@ test_file_and_clipboard_variables :: proc(t: ^testing.T) {
 
 @(test)
 test_date_variables :: proc(t: ^testing.T) {
-    vars := Vars {
-        has_time   = true,
-        year       = 2026,
-        month      = 3,
-        day        = 9,
-        weekday    = 1,
-        hour       = 7,
-        minute     = 5,
-        second     = 2,
-        unix       = 1773039902,
-        utc_offset = -330,
-    }
+    vars := Vars{has_time = true, year = 2026, month = 3, day = 9, weekday = 1, hour = 7, minute = 5, second = 2, unix = 1773039902, utc_offset = -330}
     snip := parse(
         "$CURRENT_YEAR-$CURRENT_MONTH-$CURRENT_DATE $CURRENT_HOUR:$CURRENT_MINUTE:$CURRENT_SECOND " +
-        "$CURRENT_YEAR_SHORT $CURRENT_MONTH_NAME $CURRENT_MONTH_NAME_SHORT $CURRENT_DAY_NAME " +
-        "$CURRENT_DAY_NAME_SHORT $CURRENT_SECONDS_UNIX $CURRENT_TIMEZONE_OFFSET",
+            "$CURRENT_YEAR_SHORT $CURRENT_MONTH_NAME $CURRENT_MONTH_NAME_SHORT $CURRENT_DAY_NAME " +
+            "$CURRENT_DAY_NAME_SHORT $CURRENT_SECONDS_UNIX $CURRENT_TIMEZONE_OFFSET",
         vars,
     )
     defer destroy(&snip)
-    testing.expect_value(
-        t,
-        snip.text,
-        "2026-03-09 07:05:02 26 March Mar Monday Mon 1773039902 -05:30",
-    )
+    testing.expect_value(t, snip.text, "2026-03-09 07:05:02 26 March Mar Monday Mon 1773039902 -05:30")
 
     // With no clock the date variables take their default.
     none := parse("${CURRENT_YEAR:then}")

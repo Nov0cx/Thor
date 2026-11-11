@@ -46,19 +46,19 @@ Canvas_Rect :: struct {
 
 // Creates the panel `id` (or updates its title) docked at `dock` ("right" or
 // "bottom"). The host owns the panel; the plugin only names it.
-Panel_Proc :: #type proc(host: rawptr, id, title, dock: string)
+Panel_Proc        :: #type proc(host: rawptr, id, title, dock: string)
 // Replaces the panel's contents with `nodes`, valid only for the call.
 Panel_Render_Proc :: #type proc(host: rawptr, id: string, nodes: []View_Node)
 // Reveals and focuses the panel.
-Panel_Show_Proc :: #type proc(host: rawptr, id: string)
+Panel_Show_Proc   :: #type proc(host: rawptr, id: string)
 // Hides the panel and drops its nodes.
-Panel_Close_Proc :: #type proc(host: rawptr, id: string)
+Panel_Close_Proc  :: #type proc(host: rawptr, id: string)
 
 // Immediate-mode drawing inside the canvas being rendered. Coordinates are
 // already in screen space; `role` is a theme role.
-Draw_Rect_Proc :: #type proc(host: rawptr, x, y, w, h: f32, role: string, fill: bool)
-Draw_Text_Proc :: #type proc(host: rawptr, x, y: f32, text, role: string)
-Draw_Line_Proc :: #type proc(host: rawptr, x0, y0, x1, y1, thickness: f32, role: string)
+Draw_Rect_Proc    :: #type proc(host: rawptr, x, y, w, h: f32, role: string, fill: bool)
+Draw_Text_Proc    :: #type proc(host: rawptr, x, y: f32, text, role: string)
+Draw_Line_Proc    :: #type proc(host: rawptr, x0, y0, x1, y1, thickness: f32, role: string)
 // Size `text` takes in the UI font.
 Measure_Text_Proc :: #type proc(host: rawptr, text: string) -> (w, h: f32)
 
@@ -66,10 +66,10 @@ Measure_Text_Proc :: #type proc(host: rawptr, text: string) -> (w, h: f32)
 // panel and returns an object with :render{...}, :show() and :close(). Needs the
 // `ui` permission.
 @(private)
-api_panel :: proc "c" (L: ^lua.State) -> c.int {
+api_panel :: proc "c"(L: ^lua.State) -> c.int {
     context = runtime.default_context()
     m, index := caller(L)
-    p := caller_plugin(m, index)
+    p        := caller_plugin(m, index)
     if m == nil || p == nil || !lua.istable(L, 1) {
         return 0
     }
@@ -112,26 +112,20 @@ api_panel :: proc "c" (L: ^lua.State) -> c.int {
 // panel:render(nodes): replaces the panel's contents. Callbacks the previous
 // render held are released here, so a plugin may re-render every frame.
 @(private)
-api_panel_render :: proc "c" (L: ^lua.State) -> c.int {
+api_panel_render :: proc "c"(L: ^lua.State) -> c.int {
     context = runtime.default_context()
     m, index := caller(L)
-    id, ok := panel_target(m, index, L)
+    id, ok   := panel_target(m, index, L)
     if !ok || !lua.istable(L, 2) {
         return 0
     }
     context.allocator = m.allocator
 
     clear_panel_refs(m, id)
-    parse := View_Parse {left = MAX_VIEW_NODES}
+    parse := View_Parse{left = MAX_VIEW_NODES}
     nodes := parse_nodes(m, index, id, L, 2, 0, &parse)
     if parse.cut {
-        log.warnf(
-            "plugin %s: panel %s is cut at %d levels and %d nodes",
-            plugin_id(m, index),
-            id,
-            MAX_VIEW_DEPTH,
-            MAX_VIEW_NODES,
-        )
+        log.warnf("plugin %s: panel %s is cut at %d levels and %d nodes", plugin_id(m, index), id, MAX_VIEW_DEPTH, MAX_VIEW_NODES)
     }
     if m.panel_render_proc != nil {
         m.panel_render_proc(m.host, id, nodes)
@@ -141,10 +135,10 @@ api_panel_render :: proc "c" (L: ^lua.State) -> c.int {
 
 // panel:show(): reveals and focuses the panel.
 @(private)
-api_panel_show :: proc "c" (L: ^lua.State) -> c.int {
+api_panel_show :: proc "c"(L: ^lua.State) -> c.int {
     context = runtime.default_context()
     m, index := caller(L)
-    id, ok := panel_target(m, index, L)
+    id, ok   := panel_target(m, index, L)
     if !ok || m.panel_show_proc == nil {
         return 0
     }
@@ -155,10 +149,10 @@ api_panel_show :: proc "c" (L: ^lua.State) -> c.int {
 
 // panel:close(): hides the panel and releases the callbacks it held.
 @(private)
-api_panel_close :: proc "c" (L: ^lua.State) -> c.int {
+api_panel_close :: proc "c"(L: ^lua.State) -> c.int {
     context = runtime.default_context()
     m, index := caller(L)
-    id, ok := panel_target(m, index, L)
+    id, ok   := panel_target(m, index, L)
     if !ok {
         return 0
     }
@@ -215,7 +209,7 @@ add_panel_ref :: proc(m: ^Manager, index: int, id: string, L: ^lua.State, idx: c
         return -1
     }
     lua.pushvalue(L, idx)
-    append(refs, Callback {index, int(lua.L_ref(L, lua.REGISTRYINDEX))})
+    append(refs, Callback{index, int(lua.L_ref(L, lua.REGISTRYINDEX))})
     return len(refs) - 1
 }
 
@@ -225,7 +219,7 @@ add_panel_ref :: proc(m: ^Manager, index: int, id: string, L: ^lua.State, idx: c
 panel_callback :: proc(m: ^Manager, id: string, action: int) -> Callback {
     refs, ok := m.panel_refs[id]
     if !ok || action < 0 || action >= len(refs) {
-        return Callback {-1, NOREF}
+        return Callback{-1, NOREF}
     }
     return refs[action]
 }
@@ -288,7 +282,7 @@ parse_node :: proc(m: ^Manager, index: int, id: string, L: ^lua.State, tbl: c.in
     node.height = tbl_number(L, tbl, "height", 0)
     node.gap = tbl_number(L, tbl, "gap", 0)
 
-    for key in ([]cstring {"on_click", "on_select", "draw"}) {
+    for key in ([]cstring{"on_click", "on_select", "draw"}) {
         lua.getfield(L, tbl, key)
         if lua.isfunction(L, -1) {
             node.action = add_panel_ref(m, index, id, L, lua.gettop(L))
@@ -299,8 +293,8 @@ parse_node :: proc(m: ^Manager, index: int, id: string, L: ^lua.State, tbl: c.in
     lua.getfield(L, tbl, "items")
     if lua.istable(L, -1) {
         items_tbl := lua.gettop(L)
-        items := make([dynamic]string, context.temp_allocator)
-        count := list_len(L, items_tbl)
+        items     := make([dynamic]string, context.temp_allocator)
+        count     := list_len(L, items_tbl)
         for i in 1 ..= count {
             lua.rawgeti(L, items_tbl, i)
             if lua.isnil(L, -1) {
@@ -328,13 +322,20 @@ parse_node :: proc(m: ^Manager, index: int, id: string, L: ^lua.State, tbl: c.in
 @(private)
 view_kind :: proc(name: string) -> View_Kind {
     switch name {
-    case "button":    return .Button
-    case "row":       return .Row
-    case "column":    return .Column
-    case "list":      return .List
-    case "separator": return .Separator
-    case "spacer":    return .Spacer
-    case "canvas":    return .Canvas
+    case "button":
+        return .Button
+    case "row":
+        return .Row
+    case "column":
+        return .Column
+    case "list":
+        return .List
+    case "separator":
+        return .Separator
+    case "spacer":
+        return .Spacer
+    case "canvas":
+        return .Canvas
     }
     return .Label
 }
@@ -406,18 +407,18 @@ push_canvas :: proc(m: ^Manager, owner: int, w, h: f32) {
 
 // ctx:rect(x, y, w, h[, role]) — filled.
 @(private)
-api_canvas_rect :: proc "c" (L: ^lua.State) -> c.int {
+api_canvas_rect :: proc "c"(L: ^lua.State) -> c.int {
     return canvas_rect(L, true)
 }
 
 // ctx:outline(x, y, w, h[, role]) — one-pixel border.
 @(private)
-api_canvas_outline :: proc "c" (L: ^lua.State) -> c.int {
+api_canvas_outline :: proc "c"(L: ^lua.State) -> c.int {
     return canvas_rect(L, false)
 }
 
 @(private)
-canvas_rect :: proc "c" (L: ^lua.State, fill: bool) -> c.int {
+canvas_rect :: proc "c"(L: ^lua.State, fill: bool) -> c.int {
     context = runtime.default_context()
     m, _ := caller(L)
     if m == nil || m.draw_rect_proc == nil {
@@ -432,7 +433,7 @@ canvas_rect :: proc "c" (L: ^lua.State, fill: bool) -> c.int {
 
 // ctx:text(x, y, text[, role]).
 @(private)
-api_canvas_text :: proc "c" (L: ^lua.State) -> c.int {
+api_canvas_text :: proc "c"(L: ^lua.State) -> c.int {
     context = runtime.default_context()
     m, _ := caller(L)
     if m == nil || m.draw_text_proc == nil {
@@ -447,7 +448,7 @@ api_canvas_text :: proc "c" (L: ^lua.State) -> c.int {
 
 // ctx:line(x0, y0, x1, y1[, role[, thickness]]).
 @(private)
-api_canvas_line :: proc "c" (L: ^lua.State) -> c.int {
+api_canvas_line :: proc "c"(L: ^lua.State) -> c.int {
     context = runtime.default_context()
     m, _ := caller(L)
     if m == nil || m.draw_line_proc == nil {
@@ -472,7 +473,7 @@ api_canvas_line :: proc "c" (L: ^lua.State) -> c.int {
 
 // ctx:measure(text) -> width, height in the UI font.
 @(private)
-api_canvas_measure :: proc "c" (L: ^lua.State) -> c.int {
+api_canvas_measure :: proc "c"(L: ^lua.State) -> c.int {
     context = runtime.default_context()
     m, _ := caller(L)
     if m == nil || m.measure_text_proc == nil {
@@ -488,25 +489,25 @@ api_canvas_measure :: proc "c" (L: ^lua.State) -> c.int {
 }
 
 @(private)
-arg_number :: proc "c" (L: ^lua.State, idx: c.int) -> f32 {
+arg_number :: proc "c"(L: ^lua.State, idx: c.int) -> f32 {
     return f32(lua.tonumber(L, idx))
 }
 
 // The Lua string at `idx` with its full length, NUL bytes included. Borrowed
 // from the Lua state; "" when it is not a string.
 @(private)
-arg_string :: proc "c" (L: ^lua.State, idx: c.int) -> string {
+arg_string :: proc "c"(L: ^lua.State, idx: c.int) -> string {
     if lua.type(L, idx) != .STRING {
         return ""
     }
     size: c.size_t
     ptr := lua.tolstring(L, idx, &size)
-    return transmute(string) runtime.Raw_String {cast([^]byte) ptr, int(size)}
+    return transmute(string)runtime.Raw_String{cast([^]byte)ptr, int(size)}
 }
 
 // Reads a string field of the table at `tbl`; "" when absent.
 @(private)
-tbl_string :: proc "c" (L: ^lua.State, tbl: c.int, key: cstring) -> string {
+tbl_string :: proc "c"(L: ^lua.State, tbl: c.int, key: cstring) -> string {
     lua.getfield(L, tbl, key)
     defer lua.pop(L, 1)
     if lua.type(L, -1) != .STRING {
@@ -517,7 +518,7 @@ tbl_string :: proc "c" (L: ^lua.State, tbl: c.int, key: cstring) -> string {
 
 // Reads a number field of the table at `tbl`, falling back to `fallback`.
 @(private)
-tbl_number :: proc "c" (L: ^lua.State, tbl: c.int, key: cstring, fallback: f32) -> f32 {
+tbl_number :: proc "c"(L: ^lua.State, tbl: c.int, key: cstring, fallback: f32) -> f32 {
     lua.getfield(L, tbl, key)
     defer lua.pop(L, 1)
     if !lua.isnumber(L, -1) {

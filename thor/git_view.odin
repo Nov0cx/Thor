@@ -9,13 +9,13 @@ import "core:strings"
 
 import ui "../vendor/loom/loom"
 
-GIT_VIEW_WIDTH :: f32(1080)
-GIT_VIEW_HEIGHT :: f32(680)
-GIT_SIDEBAR_W :: f32(180)
-GIT_FILES_W :: f32(340)
+GIT_VIEW_WIDTH   :: f32(1080)
+GIT_VIEW_HEIGHT  :: f32(680)
+GIT_SIDEBAR_W    :: f32(180)
+GIT_FILES_W      :: f32(340)
 GIT_COMMIT_BOX_H :: f32(150)
-GIT_ROW_H :: f32(26)
-GIT_DIFF_ROW_H :: f32(18)
+GIT_ROW_H        :: f32(26)
+GIT_DIFF_ROW_H   :: f32(18)
 
 Git_View_Kind :: enum {
     Changes,
@@ -47,11 +47,11 @@ Git_Stash_Op :: enum {
 
 Git_Hosting_Action :: enum {
     Open_Repo,
-    Open_File, // the active editor file
+    Open_File,   // the active editor file
     Open_Commit, // the last commit
     Create_Pr,
     Open_Pr, // arg = the PR's URL
-    Clone, // arg = URL, arg2 = destination directory
+    Clone,   // arg = URL, arg2 = destination directory
 }
 
 Git_Lfs_Op :: enum {
@@ -130,33 +130,33 @@ Git_View :: struct {
     restore_staged:    bool,
     // The selected file's diff. Rows owned (thor_git_view_set_diff takes them).
     diff_rows:         [dynamic]Git_Diff_Row,
-    diff_title:        string, // owned
+    diff_title:        string,      // owned
     // Commit box.
     subject:           [dynamic]u8, // owned; ui.input edits it in place
     description:       [dynamic]u8, // owned
     amend:             bool,
     // History view.
     commits:           [dynamic]Git_View_Commit,
-    commit_sel:        int, // -1 = none
+    commit_sel:        int,  // -1 = none
     commits_has_more:  bool, // draws a "Load more" row after the last commit
     // Branches view.
     refs:              [dynamic]Git_View_Ref,
     ref_collapsed:     [Git_Ref_Kind]bool,
     // Settings view (git config).
     config_rows:       [dynamic]Git_View_Config,
-    config_edit_index: int, // config_rows index being edited; -1 = none
+    config_edit_index: int,         // config_rows index being edited; -1 = none
     config_edit:       [dynamic]u8, // owned
-    config_collapsed:  [2]bool, // [0] local, [1] global
+    config_collapsed:  [2]bool,     // [0] local, [1] global
     // Git LFS (settings view). version and patterns owned; lfs_files keys owned,
     // the tracked-file set the changes list marks.
     lfs_available:     bool,
-    lfs_version:       string, // owned
+    lfs_version:       string,          // owned
     lfs_patterns:      [dynamic]string, // owned
     lfs_files:         map[string]bool, // keys owned
     // Hosting view.
-    host_label:        string, // owned; "GitHub — owner/repo", "" while unknown
-    host_icon:         string, // owned; a brand icon name
-    cli_name:          string, // owned; "gh", "glab" or ""
+    host_label:        string,          // owned; "GitHub — owner/repo", "" while unknown
+    host_icon:         string,          // owned; a brand icon name
+    cli_name:          string,          // owned; "gh", "glab" or ""
     host_has_remote:   bool,
     prs:               [dynamic]Git_View_Pr,
     clone_url:         [dynamic]u8, // owned
@@ -289,15 +289,7 @@ thor_git_view_clear_files :: proc(v: ^Git_View) {
 
 thor_git_view_add_file :: proc(v: ^Git_View, path, display: string, status: Git_Status, staged: bool) {
     list := staged ? &v.staged : &v.unstaged
-    append(
-        list,
-        Git_View_File {
-            path = strings.clone(path),
-            display = strings.clone(display),
-            status = status,
-            is_lfs = path in v.lfs_files,
-        },
-    )
+    append(list, Git_View_File{path = strings.clone(path), display = strings.clone(display), status = status, is_lfs = path in v.lfs_files})
     if v.restore_path == path && v.restore_staged == staged && v.sel_index < 0 {
         v.sel_staged = staged
         v.sel_index = len(list) - 1
@@ -306,13 +298,7 @@ thor_git_view_add_file :: proc(v: ^Git_View, path, display: string, status: Git_
 
 // Replaces the LFS state the settings view shows and re-marks the file lists
 // against the tracked-file set; the probe and the snapshot land in any order.
-thor_git_view_set_lfs :: proc(
-    v: ^Git_View,
-    available: bool,
-    version: string,
-    patterns: []string,
-    files: []string,
-) {
+thor_git_view_set_lfs :: proc(v: ^Git_View, available: bool, version: string, patterns: []string, files: []string) {
     v.lfs_available = available
     delete(v.lfs_version)
     v.lfs_version = strings.clone(version)
@@ -358,7 +344,7 @@ thor_git_view_clear_commits :: proc(v: ^Git_View) {
 thor_git_view_add_commit :: proc(v: ^Git_View, hash, short, subject, author, date, refs: string) {
     append(
         &v.commits,
-        Git_View_Commit {
+        Git_View_Commit{
             hash = strings.clone(hash),
             short = strings.clone(short),
             subject = strings.clone(subject),
@@ -382,15 +368,7 @@ thor_git_view_clear_refs :: proc(v: ^Git_View) {
 }
 
 thor_git_view_add_ref :: proc(v: ^Git_View, kind: Git_Ref_Kind, name, subject: string, current: bool) {
-    append(
-        &v.refs,
-        Git_View_Ref {
-            kind = kind,
-            name = strings.clone(name),
-            subject = strings.clone(subject),
-            current = current,
-        },
-    )
+    append(&v.refs, Git_View_Ref{kind = kind, name = strings.clone(name), subject = strings.clone(subject), current = current})
 }
 
 thor_git_view_clear_config :: proc(v: ^Git_View) {
@@ -403,15 +381,7 @@ thor_git_view_clear_config :: proc(v: ^Git_View) {
 }
 
 thor_git_view_add_config :: proc(v: ^Git_View, global: bool, key, value: string, is_set: bool) {
-    append(
-        &v.config_rows,
-        Git_View_Config {
-            global = global,
-            key = strings.clone(key),
-            value = strings.clone(value),
-            is_set = is_set,
-        },
-    )
+    append(&v.config_rows, Git_View_Config{global = global, key = strings.clone(key), value = strings.clone(value), is_set = is_set})
 }
 
 // `label` is "" while origin is unknown or absent; `icon` a brand icon name;
@@ -436,15 +406,7 @@ thor_git_view_clear_prs :: proc(v: ^Git_View) {
 }
 
 thor_git_view_add_pr :: proc(v: ^Git_View, number: int, title, branch, url: string) {
-    append(
-        &v.prs,
-        Git_View_Pr {
-            number = number,
-            title = strings.clone(title),
-            branch = strings.clone(branch),
-            url = strings.clone(url),
-        },
-    )
+    append(&v.prs, Git_View_Pr{number = number, title = strings.clone(title), branch = strings.clone(branch), url = strings.clone(url)})
 }
 
 // Fills the clone destination with the folder beside the workspace, so the
@@ -511,7 +473,7 @@ git_view_can_commit :: proc(v: ^Git_View) -> bool {
 
 @(private = "file")
 git_view_select_file :: proc(thor: ^Thor, staged: bool, index: int) {
-    v := &thor.git
+    v    := &thor.git
     list := staged ? &v.staged : &v.unstaged
     if index < 0 || index >= len(list) {
         return
@@ -596,7 +558,7 @@ thor_git_panel_view :: proc(thor: ^Thor) {
 
 @(private = "file")
 git_view_box :: proc(thor: ^Thor) {
-    v := &thor.git
+    v   := &thor.git
     box := ui.scope(
         {
             key = "git-box",
@@ -635,31 +597,16 @@ git_view_header :: proc(thor: ^Thor) {
     ui.scope(
         {
             key = "header",
-            props = {
-                w = ui.Grow(1),
-                h = ui.FIT,
-                dir = .Row,
-                align = .Center,
-                gap = {10, 0},
-                pad = ui.xy(14, 12),
-                bg = thor.theme.second_background,
-            },
+            props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {10, 0}, pad = ui.xy(14, 12), bg = thor.theme.second_background},
         },
     )
 
     thor_icon_label(thor, "git-branch", thor.theme.accent_color)
-    ui.label(
-        v.branch != "" ? v.branch : "no branch",
-        {key = "branch", props = {color = thor.theme.foreground, text_wrap = .None}},
-    )
+    ui.label(v.branch != "" ? v.branch : "no branch", {key = "branch", props = {color = thor.theme.foreground, text_wrap = .None}})
     if v.has_upstream && (v.ahead > 0 || v.behind > 0) {
         track := ui.label(
             fmt.tprintf("%d ahead, %d behind", v.ahead, v.behind),
-            {
-                key = "track",
-                flags = {.Hoverable},
-                props = {color = thor.theme.muted_color, text_wrap = .None},
-            },
+            {key = "track", flags = {.Hoverable}, props = {color = thor.theme.muted_color, text_wrap = .None}},
         )
         thor_tip(thor, track.id, "Commits ahead and behind the upstream branch")
     }
@@ -679,15 +626,7 @@ git_view_header :: proc(thor: ^Thor) {
         {
             key = "close",
             flags = {.Clickable},
-            props = {
-                w = ui.Px(26),
-                h = ui.Px(26),
-                dir = .Row,
-                justify = .Center,
-                align = .Center,
-                radius = ui.rad(4),
-                cursor = .Pointer,
-            },
+            props = {w = ui.Px(26), h = ui.Px(26), dir = .Row, justify = .Center, align = .Center, radius = ui.rad(4), cursor = .Pointer},
             hover = {bg = thor.theme.buttons},
         },
     )
@@ -699,22 +638,10 @@ git_view_header :: proc(thor: ^Thor) {
 }
 
 @(private = "file")
-GIT_VIEW_LABELS := [Git_View_Kind]string {
-    .Changes  = "Changes",
-    .History  = "History",
-    .Branches = "Branches",
-    .Settings = "Settings",
-    .Hosting  = "Hosting",
-}
+GIT_VIEW_LABELS := [Git_View_Kind]string{.Changes = "Changes", .History = "History", .Branches = "Branches", .Settings = "Settings", .Hosting = "Hosting"}
 
 @(private = "file")
-GIT_VIEW_ICONS := [Git_View_Kind]string {
-    .Changes  = "git-commit",
-    .History  = "history",
-    .Branches = "git-branch",
-    .Settings = "settings",
-    .Hosting  = "cloud",
-}
+GIT_VIEW_ICONS := [Git_View_Kind]string{.Changes = "git-commit", .History = "history", .Branches = "git-branch", .Settings = "settings", .Hosting = "cloud"}
 
 @(private = "file")
 git_view_sidebar :: proc(thor: ^Thor) {
@@ -761,14 +688,7 @@ git_view_sidebar :: proc(thor: ^Thor) {
         thor_icon_label(thor, GIT_VIEW_ICONS[kind], on ? thor.theme.foreground : thor.theme.muted_color)
         ui.label(
             GIT_VIEW_LABELS[kind],
-            {
-                key = "text",
-                props = {
-                    w = ui.Grow(1),
-                    color = on ? thor.theme.foreground : thor.theme.muted_color,
-                    text_wrap = .Ellipsis,
-                },
-            },
+            {key = "text", props = {w = ui.Grow(1), color = on ? thor.theme.foreground : thor.theme.muted_color, text_wrap = .Ellipsis}},
         )
         if it.clicked && !on {
             v.kind = kind
@@ -800,46 +720,17 @@ git_view_content :: proc(thor: ^Thor) {
 git_view_footer :: proc(thor: ^Thor) {
     v := &thor.git
 
-    ui.scope(
-        {
-            key = "footer",
-            props = {
-                w = ui.Grow(1),
-                h = ui.FIT,
-                dir = .Row,
-                align = .Center,
-                pad = ui.xy(14, 8),
-                bg = thor.theme.second_background,
-            },
-        },
-    )
+    ui.scope({key = "footer", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, pad = ui.xy(14, 8), bg = thor.theme.second_background}})
     ui.label(
         v.busy ? "Working..." : v.status_line,
-        {
-            key = "status",
-            props = {
-                w = ui.Grow(1),
-                color = v.status_is_error ? thor.theme.error_color : thor.theme.muted_color,
-                text_wrap = .Ellipsis,
-            },
-        },
+        {key = "status", props = {w = ui.Grow(1), color = v.status_is_error ? thor.theme.error_color : thor.theme.muted_color, text_wrap = .Ellipsis}},
     )
 }
 
 @(private = "file")
 git_view_changes :: proc(thor: ^Thor) {
     {
-        ui.scope(
-            {
-                key = "files",
-                props = {
-                    w = ui.Px(GIT_FILES_W),
-                    h = ui.Grow(1),
-                    dir = .Column,
-                    border = {width = {r = 1}, color = thor.theme.border},
-                },
-            },
-        )
+        ui.scope({key = "files", props = {w = ui.Px(GIT_FILES_W), h = ui.Grow(1), dir = .Column, border = {width = {r = 1}, color = thor.theme.border}}})
         git_view_file_section(thor, false)
         git_view_file_section(thor, true)
     }
@@ -851,54 +742,28 @@ git_view_changes :: proc(thor: ^Thor) {
 
 @(private = "file")
 git_view_file_section :: proc(thor: ^Thor, staged: bool) {
-    v := &thor.git
+    v    := &thor.git
     list := staged ? &v.staged : &v.unstaged
 
-    ui.scope(
-        {
-            key = staged ? "staged" : "unstaged",
-            props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column},
-        },
-    )
+    ui.scope({key = staged ? "staged" : "unstaged", props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column}})
 
     {
         ui.scope(
             {
                 key = "head",
-                props = {
-                    w = ui.Grow(1),
-                    h = ui.Px(GIT_ROW_H),
-                    dir = .Row,
-                    align = .Center,
-                    gap = {8, 0},
-                    pad = ui.xy(10, 0),
-                    bg = thor.theme.second_background,
-                },
+                props = {w = ui.Grow(1), h = ui.Px(GIT_ROW_H), dir = .Row, align = .Center, gap = {8, 0}, pad = ui.xy(10, 0), bg = thor.theme.second_background},
             },
         )
-        ui.label(
-            staged ? "STAGED" : "CHANGES",
-            {key = "title", props = {w = ui.Grow(1), color = thor.theme.disabled, text_wrap = .None}},
-        )
-        if len(list) > 0 &&
-           git_view_button(thor, "all", staged ? "Unstage All" : "Stage All", !v.busy) {
+        ui.label(staged ? "STAGED" : "CHANGES", {key = "title", props = {w = ui.Grow(1), color = thor.theme.disabled, text_wrap = .None}})
+        if len(list) > 0 && git_view_button(thor, "all", staged ? "Unstage All" : "Stage All", !v.busy) {
             thor_on_git_stage(thor, "", !staged)
             return
         }
     }
 
-    ui.scope(
-        {
-            key = "list",
-            flags = {.Clip, .Scroll_Y},
-            props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column},
-        },
-    )
+    ui.scope({key = "list", flags = {.Clip, .Scroll_Y}, props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column}})
     if len(list) == 0 {
-        ui.label(
-            staged ? "Nothing staged" : "No changes",
-            {key = "empty", props = {pad = ui.xy(10, 6), color = thor.theme.disabled}},
-        )
+        ui.label(staged ? "Nothing staged" : "No changes", {key = "empty", props = {pad = ui.xy(10, 6), color = thor.theme.disabled}})
         return
     }
 
@@ -945,13 +810,8 @@ git_view_file_action :: proc(thor: ^Thor, path: string, staged: bool, action: Gi
 }
 
 @(private = "file")
-git_view_file_row :: proc(
-    thor: ^Thor,
-    file: Git_View_File,
-    staged: bool,
-    index: int,
-) -> Git_File_Action {
-    v := &thor.git
+git_view_file_row :: proc(thor: ^Thor, file: Git_View_File, staged: bool, index: int) -> Git_File_Action {
+    v  := &thor.git
     on := v.sel_staged == staged && v.sel_index == index
 
     it := ui.scope(
@@ -971,14 +831,8 @@ git_view_file_row :: proc(
             hover = {bg = on ? thor.theme.selection_background : thor.theme.buttons},
         },
     )
-    ui.label(
-        git_status_label(file.status),
-        {key = "st", props = {w = ui.Px(12), color = git_status_color(thor, file.status), text_wrap = .None}},
-    )
-    ui.label(
-        file.display,
-        {key = "name", props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .Ellipsis}},
-    )
+    ui.label(git_status_label(file.status), {key = "st", props = {w = ui.Px(12), color = git_status_color(thor, file.status), text_wrap = .None}})
+    ui.label(file.display, {key = "name", props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .Ellipsis}})
     if file.is_lfs {
         ui.label("LFS", {key = "lfs", props = {color = thor.theme.disabled, text_wrap = .None}})
     }
@@ -1002,8 +856,7 @@ git_view_file_row :: proc(
         ) {
             action = .Stage
         }
-        if !staged &&
-           git_view_button(thor, "discard", "Discard", true, "Throw the changes to the file away") {
+        if !staged && git_view_button(thor, "discard", "Discard", true, "Throw the changes to the file away") {
             action = .Discard
         }
     }
@@ -1017,17 +870,7 @@ git_view_file_row :: proc(
 git_view_diff :: proc(thor: ^Thor) {
     v := &thor.git
 
-    ui.scope(
-        {
-            key = "diff",
-            props = {
-                w = ui.Grow(1),
-                h = ui.Grow(1),
-                dir = .Column,
-                border = {width = {b = 1}, color = thor.theme.border},
-            },
-        },
-    )
+    ui.scope({key = "diff", props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column, border = {width = {b = 1}, color = thor.theme.border}}})
     title := ui.label(
         v.diff_title != "" ? v.diff_title : "No file selected",
         {
@@ -1045,13 +888,7 @@ git_view_diff :: proc(thor: ^Thor) {
     )
     thor_tip(thor, title.id, v.diff_title)
 
-    ui.scope(
-        {
-            key = "rows",
-            flags = {.Clip, .Scroll_Y, .Scroll_X},
-            props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column},
-        },
-    )
+    ui.scope({key = "rows", flags = {.Clip, .Scroll_Y, .Scroll_X}, props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column}})
     if len(v.diff_rows) == 0 {
         return
     }
@@ -1111,18 +948,7 @@ git_diff_row_color :: proc(thor: ^Thor, kind: Git_Diff_Row_Kind) -> ui.Color {
 git_view_commit_box :: proc(thor: ^Thor) {
     v := &thor.git
 
-    ui.scope(
-        {
-            key = "commit",
-            props = {
-                w = ui.Grow(1),
-                h = ui.Px(GIT_COMMIT_BOX_H),
-                dir = .Column,
-                gap = {0, 6},
-                pad = ui.all(10),
-            },
-        },
-    )
+    ui.scope({key = "commit", props = {w = ui.Grow(1), h = ui.Px(GIT_COMMIT_BOX_H), dir = .Column, gap = {0, 6}, pad = ui.all(10)}})
 
     ui.input(
         &v.subject,
@@ -1154,29 +980,13 @@ git_view_commit_box :: proc(thor: ^Thor) {
         "Description",
     )
 
-    ui.scope(
-        {
-            key = "actions",
-            props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {8, 0}},
-        },
-    )
-    if git_view_toggle(
-        thor,
-        "amend",
-        "Amend",
-        v.amend,
-        "Rewrite the last commit instead of adding a new one",
-    ) {
+    ui.scope({key = "actions", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {8, 0}}})
+    if git_view_toggle(thor, "amend", "Amend", v.amend, "Rewrite the last commit instead of adding a new one") {
         v.amend = !v.amend
     }
     ui.leaf({key = "gap", props = {w = ui.Grow(1)}})
     if git_view_button(thor, "do-commit", v.amend ? "Amend Commit" : "Commit", git_view_can_commit(v)) {
-        thor_on_git_commit(
-            thor,
-            strings.trim_space(string(v.subject[:])),
-            strings.trim_right_space(string(v.description[:])),
-            v.amend,
-        )
+        thor_on_git_commit(thor, strings.trim_space(string(v.subject[:])), strings.trim_right_space(string(v.description[:])), v.amend)
     }
 }
 
@@ -1184,18 +994,9 @@ git_view_commit_box :: proc(thor: ^Thor) {
 git_view_history :: proc(thor: ^Thor) {
     v := &thor.git
 
-    ui.scope(
-        {
-            key = "history",
-            flags = {.Clip, .Scroll_Y},
-            props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column},
-        },
-    )
+    ui.scope({key = "history", flags = {.Clip, .Scroll_Y}, props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column}})
     if len(v.commits) == 0 {
-        ui.label(
-            "No commits",
-            {key = "empty", props = {pad = ui.xy(14, 10), color = thor.theme.disabled}},
-        )
+        ui.label("No commits", {key = "empty", props = {pad = ui.xy(14, 10), color = thor.theme.disabled}})
         return
     }
 
@@ -1225,42 +1026,13 @@ git_view_history :: proc(thor: ^Thor) {
                     hover = {bg = on ? thor.theme.selection_background : thor.theme.buttons},
                 },
             )
-            ui.label(
-                commit.short,
-                {
-                    key = "hash",
-                    props = {
-                        color = thor.theme.accent_color,
-                        font = thor.font_mono,
-                        text_wrap = .None,
-                    },
-                },
-            )
-            ui.label(
-                commit.subject,
-                {
-                    key = "subject",
-                    props = {
-                        w = ui.Grow(1),
-                        color = thor.theme.foreground,
-                        text_wrap = .Ellipsis,
-                    },
-                },
-            )
+            ui.label(commit.short, {key = "hash", props = {color = thor.theme.accent_color, font = thor.font_mono, text_wrap = .None}})
+            ui.label(commit.subject, {key = "subject", props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .Ellipsis}})
             if commit.refs != "" {
-                ui.label(
-                    commit.refs,
-                    {key = "refs", props = {color = thor.theme.info_color, text_wrap = .None}},
-                )
+                ui.label(commit.refs, {key = "refs", props = {color = thor.theme.info_color, text_wrap = .None}})
             }
-            ui.label(
-                commit.author,
-                {key = "author", props = {color = thor.theme.muted_color, text_wrap = .None}},
-            )
-            ui.label(
-                commit.date,
-                {key = "date", props = {color = thor.theme.disabled, text_wrap = .None}},
-            )
+            ui.label(commit.author, {key = "author", props = {color = thor.theme.muted_color, text_wrap = .None}})
+            ui.label(commit.date, {key = "date", props = {color = thor.theme.disabled, text_wrap = .None}})
         }
         ui.pop_id()
 
@@ -1279,24 +1051,13 @@ git_view_history :: proc(thor: ^Thor) {
 }
 
 @(private = "file")
-GIT_REF_LABELS := [Git_Ref_Kind]string {
-    .Branch = "BRANCHES",
-    .Remote = "REMOTES",
-    .Tag    = "TAGS",
-    .Stash  = "STASHES",
-}
+GIT_REF_LABELS := [Git_Ref_Kind]string{.Branch = "BRANCHES", .Remote = "REMOTES", .Tag = "TAGS", .Stash = "STASHES"}
 
 @(private = "file")
 git_view_branches :: proc(thor: ^Thor) {
     v := &thor.git
 
-    ui.scope(
-        {
-            key = "branches",
-            flags = {.Clip, .Scroll_Y},
-            props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column},
-        },
-    )
+    ui.scope({key = "branches", flags = {.Clip, .Scroll_Y}, props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column}})
 
     for kind in Git_Ref_Kind {
         ui.push_id_int(i64(kind))
@@ -1350,22 +1111,9 @@ git_view_ref_row :: proc(thor: ^Thor, ref: Git_View_Ref) -> bool {
             hover = {bg = ref.current ? thor.theme.selection_background : thor.theme.buttons},
         },
     )
-    ui.label(
-        ref.name,
-        {
-            key = "name",
-            props = {
-                w = ui.Grow(1),
-                color = ref.current ? thor.theme.accent_color : thor.theme.foreground,
-                text_wrap = .Ellipsis,
-            },
-        },
-    )
+    ui.label(ref.name, {key = "name", props = {w = ui.Grow(1), color = ref.current ? thor.theme.accent_color : thor.theme.foreground, text_wrap = .Ellipsis}})
     if ref.subject != "" {
-        ui.label(
-            ref.subject,
-            {key = "sub", props = {color = thor.theme.muted_color, text_wrap = .Ellipsis}},
-        )
+        ui.label(ref.subject, {key = "sub", props = {color = thor.theme.muted_color, text_wrap = .Ellipsis}})
     }
 
     if ref.kind == .Stash {
@@ -1394,13 +1142,7 @@ git_view_ref_row :: proc(thor: ^Thor, ref: Git_View_Ref) -> bool {
 git_view_settings :: proc(thor: ^Thor) {
     v := &thor.git
 
-    ui.scope(
-        {
-            key = "gitconfig",
-            flags = {.Clip, .Scroll_Y},
-            props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column},
-        },
-    )
+    ui.scope({key = "gitconfig", flags = {.Clip, .Scroll_Y}, props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column}})
 
     for global, slot in ([2]bool{false, true}) {
         ui.push_id_int(i64(slot))
@@ -1432,30 +1174,19 @@ git_view_settings :: proc(thor: ^Thor) {
 
 @(private = "file")
 git_view_config_row :: proc(thor: ^Thor, index: int) -> bool {
-    v := &thor.git
-    row := v.config_rows[index]
+    v       := &thor.git
+    row     := v.config_rows[index]
     editing := v.config_edit_index == index
 
     it := ui.scope(
         {
             key = "cfg",
             flags = {.Clickable},
-            props = {
-                w = ui.Grow(1),
-                h = ui.Px(GIT_ROW_H + 4),
-                dir = .Row,
-                align = .Center,
-                gap = {10, 0},
-                pad = {l = 26, r = 14},
-                cursor = .Pointer,
-            },
+            props = {w = ui.Grow(1), h = ui.Px(GIT_ROW_H + 4), dir = .Row, align = .Center, gap = {10, 0}, pad = {l = 26, r = 14}, cursor = .Pointer},
             hover = {bg = thor.theme.buttons},
         },
     )
-    ui.label(
-        row.key,
-        {key = "key", props = {w = ui.Px(240), color = thor.theme.foreground, text_wrap = .Ellipsis}},
-    )
+    ui.label(row.key, {key = "key", props = {w = ui.Px(240), color = thor.theme.foreground, text_wrap = .Ellipsis}})
 
     if editing {
         field := ui.input(
@@ -1486,14 +1217,7 @@ git_view_config_row :: proc(thor: ^Thor, index: int) -> bool {
 
     ui.label(
         row.is_set ? row.value : "not set",
-        {
-            key = "value",
-            props = {
-                w = ui.Grow(1),
-                color = row.is_set ? thor.theme.muted_color : thor.theme.disabled,
-                text_wrap = .Ellipsis,
-            },
-        },
+        {key = "value", props = {w = ui.Grow(1), color = row.is_set ? thor.theme.muted_color : thor.theme.disabled, text_wrap = .Ellipsis}},
     )
     if it.clicked {
         v.config_edit_index = index
@@ -1514,11 +1238,7 @@ git_view_lfs :: proc(thor: ^Thor) {
         v.lfs_available ? v.lfs_version : "not installed",
         {
             key = "lfs-status",
-            props = {
-                pad = {l = 26, r = 14, t = 4, b = 4},
-                color = v.lfs_available ? thor.theme.muted_color : thor.theme.disabled,
-                text_wrap = .None,
-            },
+            props = {pad = {l = 26, r = 14, t = 4, b = 4}, color = v.lfs_available ? thor.theme.muted_color : thor.theme.disabled, text_wrap = .None},
         },
     )
     if !v.lfs_available {
@@ -1556,19 +1276,7 @@ git_view_lfs :: proc(thor: ^Thor) {
 git_view_hosting :: proc(thor: ^Thor) {
     v := &thor.git
 
-    ui.scope(
-        {
-            key = "hosting",
-            flags = {.Clip, .Scroll_Y},
-            props = {
-                w = ui.Grow(1),
-                h = ui.Grow(1),
-                dir = .Column,
-                gap = {0, 6},
-                pad = ui.all(14),
-            },
-        },
-    )
+    ui.scope({key = "hosting", flags = {.Clip, .Scroll_Y}, props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column, gap = {0, 6}, pad = ui.all(14)}})
 
     {
         ui.scope(
@@ -1615,15 +1323,9 @@ git_view_hosting :: proc(thor: ^Thor) {
 
         git_view_section_label(thor, "PULL REQUESTS")
         if v.cli_name == "" {
-            ui.label(
-                "Install the gh or glab CLI to list pull requests.",
-                {key = "cli-hint", props = {pad = ui.xy(4, 4), color = thor.theme.disabled}},
-            )
+            ui.label("Install the gh or glab CLI to list pull requests.", {key = "cli-hint", props = {pad = ui.xy(4, 4), color = thor.theme.disabled}})
         } else if len(v.prs) == 0 {
-            ui.label(
-                "None open.",
-                {key = "no-prs", props = {pad = ui.xy(4, 4), color = thor.theme.disabled}},
-            )
+            ui.label("None open.", {key = "no-prs", props = {pad = ui.xy(4, 4), color = thor.theme.disabled}})
         } else {
             for pr, index in v.prs {
                 ui.push_id_int(i64(index))
@@ -1679,27 +1381,12 @@ git_view_pr_row :: proc(thor: ^Thor, pr: Git_View_Pr) -> bool {
         {
             key = "pr",
             flags = {.Clickable},
-            props = {
-                w = ui.Grow(1),
-                h = ui.Px(GIT_ROW_H),
-                dir = .Row,
-                align = .Center,
-                gap = {8, 0},
-                pad = ui.xy(4, 0),
-                radius = ui.rad(4),
-                cursor = .Pointer,
-            },
+            props = {w = ui.Grow(1), h = ui.Px(GIT_ROW_H), dir = .Row, align = .Center, gap = {8, 0}, pad = ui.xy(4, 0), radius = ui.rad(4), cursor = .Pointer},
             hover = {bg = thor.theme.buttons},
         },
     )
-    ui.label(
-        fmt.tprintf("#%d", pr.number),
-        {key = "num", props = {color = thor.theme.accent_color, text_wrap = .None}},
-    )
-    ui.label(
-        pr.title,
-        {key = "title", props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .Ellipsis}},
-    )
+    ui.label(fmt.tprintf("#%d", pr.number), {key = "num", props = {color = thor.theme.accent_color, text_wrap = .None}})
+    ui.label(pr.title, {key = "title", props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .Ellipsis}})
     ui.label(pr.branch, {key = "branch", props = {color = thor.theme.disabled, text_wrap = .None}})
     if it.clicked {
         thor_on_git_hosting(thor, .Open_Pr, pr.url, "")
@@ -1710,18 +1397,7 @@ git_view_pr_row :: proc(thor: ^Thor, pr: Git_View_Pr) -> bool {
 
 @(private = "file")
 git_view_section_label :: proc(thor: ^Thor, text: string) {
-    ui.label(
-        text,
-        {
-            key = text,
-            props = {
-                w = ui.Grow(1),
-                pad = {l = 4, r = 14, t = 12, b = 4},
-                color = thor.theme.disabled,
-                text_wrap = .None,
-            },
-        },
-    )
+    ui.label(text, {key = text, props = {w = ui.Grow(1), pad = {l = 4, r = 14, t = 12, b = 4}, color = thor.theme.disabled, text_wrap = .None}})
 }
 
 // A fold header. Reports whether it was clicked, which flips the caller's state.
@@ -1744,10 +1420,7 @@ git_view_fold_header :: proc(thor: ^Thor, label: string, open: bool) -> bool {
         },
     )
     thor_icon_label(thor, open ? "chevron-down" : "chevron-right", thor.theme.muted_color, 14)
-    ui.label(
-        label,
-        {key = "text", props = {w = ui.Grow(1), color = thor.theme.disabled, text_wrap = .None}},
-    )
+    ui.label(label, {key = "text", props = {w = ui.Grow(1), color = thor.theme.disabled, text_wrap = .None}})
     return it.clicked
 }
 
@@ -1757,15 +1430,7 @@ git_view_row_button :: proc(thor: ^Thor, key, label: string) -> bool {
         {
             key = key,
             flags = {.Clickable},
-            props = {
-                w = ui.Grow(1),
-                h = ui.Px(GIT_ROW_H + 4),
-                dir = .Row,
-                align = .Center,
-                pad = ui.xy(14, 0),
-                radius = ui.rad(4),
-                cursor = .Pointer,
-            },
+            props = {w = ui.Grow(1), h = ui.Px(GIT_ROW_H + 4), dir = .Row, align = .Center, pad = ui.xy(14, 0), radius = ui.rad(4), cursor = .Pointer},
             hover = {bg = thor.theme.buttons},
         },
     )
@@ -1791,16 +1456,7 @@ git_view_button :: proc(thor: ^Thor, key, label: string, enabled: bool, tip := "
             hover = {bg = enabled ? thor.theme.active : nil},
         },
     )
-    ui.label(
-        label,
-        {
-            key = "text",
-            props = {
-                color = enabled ? thor.theme.foreground : thor.theme.disabled,
-                text_wrap = .None,
-            },
-        },
-    )
+    ui.label(label, {key = "text", props = {color = enabled ? thor.theme.foreground : thor.theme.disabled, text_wrap = .None}})
     // A disabled button is no hit target, so it explains itself only while it
     // can be pressed.
     thor_tip(thor, it.id, tip)
@@ -1813,23 +1469,12 @@ git_view_toggle :: proc(thor: ^Thor, key, label: string, on: bool, tip := "") ->
         {
             key = key,
             flags = {.Clickable},
-            props = {
-                h = ui.Px(24),
-                dir = .Row,
-                align = .Center,
-                gap = {6, 0},
-                pad = ui.xy(8, 0),
-                radius = ui.rad(4),
-                cursor = .Pointer,
-            },
+            props = {h = ui.Px(24), dir = .Row, align = .Center, gap = {6, 0}, pad = ui.xy(8, 0), radius = ui.rad(4), cursor = .Pointer},
             hover = {bg = thor.theme.buttons},
         },
     )
     thor_icon_label(thor, on ? "square-check" : "square", thor.theme.muted_color, 14)
-    ui.label(
-        label,
-        {key = "text", props = {color = thor.theme.foreground, text_wrap = .None}},
-    )
+    ui.label(label, {key = "text", props = {color = thor.theme.foreground, text_wrap = .None}})
     thor_tip(thor, it.id, tip)
     return it.clicked
 }

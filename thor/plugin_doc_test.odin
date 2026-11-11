@@ -4,8 +4,8 @@ import "core:os"
 import "core:testing"
 import "core:time"
 
-import "../setting"
 import "../editview"
+import "../setting"
 import "../textedit"
 
 // Verifies the thor.doc host service (thor_plugin_doc): the first call opens a
@@ -18,7 +18,9 @@ test_plugin_doc_opens_and_refreshes :: proc(t: ^testing.T) {
 
     thor := new(Thor)
     defer free(thor)
-    defer for &editor in thor.editors {editview.editor_destroy(&editor)}
+    defer for &editor in thor.editors {
+        editview.editor_destroy(&editor)
+    }
     thor.config = setting.load("settings")
     defer setting.destroy(&thor.config)
     thor.active_file = make_signal(-1)

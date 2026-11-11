@@ -9,14 +9,7 @@ import lang ".."
 // Runs a References request at `at` in `source`.
 @(private = "file")
 refs_offset :: proc(e: ^Engine, source: string, at: int, workspace := "", path := "buffer.odin") -> lang.Result {
-    req := lang.Request {
-        kind      = .References,
-        path      = path,
-        ext       = ".odin",
-        source    = source,
-        offset    = at,
-        workspace = workspace,
-    }
+    req := lang.Request{kind = .References, path = path, ext = ".odin", source = source, offset = at, workspace = workspace}
     res := lang.Result{kind = .References}
     resolve(e, &req, &res)
     return res
@@ -31,14 +24,14 @@ refs_at :: proc(e: ^Engine, source, needle: string, workspace := "", path := "bu
 // Runs a Rename request at the first occurrence of `needle` in `source`, plus `skip` bytes.
 @(private = "file")
 rename_at :: proc(e: ^Engine, source, needle, new_name: string, workspace := "", path := "buffer.odin", skip := 0) -> lang.Result {
-    req := lang.Request {
-        kind      = .Rename,
-        path      = path,
-        ext       = ".odin",
-        source    = source,
-        offset    = strings.index(source, needle) + skip,
+    req := lang.Request{
+        kind = .Rename,
+        path = path,
+        ext = ".odin",
+        source = source,
+        offset = strings.index(source, needle) + skip,
         workspace = workspace,
-        new_name  = new_name,
+        new_name = new_name,
     }
     res := lang.Result{kind = .Rename}
     resolve(e, &req, &res)
@@ -223,12 +216,12 @@ test_references_cross_file :: proc(t: ^testing.T) {
     defer engine_destroy(e)
 
     use_src := "package demo\n\nrun :: proc() {\n\t_ = helper()\n\t_ = helper()\n}\n"
-    root := fixture(t, "refs_cross_file", {{"use.odin", use_src}})
+    root    := fixture(t, "refs_cross_file", {{"use.odin", use_src}})
     defer os.remove_all(root)
 
-    main_src := "package demo\n\nhelper :: proc() -> int {\n\treturn 42\n}\n\nmain :: proc() {\n\t_ = helper()\n}\n"
+    main_src  := "package demo\n\nhelper :: proc() -> int {\n\treturn 42\n}\n\nmain :: proc() {\n\t_ = helper()\n}\n"
     main_path := fixture_path(root, "main.odin")
-    res := refs_at(e, main_src, "helper ::", root, main_path)
+    res       := refs_at(e, main_src, "helper ::", root, main_path)
     defer free_refs(&res)
     testing.expect(t, res.ok, "expected references to helper")
     testing.expectf(t, len(res.symbols) == 3, "ref count: got %d", len(res.symbols))
@@ -248,12 +241,12 @@ test_references_reuse_the_parses :: proc(t: ^testing.T) {
     defer engine_destroy(e)
 
     use_src := "package demo\n\nrun :: proc() {\n\t_ = helper()\n}\n"
-    root := fixture(t, "refs_reuse", {{"use.odin", use_src}})
+    root    := fixture(t, "refs_reuse", {{"use.odin", use_src}})
     defer os.remove_all(root)
 
-    main_src := "package demo\n\nhelper :: proc() -> int {\n\treturn 42\n}\n"
+    main_src  := "package demo\n\nhelper :: proc() -> int {\n\treturn 42\n}\n"
     main_path := fixture_path(root, "main.odin")
-    res := refs_at(e, main_src, "helper ::", root, main_path)
+    res       := refs_at(e, main_src, "helper ::", root, main_path)
     defer free_refs(&res)
     testing.expectf(t, len(res.symbols) == 1, "ref count: got %d", len(res.symbols))
     first := db_stats(e)
@@ -276,9 +269,9 @@ test_references_sibling_added_later :: proc(t: ^testing.T) {
     root := fixture(t, "refs_sibling_later", {{"decoy.odin", "package demo\n\nunrelated :: proc() {}\n"}})
     defer os.remove_all(root)
 
-    main_src := "package demo\n\nhelper :: proc() -> int {\n\treturn 42\n}\n\nmain :: proc() {\n\t_ = helper()\n}\n"
+    main_src  := "package demo\n\nhelper :: proc() -> int {\n\treturn 42\n}\n\nmain :: proc() {\n\t_ = helper()\n}\n"
     main_path := fixture_path(root, "main.odin")
-    res := refs_at(e, main_src, "helper ::", root, main_path)
+    res       := refs_at(e, main_src, "helper ::", root, main_path)
     defer free_refs(&res)
     testing.expectf(t, len(res.symbols) == 1, "ref count before: got %d", len(res.symbols))
 
@@ -297,11 +290,15 @@ test_references_sibling_added_later :: proc(t: ^testing.T) {
 // a second file calls zapp's through an import.
 @(private = "file")
 two_packages :: proc(t: ^testing.T, name: string) -> string {
-    return fixture(t, name, {
-        {"zapp/helper.odin", "package app\n\nshared :: proc(n: int) -> int {\n\treturn n\n}\n\nagain :: proc() -> int {\n\treturn shared(2)\n}\n"},
-        {"alib/far.odin", "package alib\n\nshared :: proc(s: string) -> string {\n\treturn s\n}\n\nnear :: proc() -> string {\n\treturn shared(\"x\")\n}\n"},
-        {"alib/uses_app.odin", USES_APP_SRC},
-    })
+    return fixture(
+        t,
+        name,
+        {
+            {"zapp/helper.odin", "package app\n\nshared :: proc(n: int) -> int {\n\treturn n\n}\n\nagain :: proc() -> int {\n\treturn shared(2)\n}\n"},
+            {"alib/far.odin", "package alib\n\nshared :: proc(s: string) -> string {\n\treturn s\n}\n\nnear :: proc() -> string {\n\treturn shared(\"x\")\n}\n"},
+            {"alib/uses_app.odin", USES_APP_SRC},
+        },
+    )
 }
 
 @(private = "file")
@@ -352,7 +349,7 @@ test_references_import_alias_stays_in_its_file :: proc(t: ^testing.T) {
     defer engine_destroy(e)
 
     other_src := "package demo\n\nimport \"core:fmt\"\n\nrun :: proc() {\n\tfmt.println(1)\n}\n"
-    root := fixture(t, "refs_import_alias", {{"other.odin", other_src}})
+    root      := fixture(t, "refs_import_alias", {{"other.odin", other_src}})
     defer os.remove_all(root)
 
     src := "package demo\n\nimport \"core:fmt\"\n\nmain :: proc() {\n\tfmt.println(2)\n\tfmt.println(3)\n}\n"
@@ -371,19 +368,19 @@ test_references_enum_member :: proc(t: ^testing.T) {
     defer engine_destroy(e)
 
     color_src := "package lib\n\nColor :: enum {\n\tRed,\n\tGreen,\n}\n\nShade :: enum {\n\tRed,\n}\n\nfirst :: proc() -> Color {\n\t_ = Shade.Red\n\treturn .Red\n}\n"
-    main_src := "package app\n\nimport \"lib\"\n\nmain :: proc() {\n\t_ = lib.Color.Red\n\t_ = lib.Shade.Red\n}\n"
-    root := fixture(t, "refs_enum_member", {{"lib/color.odin", color_src}, {"main.odin", main_src}})
+    main_src  := "package app\n\nimport \"lib\"\n\nmain :: proc() {\n\t_ = lib.Color.Red\n\t_ = lib.Shade.Red\n}\n"
+    root      := fixture(t, "refs_enum_member", {{"lib/color.odin", color_src}, {"main.odin", main_src}})
     defer os.remove_all(root)
 
     color_path := fixture_path(root, "lib/color.odin")
-    res := refs_at(e, color_src, "Red,", root, color_path)
+    res        := refs_at(e, color_src, "Red,", root, color_path)
     defer free_refs(&res)
     testing.expect(t, res.ok, "expected references to Color.Red")
     testing.expectf(t, count_in(&res, "color.odin") == 1, "refs in color.odin: got %d", count_in(&res, "color.odin"))
     testing.expectf(t, count_in(&res, "main.odin") == 1, "refs in main.odin: got %d", count_in(&res, "main.odin"))
     for sym in res.symbols {
         if strings.has_suffix(sym.path, "color.odin") {
-            testing.expectf(t, sym.offset == strings.index(color_src, "return .Red") + len("return ."),"color.odin ref: got %d", sym.offset)
+            testing.expectf(t, sym.offset == strings.index(color_src, "return .Red") + len("return ."), "color.odin ref: got %d", sym.offset)
         } else {
             testing.expectf(t, sym.offset == strings.index(main_src, "Color.Red") + len("Color."), "main.odin ref: got %d", sym.offset)
         }
@@ -401,7 +398,7 @@ test_references_path_with_dot_dot :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    src := "package p\n\nf :: proc() {}\n\ng :: proc() {\n\tf()\n}\n"
+    src  := "package p\n\nf :: proc() {}\n\ng :: proc() {\n\tf()\n}\n"
     root := fixture(t, "refs_dot_dot", {{"a.odin", src}, {"sub/keep.txt", ""}})
     defer os.remove_all(root)
 
@@ -505,7 +502,7 @@ test_rename_refuses_a_stdlib_declaration :: proc(t: ^testing.T) {
     if odin_root(&e.root) == "" {
         return
     }
-    src := "package app\n\nimport \"core:fmt\"\n\nmain :: proc() {\n\tfmt.println(\"hi\")\n}\n"
+    src  := "package app\n\nimport \"core:fmt\"\n\nmain :: proc() {\n\tfmt.println(\"hi\")\n}\n"
     root := fixture(t, "rename_stdlib", {})
     defer os.remove_all(root)
 
@@ -521,11 +518,15 @@ test_rename_keeps_platform_files_in_step :: proc(t: ^testing.T) {
     defer engine_destroy(e)
 
     a_src := "package demo\n\nmain :: proc() {\n\thelper()\n}\n"
-    root := fixture(t, "rename_platform_files", {
-        {"a.odin", a_src},
-        {"x_windows.odin", "package demo\n\nhelper :: proc() {}\n"},
-        {"x_linux.odin", "package demo\n\nhelper :: proc() {}\n\nagain :: proc() {\n\thelper()\n}\n"},
-    })
+    root  := fixture(
+        t,
+        "rename_platform_files",
+        {
+            {"a.odin", a_src},
+            {"x_windows.odin", "package demo\n\nhelper :: proc() {}\n"},
+            {"x_linux.odin", "package demo\n\nhelper :: proc() {}\n\nagain :: proc() {\n\thelper()\n}\n"},
+        },
+    )
     defer os.remove_all(root)
 
     res := rename_at(e, a_src, "helper()", "assist", root, fixture_path(root, "a.odin"))
@@ -546,12 +547,16 @@ test_references_builtin :: proc(t: ^testing.T) {
     if odin_root(&e.root) == "" {
         testing.fail_now(t, "no Odin root: ODIN_ROOT, `odin root` and the build root all failed")
     }
-    root := fixture(t, "refs_builtin", {
-        {"app/size.odin", "package app\n\nsize :: proc(s: string) -> int {\n\treturn len(s)\n}\n"},
-        {"lib/lib.odin", "package lib\n\ncount :: proc(xs: []int) -> int {\n\treturn len(xs) + len(xs)\n}\n"},
-        {"own/own.odin", "package own\n\nlen :: proc(xs: []int) -> int {\n\treturn 0\n}\n"},
-        {"own/own_use.odin", "package own\n\nuse :: proc(xs: []int) -> int {\n\treturn len(xs)\n}\n"},
-    })
+    root := fixture(
+        t,
+        "refs_builtin",
+        {
+            {"app/size.odin", "package app\n\nsize :: proc(s: string) -> int {\n\treturn len(s)\n}\n"},
+            {"lib/lib.odin", "package lib\n\ncount :: proc(xs: []int) -> int {\n\treturn len(xs) + len(xs)\n}\n"},
+            {"own/own.odin", "package own\n\nlen :: proc(xs: []int) -> int {\n\treturn 0\n}\n"},
+            {"own/own_use.odin", "package own\n\nuse :: proc(xs: []int) -> int {\n\treturn len(xs)\n}\n"},
+        },
+    )
     defer os.remove_all(root)
 
     src := "package app\n\nmain :: proc() {\n\ts := \"ab\"\n\t_ = len(s)\n}\n"
@@ -586,7 +591,7 @@ test_rename_refuses_a_builtin :: proc(t: ^testing.T) {
 // The offsets of `needle` in `src`, in order, each moved by `skip`. Temp-allocated.
 @(private = "file")
 all_offsets :: proc(src, needle: string, skip := 0) -> []int {
-    out := make([dynamic]int, context.temp_allocator)
+    out  := make([dynamic]int, context.temp_allocator)
     from := 0
     for {
         i := strings.index(src[from:], needle)
@@ -636,13 +641,13 @@ test_references_typed_field :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    want := []int {
+    want := []int{
         strings.index(FIELD_SRC, "e.id") + 2,
         strings.index(FIELD_SRC, "pe.next.id") + len("pe.next."),
         strings.index(FIELD_SRC, "e.base.id") + len("e.base."),
         strings.index(FIELD_SRC, "Base{id") + len("Base{"),
     }
-    res := refs_at(e, FIELD_SRC, "id: int")
+    res  := refs_at(e, FIELD_SRC, "id: int")
     expect_offsets(t, &res, want)
     free_refs(&res)
 
@@ -663,7 +668,7 @@ test_references_typed_implicit_selectors :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    src := `package demo
+    src  := `package demo
 
 Color :: enum {
 	Red,
@@ -713,10 +718,10 @@ test_references_typed_param :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    lib_src := "package lib\n\ngrow :: proc(size: int, step := 1) -> int {\n\treturn size + step\n}\n\nuse :: proc() {\n\t_ = grow(size = 2)\n}\n"
+    lib_src   := "package lib\n\ngrow :: proc(size: int, step := 1) -> int {\n\treturn size + step\n}\n\nuse :: proc() {\n\t_ = grow(size = 2)\n}\n"
     other_src := "package lib\n\nagain :: proc() {\n\t_ = grow(size = 3, step = 2)\n\tsize := 1\n\t_ = size\n}\n"
-    main_src := "package app\n\nimport \"lib\"\n\nmain :: proc() {\n\t_ = lib.grow(size = 4)\n}\n"
-    root := fixture(t, "refs_typed_param", {{"lib/lib.odin", lib_src}, {"lib/other.odin", other_src}, {"main.odin", main_src}})
+    main_src  := "package app\n\nimport \"lib\"\n\nmain :: proc() {\n\t_ = lib.grow(size = 4)\n}\n"
+    root      := fixture(t, "refs_typed_param", {{"lib/lib.odin", lib_src}, {"lib/other.odin", other_src}, {"main.odin", main_src}})
     defer os.remove_all(root)
     lib_path := fixture_path(root, "lib/lib.odin")
 
@@ -744,10 +749,10 @@ test_references_typed_field_cross_package :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    lib_src := "package lib\n\nVec :: struct {\n\tlen: f32,\n}\n\norigin :: proc() -> ^Vec {\n\treturn nil\n}\n"
+    lib_src  := "package lib\n\nVec :: struct {\n\tlen: f32,\n}\n\norigin :: proc() -> ^Vec {\n\treturn nil\n}\n"
     more_src := "package lib\n\nscale :: proc(v: Vec) -> f32 {\n\treturn v.len\n}\n"
     main_src := "package app\n\nimport \"../lib\"\n\nWrap :: struct {\n\tv: lib.Vec,\n}\n\nmain :: proc() {\n\tw: Wrap\n\t_ = w.v.len\n\t_ = lib.origin().len\n\t_ = lib.Vec{len = 1}\n\ts := \"x\"\n\t_ = len(s)\n}\n"
-    root := fixture(t, "refs_typed_field_package", {{"lib/lib.odin", lib_src}, {"lib/more.odin", more_src}, {"app/main.odin", main_src}})
+    root     := fixture(t, "refs_typed_field_package", {{"lib/lib.odin", lib_src}, {"lib/more.odin", more_src}, {"app/main.odin", main_src}})
     defer os.remove_all(root)
     main_path := fixture_path(root, "app/main.odin")
 
@@ -785,9 +790,9 @@ test_references_using_bare_name :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    src := "package demo\n\nBase :: struct {\n\tid: int,\n}\n\nEntity :: struct {\n\tusing base: Base,\n}\n\nmove :: proc(using e: ^Entity, b: Base) -> int {\n\tid += 1\n\t_ = b.id\n\treturn id\n}\n\nid :: proc() {}\n"
+    src  := "package demo\n\nBase :: struct {\n\tid: int,\n}\n\nEntity :: struct {\n\tusing base: Base,\n}\n\nmove :: proc(using e: ^Entity, b: Base) -> int {\n\tid += 1\n\t_ = b.id\n\treturn id\n}\n\nid :: proc() {}\n"
     uses := []int{strings.index(src, "id += 1"), strings.index(src, "b.id") + 2, strings.index(src, "return id") + 7}
-    res := refs_at(e, src, "id: int")
+    res  := refs_at(e, src, "id: int")
     expect_offsets(t, &res, uses)
     free_refs(&res)
 
@@ -808,10 +813,11 @@ test_code_lens_matches_references :: proc(t: ^testing.T) {
     defer engine_destroy(e)
 
     main_src := "package app\n\nshared :: proc(n: int) -> int {\n\treturn n\n}\n\n@(private = \"file\")\nhid :: proc() {}\n\nrun :: proc() {\n\t_ = shared(1)\n\thid()\n}\n"
-    root := fixture(t, "lens_matches_refs", {
-        {"zapp/helper.odin", "package app\n\nagain :: proc() -> int {\n\thid()\n\treturn shared(2)\n}\n"},
-        {"alib/uses_app.odin", USES_APP_SRC},
-    })
+    root     := fixture(
+        t,
+        "lens_matches_refs",
+        {{"zapp/helper.odin", "package app\n\nagain :: proc() -> int {\n\thid()\n\treturn shared(2)\n}\n"}, {"alib/uses_app.odin", USES_APP_SRC}},
+    )
     defer os.remove_all(root)
     main_path := fixture_path(root, "zapp/main.odin")
 

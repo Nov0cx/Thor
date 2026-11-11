@@ -23,7 +23,7 @@ LAB_FILE :: setting.USER_DIR + "/tutorial/playground.odin"
 
 // The broken playground, line by line. The trailing spaces are deliberate.
 @(private = "file")
-LAB_LINES := [?]string {
+LAB_LINES := [?]string{
     "package tutorial",
     "",
     "// Thor's tutorial playground. Every defect in this file is deliberate: it",
@@ -77,7 +77,7 @@ LAB_SHAPES := [?]string{"Circle", "Square", "Triangle"}
 LAB_CONSTANTS := [?]string{"MAX_ITEMS", "DEFAULT_LABEL", "RETRY_LIMIT"}
 
 @(private = "file")
-LAB_TITLES := [LAB_TASKS]string {
+LAB_TITLES := [LAB_TASKS]string{
     "Close the call, so the file parses",
     "Import the package `fmt` comes from",
     "Remove the import nothing uses",
@@ -97,7 +97,7 @@ Indent_Rule :: struct {
 }
 
 @(private = "file")
-LAB_INDENT := [?]Indent_Rule {
+LAB_INDENT := [?]Indent_Rule{
     {"total+=it.count", 8, "`total += it.count`"},
     {"fmt.printfln(\"%sx%d\"", 8, "the per-item `fmt.printfln`"},
     {"fmt.printfln(\"%s:%ditems", 4, "the last `fmt.printfln`"},
@@ -113,13 +113,13 @@ Lab :: struct {
 // What every task reads: the buffer, its lines and where the parse stopped.
 // All in the temp allocator; `src` borrows the buffer for the frame.
 Lab_State :: struct {
-    src:        string,
-    lines:      []string,
-    starts:     []int, // byte offset of each line
-    parse_ok:   bool,
-    parse_at:   int,
-    parse_end:  int,
-    parse_msg:  string,
+    src:       string,
+    lines:     []string,
+    starts:    []int, // byte offset of each line
+    parse_ok:  bool,
+    parse_at:  int,
+    parse_end: int,
+    parse_msg: string,
 }
 
 thor_lab_destroy :: proc(lab: ^Lab) {
@@ -153,8 +153,8 @@ thor_lab_file :: proc(thor: ^Thor) -> ^Open_File {
 // asks before it resets a copy that was edited.
 thor_lab_start :: proc(thor: ^Thor) {
     thor.tutorial.lab.show_task = -1
-    path := thor_lab_path()
-    source := thor_lab_source()
+    path         := thor_lab_path()
+    source       := thor_lab_source()
     current, err := os.read_entire_file(path, context.temp_allocator)
     if err != nil {
         if !thor_lab_write(thor, path, source) {
@@ -169,8 +169,8 @@ thor_lab_start :: proc(thor: ^Thor) {
 
 // Confirm callback: puts the broken original back, in the buffer too.
 thor_lab_reset :: proc(data: rawptr) {
-    thor := cast(^Thor) data
-    path := thor_lab_path()
+    thor   := cast(^Thor)data
+    path   := thor_lab_path()
     source := thor_lab_source()
     if !thor_lab_write(thor, path, source) {
         return
@@ -211,11 +211,11 @@ thor_lab_state :: proc(thor: ^Thor) -> (Lab_State, bool) {
 
 lab_state_of :: proc(src: string) -> (st: Lab_State) {
     st.src = src
-    lines := make([dynamic]string, context.temp_allocator)
+    lines  := make([dynamic]string, context.temp_allocator)
     starts := make([dynamic]int, context.temp_allocator)
-    at := 0
+    at     := 0
     for at <= len(src) {
-        end := strings.index_byte(src[at:], '\n')
+        end  := strings.index_byte(src[at:], '\n')
         line := end < 0 ? src[at:] : src[at:at + end]
         append(&starts, at)
         append(&lines, strings.trim_suffix(line, "\r"))
@@ -521,11 +521,11 @@ lab_detail :: proc(st: ^Lab_State, task: int) -> string {
         }
         return fmt.tprintf(
             "The parser stops at line %d: %s.\n\n" +
-            "The cause is the per-item `fmt.printfln`: its `(` is never closed, so every line after it " +
-            "belongs to an expression that does not end. Until the file parses, hover, go to definition " +
-            "and code actions have nothing to read.\n\n" +
-            "Type the missing `)`. {{key:matching_bracket} jumps between a pair of brackets, so you can see " +
-            "which one has no partner.",
+                "The cause is the per-item `fmt.printfln`: its `(` is never closed, so every line after it " +
+                "belongs to an expression that does not end. Until the file parses, hover, go to definition " +
+                "and code actions have nothing to read.\n\n" +
+                "Type the missing `)`. {{key:matching_bracket} jumps between a pair of brackets, so you can see " +
+                "which one has no partner.",
             at,
             st.parse_msg,
         )
@@ -553,19 +553,19 @@ lab_detail :: proc(st: ^Lab_State, task: int) -> string {
         }
         return fmt.tprintf(
             "The switch does not name %s. A switch over an enum must cover every member unless it is " +
-            "`#partial switch`, so the compiler answers `Unhandled switch cases`.\n\n" +
-            "Put the caret in the switch and press {{key:code_actions}: Thor adds the missing arms. Give " +
-            "each one its `return`.\n\n" +
-            "{{key:goto_definition} on `Shape` opens the enum, and {{key:jump_back} comes back.",
+                "`#partial switch`, so the compiler answers `Unhandled switch cases`.\n\n" +
+                "Put the caret in the switch and press {{key:code_actions}: Thor adds the missing arms. Give " +
+                "each one its `return`.\n\n" +
+                "{{key:goto_definition} on `Shape` opens the enum, and {{key:jump_back} comes back.",
             list_of(missing[:]),
         )
     case 5:
         wrong := misindented(st)
-        b := strings.builder_make(context.temp_allocator)
+        b     := strings.builder_make(context.temp_allocator)
         strings.write_string(&b, "Odin compiles `report` at any depth, but these lines are at the wrong column:\n\n")
         strings.write_string(&b, "| Line | What | Now | Want |\n| --- | --- | --- | --- |\n")
         shallow := make([dynamic]int, context.temp_allocator)
-        deep := make([dynamic]int, context.temp_allocator)
+        deep    := make([dynamic]int, context.temp_allocator)
         for w in wrong {
             fmt.sbprintf(&b, "| %d | %s | %d | %d |\n", w.line + 1, w.label, w.have, w.want)
             append(w.have < w.want ? &shallow : &deep, w.line)
@@ -580,8 +580,8 @@ lab_detail :: proc(st: ^Lab_State, task: int) -> string {
     case 6:
         return fmt.tprintf(
             "Line %s ends in whitespace you cannot see. It breaks nothing, but it shows in every diff " +
-            "that touches the line.\n\n" +
-            "{{key:trim_trailing_whitespace} trims every line of the file in one undo step.",
+                "that touches the line.\n\n" +
+                "{{key:trim_trailing_whitespace} trims every line of the file in one undo step.",
             line_numbers(trailing_lines(st)),
         )
     case 7:
@@ -597,7 +597,7 @@ lab_detail :: proc(st: ^Lab_State, task: int) -> string {
 
 // The analyzer's message on the defect of `task`, or "". Borrowed from the file.
 thor_lab_diagnostic :: proc(thor: ^Thor, st: ^Lab_State, task: int) -> string {
-    file := thor_lab_file(thor)
+    file       := thor_lab_file(thor)
     lo, hi, ok := lab_target(st, task)
     if file == nil || !ok {
         return ""
@@ -632,7 +632,7 @@ thor_lab_show :: proc(thor: ^Thor, task: int) {
 
 // The screen rect of the lines the shown range covers, when a pane shows the lab file.
 thor_lab_show_rect :: proc(thor: ^Thor) -> (rect: ui.Rect, ok: bool) {
-    lab := &thor.tutorial.lab
+    lab  := &thor.tutorial.lab
     file := thor_lab_file(thor)
     if file == nil || lab.show_task < 0 {
         return
@@ -642,12 +642,12 @@ thor_lab_show_rect :: proc(thor: ^Thor) -> (rect: ui.Rect, ok: bool) {
         if editor.state != &file.state {
             continue
         }
-        _, top, lh, top_ok := editview.editor_screen_at(editor, lab.show_lo)
+        _, top, lh, top_ok      := editview.editor_screen_at(editor, lab.show_lo)
         _, bottom, _, bottom_ok := editview.editor_screen_at(editor, lab.show_hi)
         if !top_ok || !bottom_ok {
             return
         }
-        r := thor.pane_rect[pane]
+        r  := thor.pane_rect[pane]
         y0 := max(top, r.y)
         y1 := min(bottom + lh, r.y + r.h)
         if y1 <= y0 {

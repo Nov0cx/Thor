@@ -52,24 +52,24 @@ collect_defers :: proc(m: ^Scope_Map, loop_start: int, n: odinsyntax.Syntax_Node
 // True when the deferred call is a release and every local it names is declared before the loop.
 @(private = "file")
 releases_outer :: proc(m: ^Scope_Map, loop_start: int, d: odinsyntax.Syntax_Node) -> bool {
-    d := d
+    d     := d
     ds, _ := odinsyntax.as_defer_stmt(d)
-    stmt := odinsyntax.defer_stmt_stmt(&ds) or_return
+    stmt  := odinsyntax.defer_stmt_stmt(&ds) or_return
     if stmt.green.kind != .Expr_Stmt {
         return false
     }
     es, _ := odinsyntax.as_expr_stmt(stmt)
-    call := odinsyntax.expr_stmt_expr(&es) or_return
+    call  := odinsyntax.expr_stmt_expr(&es) or_return
     if call.green.kind != .Call_Expr {
         return false
     }
-    ce, _ := odinsyntax.as_call_expr(call)
+    ce, _  := odinsyntax.as_call_expr(call)
     callee := odinsyntax.call_expr_callee(&ce) or_return
     if !release_name(odinsyntax.node_text(callee)) {
         return false
     }
     start := int(d.offset)
-    end := start + int(d.green.text_len)
+    end   := start + int(d.green.text_len)
     outer := 0
     for r in m.refs {
         if r.start < start || r.start >= end || r.kind != .Local {

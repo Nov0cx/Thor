@@ -55,10 +55,10 @@ tasks_decode :: proc(thor: ^Thor, data: []u8, allocator := context.allocator) ->
         if !is_obj {
             continue
         }
-        raw_name, _ := entry["name"].(json.String)
+        raw_name, _    := entry["name"].(json.String)
         raw_command, _ := entry["command"].(json.String)
-        name := strings.trim_space(string(raw_name))
-        command := strings.trim_space(string(raw_command))
+        name           := strings.trim_space(string(raw_name))
+        command        := strings.trim_space(string(raw_command))
         if name == "" || command == "" {
             continue
         }
@@ -88,7 +88,7 @@ tasks_value :: proc(tasks: []^Task) -> json.Array {
 tasks_encode :: proc(tasks: []^Task, allocator := context.temp_allocator) -> ([]u8, bool) {
     root := make(json.Object, 1, context.temp_allocator)
     root["tasks"] = tasks_value(tasks)
-    return transmute([]u8) luaconf.encode(root, allocator), true
+    return transmute([]u8)luaconf.encode(root, allocator), true
 }
 
 // Replaces the in-memory tasks with the workspace's. Missing file: none.
@@ -209,7 +209,7 @@ thor_task_selector_label :: proc(thor: ^Thor) -> string {
 // Selector dropdown: the workspace tasks, then the rows that edit them. Picking
 // a task selects it; the run button next to the selector runs it.
 thor_open_tasks_menu :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
 
     thor_menu_clear(thor)
     if len(thor.tasks) == 0 {
@@ -229,7 +229,7 @@ thor_open_tasks_menu :: proc(data: rawptr) {
 // Menu row: selects the task the row was built from.
 @(private = "file")
 thor_menu_select_task :: proc(data: rawptr) {
-    task := cast(^Task) data
+    task := cast(^Task)data
     thor_select_task(task.thor, task.name)
 }
 
@@ -250,7 +250,7 @@ thor_task_names :: proc(thor: ^Thor) -> []string {
 
 // Run button: runs whatever the selector shows.
 thor_cmd_run_active_task :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     task := thor_active_task(thor)
     if task == nil {
         thor_flash_status(thor, "No task selected", true)
@@ -261,7 +261,7 @@ thor_cmd_run_active_task :: proc(data: rawptr) {
 
 // Picks a task by name and runs it, leaving it selected.
 thor_cmd_run_task :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if len(thor.tasks) == 0 {
         thor_flash_status(thor, "No tasks in this workspace", true)
         return
@@ -271,7 +271,7 @@ thor_cmd_run_task :: proc(data: rawptr) {
 
 @(private = "file")
 thor_pick_run_task :: proc(data: rawptr, name: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if task := thor_find_task(thor, name); task != nil {
         thor_select_task(thor, task.name)
         thor_run_task(thor, task)
@@ -281,13 +281,13 @@ thor_pick_run_task :: proc(data: rawptr, name: string) {
 // Prompts for a name, then for the command it runs. An existing name is updated
 // rather than duplicated.
 thor_cmd_add_task :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_palette_prompt(thor, "Task name", thor_prompt_task_name, thor)
 }
 
 @(private = "file")
 thor_prompt_task_name :: proc(data: rawptr, name: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     delete(thor.pending_task_name)
     thor.pending_task_name = strings.clone(name)
     thor_palette_prompt(thor, "Command to run", thor_prompt_task_command, thor)
@@ -295,7 +295,7 @@ thor_prompt_task_name :: proc(data: rawptr, name: string) {
 
 @(private = "file")
 thor_prompt_task_command :: proc(data: rawptr, command: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     defer {
         delete(thor.pending_task_name)
         thor.pending_task_name = ""
@@ -321,7 +321,7 @@ thor_prompt_task_command :: proc(data: rawptr, command: string) {
 }
 
 thor_cmd_remove_task :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if len(thor.tasks) == 0 {
         thor_flash_status(thor, "No tasks in this workspace", true)
         return
@@ -331,7 +331,7 @@ thor_cmd_remove_task :: proc(data: rawptr) {
 
 @(private = "file")
 thor_pick_remove_task :: proc(data: rawptr, name: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     for task, index in thor.tasks {
         if task.name != name {
             continue
@@ -348,7 +348,7 @@ thor_pick_remove_task :: proc(data: rawptr, name: string) {
 // Opens the workspace's tasks.lua in a tab, writing it first when it is absent
 // so there is always a file to edit. The config poll picks up manual edits.
 thor_cmd_edit_tasks :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     path := thor_tasks_file(thor.workspace_dir)
     if !os.exists(path) {
         thor_save_tasks(thor)

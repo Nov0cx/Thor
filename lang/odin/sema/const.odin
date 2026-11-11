@@ -72,7 +72,7 @@ const_eval :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (Co
     case .Literal:
         return literal_value(c, n)
     case .Paren_Expr:
-        p, _ := odinsyntax.as_paren_expr(n)
+        p, _      := odinsyntax.as_paren_expr(n)
         inner, ok := odinsyntax.paren_expr_expr(&p)
         if !ok {
             return nil, false
@@ -86,8 +86,8 @@ const_eval :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (Co
             }
         }
     case .Unary_Expr:
-        u, _ := odinsyntax.as_unary_expr(n)
-        op, has_op := odinsyntax.unary_expr_op(&u)
+        u, _                 := odinsyntax.as_unary_expr(n)
+        op, has_op           := odinsyntax.unary_expr_op(&u)
         operand, has_operand := odinsyntax.unary_expr_operand(&u)
         if !has_op || !has_operand {
             return nil, false
@@ -98,8 +98,8 @@ const_eval :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (Co
         }
         return const_unary(op.green.kind, v)
     case .Binary_Expr:
-        b, _ := odinsyntax.as_binary_expr(n)
-        op, has_op := odinsyntax.binary_expr_op(&b)
+        b, _         := odinsyntax.as_binary_expr(n)
+        op, has_op   := odinsyntax.binary_expr_op(&b)
         lhs, has_lhs := odinsyntax.binary_expr_lhs(&b)
         rhs, has_rhs := odinsyntax.binary_expr_rhs(&b)
         if !has_op || !has_lhs || !has_rhs {
@@ -148,9 +148,9 @@ const_eval :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (Co
 // `intrinsics.has_target_feature("f")` for the snapshot's target.
 @(private = "file")
 feature_call :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (Const_Value, bool) {
-    ce, _ := odinsyntax.as_call_expr(n)
+    ce, _              := odinsyntax.as_call_expr(n)
     callee, has_callee := odinsyntax.call_expr_callee(&ce)
-    list, has_list := odinsyntax.call_expr_args(&ce)
+    list, has_list     := odinsyntax.call_expr_args(&ce)
     if !has_callee || !has_list {
         return nil, false
     }
@@ -158,7 +158,7 @@ feature_call :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (
     if !is_sel {
         return nil, false
     }
-    field, has_field := odinsyntax.selector_expr_field(&sel)
+    field, has_field     := odinsyntax.selector_expr_field(&sel)
     operand, has_operand := odinsyntax.selector_expr_operand(&sel)
     if !has_field || !has_operand || odinsyntax.node_text(odinsyntax.Syntax_Node(field)) != "has_target_feature" {
         return nil, false
@@ -171,12 +171,12 @@ feature_call :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (
     if !strings.has_suffix(strings.trim_right(dir, "/"), "base/intrinsics") {
         return nil, false
     }
-    it := odinsyntax.arg_list_args(&list)
+    it           := odinsyntax.arg_list_args(&list)
     arg, has_arg := odinsyntax.child_iter_next(&it)
     if _, more := odinsyntax.child_iter_next(&it); !has_arg || more {
         return nil, false
     }
-    v, ok := const_eval(c, file, arg)
+    v, ok               := const_eval(c, file, arg)
     features, is_string := v.(string)
     if !ok || !is_string {
         return nil, false
@@ -211,7 +211,7 @@ enum_name_compare :: proc(c: ^Checker, file: File_Id, op: odinsyntax.Token_Kind,
     if v.kind != .Name {
         return nil, false
     }
-    is, _ := odinsyntax.as_implicit_selector(member)
+    is, _     := odinsyntax.as_implicit_selector(member)
     field, ok := odinsyntax.implicit_selector_field(&is)
     if !ok {
         return nil, false
@@ -222,11 +222,20 @@ enum_name_compare :: proc(c: ^Checker, file: File_Id, op: odinsyntax.Token_Kind,
 
 // `cond ? then : other` with a constant condition.
 @(private = "file")
-const_choose :: proc(c: ^Checker, file: File_Id, cond: odinsyntax.Syntax_Node, has_cond: bool, then: odinsyntax.Syntax_Node, has_then: bool, other: odinsyntax.Syntax_Node, has_other: bool) -> (Const_Value, bool) {
+const_choose :: proc(
+    c: ^Checker,
+    file: File_Id,
+    cond: odinsyntax.Syntax_Node,
+    has_cond: bool,
+    then: odinsyntax.Syntax_Node,
+    has_then: bool,
+    other: odinsyntax.Syntax_Node,
+    has_other: bool,
+) -> (Const_Value, bool) {
     if !has_cond || !has_then || !has_other {
         return nil, false
     }
-    v, ok := const_eval(c, file, cond)
+    v, ok      := const_eval(c, file, cond)
     b, is_bool := v.(bool)
     if !ok || !is_bool {
         return nil, false
@@ -261,7 +270,7 @@ const_to_f64 :: proc(v: Const_Value) -> (f64, bool) {
 // The value of a literal token.
 @(private)
 literal_value :: proc(c: ^Checker, n: odinsyntax.Syntax_Node) -> (Const_Value, bool) {
-    lit, _ := odinsyntax.as_literal(n)
+    lit, _  := odinsyntax.as_literal(n)
     tok, ok := odinsyntax.literal_token(&lit)
     if !ok {
         return nil, false
@@ -277,14 +286,14 @@ literal_value :: proc(c: ^Checker, n: odinsyntax.Syntax_Node) -> (Const_Value, b
                 return nil, false
             }
             bits, parsed := strconv.parse_u64_of_base(text[2:], 16)
-            f := transmute(f64)bits
+            f            := transmute(f64)bits
             if !parsed || f != f || abs(f) > max(f64) {
                 return nil, false
             }
             return f, true
         }
         clean, _ := strings.remove_all(text, "_", c.alloc)
-        v, fok := strconv.parse_f64(clean)
+        v, fok   := strconv.parse_f64(clean)
         return v, fok
     case .Rune:
         if len(text) < 3 || text[0] != '\'' {
@@ -312,11 +321,16 @@ parse_integer :: proc(text: string) -> (Const_Value, bool) {
     base: u128 = 10
     if len(s) > 2 && s[0] == '0' {
         switch s[1] {
-        case 'b': base, s = 2, s[2:]
-        case 'o': base, s = 8, s[2:]
-        case 'd': base, s = 10, s[2:]
-        case 'z': base, s = 12, s[2:]
-        case 'x': base, s = 16, s[2:]
+        case 'b':
+            base, s = 2, s[2:]
+        case 'o':
+            base, s = 8, s[2:]
+        case 'd':
+            base, s = 10, s[2:]
+        case 'z':
+            base, s = 12, s[2:]
+        case 'x':
+            base, s = 16, s[2:]
         }
     }
     value: u128
@@ -421,9 +435,12 @@ const_binary :: proc(c: ^Checker, op: odinsyntax.Token_Kind, l, r: Const_Value) 
             return nil, false
         }
         #partial switch op {
-        case .Add: return a + b, true
-        case .Sub: return a - b, true
-        case .Mul: return a * b, true
+        case .Add:
+            return a + b, true
+        case .Sub:
+            return a - b, true
+        case .Mul:
+            return a * b, true
         case .Quo:
             if b == 0 {
                 return nil, false
@@ -540,7 +557,11 @@ int_binary :: proc(op: odinsyntax.Token_Kind, a, b: i64) -> (i64, bool) {
 
 // `+ - * / <<` of two integers exactly, as decimal text in `allocator`, and whether integer type `t`
 // holds the result. False on division by zero, a negative shift count or one over 1024.
-const_wide_binary :: proc(c: ^Checker, t: Type_Id, op: odinsyntax.Token_Kind, a, b: Wide_Int, allocator := context.allocator) -> (text: string, fits: bool, ok: bool) {
+const_wide_binary :: proc(c: ^Checker, t: Type_Id, op: odinsyntax.Token_Kind, a, b: Wide_Int, allocator := context.allocator) -> (
+    text: string,
+    fits: bool,
+    ok: bool,
+) {
     if op == .Quo {
         if b.mag == 0 {
             return "", false, false
@@ -559,11 +580,16 @@ const_wide_binary :: proc(c: ^Checker, t: Type_Id, op: odinsyntax.Token_Kind, a,
     }
     err: big.Error
     #partial switch op {
-    case .Add: err = big.int_add(&r, &x, &y)
-    case .Sub: err = big.int_sub(&r, &x, &y)
-    case .Mul: err = big.int_mul(&r, &x, &y)
-    case .Shl: err = big.int_shl(&r, &x, int(b.mag))
-    case:      return "", false, false
+    case .Add:
+        err = big.int_add(&r, &x, &y)
+    case .Sub:
+        err = big.int_sub(&r, &x, &y)
+    case .Mul:
+        err = big.int_mul(&r, &x, &y)
+    case .Shl:
+        err = big.int_shl(&r, &x, int(b.mag))
+    case:
+        return "", false, false
     }
     if err != nil {
         return "", false, false
@@ -644,12 +670,18 @@ const_compare :: proc(op: odinsyntax.Token_Kind, l, r: Const_Value) -> (Const_Va
         }
     }
     #partial switch op {
-    case .Cmp_Eq: return order == 0, true
-    case .Not_Eq: return order != 0, true
-    case .Lt:     return order < 0, true
-    case .Gt:     return order > 0, true
-    case .Lt_Eq:  return order <= 0, true
-    case .Gt_Eq:  return order >= 0, true
+    case .Cmp_Eq:
+        return order == 0, true
+    case .Not_Eq:
+        return order != 0, true
+    case .Lt:
+        return order < 0, true
+    case .Gt:
+        return order > 0, true
+    case .Lt_Eq:
+        return order <= 0, true
+    case .Gt_Eq:
+        return order >= 0, true
     }
     return nil, false
 }

@@ -29,12 +29,12 @@ Buffer_Header :: struct #packed {
 
 MAGIC :: 0x0BADF00D
 
-EV_BEGIN :: 3
-EV_END :: 4
-EV_INSTANT :: 5
-EV_PAD_SKIP :: 7
+EV_BEGIN        :: 3
+EV_END          :: 4
+EV_INSTANT      :: 5
+EV_PAD_SKIP     :: 7
 EV_NAME_PROCESS :: 8
-EV_NAME_THREAD :: 9
+EV_NAME_THREAD  :: 9
 
 Open :: struct {
     name:  string,
@@ -109,18 +109,18 @@ main :: proc() {
     // Event timestamps times the scale are nanoseconds.
     to_ms := f64(header.timestamp_scale) / 1e6
 
-    threads := make(map[u32]^Thread)
-    rows := make(map[Row_Key]Row)
-    instances := make([dynamic]Instance)
+    threads     := make(map[u32]^Thread)
+    rows        := make(map[Row_Key]Row)
+    instances   := make([dynamic]Instance)
     trace_start := max(f64)
-    unclosed := 0
+    unclosed    := 0
 
     offset := size_of(Stream_Header)
     for offset + size_of(Buffer_Header) <= len(data) {
         buf := (^Buffer_Header)(raw_data(data[offset:]))^
         offset += size_of(Buffer_Header)
         end := min(offset + int(buf.size), len(data))
-        th := threads[u32(buf.tid)]
+        th  := threads[u32(buf.tid)]
         if th == nil {
             th = new(Thread)
             th.name = fmt.aprintf("tid %d", buf.tid)
@@ -133,10 +133,10 @@ main :: proc() {
                 if pos + 11 > end {
                     break events
                 }
-                ts := f64((^u64le)(raw_data(data[pos + 1:]))^) * to_ms
+                ts       := f64((^u64le)(raw_data(data[pos + 1:]))^) * to_ms
                 name_len := int(data[pos + 9])
                 args_len := int(data[pos + 10])
-                body := pos + 11
+                body     := pos + 11
                 if body + name_len + args_len > end {
                     break events
                 }
@@ -155,7 +155,7 @@ main :: proc() {
                     continue
                 }
                 open := pop(&th.stack)
-                dur := ts - open.start
+                dur  := ts - open.start
                 if len(th.stack) > 0 {
                     th.stack[len(th.stack) - 1].child += dur
                 }
@@ -205,7 +205,9 @@ main :: proc() {
     }
 
     if list != "" {
-        slice.sort_by(instances[:], proc(a, b: Instance) -> bool {return a.start < b.start})
+        slice.sort_by(instances[:], proc(a, b: Instance) -> bool {
+            return a.start < b.start
+        })
         fmt.printfln("%-14s %10s %10s  %s", "thread", "start ms", "ms", "args")
         for inst in instances {
             if inst.dur < min_ms || (thread_filter != "" && inst.thread != thread_filter) {

@@ -114,7 +114,7 @@ watch_worker :: proc(w: ^Watcher) {
         }
 
         // Block until either the read completes or shutdown signals stop_event.
-        handles := [2]win32.HANDLE {overlapped.hEvent, w.platform.stop_event}
+        handles   := [2]win32.HANDLE{overlapped.hEvent, w.platform.stop_event}
         signalled := win32.WaitForMultipleObjects(2, &handles[0], false, win32.INFINITE)
         if signalled != win32.WAIT_OBJECT_0 {
             // stop_event (index 1) or a wait failure: cancel the pending read, then
@@ -170,12 +170,12 @@ watch_fallback :: proc(w: ^Watcher, failed: string) {
 watch_parse :: proc(w: ^Watcher, data: []u8) {
     offset := 0
     for offset < len(data) {
-        info := cast(^win32.FILE_NOTIFY_INFORMATION) raw_data(data[offset:])
+        info := cast(^win32.FILE_NOTIFY_INFORMATION)raw_data(data[offset:])
 
         // FileName is a WCHAR run of FileNameLength bytes, reported relative to
         // the watched root and already using backslash separators.
-        name_wchars := int(info.FileNameLength) / size_of(win32.WCHAR)
-        name_ptr := cast([^]u16) &info.FileName
+        name_wchars   := int(info.FileNameLength) / size_of(win32.WCHAR)
+        name_ptr      := cast([^]u16)&info.FileName
         rel, conv_err := win32.utf16_to_utf8(name_ptr[:name_wchars], context.temp_allocator)
         // One recursive handle covers the whole tree, so a dependency tree or
         // git's object store is filtered per event here. The other platforms

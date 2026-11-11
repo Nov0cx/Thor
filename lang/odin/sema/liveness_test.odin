@@ -201,7 +201,7 @@ f2 :: proc() -> int { return 2 }
 @(private = "file")
 live_lit :: proc(c: ^Checker, src, name: string) -> (odinsyntax.Syntax_Node, bool) {
     head := fmt.tprintf("\n%s :: proc", name)
-    at := strings.index(src, head)
+    at   := strings.index(src, head)
     if at < 0 {
         return {}, false
     }
@@ -235,7 +235,7 @@ test_liveness :: proc(t: ^testing.T) {
         return
     }
     defer check_end(&env)
-    c := &env.c
+    c      := &env.c
     parsed := db_parse(c.snap, ANON_FILE)
     if !testing.expect(t, parsed != nil, "no parse") {
         return
@@ -245,7 +245,7 @@ test_liveness :: proc(t: ^testing.T) {
         return
     }
     defer scope_map_destroy(m, context.temp_allocator)
-    cases := []Live_Case {
+    cases := []Live_Case{
         {name = "unused_plain", unused = {"a := 1", "b: int"}},
         {name = "unused_store_only", dead = {"a = 2"}},
         {name = "used_op_assign"},

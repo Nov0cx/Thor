@@ -102,7 +102,7 @@ swap_files :: proc(install: string, staged: string, names: []string) -> (failed:
     }
 
     // The names already renamed aside, so a failure below knows what to undo.
-    moved := make([dynamic]string, 0, len(names), context.temp_allocator)
+    moved    := make([dynamic]string, 0, len(names), context.temp_allocator)
     rollback := proc(install: string, moved: []string) {
         for name in moved {
             live, old, ok := swap_paths(install, name)
@@ -244,7 +244,7 @@ migrate_json_files :: proc(from: string, to: string) -> (carried: int, ok: bool)
             continue
         }
         destination, dest_err := filepath.join({to, entry.name}, context.temp_allocator)
-        source, source_err := filepath.join({from, entry.name}, context.temp_allocator)
+        source, source_err    := filepath.join({from, entry.name}, context.temp_allocator)
         if dest_err != nil || source_err != nil {
             log.warnf("Could not build a path for %q: %v", entry.name, dest_err != nil ? dest_err : source_err)
             continue

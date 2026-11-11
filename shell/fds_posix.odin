@@ -20,6 +20,6 @@ pipe_cloexec :: proc(fds: ^[2]posix.FD) -> bool {
 // Closes every descriptor from 3 up except `keep` (-1 keeps none). Runs in a
 // forked child, so only async-signal-safe calls; `limit` is fd_limit of the parent.
 @(private)
-close_inherited :: proc "contextless" (keep: int, limit: int) {
+close_inherited :: proc "contextless"(keep: int, limit: int) {
     close_each(3, limit, keep)
 }

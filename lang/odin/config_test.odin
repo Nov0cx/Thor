@@ -34,7 +34,11 @@ remove_config :: proc(root, cfg_path: string) {
 
 @(test)
 test_config_target_override :: proc(t: ^testing.T) {
-    root, cfg_path, ok := write_config(t, "thor_lang_target_ws", `return { target = { os = "linux", arch = "arm64" }, defines = { FAST = true, LEVEL = 3, NAME = "thor", ["bad name"] = 1, LIST = { 1 } } }`)
+    root, cfg_path, ok := write_config(
+        t,
+        "thor_lang_target_ws",
+        `return { target = { os = "linux", arch = "arm64" }, defines = { FAST = true, LEVEL = 3, NAME = "thor", ["bad name"] = 1, LIST = { 1 } } }`,
+    )
     if !ok {
         return
     }
@@ -47,13 +51,13 @@ test_config_target_override :: proc(t: ^testing.T) {
     testing.expect_value(t, target.os, odinsema.Target_OS.Linux)
     testing.expect_value(t, target.arch, odinsema.Target_Arch.arm64)
     testing.expect_value(t, len(target.defines), 3)
-    fast, has_fast := odinsema.target_define(target, "FAST")
+    fast, has_fast  := odinsema.target_define(target, "FAST")
     fast_v, fast_ok := fast.(bool)
     testing.expect(t, has_fast && fast_ok && fast_v)
-    level, has_level := odinsema.target_define(target, "LEVEL")
+    level, has_level  := odinsema.target_define(target, "LEVEL")
     level_v, level_ok := level.(i64)
     testing.expect(t, has_level && level_ok && level_v == 3)
-    name, has_name := odinsema.target_define(target, "NAME")
+    name, has_name  := odinsema.target_define(target, "NAME")
     name_v, name_ok := name.(string)
     testing.expect(t, has_name && name_ok && name_v == "thor")
     _, has_bad := odinsema.target_define(target, "bad name")
@@ -77,7 +81,7 @@ test_config_target_bad_values :: proc(t: ^testing.T) {
     defer engine_destroy(e)
 
     target := config_target(e, root)
-    host := odinsema.target_host()
+    host   := odinsema.target_host()
     testing.expect_value(t, target.os, host.os)
     testing.expect_value(t, target.arch, host.arch)
     testing.expect_value(t, len(target.defines), 0)
@@ -85,7 +89,11 @@ test_config_target_bad_values :: proc(t: ^testing.T) {
 
 @(test)
 test_target_flags :: proc(t: ^testing.T) {
-    root, cfg_path, ok := write_config(t, "thor_lang_flags_ws", `return { target = { os = "linux", arch = "arm64" }, defines = { FAST = true, LEVEL = 3, NAME = "thor", ODIN_DEBUG = true } }`)
+    root, cfg_path, ok := write_config(
+        t,
+        "thor_lang_flags_ws",
+        `return { target = { os = "linux", arch = "arm64" }, defines = { FAST = true, LEVEL = 3, NAME = "thor", ODIN_DEBUG = true } }`,
+    )
     if !ok {
         return
     }
@@ -142,7 +150,7 @@ test_file_target_override :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    file, _ := filepath.join({root, "a.odin"}, context.temp_allocator)
+    file, _  := filepath.join({root, "a.odin"}, context.temp_allocator)
     other, _ := filepath.join({root, "b.odin"}, context.temp_allocator)
     testing.expect(t, engine_set_target(e, file, "linux_amd64"))
 
@@ -218,7 +226,7 @@ test_target_flags_file_target :: proc(t: ^testing.T) {
     testing.expect(t, engine_set_target(e, file, "linux_amd64"))
     args := make([dynamic]string, context.temp_allocator)
     target_flags(e, root, &args, file)
-    targets := 0
+    targets   := 0
     seen_fast := false
     for a in args {
         if len(a) > 8 && a[:8] == "-target:" {

@@ -17,7 +17,7 @@ SLOW_COMMAND :: "ping -n 20 127.0.0.1" when ODIN_OS == .Windows else "sleep 20"
 // outlives it is killed and the call comes back on time.
 @(test)
 test_run_timeout_stops_a_slow_command :: proc(t: ^testing.T) {
-    start := time.tick_now()
+    start  := time.tick_now()
     output := run(SLOW_COMMAND, ".", 300 * time.Millisecond)
     defer delete(output)
 
@@ -37,7 +37,7 @@ test_run_cancel_stops_a_slow_command :: proc(t: ^testing.T) {
     })
     defer thread.destroy(setter)
 
-    start := time.tick_now()
+    start          := time.tick_now()
     output, _, ran := run_status(SLOW_COMMAND, ".", 60 * time.Second, &cancel)
     defer delete(output)
     elapsed := time.tick_since(start)
@@ -64,7 +64,7 @@ test_run_cancel_keeps_a_fast_command :: proc(t: ^testing.T) {
 // riding out the timeout in poll slices.
 @(test)
 test_run_timeout_keeps_a_fast_command :: proc(t: ^testing.T) {
-    start := time.tick_now()
+    start  := time.tick_now()
     output := run("echo thor", ".", 20 * time.Second)
     defer delete(output)
 
@@ -89,7 +89,7 @@ test_run_status_reports_the_exit_code :: proc(t: ^testing.T) {
 // unchanged and start nothing.
 @(test)
 test_exec_status_passes_arguments_whole :: proc(t: ^testing.T) {
-    hostile := `x" & echo INJECTED & rem "$(echo INJECTED)`
+    hostile           := `x" & echo INJECTED & rem "$(echo INJECTED)`
     output, code, ran := exec_status("git", {"rev-parse", "--sq-quote", hostile}, ".")
     defer delete(output)
 

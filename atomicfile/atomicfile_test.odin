@@ -50,13 +50,13 @@ test_write_replaces_and_creates :: proc(t: ^testing.T) {
     defer os.remove_all(dir)
 
     path := at(dir, "file.txt")
-    testing.expect_value(t, write(path, transmute([]byte) string("first")), nil)
+    testing.expect_value(t, write(path, transmute([]byte)string("first")), nil)
     testing.expect(t, holds(path, "first"), "a missing file must be created")
-    testing.expect_value(t, write(path, transmute([]byte) string("second\x00tail")), nil)
+    testing.expect_value(t, write(path, transmute([]byte)string("second\x00tail")), nil)
     testing.expect(t, holds(path, "second\x00tail"), "the file must hold the new data")
     testing.expect_value(t, write(path, nil), nil)
     testing.expect(t, holds(path, ""), "an empty write must empty the file")
-    testing.expect_value(t, write(path, transmute([]byte) string("fast"), durable = false), nil)
+    testing.expect_value(t, write(path, transmute([]byte)string("fast"), durable = false), nil)
     testing.expect(t, holds(path, "fast"), "a write with no flush must replace the file too")
     no_temp_left(t, dir)
 }
@@ -72,11 +72,11 @@ test_write_follows_a_symlink :: proc(t: ^testing.T) {
 
     real := at(dir, "real.txt")
     link := at(dir, "link.txt")
-    testing.expect_value(t, write(real, transmute([]byte) string("old")), nil)
+    testing.expect_value(t, write(real, transmute([]byte)string("old")), nil)
     if err := os.symlink("real.txt", link); err != nil {
         return
     }
-    testing.expect_value(t, write(link, transmute([]byte) string("new")), nil)
+    testing.expect_value(t, write(link, transmute([]byte)string("new")), nil)
     testing.expect(t, holds(real, "new"), "the link target must get the data")
     info, err := os.lstat(link, context.temp_allocator)
     testing.expect(t, err == nil && info.type == .Symlink, "the link must stay a link")
@@ -92,10 +92,10 @@ test_write_keeps_the_mode :: proc(t: ^testing.T) {
         defer os.remove_all(dir)
 
         path := at(dir, "run.sh")
-        testing.expect_value(t, write(path, transmute([]byte) string("#!/bin/sh\n")), nil)
+        testing.expect_value(t, write(path, transmute([]byte)string("#!/bin/sh\n")), nil)
         mode := os.perm_number(0o751)
         testing.expect_value(t, os.change_mode(path, mode), nil)
-        testing.expect_value(t, write(path, transmute([]byte) string("#!/bin/sh\necho\n")), nil)
+        testing.expect_value(t, write(path, transmute([]byte)string("#!/bin/sh\necho\n")), nil)
         info, err := os.stat(path, context.temp_allocator)
         testing.expect_value(t, err, nil)
         testing.expect_value(t, info.mode, mode)

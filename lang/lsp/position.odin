@@ -19,9 +19,9 @@ Encoding :: enum {
 // server read from disk. Lines split on '\n' only — a lone '\r' survives
 // `lang.source_read`, so counting it as a break makes the two views disagree.
 Line_Index :: struct {
-    starts:    []int,             // owned
-    crlf:      []int,             // owned; "\r\n" pairs before each line start (all zero for LF text)
-    text:      string,            // borrowed for the index's lifetime
+    starts:    []int,  // owned
+    crlf:      []int,  // owned; "\r\n" pairs before each line start (all zero for LF text)
+    text:      string, // borrowed for the index's lifetime
     encoding:  Encoding,
     allocator: runtime.Allocator, // what built `starts` and `crlf`
 }
@@ -40,9 +40,9 @@ line_index_build :: proc(text: string, encoding: Encoding, allocator := context.
     }
 
     starts := make([]int, count, allocator)
-    crlf := make([]int, count, allocator)
-    line := 1
-    pairs := 0
+    crlf   := make([]int, count, allocator)
+    line   := 1
+    pairs  := 0
     for index in 0 ..< len(text) {
         if text[index] != '\n' {
             continue
@@ -75,7 +75,7 @@ offset_from_position :: proc(idx: ^Line_Index, line, character: int) -> int {
     }
 
     start := idx.starts[line]
-    end := line_end(idx, line)
+    end   := line_end(idx, line)
     if character <= 0 {
         return start
     }
@@ -89,7 +89,7 @@ offset_from_position :: proc(idx: ^Line_Index, line, character: int) -> int {
         return rune_floor(idx.text, start, at)
     }
 
-    at := start
+    at    := start
     units := 0
     for units < character && at < end {
         r, size := utf8.decode_rune_in_string(idx.text[at:end])
@@ -148,7 +148,7 @@ utf16_offset :: proc(text: string, units: int) -> int {
     if units <= 0 {
         return 0
     }
-    at := 0
+    at      := 0
     counted := 0
     for counted < units && at < len(text) {
         r, size := utf8.decode_rune_in_string(text[at:])

@@ -36,7 +36,7 @@ hover :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
 // The hover text and the range it covers. Temp-allocated; "" when there is none.
 @(private = "file")
 hover_text :: proc(ctx: ^Request_Context) -> (text: string, start, end: int) {
-    offset := ctx.req.offset
+    offset  := ctx.req.offset
     m, merr := odinsema.scope_map_range(ctx.parsed, offset, offset, context.temp_allocator)
     if merr != nil {
         return
@@ -187,8 +187,8 @@ record_owner :: proc(field: ^odinsyntax.Syntax_Node) -> (string, bool) {
     if !ok {
         return "", false
     }
-    list := odinsyntax.Expr_List(p^)
-    index := 0
+    list   := odinsyntax.Expr_List(p^)
+    index  := 0
     values := odinsyntax.expr_list_items(&list)
     for v in odinsyntax.child_iter_next(&values) {
         if v.offset == value.offset {
@@ -201,7 +201,7 @@ record_owner :: proc(field: ^odinsyntax.Syntax_Node) -> (string, bool) {
         return "", false
     }
     it := odinsyntax.name_list_names(&names)
-    i := 0
+    i  := 0
     for name in odinsyntax.child_iter_next(&it) {
         if i == index {
             return strings.clone(odinsyntax.node_text(name), context.temp_allocator), true
@@ -222,7 +222,7 @@ universe_hover :: proc(ctx: ^Request_Context, name: string, offset: int) -> (str
     r := odinsema.lookup_name(c, ctx.live.id, name, offset)
     #partial switch r.kind {
     case .Basic:
-        id := odinsema.type_basic(r.basic)
+        id        := odinsema.type_basic(r.basic)
         canonical := odinsema.type_string(&c.table, id, context.temp_allocator)
         if canonical != name {
             return fmt.tprintf("%s :: %s", name, canonical), true
@@ -276,7 +276,7 @@ local_hover :: proc(ctx: ^Request_Context, name: string, offset, decl: int) -> s
     if c == nil || decl < 0 {
         return name
     }
-    file := ctx.live.id
+    file     := ctx.live.id
     l, found := odinsema.local_at(c, file, decl)
     op: odinsema.Operand
     if n, ok := odinsema.expr_under(c, file, offset); ok && n.green.kind == .Ident {
@@ -455,7 +455,7 @@ write_type_layout :: proc(sb: ^strings.Builder, c: ^odinsema.Checker, sym: odins
 // selector reads it through another struct `via`. Nothing when the offset is not known.
 @(private = "file")
 write_field_layout :: proc(sb: ^strings.Builder, c: ^odinsema.Checker, sym: odinsema.Symbol, name: string, type, via: odinsema.Type_Id) {
-    owner := odinsema.decl_type(c, odinsema.Symbol{file = sym.file, item = sym.item, child = -1})
+    owner    := odinsema.decl_type(c, odinsema.Symbol{file = sym.file, item = sym.item, child = -1})
     l, known := odinsema.layout_of(c, type)
     if !known {
         return
@@ -489,7 +489,7 @@ member_value :: proc(c: ^odinsema.Checker, sym: odinsema.Symbol, name: string) -
     if c == nil {
         return 0, false
     }
-    type := odinsema.type_base(&c.table, odinsema.decl_type(c, sym))
+    type  := odinsema.type_base(&c.table, odinsema.decl_type(c, sym))
     e, ok := odinsema.type_get(&c.table, type).(odinsema.Enum_Type)
     if !ok {
         return 0, false
@@ -530,7 +530,7 @@ write_children :: proc(sb: ^strings.Builder, children: []odinsema.Item) {
         return
     }
     strings.write_string(sb, " {\n")
-    lines := 0
+    lines      := 0
     last_start := -1
     for &child in children {
         if child.start == last_start {
@@ -556,7 +556,7 @@ write_variants :: proc(sb: ^strings.Builder, c: ^odinsema.Checker, sym: odinsema
     if c == nil {
         return
     }
-    type := odinsema.type_base(&c.table, odinsema.decl_type(c, sym))
+    type  := odinsema.type_base(&c.table, odinsema.decl_type(c, sym))
     u, ok := odinsema.type_get(&c.table, type).(odinsema.Union_Type)
     if !ok {
         return

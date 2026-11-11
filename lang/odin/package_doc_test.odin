@@ -8,14 +8,7 @@ import lang ".."
 // Runs a Package_Doc request at `at` in `source`.
 @(private = "file")
 package_doc_offset :: proc(e: ^Engine, source: string, at: int, workspace, path: string) -> lang.Result {
-    req := lang.Request {
-        kind      = .Package_Doc,
-        path      = path,
-        ext       = ".odin",
-        source    = source,
-        offset    = at,
-        workspace = workspace,
-    }
+    req := lang.Request{kind = .Package_Doc, path = path, ext = ".odin", source = source, offset = at, workspace = workspace}
     res := lang.Result{kind = .Package_Doc}
     resolve(e, &req, &res)
     return res
@@ -34,11 +27,11 @@ test_package_doc :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    lib_src := "package docpkg\n\n// Pings the server.\n// Returns the round-trip.\nping :: proc() -> int {\n\treturn 1\n}\n\n// A widget handle.\nWidget :: struct {\n\tid: int,\n}\n\n@(private)\nsecret :: proc() {\n}\n"
-    test_src := "package docpkg\n\ntested :: proc() {\n}\n"
-    root := fixture(t, "package_doc", {{"docpkg/docpkg.odin", lib_src}, {"docpkg/docpkg_test.odin", test_src}})
+    lib_src   := "package docpkg\n\n// Pings the server.\n// Returns the round-trip.\nping :: proc() -> int {\n\treturn 1\n}\n\n// A widget handle.\nWidget :: struct {\n\tid: int,\n}\n\n@(private)\nsecret :: proc() {\n}\n"
+    test_src  := "package docpkg\n\ntested :: proc() {\n}\n"
+    root      := fixture(t, "package_doc", {{"docpkg/docpkg.odin", lib_src}, {"docpkg/docpkg_test.odin", test_src}})
     main_path := fixture_path(root, "main.odin")
-    main_src := "package app\n\nimport \"docpkg\"\n\nmain :: proc() {\n\t_ = docpkg.ping()\n}\n"
+    main_src  := "package app\n\nimport \"docpkg\"\n\nmain :: proc() {\n\t_ = docpkg.ping()\n}\n"
 
     // The operand, the qualified name and the import line all name docpkg.
     for needle in ([]string{"docpkg.ping", "ping()", "\"docpkg\""}) {
@@ -63,15 +56,19 @@ test_package_doc_falls_back_to_own_package :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    disk_src := "package app\n\n// Adds the two.\nadd :: proc(a, b: int) -> int {\n\treturn a + b\n}\n"
-    root := fixture(t, "package_doc_own", {{"main.odin", disk_src}, {"other.odin", "package app\n\n// Subtracts.\nsub :: proc(a, b: int) -> int {\n\treturn a - b\n}\n"}})
-    main_path := fixture_path(root, "main.odin")
+    disk_src   := "package app\n\n// Adds the two.\nadd :: proc(a, b: int) -> int {\n\treturn a + b\n}\n"
+    root       := fixture(
+        t,
+        "package_doc_own",
+        {{"main.odin", disk_src}, {"other.odin", "package app\n\n// Subtracts.\nsub :: proc(a, b: int) -> int {\n\treturn a - b\n}\n"}},
+    )
+    main_path  := fixture_path(root, "main.odin")
     owned_path := strings.clone(main_path)
     defer delete(owned_path)
 
     // The buffer replaces its file on disk.
     main_src := "package app\n\n// Adds the two.\nadd :: proc(a, b: int) -> int {\n\treturn a + b\n}\n\nlive :: 1\n"
-    res := package_doc_offset(e, main_src, strings.index(main_src, "a + b"), root, owned_path)
+    res      := package_doc_offset(e, main_src, strings.index(main_src, "a + b"), root, owned_path)
     defer free_package_doc(&res)
 
     testing.expect(t, res.ok, "the file's own package should render docs")

@@ -9,7 +9,7 @@ import odinsema "sema"
 
 @(private = "file")
 run_syntax_check :: proc(source: string, e: ^Engine = nil, path := "pkg/file.odin") -> lang.Result {
-    e := e
+    e   := e
     own := e == nil
     if own {
         e = engine_create()
@@ -17,12 +17,7 @@ run_syntax_check :: proc(source: string, e: ^Engine = nil, path := "pkg/file.odi
     defer if own {
         engine_destroy(e)
     }
-    req := lang.Request {
-        kind   = .Syntax_Diagnostics,
-        path   = path,
-        ext    = ".odin",
-        source = source,
-    }
+    req := lang.Request{kind = .Syntax_Diagnostics, path = path, ext = ".odin", source = source}
     res: lang.Result
     syntax_diagnostics(e, &req, &res)
     return res
@@ -69,14 +64,14 @@ test_syntax_check_reports_line_and_col :: proc(t: ^testing.T) {
 test_syntax_check_reuses_the_parse :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
-    sources := []string {
+    sources := []string{
         "package p\n\nmain :: proc() {\n    x := 1\n}\n",
         "package p\n\nmain :: proc() {\n    x := 12\n}\n",
         "package p\n\nmain :: proc() {\n    x := 12\n    foo(1,\n}\n",
         "package p\n\nmain :: proc() {\n    x := 12\n    foo(1)\n}\n",
     }
     for source in sources {
-        res := run_syntax_check(source, e)
+        res  := run_syntax_check(source, e)
         cold := run_syntax_check(source)
         testing.expect(t, res.ok && cold.ok)
         testing.expect_value(t, len(res.report.items), len(cold.report.items))
@@ -118,12 +113,12 @@ test_syntax_check_evicts_the_oldest :: proc(t: ^testing.T) {
 
 @(private)
 db_stats :: proc(e: ^Engine) -> odinsema.Db_Stats {
-    return odinsema.Db_Stats {
-        reads        = sync.atomic_load(&e.db.stats.reads),
-        parses       = sync.atomic_load(&e.db.stats.parses),
-        reparses     = sync.atomic_load(&e.db.stats.reparses),
-        trees        = sync.atomic_load(&e.db.stats.trees),
-        scopes       = sync.atomic_load(&e.db.stats.scopes),
+    return odinsema.Db_Stats{
+        reads = sync.atomic_load(&e.db.stats.reads),
+        parses = sync.atomic_load(&e.db.stats.parses),
+        reparses = sync.atomic_load(&e.db.stats.reparses),
+        trees = sync.atomic_load(&e.db.stats.trees),
+        scopes = sync.atomic_load(&e.db.stats.scopes),
         local_scopes = sync.atomic_load(&e.db.stats.local_scopes),
     }
 }

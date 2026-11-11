@@ -25,7 +25,7 @@ f :: proc(a, b: int) -> int {
 }
 `
     root := fixture(t, "refactor_inline", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     sum := actions_at(t, e, root, SRC, "sum :=")
@@ -90,12 +90,12 @@ h :: proc(xs: []E) {
 }
 `
     root := fixture(t, "refactor_if_switch", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     chain := actions_at(t, e, root, SRC, "return 2")
     defer free_actions(&chain)
-    got := applied(t, &chain, SRC, "Convert to switch")
+    got  := applied(t, &chain, SRC, "Convert to switch")
     want := "    switch e {\n    case .A:\n        return 1\n    case .B, .C:\n        return 2\n    case:\n        return 3\n    }\n}"
     testing.expect(t, strings.contains(got, want), got)
 
@@ -119,7 +119,7 @@ h :: proc(xs: []E) {
 // selection `select` bytes long.
 @(private)
 resolve_at :: proc(t: ^testing.T, e: ^Engine, root, source, marker, command, answer: string, select := 0, skip := 0) -> lang.Result {
-    at := -1
+    at   := -1
     from := 0
     for _ in 0 ..= skip {
         i := strings.index(source[from:], marker)
@@ -129,16 +129,16 @@ resolve_at :: proc(t: ^testing.T, e: ^Engine, root, source, marker, command, ans
         at = from + i
         from = at + 1
     }
-    req := lang.Request {
-        kind      = .Resolve_Action,
-        path      = fixture_path(root, "app/main.odin"),
-        ext       = ".odin",
-        source    = source,
+    req := lang.Request{
+        kind = .Resolve_Action,
+        path = fixture_path(root, "app/main.odin"),
+        ext = ".odin",
+        source = source,
         workspace = root,
-        offset    = at,
-        end       = at + select,
-        command   = command,
-        new_name  = answer,
+        offset = at,
+        end = at + select,
+        command = command,
+        new_name = answer,
     }
     res: lang.Result
     resolve_action(e, &req, &res)
@@ -178,7 +178,7 @@ free_resolved :: proc(res: ^lang.Result) {
 test_resolve_unknown_action :: proc(t: ^testing.T) {
     SRC :: "package app\n\nf :: proc() {}\n"
     root := fixture(t, "resolve_unknown", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
     res := resolve_at(t, e, root, SRC, "f ::", "odin.nothing", "x")
     defer free_resolved(&res)
@@ -193,14 +193,14 @@ selection_actions :: proc(t: ^testing.T, e: ^Engine, root, source, marker: strin
     if at < 0 {
         testing.fail_now(t, "marker not found")
     }
-    req := lang.Request {
-        kind      = .Code_Actions,
-        path      = fixture_path(root, "app/main.odin"),
-        ext       = ".odin",
-        source    = source,
+    req := lang.Request{
+        kind = .Code_Actions,
+        path = fixture_path(root, "app/main.odin"),
+        ext = ".odin",
+        source = source,
         workspace = root,
-        offset    = at,
-        end       = at + select,
+        offset = at,
+        end = at + select,
     }
     res: lang.Result
     code_actions(e, &req, &res)
@@ -231,7 +231,7 @@ f :: proc(a, b: int, ok: bool) -> int {
 }
 `
     root := fixture(t, "refactor_extract_variable", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     offer := selection_actions(t, e, root, SRC, "a * b", len("a * b"))
@@ -281,7 +281,7 @@ g :: proc(xs: []int) {
 }
 `
     root := fixture(t, "refactor_extract_procedure", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     BODY :: "for x in xs {\n        total += x\n    }\n    scale := 2\n    doubled := total * scale"
@@ -294,7 +294,14 @@ g :: proc(xs: []int) {
     defer free_resolved(&res)
     got := resolved(t, &res, SRC)
     testing.expect(t, strings.contains(got, "    count := 0\n    doubled := sum_scaled(xs, &total)\n    return doubled + count\n"), got)
-    testing.expect(t, strings.contains(got, "sum_scaled :: proc(xs: []int, total: ^int) -> int {\n    for x in xs {\n        total^ += x\n    }\n    scale := 2\n    doubled := total^ * scale\n    return doubled\n}\n\ng ::"), got)
+    testing.expect(
+        t,
+        strings.contains(
+            got,
+            "sum_scaled :: proc(xs: []int, total: ^int) -> int {\n    for x in xs {\n        total^ += x\n    }\n    scale := 2\n    doubled := total^ * scale\n    return doubled\n}\n\ng ::",
+        ),
+        got,
+    )
 
     RET :: "for x in xs {\n        if x > 0 {\n            return\n        }\n    }"
     ret := selection_actions(t, e, root, SRC, RET, len(RET))
@@ -319,7 +326,7 @@ resolved_in :: proc(t: ^testing.T, res: ^lang.Result, source, suffix: string, lo
 
 @(test)
 test_refactor_change_signature :: proc(t: ^testing.T) {
-    SRC :: `package app
+    SRC   :: `package app
 
 scale :: proc(v: int, by: int = 2, name: string) -> int {
     return v * by + len(name)
@@ -331,14 +338,13 @@ user :: proc() {
 }
 `
     OTHER :: "package app\n\nother :: proc() {\n    _ = scale(5, 6, \"c\")\n}\n"
-    CLI :: "package cli\n\nimport app \"../app\"\n\nrun :: proc() {\n    _ = app.scale(7, 8, \"d\")\n}\n"
-    root := fixture(t, "refactor_change_signature", {
-        {".thor/odin-analyzer.lua", ACTION_CONFIG},
-        {"app/main.odin", SRC},
-        {"app/other.odin", OTHER},
-        {"cli/cli.odin", CLI},
-    })
-    e := engine_create()
+    CLI   :: "package cli\n\nimport app \"../app\"\n\nrun :: proc() {\n    _ = app.scale(7, 8, \"d\")\n}\n"
+    root := fixture(
+        t,
+        "refactor_change_signature",
+        {{".thor/odin-analyzer.lua", ACTION_CONFIG}, {"app/main.odin", SRC}, {"app/other.odin", OTHER}, {"cli/cli.odin", CLI}},
+    )
+    e    := engine_create()
     defer engine_destroy(e)
 
     offer := actions_at(t, e, root, SRC, "scale ::")
@@ -354,7 +360,11 @@ user :: proc() {
     testing.expect(t, strings.contains(got, `_ = scale("a", 1, 3, false)`), got)
     testing.expect(t, strings.contains(got, `_ = scale(name = "b", v = 4, verbose = false)`), got)
     testing.expect_value(t, resolved_in(t, &res, OTHER, "other.odin"), "package app\n\nother :: proc() {\n    _ = scale(\"c\", 5, 6, false)\n}\n")
-    testing.expect_value(t, resolved_in(t, &res, CLI, "cli.odin"), "package cli\n\nimport app \"../app\"\n\nrun :: proc() {\n    _ = app.scale(\"d\", 7, 8, false)\n}\n")
+    testing.expect_value(
+        t,
+        resolved_in(t, &res, CLI, "cli.odin"),
+        "package cli\n\nimport app \"../app\"\n\nrun :: proc() {\n    _ = app.scale(\"d\", 7, 8, false)\n}\n",
+    )
 
     drop := resolve_at(t, e, root, SRC, "scale ::", ACTION_CHANGE_SIGNATURE, "v: int, name: string, by: int = 2")
     defer free_resolved(&drop)
@@ -388,7 +398,7 @@ spread :: proc() {
 callback := add
 `
     root := fixture(t, "refactor_change_signature_refusals", {{".thor/odin-analyzer.lua", ACTION_CONFIG}, {"app/main.odin", SRC}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     res := resolve_at(t, e, root, SRC, "add ::", ACTION_CHANGE_SIGNATURE, "b, a: int")
@@ -424,7 +434,7 @@ user :: proc() {
 }
 `
     root := fixture(t, "refactor_move_declaration", {{".thor/odin-analyzer.lua", ACTION_CONFIG}, {"app/main.odin", SRC}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     offer := actions_at(t, e, root, SRC, "helper ::")
@@ -436,12 +446,16 @@ user :: proc() {
     res := resolve_at(t, e, root, SRC, "helper ::", ACTION_MOVE_DECLARATION, "helper.odin")
     defer free_resolved(&res)
     testing.expect_value(t, resolved(t, &res, SRC), "package app\n\nuser :: proc() {\n    helper(1)\n}\n")
-    testing.expect_value(t, created_text(t, &res, "helper.odin"), "package app\n\nimport \"core:fmt\"\n\n// Says hello.\nhelper :: proc(n: int) {\n    fmt.println(n)\n}\n")
+    testing.expect_value(
+        t,
+        created_text(t, &res, "helper.odin"),
+        "package app\n\nimport \"core:fmt\"\n\n// Says hello.\nhelper :: proc(n: int) {\n    fmt.println(n)\n}\n",
+    )
 }
 
 @(test)
 test_refactor_move_declaration_cross_package :: proc(t: ^testing.T) {
-    SRC :: `package app
+    SRC  :: `package app
 
 clamp_int :: proc(v: int) -> int {
     return max(v, 0)
@@ -451,27 +465,30 @@ user :: proc() -> int {
     return clamp_int(-1)
 }
 `
-    CLI :: "package cli\n\nimport \"../app\"\n\nrun :: proc() -> int {\n    return app.clamp_int(2)\n}\n"
+    CLI  :: "package cli\n\nimport \"../app\"\n\nrun :: proc() -> int {\n    return app.clamp_int(2)\n}\n"
     UTIL :: "package util\n\nzero :: proc() -> int {\n    return 0\n}\n"
-    root := fixture(t, "refactor_move_declaration_cross", {
-        {".thor/odin-analyzer.lua", ACTION_CONFIG},
-        {"app/main.odin", SRC},
-        {"cli/cli.odin", CLI},
-        {"util/util.odin", UTIL},
-    })
-    e := engine_create()
+    root := fixture(
+        t,
+        "refactor_move_declaration_cross",
+        {{".thor/odin-analyzer.lua", ACTION_CONFIG}, {"app/main.odin", SRC}, {"cli/cli.odin", CLI}, {"util/util.odin", UTIL}},
+    )
+    e    := engine_create()
     defer engine_destroy(e)
 
     res := resolve_at(t, e, root, SRC, "clamp_int ::", ACTION_MOVE_DECLARATION, "../util/math.odin")
     defer free_resolved(&res)
     testing.expect_value(t, resolved(t, &res, SRC), "package app\n\nimport \"../util\"\n\nuser :: proc() -> int {\n    return util.clamp_int(-1)\n}\n")
-    testing.expect_value(t, resolved_in(t, &res, CLI, "cli.odin"), "package cli\n\nimport \"../app\"\nimport \"../util\"\n\nrun :: proc() -> int {\n    return util.clamp_int(2)\n}\n")
+    testing.expect_value(
+        t,
+        resolved_in(t, &res, CLI, "cli.odin"),
+        "package cli\n\nimport \"../app\"\nimport \"../util\"\n\nrun :: proc() -> int {\n    return util.clamp_int(2)\n}\n",
+    )
     testing.expect_value(t, created_text(t, &res, "math.odin"), "package util\n\nclamp_int :: proc(v: int) -> int {\n    return max(v, 0)\n}\n")
 }
 
 @(test)
 test_refactor_move_declaration_refusals :: proc(t: ^testing.T) {
-    SRC :: `package app
+    SRC  :: `package app
 
 LIMIT :: 10
 
@@ -488,12 +505,8 @@ user :: proc() -> int {
 }
 `
     UTIL :: "package util\n\nimport \"../app\"\n\nuse :: proc() -> int {\n    return app.LIMIT\n}\n"
-    root := fixture(t, "refactor_move_declaration_refusals", {
-        {".thor/odin-analyzer.lua", ACTION_CONFIG},
-        {"app/main.odin", SRC},
-        {"util/util.odin", UTIL},
-    })
-    e := engine_create()
+    root := fixture(t, "refactor_move_declaration_refusals", {{".thor/odin-analyzer.lua", ACTION_CONFIG}, {"app/main.odin", SRC}, {"util/util.odin", UTIL}})
+    e    := engine_create()
     defer engine_destroy(e)
 
     dep := resolve_at(t, e, root, SRC, "capped ::", ACTION_MOVE_DECLARATION, "../util/capped.odin")

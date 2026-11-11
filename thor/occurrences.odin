@@ -10,7 +10,7 @@ import "../textedit"
 // Asks for and pushes the uses of the symbol at the caret of the file `pane` shows. Only the active pane shows them.
 thor_sync_pane_occurrences :: proc(thor: ^Thor, pane: int) {
     editor := thor_pane_editor(thor, pane)
-    index := thor.pane_file[pane]
+    index  := thor.pane_file[pane]
     if pane != thor.active_pane || index < 0 || index >= len(thor.open_files) {
         editview.editor_set_occurrences(editor, nil)
         return
@@ -48,7 +48,7 @@ thor_occurrences_cover_cursors :: proc(occurrences: []editview.Occurrence, curso
         return false
     }
     for cursor in cursors {
-        lo, hi := textedit.selection_range(cursor)
+        lo, hi  := textedit.selection_range(cursor)
         covered := false
         for occ in occurrences {
             if lo == hi ? lo >= occ.start && lo <= occ.end : lo == occ.start && hi == occ.end {
@@ -66,7 +66,8 @@ thor_occurrences_cover_cursors :: proc(occurrences: []editview.Occurrence, curso
 // Asks for the uses at `caret` once per caret, revision and file. A newer ask supersedes the older one.
 @(private = "file")
 thor_request_occurrences :: proc(thor: ^Thor, file: ^Open_File, caret: int) {
-    if (thor.occurrence_ask_path == file.path && thor.occurrence_ask_revision == file.state.revision && thor.occurrence_ask_caret == caret) || thor_big_file(file) {
+    if (thor.occurrence_ask_path == file.path && thor.occurrence_ask_revision == file.state.revision && thor.occurrence_ask_caret == caret) ||
+        thor_big_file(file) {
         return
     }
     ext := thor_lang_key(thor, file.name)

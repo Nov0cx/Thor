@@ -63,7 +63,7 @@ write :: proc(t: ^testing.T, dir: string, name: string, content: string) {
             return
         }
     }
-    if err := os.write_entire_file(path, transmute([]byte) content); err != nil {
+    if err := os.write_entire_file(path, transmute([]byte)content); err != nil {
         testing.expectf(t, false, "could not write %q: %v", path, err)
     }
 }

@@ -108,7 +108,11 @@ test_lens_view_rebases :: proc(t: ^testing.T) {
     defer thor_destroy_file_lens(file)
 
     file.lens.source = strings.clone(textedit.text(&file.state))
-    append(&file.lens.items, editview.Inlay{offset = 2, label = strings.clone("2 references")}, editview.Inlay{offset = 5, label = strings.clone("no references")})
+    append(
+        &file.lens.items,
+        editview.Inlay{offset = 2, label = strings.clone("2 references")},
+        editview.Inlay{offset = 5, label = strings.clone("no references")},
+    )
     file.lens.ready = true
     file.lens.asked = file.state.revision
     file.lens.asked_valid = true

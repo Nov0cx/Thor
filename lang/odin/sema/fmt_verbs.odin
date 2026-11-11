@@ -40,7 +40,7 @@ format_steps :: proc(format: string, arg_count: int, allocator := context.alloca
         unused += {k}
     }
     end := len(format)
-    i := 0
+    i   := 0
     for i < end {
         for i < end && format[i] != '%' && format[i] != '{' && format[i] != '}' {
             i += 1
@@ -49,7 +49,7 @@ format_steps :: proc(format: string, arg_count: int, allocator := context.alloca
             break
         }
         start := i
-        ch := format[i]
+        ch    := format[i]
         i += 1
         if ch == '}' {
             if i < end && format[i] == '}' {
@@ -68,7 +68,7 @@ format_steps :: proc(format: string, arg_count: int, allocator := context.alloca
             }
             i = format_options(format, i, start, arg_count, &unused, &out)
             index, parsed, ok := format_arg_number(format, &i, arg_count)
-            problem := Format_Step_Kind.Verb
+            problem           := Format_Step_Kind.Verb
             if !ok {
                 index, ok = first_unused(unused)
                 if parsed {
@@ -147,7 +147,7 @@ format_steps :: proc(format: string, arg_count: int, allocator := context.alloca
 // Reads the flags, width and precision of a directive from `i`; a `*` takes an argument.
 @(private = "file")
 format_options :: proc(format: string, i, start, arg_count: int, unused: ^bit_set[0 ..< MAX_FORMAT_ARGS], out: ^[dynamic]Format_Step) -> int {
-    i := i
+    i   := i
     end := len(format)
     for i < end && strings.index_byte("+- #0", format[i]) >= 0 {
         i += 1
@@ -261,7 +261,7 @@ format_problems :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node
         return nil
     }
     format_arg := -1
-    values := make([dynamic]Call_Arg, c.tmp)
+    values     := make([dynamic]Call_Arg, c.tmp)
     for a, i in args {
         switch slots[i] {
         case k:
@@ -276,7 +276,7 @@ format_problems :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node
     if format_arg < 0 || len(values) > MAX_FORMAT_ARGS {
         return nil
     }
-    fa := args[format_arg]
+    fa                := args[format_arg]
     format, is_string := fa.op.value.(string)
     if fa.op.mode != .Const || !is_string {
         return nil
@@ -289,7 +289,7 @@ format_problems :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node
         return places[at]
     }
     steps, unused := format_steps(format, len(values), c.tmp)
-    out := make([dynamic]Format_Problem, allocator)
+    out           := make([dynamic]Format_Problem, allocator)
     for s in steps {
         at := place(places, fa.node, s.at)
         switch s.kind {
@@ -337,7 +337,7 @@ format_param :: proc(c: ^Checker, p: Proc_Type) -> int {
             continue
         }
         s, is_basic := type_get(&c.table, type_base(&c.table, param.type)).(Basic_Type)
-        a, is_any := type_get(&c.table, type_base(&c.table, next.type)).(Basic_Type)
+        a, is_any   := type_get(&c.table, type_base(&c.table, next.type)).(Basic_Type)
         if is_basic && s.kind == .String && is_any && a.kind == .Any {
             return k
         }
@@ -349,7 +349,7 @@ format_param :: proc(c: ^Checker, p: Proc_Type) -> int {
 // a `+` of string literals. Nil for another expression or a value that does not have `length` bytes.
 @(private = "file")
 literal_places :: proc(n: odinsyntax.Syntax_Node, length: int, allocator: mem.Allocator) -> []int {
-    out := make([dynamic]int, 0, length + 1, allocator)
+    out     := make([dynamic]int, 0, length + 1, allocator)
     end, ok := append_places(n, &out)
     if !ok || len(out) != length {
         return nil
@@ -363,12 +363,12 @@ literal_places :: proc(n: odinsyntax.Syntax_Node, length: int, allocator: mem.Al
 append_places :: proc(n: odinsyntax.Syntax_Node, out: ^[dynamic]int) -> (end: int, ok: bool) {
     #partial switch n.green.kind {
     case .Paren_Expr:
-        p, _ := odinsyntax.as_paren_expr(n)
+        p, _  := odinsyntax.as_paren_expr(n)
         inner := odinsyntax.paren_expr_expr(&p) or_return
         return append_places(inner, out)
     case .Binary_Expr:
         b, _ := odinsyntax.as_binary_expr(n)
-        op := odinsyntax.binary_expr_op(&b) or_return
+        op   := odinsyntax.binary_expr_op(&b) or_return
         if op.green.kind != .Add {
             return
         }
@@ -381,8 +381,8 @@ append_places :: proc(n: odinsyntax.Syntax_Node, out: ^[dynamic]int) -> (end: in
         return
     }
     lit, _ := odinsyntax.as_literal(n)
-    tok := odinsyntax.literal_token(&lit) or_return
-    text := odinsyntax.syntax_token_text(tok)
+    tok    := odinsyntax.literal_token(&lit) or_return
+    text   := odinsyntax.syntax_token_text(tok)
     if tok.green.kind != .String || len(text) < 2 {
         return
     }
@@ -420,10 +420,14 @@ escape_size :: proc(s: string) -> (width, bytes: int) {
         for ch in transmute([]u8)s[:n] {
             d: rune
             switch ch {
-            case '0' ..= '9': d = rune(ch - '0')
-            case 'a' ..= 'f': d = rune(ch - 'a' + 10)
-            case 'A' ..= 'F': d = rune(ch - 'A' + 10)
-            case:             return 0, false
+            case '0' ..= '9':
+                d = rune(ch - '0')
+            case 'a' ..= 'f':
+                d = rune(ch - 'a' + 10)
+            case 'A' ..= 'F':
+                d = rune(ch - 'A' + 10)
+            case:
+                return 0, false
             }
             r = r * 16 + d
         }
@@ -507,17 +511,15 @@ count_fits :: proc(t: ^Type_Table, id: Type_Id) -> bool {
 
 // The types `fmt.register_user_formatter` is given in a set of files.
 User_Formatters :: struct {
-    types: map[Type_Id]struct{},
+    types: map[Type_Id]struct {},
     any:   bool, // a registration names a type the analysis cannot read: any named type may be formatted
 }
 
 // The registrations of user formatters in `files`. Only a file that names the procedure is read.
 user_formatters :: proc(c: ^Checker, files: []File_Id, allocator := context.temp_allocator) -> User_Formatters {
-    out := User_Formatters {
-        types = make(map[Type_Id]struct{}, allocator),
-    }
+    out := User_Formatters{types = make(map[Type_Id]struct {}, allocator)}
     for id in files {
-        raw := db_parse(c.snap, id)
+        raw      := db_parse(c.snap, id)
         mentions := raw != nil && raw.tree != nil && strings.contains(raw.tree.text, "register_user_formatter")
         db_parse_release(c.snap, raw)
         if !mentions {
@@ -574,13 +576,13 @@ scan_formatters :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, o
 // `type_info_of(T)` or `type_info_of(T).id`.
 @(private = "file")
 registered_type :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Call_Expr, out: ^User_Formatters) {
-    call := call
+    call           := call
     list, has_list := odinsyntax.call_expr_args(&call)
     if !has_list {
         out.any = true
         return
     }
-    it := odinsyntax.arg_list_args(&list)
+    it               := odinsyntax.arg_list_args(&list)
     first, has_first := odinsyntax.child_iter_next(&it)
     if !has_first {
         out.any = true
@@ -588,18 +590,18 @@ registered_type :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Call_Expr, 
     }
     n := strip_parens(first)
     if n.green.kind == .Selector_Expr {
-        se, _ := odinsyntax.as_selector_expr(n)
-        field, has_field := odinsyntax.selector_expr_field(&se)
+        se, _                := odinsyntax.as_selector_expr(n)
+        field, has_field     := odinsyntax.selector_expr_field(&se)
         operand, has_operand := odinsyntax.selector_expr_operand(&se)
         if has_field && has_operand && odinsyntax.node_text(odinsyntax.Syntax_Node(field)) == "id" {
             n = strip_parens(operand)
         }
     }
     if n.green.kind == .Call_Expr {
-        inner, _ := odinsyntax.as_call_expr(n)
+        inner, _           := odinsyntax.as_call_expr(n)
         callee, has_callee := odinsyntax.call_expr_callee(&inner)
-        args, has_args := odinsyntax.call_expr_args(&inner)
-        text := has_callee ? odinsyntax.node_text(callee) : ""
+        args, has_args     := odinsyntax.call_expr_args(&inner)
+        text               := has_callee ? odinsyntax.node_text(callee) : ""
         if has_args && (text == "typeid_of" || text == "type_info_of") {
             arg_it := odinsyntax.arg_list_args(&args)
             if arg, has_arg := odinsyntax.child_iter_next(&arg_it); has_arg {

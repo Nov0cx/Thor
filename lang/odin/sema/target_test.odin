@@ -11,7 +11,7 @@ test_file_name_in_build :: proc(t: ^testing.T) {
         path:     string,
         win, lin: bool,
     }
-    cases := []Case {
+    cases := []Case{
         {"pkg/plain.odin", true, true},
         {"pkg/shell_windows.odin", true, false},
         {"pkg/shell_linux.odin", false, true},
@@ -46,7 +46,7 @@ test_build_tag_holds :: proc(t: ^testing.T) {
         expr:          string,
         win, lin, mac: bool,
     }
-    cases := []Case {
+    cases := []Case{
         {"", true, true, true},
         {"windows", true, false, false},
         {"!windows", false, true, true},

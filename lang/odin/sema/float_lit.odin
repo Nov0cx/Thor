@@ -11,14 +11,14 @@ import odinsyntax "../syntax"
 // A float literal as written: `digits` x 10^exp10, with the sign apart.
 @(private = "file")
 Literal_Number :: struct {
-    negative: bool,
-    digits:   string, // no leading zeros, no point; "" for zero
-    exp10:    int,    // the exponent after the point is moved right
-    dotted:   bool,   // the text has a `.`
-    float:    f64,
-    hex:      bool,   // a `0h` literal: the compiler prints the f64 with 17 decimals
-    rat:      bool,   // an exact fraction from an expression; `rat_text` is its print
-    rat_text: string,
+    negative:     bool,
+    digits:       string, // no leading zeros, no point; "" for zero
+    exp10:        int,    // the exponent after the point is moved right
+    dotted:       bool,   // the text has a `.`
+    float:        f64,
+    hex:          bool, // a `0h` literal: the compiler prints the f64 with 17 decimals
+    rat:          bool, // an exact fraction from an expression; `rat_text` is its print
+    rat_text:     string,
     rat_integral: bool,
 }
 
@@ -44,15 +44,15 @@ strip_signs :: proc(n: odinsyntax.Syntax_Node) -> (node: odinsyntax.Syntax_Node,
     for _ in 0 ..< 32 {
         #partial switch node.green.kind {
         case .Paren_Expr:
-            p, _ := odinsyntax.as_paren_expr(node)
+            p, _       := odinsyntax.as_paren_expr(node)
             inner, has := odinsyntax.paren_expr_expr(&p)
             if !has {
                 return node, negative
             }
             node = inner
         case .Unary_Expr:
-            u, _ := odinsyntax.as_unary_expr(node)
-            op, has_op := odinsyntax.unary_expr_op(&u)
+            u, _                 := odinsyntax.as_unary_expr(node)
+            op, has_op           := odinsyntax.unary_expr_op(&u)
             operand, has_operand := odinsyntax.unary_expr_operand(&u)
             if !has_op || !has_operand || op.green.kind != .Sub {
                 return node, negative
@@ -104,7 +104,7 @@ literal_number :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) ->
 // The float literal node `node` as digits and an exponent.
 @(private = "file")
 literal_leaf :: proc(node: odinsyntax.Syntax_Node) -> (num: Literal_Number, ok: bool) {
-    lit, _ := odinsyntax.as_literal(node)
+    lit, _       := odinsyntax.as_literal(node)
     tok, has_tok := odinsyntax.literal_token(&lit)
     if !has_tok || tok.green.kind != .Float {
         return {}, false
@@ -119,7 +119,7 @@ literal_leaf :: proc(node: odinsyntax.Syntax_Node) -> (num: Literal_Number, ok: 
             return {}, false
         }
         bits, parsed := strconv.parse_u64_of_base(digits, 16)
-        f := transmute(f64)bits
+        f            := transmute(f64)bits
         if !parsed || f != f || abs(f) > max(f64) {
             return {}, false
         }
@@ -131,9 +131,9 @@ literal_leaf :: proc(node: odinsyntax.Syntax_Node) -> (num: Literal_Number, ok: 
             append(&clean, ch)
         }
     }
-    s := string(clean[:])
+    s        := string(clean[:])
     mantissa := s
-    exp := 0
+    exp      := 0
     if e := strings.index_any(s, "eE"); e >= 0 {
         mantissa = s[:e]
         v, parsed := strconv.parse_int(s[e + 1:], 10)
@@ -205,14 +205,14 @@ big_add :: proc(a, b: big.Int) -> (r: big.Int, ok: bool) {
 
 @(private = "file")
 big_neg :: proc(a: big.Int) -> (r: big.Int, ok: bool) {
-    a := a
+    a   := a
     err := big.int_neg(&r, &a)
     return r, err == nil
 }
 
 @(private = "file")
 big_abs :: proc(a: big.Int) -> (r: big.Int, ok: bool) {
-    a := a
+    a   := a
     err := big.int_abs(&r, &a)
     return r, err == nil
 }
@@ -226,21 +226,21 @@ big_div :: proc(a, b: big.Int) -> (r: big.Int, ok: bool) {
 
 @(private = "file")
 big_shl :: proc(a: big.Int, bits: int) -> (r: big.Int, ok: bool) {
-    a := a
+    a   := a
     err := big.int_shl(&r, &a, bits)
     return r, err == nil
 }
 
 @(private = "file")
 big_bits :: proc(a: big.Int) -> int {
-    a := a
+    a      := a
     n, err := big.count_bits(&a)
     return n if err == nil else max(int)
 }
 
 @(private = "file")
 big_sign :: proc(a: big.Int) -> (negative, zero: bool, ok: bool) {
-    a := a
+    a       := a
     z, zerr := big.int_is_zero(&a)
     n, nerr := big.int_is_negative(&a)
     return n, z, zerr == nil && nerr == nil
@@ -248,7 +248,7 @@ big_sign :: proc(a: big.Int) -> (negative, zero: bool, ok: bool) {
 
 @(private = "file")
 big_text :: proc(a: big.Int) -> (string, bool) {
-    a := a
+    a      := a
     s, err := big.int_itoa_string(&a)
     return s, err == nil
 }
@@ -261,7 +261,7 @@ rat_make :: proc(num, den: big.Int, dotted, real: bool) -> (Rational, bool) {
     }
     num, den := num, den
     if dneg, _, _ := big_sign(den); dneg {
-        n, nok := big_neg(num)
+        n, nok  := big_neg(num)
         d, dnok := big_neg(den)
         if !nok || !dnok {
             return {}, false
@@ -277,7 +277,7 @@ rat_make :: proc(num, den: big.Int, dotted, real: bool) -> (Rational, bool) {
         return {}, false
     }
     if big_bits(g) > 1 {
-        n, nok := big_div(num, g)
+        n, nok  := big_div(num, g)
         d, dnok := big_div(den, g)
         if !nok || !dnok {
             return {}, false
@@ -321,18 +321,18 @@ rational_of :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, depth
 rational_node :: proc(c: ^Checker, file: File_Id, node: odinsyntax.Syntax_Node, depth: int) -> (Rational, bool) {
     #partial switch node.green.kind {
     case .Literal:
-        lit, _ := odinsyntax.as_literal(node)
+        lit, _       := odinsyntax.as_literal(node)
         tok, has_tok := odinsyntax.literal_token(&lit)
         if !has_tok {
             return {}, false
         }
-        text := odinsyntax.syntax_token_text(tok)
+        text     := odinsyntax.syntax_token_text(tok)
         one, ook := big_from(1)
         if !ook {
             return {}, false
         }
         if tok.green.kind == .Integer {
-            clean, _ := strings.remove_all(text, "_", context.temp_allocator)
+            clean, _  := strings.remove_all(text, "_", context.temp_allocator)
             v, parsed := strconv.parse_i64_maybe_prefixed(clean)
             if !parsed {
                 return {}, false
@@ -383,9 +383,9 @@ rational_node :: proc(c: ^Checker, file: File_Id, node: odinsyntax.Syntax_Node, 
     case .Ident:
         return rational_ident(c, file, node, depth)
     case .Binary_Expr:
-        b, _ := odinsyntax.as_binary_expr(node)
+        b, _         := odinsyntax.as_binary_expr(node)
         lhs, has_lhs := odinsyntax.binary_expr_lhs(&b)
-        op, has_op := odinsyntax.binary_expr_op(&b)
+        op, has_op   := odinsyntax.binary_expr_op(&b)
         rhs, has_rhs := odinsyntax.binary_expr_rhs(&b)
         if !has_lhs || !has_op || !has_rhs {
             return {}, false
@@ -534,12 +534,12 @@ rational_ident :: proc(c: ^Checker, file: File_Id, ident: odinsyntax.Syntax_Node
 @(private = "file")
 rat_f64 :: proc(r: Rational) -> (f64, bool) {
     neg, _, sok := big_sign(r.num)
-    mag, mok := big_abs(r.num)
+    mag, mok    := big_abs(r.num)
     if !sok || !mok {
         return 0, false
     }
     // Enough bits that the quotient holds a full mantissa however small the fraction is.
-    shift := 64 + max(0, big_bits(r.den) - big_bits(mag))
+    shift         := 64 + max(0, big_bits(r.den) - big_bits(mag))
     shifted, shok := big_shl(mag, shift)
     if !shok {
         return 0, false
@@ -571,17 +571,17 @@ rational_number :: proc(r: Rational) -> (num: Literal_Number, ok: bool) {
         return {hex = true, dotted = true, float = r.f, negative = r.f < 0}, true
     }
     negative, zero, sok := big_sign(r.num)
-    mag, mok := big_abs(r.num)
-    one, ook := big_from(1)
+    mag, mok            := big_abs(r.num)
+    one, ook            := big_from(1)
     if !sok || !mok || !ook {
         return {}, false
     }
-    den := r.den
+    den       := r.den
     cmp, cerr := big.int_compare(&one, &den)
     if cerr != nil {
         return {}, false
     }
-    integral := cmp == 0 || zero
+    integral    := cmp == 0 || zero
     digits, dok := big_text(mag)
     if !dok {
         return {}, false
@@ -615,9 +615,9 @@ rational_number :: proc(r: Rational) -> (num: Literal_Number, ok: bool) {
 // so the last ones carry its rounding. `f` is not integral and below 1e18.
 @(private = "file")
 float_text :: proc(f: f64) -> (string, bool) {
-    b := strings.builder_make(context.temp_allocator)
-    a := abs(f)
-    whole := u64(a)
+    b        := strings.builder_make(context.temp_allocator)
+    a        := abs(f)
+    whole    := u64(a)
     fraction := a - f64(whole)
     if f < 0 {
         strings.write_byte(&b, '-')
@@ -666,7 +666,7 @@ exact_text :: proc(num: Literal_Number) -> (text: string, integral: bool, ok: bo
         zeros := strings.repeat("0", num.exp10, context.temp_allocator)
         return strings.concatenate({sign, num.digits, zeros}, context.temp_allocator), true, true
     }
-    k := -num.exp10
+    k   := -num.exp10
     top := num.digits
     twos, fives := 0, 0
     for twos < k {
@@ -714,9 +714,9 @@ digits_div :: proc(s: string, d: int) -> (string, int) {
 // The decimal string `s` times `m`.
 @(private = "file")
 digits_mul :: proc(s: string, m: int) -> string {
-    out := make([]u8, len(s) + 2, context.temp_allocator)
+    out   := make([]u8, len(s) + 2, context.temp_allocator)
     carry := 0
-    pos := len(out)
+    pos   := len(out)
     for i := len(s) - 1; i >= 0; i -= 1 {
         cur := int(s[i] - '0') * m + carry
         pos -= 1
@@ -736,9 +736,12 @@ digits_mul :: proc(s: string, m: int) -> string {
 @(private = "file")
 float_limit :: proc(kind: Basic_Kind) -> (f64, bool) {
     #partial switch kind {
-    case .F16: return 65520, true
-    case .F32: return 340282356779733661637539395458142568448.0, true
-    case .F64: return max(f64), true
+    case .F16:
+        return 65520, true
+    case .F32:
+        return 340282356779733661637539395458142568448.0, true
+    case .F64:
+        return max(f64), true
     }
     return 0, false
 }
@@ -829,7 +832,7 @@ write_expr :: proc(b: ^strings.Builder, n: odinsyntax.Syntax_Node, depth: int) -
     }
     #partial switch n.green.kind {
     case .Literal:
-        lit, _ := odinsyntax.as_literal(n)
+        lit, _       := odinsyntax.as_literal(n)
         tok, has_tok := odinsyntax.literal_token(&lit)
         if !has_tok || tok.green.kind != .Float && tok.green.kind != .Integer {
             return false
@@ -838,7 +841,7 @@ write_expr :: proc(b: ^strings.Builder, n: odinsyntax.Syntax_Node, depth: int) -
     case .Ident:
         strings.write_string(b, odinsyntax.node_text(n))
     case .Paren_Expr:
-        p, _ := odinsyntax.as_paren_expr(n)
+        p, _       := odinsyntax.as_paren_expr(n)
         inner, has := odinsyntax.paren_expr_expr(&p)
         if !has {
             return false
@@ -849,8 +852,8 @@ write_expr :: proc(b: ^strings.Builder, n: odinsyntax.Syntax_Node, depth: int) -
         }
         strings.write_byte(b, ')')
     case .Unary_Expr:
-        u, _ := odinsyntax.as_unary_expr(n)
-        op, has_op := odinsyntax.unary_expr_op(&u)
+        u, _                 := odinsyntax.as_unary_expr(n)
+        op, has_op           := odinsyntax.unary_expr_op(&u)
         operand, has_operand := odinsyntax.unary_expr_operand(&u)
         if !has_op || !has_operand || op.green.kind != .Sub {
             return false
@@ -858,19 +861,23 @@ write_expr :: proc(b: ^strings.Builder, n: odinsyntax.Syntax_Node, depth: int) -
         strings.write_byte(b, '-')
         return write_expr(b, operand, depth + 1)
     case .Binary_Expr:
-        bin, _ := odinsyntax.as_binary_expr(n)
+        bin, _       := odinsyntax.as_binary_expr(n)
         lhs, has_lhs := odinsyntax.binary_expr_lhs(&bin)
-        op, has_op := odinsyntax.binary_expr_op(&bin)
+        op, has_op   := odinsyntax.binary_expr_op(&bin)
         rhs, has_rhs := odinsyntax.binary_expr_rhs(&bin)
         if !has_lhs || !has_op || !has_rhs {
             return false
         }
         sign: string
         #partial switch op.green.kind {
-        case .Add: sign = " + "
-        case .Sub: sign = " - "
-        case .Mul: sign = " * "
-        case .Quo: sign = " / "
+        case .Add:
+            sign = " + "
+        case .Sub:
+            sign = " - "
+        case .Mul:
+            sign = " * "
+        case .Quo:
+            sign = " / "
         case:
             return false
         }

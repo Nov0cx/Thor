@@ -92,9 +92,9 @@ test_shell_profiles_apply_after_init :: proc(t: ^testing.T) {
 @(test)
 test_terminal_tab_info_task_label :: proc(t: ^testing.T) {
     profile := shell.Profile{id = "pwsh", name = "PowerShell"}
-    user_a := Terminal{profile = profile}
-    task := Terminal{profile = profile, task = "build"}
-    user_b := Terminal{profile = profile}
+    user_a  := Terminal{profile = profile}
+    task    := Terminal{profile = profile, task = "build"}
+    user_b  := Terminal{profile = profile}
 
     thor: Thor
     thor.terminals = make([dynamic]^Terminal)

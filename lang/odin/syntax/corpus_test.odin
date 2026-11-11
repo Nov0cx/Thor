@@ -205,7 +205,7 @@ test_corpus_lossless_and_matches_reference :: proc(t: ^testing.T) {
             break
         }
         start := time.tick_now()
-        toks := lex_all(f.src, context.temp_allocator)
+        toks  := lex_all(f.src, context.temp_allocator)
         lex_time += time.tick_since(start)
         total_bytes += len(f.src)
         total_tokens += len(toks)
@@ -224,7 +224,7 @@ test_corpus_lossless_and_matches_reference :: proc(t: ^testing.T) {
             tree_destroy(tree)
         }
 
-        ours := our_sigs(toks)
+        ours           := our_sigs(toks)
         theirs, mapped := reference_sigs(f.src, &kinds)
         if !testing.expectf(t, mapped, "%s: reference token kind with no counterpart", f.path) {
             failures += 1
@@ -247,8 +247,12 @@ test_corpus_lossless_and_matches_reference :: proc(t: ^testing.T) {
     secs := time.duration_seconds(lex_time)
     log.infof(
         "corpus: %d files, %d bytes, %d tokens, %.2f bytes/token, lexed in %.0f ms (%.1f MB/s)",
-        len(files), total_bytes, total_tokens, f64(total_bytes) / f64(max(total_tokens, 1)),
-        secs * 1000, f64(total_bytes) / max(secs, 1e-9) / 1e6,
+        len(files),
+        total_bytes,
+        total_tokens,
+        f64(total_bytes) / f64(max(total_tokens, 1)),
+        secs * 1000,
+        f64(total_bytes) / max(secs, 1e-9) / 1e6,
     )
 }
 
@@ -274,7 +278,7 @@ reference_shapes :: proc(file: ^ast.File) -> []Shape {
         if node == nil {
             return nil
         }
-        out := (^[dynamic]Shape)(v.data)
+        out  := (^[dynamic]Shape)(v.data)
         kind := Syntax_Kind.None
         #partial switch n in node.derived {
         case ^ast.Selector_Call_Expr:
@@ -283,16 +287,26 @@ reference_shapes :: proc(file: ^ast.File) -> []Shape {
         case ^ast.Struct_Type:
             ast.walk(v, n.min_field_align)
             ast.walk(v, n.max_field_align)
-        case ^ast.Call_Expr:       kind = .Call_Expr
-        case ^ast.Selector_Expr:   kind = .Selector_Expr
-        case ^ast.Comp_Lit:        kind = .Comp_Lit
-        case ^ast.Proc_Lit:        kind = .Proc_Lit
-        case ^ast.Binary_Expr:     kind = .Binary_Expr
-        case ^ast.Index_Expr:      kind = .Index_Expr
-        case ^ast.Slice_Expr:      kind = .Slice_Expr
-        case ^ast.Field_Value:     kind = .Field_Value
-        case ^ast.Paren_Expr:      kind = .Paren_Expr
-        case ^ast.Ternary_If_Expr: kind = .Ternary_If_Expr
+        case ^ast.Call_Expr:
+            kind = .Call_Expr
+        case ^ast.Selector_Expr:
+            kind = .Selector_Expr
+        case ^ast.Comp_Lit:
+            kind = .Comp_Lit
+        case ^ast.Proc_Lit:
+            kind = .Proc_Lit
+        case ^ast.Binary_Expr:
+            kind = .Binary_Expr
+        case ^ast.Index_Expr:
+            kind = .Index_Expr
+        case ^ast.Slice_Expr:
+            kind = .Slice_Expr
+        case ^ast.Field_Value:
+            kind = .Field_Value
+        case ^ast.Paren_Expr:
+            kind = .Paren_Expr
+        case ^ast.Ternary_If_Expr:
+            kind = .Ternary_If_Expr
         }
         if kind != .None {
             append(out, Shape{kind, node.pos.offset})
@@ -342,8 +356,7 @@ our_shapes :: proc(root: ^Green_Node) -> []Shape {
     out := make([dynamic]Shape, 0, 1024, context.temp_allocator)
     walk :: proc(node: ^Green_Node, offset: u32, out: ^[dynamic]Shape) {
         #partial switch node.kind {
-        case .Call_Expr, .Selector_Expr, .Comp_Lit, .Proc_Lit, .Binary_Expr, .Index_Expr,
-             .Slice_Expr, .Field_Value, .Paren_Expr, .Ternary_If_Expr:
+        case .Call_Expr, .Selector_Expr, .Comp_Lit, .Proc_Lit, .Binary_Expr, .Index_Expr, .Slice_Expr, .Field_Value, .Paren_Expr, .Ternary_If_Expr:
             append(out, Shape{node.kind, int(after_tags(node, offset))})
         case .Ternary_Expr:
             append(out, Shape{.Ternary_If_Expr, int(after_tags(node, offset))})
@@ -364,11 +377,8 @@ our_shapes :: proc(root: ^Green_Node) -> []Shape {
 @(private = "file")
 reference_parse :: proc(path, src: string) -> (decls: []Top_Decl, shapes: []Shape, errors: int) {
     context.allocator = context.temp_allocator
-    file := ast.File {
-        src      = src,
-        fullpath = path,
-    }
-    p := parser.default_parser({.Optional_Semicolons})
+    file := ast.File{src = src, fullpath = path}
+    p    := parser.default_parser({.Optional_Semicolons})
     p.err = proc(pos: tokenizer.Pos, msg: string, args: ..any) {}
     p.warn = proc(pos: tokenizer.Pos, msg: string, args: ..any) {}
     parser.parse_file(&p, &file)
@@ -424,8 +434,10 @@ our_decls :: proc(root: ^Green_Node) -> []Top_Decl {
         case .Import_Decl, .Foreign_Import_Decl, .Foreign_Block, .When_Stmt:
             want := Token_Kind.Import
             #partial switch node.kind {
-            case .Foreign_Import_Decl, .Foreign_Block: want = .Foreign
-            case .When_Stmt:                           want = .When
+            case .Foreign_Import_Decl, .Foreign_Block:
+                want = .Foreign
+            case .When_Stmt:
+                want = .When
             }
             off := pos
             for c in green_children(node) {
@@ -459,7 +471,7 @@ test_corpus_parse :: proc(t: ^testing.T) {
             break
         }
         defer free_all(context.temp_allocator)
-        start := time.tick_now()
+        start       := time.tick_now()
         result, err := parse(f.src)
         parse_time += time.tick_since(start)
         total_bytes += len(f.src)
@@ -490,7 +502,7 @@ test_corpus_parse :: proc(t: ^testing.T) {
             continue
         }
         ours := our_decls(result.tree.root)
-        n := min(len(ours), len(theirs))
+        n    := min(len(ours), len(theirs))
         for i in 0 ..< n {
             if ours[i] != theirs[i] {
                 testing.expectf(t, false, "%s: declaration %d is %v, reference has %v", f.path, i, ours[i], theirs[i])
@@ -519,7 +531,11 @@ test_corpus_parse :: proc(t: ^testing.T) {
     secs := time.duration_seconds(parse_time)
     log.infof(
         "corpus: %d files accepted by core:odin/parser, %d rejected; parsed %d bytes in %.0f ms (%.1f MB/s)",
-        accepted, rejected_by_reference, total_bytes, secs * 1000, f64(total_bytes) / max(secs, 1e-9) / 1e6,
+        accepted,
+        rejected_by_reference,
+        total_bytes,
+        secs * 1000,
+        f64(total_bytes) / max(secs, 1e-9) / 1e6,
     )
     largest, largest_own: Corpus_File
     for f in files {
@@ -543,7 +559,7 @@ log_parse_speed :: proc(f: Corpus_File) {
     best := max(time.Duration)
     tree_bytes: uint
     for _ in 0 ..< 10 {
-        start := time.tick_now()
+        start       := time.tick_now()
         result, err := parse(f.src)
         best = min(best, time.tick_since(start))
         if err == nil {
@@ -554,7 +570,11 @@ log_parse_speed :: proc(f: Corpus_File) {
     }
     log.infof(
         "%s: %d lines, %d bytes, parsed in %.2f ms (best of 10), tree %.1f bytes per source byte",
-        f.path, strings.count(f.src, "\n"), len(f.src), time.duration_milliseconds(best), f64(tree_bytes) / f64(len(f.src)),
+        f.path,
+        strings.count(f.src, "\n"),
+        len(f.src),
+        time.duration_milliseconds(best),
+        f64(tree_bytes) / f64(len(f.src)),
     )
 }
 
@@ -606,14 +626,14 @@ test_fuzz_edits :: proc(t: ^testing.T) {
                 inject_at(&buf, at, alphabet[rand.int_max(len(alphabet))])
             case 2:
                 if at < len(buf) {
-                    n := min(1 + rand.int_max(32), len(buf) - at)
+                    n     := min(1 + rand.int_max(32), len(buf) - at)
                     chunk := make([]u8, n, context.temp_allocator)
                     copy(chunk, buf[at:][:n])
                     inject_at(&buf, rand.int_max(len(buf) + 1), ..chunk)
                 }
             }
         }
-        src := string(buf[:])
+        src  := string(buf[:])
         toks := lex_all(src, context.temp_allocator)
         if msg := lossless_error(src, toks); msg != "" {
             testing.expectf(t, false, "round %d (%s): %s", round, f.path, msg)

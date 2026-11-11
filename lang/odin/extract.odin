@@ -137,7 +137,7 @@ once_statement :: proc(expr: ^odinsyntax.Syntax_Node) -> (^odinsyntax.Syntax_Nod
             return nil, false
         case .Do_Body, .Defer_Stmt, .Proc_Lit, .Value_Decl:
             if p.green.kind == .Value_Decl {
-                vd := odinsyntax.Value_Decl(p^)
+                vd          := odinsyntax.Value_Decl(p^)
                 values, has := odinsyntax.value_decl_values(&vd)
                 if has && values.offset == child.offset && !odinsema.is_constant_decl(p^) {
                     break
@@ -145,7 +145,7 @@ once_statement :: proc(expr: ^odinsyntax.Syntax_Node) -> (^odinsyntax.Syntax_Nod
             }
             return nil, false
         case .Binary_Expr:
-            b := odinsyntax.Binary_Expr(p^)
+            b     := odinsyntax.Binary_Expr(p^)
             op, _ := odinsyntax.binary_expr_op(&b)
             if (op.green.kind == .Cmp_And || op.green.kind == .Cmp_Or) && child.offset > op.offset {
                 return nil, false
@@ -158,7 +158,7 @@ once_statement :: proc(expr: ^odinsyntax.Syntax_Node) -> (^odinsyntax.Syntax_Nod
                 return nil, false
             }
         case .Ternary_If_Expr:
-            t := odinsyntax.Ternary_If_Expr(p^)
+            t        := odinsyntax.Ternary_If_Expr(p^)
             cond, ok := odinsyntax.ternary_if_expr_cond(&t)
             if !ok || !same_node(cond, child^) {
                 return nil, false
@@ -216,7 +216,7 @@ once_statement :: proc(expr: ^odinsyntax.Syntax_Node) -> (^odinsyntax.Syntax_Nod
 // The edits that put the expression [lo, hi) in a variable `name` above its statement, or why not.
 @(private)
 extract_variable_edits :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, lo, hi: int, name: string) -> ([]File_Edit, string) {
-    src := rc.req.source
+    src      := rc.req.source
     expr, ok := expr_exact(rc, lo, hi)
     if !ok {
         return nil, "the selection is not an expression"
@@ -237,11 +237,11 @@ extract_variable_edits :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, lo,
         return nil, "the file cannot be checked"
     }
     file := rc.live.id
-    op := odinsema.expr_type(c, file, expr^)
+    op   := odinsema.expr_type(c, file, expr^)
     if op.mode != .Value && op.mode != .Const {
         return nil, "the selection is not a value"
     }
-    head := strings.concatenate({name, " := "}, context.temp_allocator)
+    head    := strings.concatenate({name, " := "}, context.temp_allocator)
     untyped := op.type == odinsema.INVALID_TYPE || odinsema.type_is_untyped(&c.table, op.type)
     if untyped || expr.green.kind == .Implicit_Selector || expr.green.kind == .Comp_Lit {
         want := odinsema.expected_type_at(c, file, lo)
@@ -304,7 +304,7 @@ selected_statements :: proc(rc: ^Request_Context, lo, hi: int) -> (block: ^odins
             continue
         }
         count := 0
-        it := odinsyntax.child_iter(n, {kinds = odinsyntax.KINDS_STMT})
+        it    := odinsyntax.child_iter(n, {kinds = odinsyntax.KINDS_STMT})
         for s in odinsyntax.child_iter_next(&it) {
             ss, se := odinsyntax.node_range(s)
             if int(se) <= lo || int(ss) >= hi {
@@ -349,7 +349,7 @@ leaves_selection :: proc(n: odinsyntax.Syntax_Node, in_loop, in_switch: bool) ->
         }
         return !in_loop
     case .Branch_Stmt:
-        b := odinsyntax.Branch_Stmt(n)
+        b     := odinsyntax.Branch_Stmt(n)
         kw, _ := odinsyntax.branch_stmt_keyword(&b)
         if _, labelled := odinsyntax.branch_stmt_label(&b); labelled {
             return true
@@ -372,8 +372,8 @@ leaves_selection :: proc(n: odinsyntax.Syntax_Node, in_loop, in_switch: bool) ->
         }
     }
     loop := in_loop || n.green.kind == .For_Stmt || n.green.kind == .Range_Stmt
-    sw := in_switch || n.green.kind == .Switch_Stmt || n.green.kind == .Type_Switch_Stmt
-    it := odinsyntax.child_iter(&n, {kinds = ALL_NODES})
+    sw   := in_switch || n.green.kind == .Switch_Stmt || n.green.kind == .Type_Switch_Stmt
+    it   := odinsyntax.child_iter(&n, {kinds = ALL_NODES})
     for c in odinsyntax.child_iter_next(&it) {
         if leaves_selection(c, loop, sw) {
             return true
@@ -385,7 +385,7 @@ leaves_selection :: proc(n: odinsyntax.Syntax_Node, in_loop, in_switch: bool) ->
 // The edits that move the statements [lo, hi) into a procedure `name` and call it, or why not.
 @(private)
 extract_procedure_edits :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, lo, hi: int, name: string) -> ([]File_Edit, string) {
-    src := rc.req.source
+    src                    := rc.req.source
     block, first, last, ok := selected_statements(rc, lo, hi)
     if !ok {
         return nil, "the selection is not whole statements of one block"
@@ -418,14 +418,14 @@ extract_procedure_edits :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, lo
     if c == nil {
         return nil, "the file cannot be checked"
     }
-    file := rc.live.id
+    file   := rc.live.id
     ps, pe := odinsyntax.node_range(lit^)
     for l in m.locals {
         if l.is_using && l.name_offset >= int(ps) && l.name_offset < int(pe) {
             return nil, "the procedure has a 'using' local"
         }
     }
-    inputs := make([dynamic]Extract_Input, context.temp_allocator)
+    inputs  := make([dynamic]Extract_Input, context.temp_allocator)
     outputs := make([dynamic]Extract_Output, context.temp_allocator)
     for r in m.refs {
         if r.kind != .Local || r.start < s0 || r.end > s1 || r.is_decl || (r.decl >= s0 && r.decl < s1) {
@@ -486,10 +486,10 @@ extract_procedure_edits :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, lo
     if names_package_item(rc, name) {
         return nil, fmt.tprintf("'%s' is already declared", name)
     }
-    body := body_with_pointers(rc, m, inputs[:], s0, s1)
-    unit := indent_unit(rc.req)
+    body   := body_with_pointers(rc, m, inputs[:], s0, s1)
+    unit   := indent_unit(rc.req)
     params := make([dynamic]string, context.temp_allocator)
-    args := make([dynamic]string, context.temp_allocator)
+    args   := make([dynamic]string, context.temp_allocator)
     for in_ in inputs {
         if in_.mutated {
             append(&params, fmt.tprintf("%s: ^%s", in_.name, in_.type))
@@ -500,8 +500,8 @@ extract_procedure_edits :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, lo
         }
     }
     results := ""
-    ret := ""
-    lhs := ""
+    ret     := ""
+    lhs     := ""
     if len(outputs) > 0 {
         types := make([dynamic]string, context.temp_allocator)
         names := make([dynamic]string, context.temp_allocator)
@@ -514,12 +514,24 @@ extract_procedure_edits :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, lo
         ret = strings.concatenate({unit, "return ", strings.join(names[:], ", ", context.temp_allocator), "\n"}, context.temp_allocator)
         lhs = strings.concatenate({strings.join(names[:], ", ", context.temp_allocator), " := "}, context.temp_allocator)
     }
-    decl := strings.concatenate({
-        "\n\n", name, " :: proc(", strings.join(params[:], ", ", context.temp_allocator), ")", results, " {\n",
-        reindent(strings.concatenate({src[ls:s0], body}, context.temp_allocator), unit), "\n", ret, "}",
-    }, context.temp_allocator)
-    call := strings.concatenate({lhs, name, "(", strings.join(args[:], ", ", context.temp_allocator), ")"}, context.temp_allocator)
-    at := item_end_at(rc, s0)
+    decl  := strings.concatenate(
+        {
+            "\n\n",
+            name,
+            " :: proc(",
+            strings.join(params[:], ", ", context.temp_allocator),
+            ")",
+            results,
+            " {\n",
+            reindent(strings.concatenate({src[ls:s0], body}, context.temp_allocator), unit),
+            "\n",
+            ret,
+            "}",
+        },
+        context.temp_allocator,
+    )
+    call  := strings.concatenate({lhs, name, "(", strings.join(args[:], ", ", context.temp_allocator), ")"}, context.temp_allocator)
+    at    := item_end_at(rc, s0)
     edits := make([]File_Edit, 2, context.temp_allocator)
     edits[0] = {rc.req.path, src, s0, s1, call}
     edits[1] = {rc.req.path, src, at, at, decl}

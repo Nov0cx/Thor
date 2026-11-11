@@ -27,37 +27,37 @@ DEADLINE_HEAVY :: 15 * time.Second
 // here. Package_Doc has no LSP method of its own; it rides textDocument/hover
 // (decode_package_doc reads the same reply differently than decode_hover does).
 @(private)
-METHODS := [lang.Request_Kind]string {
-    .Definition        = "textDocument/definition",
-    .Type_Definition   = "textDocument/typeDefinition",
-    .Hover             = "textDocument/hover",
-    .Document_Symbols  = "textDocument/documentSymbol",
+METHODS := [lang.Request_Kind]string{
+    .Definition = "textDocument/definition",
+    .Type_Definition = "textDocument/typeDefinition",
+    .Hover = "textDocument/hover",
+    .Document_Symbols = "textDocument/documentSymbol",
     .Workspace_Symbols = "workspace/symbol",
-    .References        = "textDocument/references",
-    .Signature_Help    = "textDocument/signatureHelp",
-    .Completion        = "textDocument/completion",
-    .Package_Doc       = "textDocument/hover",
-    .Rename            = "textDocument/rename",
-    .Diagnostics       = "textDocument/diagnostic",
+    .References = "textDocument/references",
+    .Signature_Help = "textDocument/signatureHelp",
+    .Completion = "textDocument/completion",
+    .Package_Doc = "textDocument/hover",
+    .Rename = "textDocument/rename",
+    .Diagnostics = "textDocument/diagnostic",
     .Syntax_Diagnostics = "", // in-client only
-    .Code_Actions      = "textDocument/codeAction",
-    .Semantic_Tokens   = "textDocument/semanticTokens/full",
-    .Inlay_Hints       = "textDocument/inlayHint",
+    .Code_Actions = "textDocument/codeAction",
+    .Semantic_Tokens = "textDocument/semanticTokens/full",
+    .Inlay_Hints = "textDocument/inlayHint",
     .Document_Highlight = "textDocument/documentHighlight",
-    .Format            = "textDocument/formatting",
-    .Format_Range      = "textDocument/rangeFormatting",
-    .Format_On_Type    = "textDocument/onTypeFormatting",
-    .Execute_Command   = "workspace/executeCommand",
+    .Format = "textDocument/formatting",
+    .Format_Range = "textDocument/rangeFormatting",
+    .Format_On_Type = "textDocument/onTypeFormatting",
+    .Execute_Command = "workspace/executeCommand",
     .Resolve_Completion = "completionItem/resolve",
-    .Resolve_Action    = "", // in-client only
-    .Call_Hierarchy    = "", // in-client only
-    .Type_Hierarchy    = "", // in-client only
-    .Implementations   = "textDocument/implementation",
-    .Selection_Range   = "", // in-client only
-    .Code_Lens         = "", // in-client only
-    .Progress          = "", // unsolicited push, never sent as an outgoing request
-    .Apply_Edit        = "", // unsolicited push, never sent as an outgoing request
-    .Message           = "", // unsolicited push, never sent as an outgoing request
+    .Resolve_Action = "", // in-client only
+    .Call_Hierarchy = "", // in-client only
+    .Type_Hierarchy = "", // in-client only
+    .Implementations = "textDocument/implementation",
+    .Selection_Range = "", // in-client only
+    .Code_Lens = "", // in-client only
+    .Progress = "", // unsolicited push, never sent as an outgoing request
+    .Apply_Edit = "", // unsolicited push, never sent as an outgoing request
+    .Message = "", // unsolicited push, never sent as an outgoing request
 }
 
 // One request in flight, and what it needs to turn positions into byte offsets.
@@ -65,13 +65,13 @@ METHODS := [lang.Request_Kind]string {
 // after the job.
 @(private)
 Ask :: struct {
-    server: ^Server,
-    conn:   ^Conn,
-    req:    ^lang.Request,
-    uri:    string,     // the request file's URI
-    lines:  Line_Index, // over req.source, in the encoding the server counts in
-    texts:  map[string]string,      // path -> LF-collapsed source; one read per file
-    raws:   map[string]^Line_Index, // path -> index over the raw disk bytes; nil marks an unreadable file
+    server:                      ^Server,
+    conn:                        ^Conn,
+    req:                         ^lang.Request,
+    uri:                         string,                 // the request file's URI
+    lines:                       Line_Index,             // over req.source, in the encoding the server counts in
+    texts:                       map[string]string,      // path -> LF-collapsed source; one read per file
+    raws:                        map[string]^Line_Index, // path -> index over the raw disk bytes; nil marks an unreadable file
     // Semantic_Tokens only: set when the server supports delta and this file
     // has a cached resultId, which is what turns the request into
     // .../full/delta instead of .../full.
@@ -94,14 +94,14 @@ request_answer :: proc(s: ^Server, req: ^lang.Request, res: ^lang.Result) {
     }
     server_sync_document(s, req)
 
-    ask := Ask {
+    ask := Ask{
         server = s,
-        conn   = s.conn,
-        req    = req,
-        uri    = uri_from_path(req.path, context.temp_allocator),
-        lines  = line_index_build(req.source, s.caps.encoding, context.temp_allocator),
-        texts  = make(map[string]string, allocator = context.temp_allocator),
-        raws   = make(map[string]^Line_Index, allocator = context.temp_allocator),
+        conn = s.conn,
+        req = req,
+        uri = uri_from_path(req.path, context.temp_allocator),
+        lines = line_index_build(req.source, s.caps.encoding, context.temp_allocator),
+        texts = make(map[string]string, allocator = context.temp_allocator),
+        raws = make(map[string]^Line_Index, allocator = context.temp_allocator),
     }
 
     // A cached resultId turns this into a delta request — cheaper for the
@@ -127,7 +127,7 @@ request_answer :: proc(s: ^Server, req: ^lang.Request, res: ^lang.Result) {
         return
     }
 
-    params := request_params(&ask)
+    params     := request_params(&ask)
     value, err := conn_call(ask.conn, method, params, request_deadline(req.kind, s.deadline_percent), req.cancel)
     defer conn_free_value(ask.conn, value)
     #partial switch err {
@@ -198,7 +198,7 @@ request_params :: proc(ask: ^Ask) -> string {
     case .Format_Range, .Inlay_Hints:
         // Format_Range: a selection aligned to whole lines; Inlay_Hints: the visible window.
         start_line, start_character := position_from_offset(&ask.lines, ask.req.offset)
-        end_line, end_character := position_from_offset(&ask.lines, ask.req.end)
+        end_line, end_character     := position_from_offset(&ask.lines, ask.req.end)
         append(&out, `,"range":{"start":{"line":`)
         write_number(&out, i64(start_line))
         append(&out, `,"character":`)
@@ -213,7 +213,7 @@ request_params :: proc(ask: ^Ask) -> string {
         // range at the caret exactly as before; a real selection sends its
         // actual span, unlocking selection-scoped actions.
         start_line, start_character := position_from_offset(&ask.lines, ask.req.offset)
-        end_line, end_character := position_from_offset(&ask.lines, ask.req.end)
+        end_line, end_character     := position_from_offset(&ask.lines, ask.req.end)
         append(&out, `,"range":{"start":{"line":`)
         write_number(&out, i64(start_line))
         append(&out, `,"character":`)
@@ -255,8 +255,8 @@ request_params :: proc(ask: ^Ask) -> string {
         // "add missing import") needs it echoed back here; the cache is kept
         // per-document by document_replace_diagnostics.
         start_line, start_character := position_from_offset(&ask.lines, ask.req.offset)
-        end_line, end_character := position_from_offset(&ask.lines, ask.req.end)
-        diagnostics := server_code_action_diagnostics(
+        end_line, end_character     := position_from_offset(&ask.lines, ask.req.end)
+        diagnostics                 := server_code_action_diagnostics(
             ask.server,
             ask.req.path,
             start_line,
@@ -343,8 +343,7 @@ trigger_character :: proc(ask: ^Ask) -> bool {
 request_deadline :: proc(kind: lang.Request_Kind, percent := 100) -> time.Duration {
     deadline := DEADLINE_INTERACTIVE
     #partial switch kind {
-    case .Document_Symbols, .Workspace_Symbols, .References, .Diagnostics, .Semantic_Tokens, .Rename, .Package_Doc,
-         .Format, .Format_Range:
+    case .Document_Symbols, .Workspace_Symbols, .References, .Diagnostics, .Semantic_Tokens, .Rename, .Package_Doc, .Format, .Format_Range:
         deadline = DEADLINE_HEAVY
     }
     if percent > 0 && percent != 100 {
@@ -383,7 +382,7 @@ ask_raw_index :: proc(ask: ^Ask, path: string) -> ^Line_Index {
     if index, found := ask.raws[path]; found {
         return index
     }
-    key := clone_temp(path)
+    key       := clone_temp(path)
     raw, read := read_raw(path)
     if !read {
         ask.raws[key] = nil

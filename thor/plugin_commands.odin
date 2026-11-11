@@ -38,13 +38,16 @@ thor_sync_plugin_commands :: proc(thor: ^Thor) {
         pc := new(Plugin_Command)
         pc.thor = thor
         pc.name = strings.clone(info.name)
-        pc.title = info.plugin_id != "" && info.plugin_id != info.name ? fmt.aprintf("Plugin: %s (%s)", info.name, info.plugin_id) : fmt.aprintf("Plugin: %s", info.name)
+        pc.title = info.plugin_id != "" && info.plugin_id != info.name ? fmt.aprintf("Plugin: %s (%s)", info.name, info.plugin_id) : fmt.aprintf(
+            "Plugin: %s",
+            info.name,
+        )
         pc.action = strings.concatenate({PLUGIN_ACTION_PREFIX, info.name})
         append(&thor.plugin_commands, pc)
 
         thor_palette_add(thor, pc.title, thor_run_plugin_command, pc, action = pc.action)
         kb, _ := setting.keybind(&thor.config, pc.action)
-        append(&thor.app_binds, App_Bind {action = pc.action, key = kb, run = thor_run_plugin_command, data = pc})
+        append(&thor.app_binds, App_Bind{action = pc.action, key = kb, run = thor_run_plugin_command, data = pc})
     }
     thor.plugin_commands_synced = count
 }
@@ -85,7 +88,7 @@ thor_clear_plugin_commands :: proc(thor: ^Thor) {
 }
 
 thor_run_plugin_command :: proc(data: rawptr) {
-    pc := cast(^Plugin_Command) data
+    pc := cast(^Plugin_Command)data
     if !plugin.manager_run_command(&pc.thor.plugins, pc.name) {
         thor_flash_status(pc.thor, strings.concatenate({"Plugin command ", pc.name, " failed"}, context.temp_allocator), is_error = true)
     }

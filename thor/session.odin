@@ -14,9 +14,9 @@ import rl "vendor:raylib"
 
 import "../atomicfile"
 import "../editview"
+import "../prof"
 import "../textedit"
 import ui "../vendor/loom/loom"
-import "../prof"
 
 // Where a file was left: caret and top row, as 0-based line and byte column.
 File_View :: struct {
@@ -28,15 +28,15 @@ File_View :: struct {
 // On-disk shape of a session. Field names are the JSON keys.
 @(private = "file")
 Session :: struct {
-    workspace:        string,
-    open_files:       []string,
+    workspace:         string,
+    open_files:        []string,
     // One entry per open_files entry; absent in an older session.
-    file_views:       []File_View `json:",omitempty"`,
-    active_file:      int,
-    explorer_visible: bool,
-    console_visible:  bool,
-    explorer_width:   f32,
-    console_height:   f32,
+    file_views:        []File_View `json:",omitempty"`,
+    active_file:       int,
+    explorer_visible:  bool,
+    console_visible:   bool,
+    explorer_width:    f32,
+    console_height:    f32,
     window_maximized:  bool,
     // Pane layout name; absent in a session written before layouts, which
     // the split_* fields describe.
@@ -47,8 +47,8 @@ Session :: struct {
     row_weight:        [LAYOUT_MAX_COLUMNS][LAYOUT_MAX_ROWS]f32,
     // Read only, from a session written before layouts.
     split_visible:     bool `json:",omitempty"`,
-    split_ratio:       f32 `json:",omitempty"`,
-    split_second_file: int `json:",omitempty"`,
+    split_ratio:       f32  `json:",omitempty"`,
+    split_second_file: int  `json:",omitempty"`,
     // Pane that had focus. An absent field reads as 0, so a session written
     // before this field restores focus to the first pane.
     active_pane:       int,
@@ -76,7 +76,7 @@ thor_normal_workspace :: proc(workspace_dir: string) -> string {
         cased = strings.to_lower(workspace_dir, context.temp_allocator)
     }
     slashed, _ := strings.replace_all(cased, "\\", "/", context.temp_allocator)
-    trimmed := strings.trim_right(slashed, "/")
+    trimmed    := strings.trim_right(slashed, "/")
     if trimmed == "" {
         return slashed // a root path is separators only
     }
@@ -90,7 +90,7 @@ thor_normal_workspace :: proc(workspace_dir: string) -> string {
 // and the window records, so the two always agree on a folder.
 thor_path_key :: proc(workspace_dir: string, allocator := context.temp_allocator) -> string {
     normal := thor_normal_workspace(workspace_dir)
-    b := strings.builder_make(context.temp_allocator)
+    b      := strings.builder_make(context.temp_allocator)
     for r in normal {
         if strings.builder_len(b) >= KEY_STEM_MAX {
             break
@@ -103,12 +103,7 @@ thor_path_key :: proc(workspace_dir: string, allocator := context.temp_allocator
             strings.write_rune(&b, r >= 0x80 ? r : '-')
         }
     }
-    return fmt.aprintf(
-        "%s-%016x",
-        strings.to_string(b),
-        hash.fnv64a(transmute([]u8)normal),
-        allocator = allocator,
-    )
+    return fmt.aprintf("%s-%016x", strings.to_string(b), hash.fnv64a(transmute([]u8)normal), allocator = allocator)
 }
 
 // Session file for a workspace: sessions/<path-key>.json.
@@ -122,7 +117,7 @@ thor_session_file :: proc(workspace_dir: string, allocator := context.temp_alloc
 @(private = "file")
 thor_legacy_session_file :: proc(workspace_dir: string, allocator := context.temp_allocator) -> string {
     lower := strings.to_lower(workspace_dir, context.temp_allocator)
-    b := strings.builder_make(context.temp_allocator)
+    b     := strings.builder_make(context.temp_allocator)
     for r in lower {
         switch r {
         case ':', '/', '\\':
@@ -139,7 +134,7 @@ thor_legacy_session_file :: proc(workspace_dir: string, allocator := context.tem
 // another folder's session — the workspace it records settles it.
 @(private = "file")
 thor_migrate_legacy_session :: proc(workspace_dir: string) {
-    path := thor_session_file(workspace_dir)
+    path   := thor_session_file(workspace_dir)
     legacy := thor_legacy_session_file(workspace_dir)
     if legacy == path || os.exists(path) || !os.exists(legacy) {
         return
@@ -185,7 +180,7 @@ thor_last_workspace :: proc() -> string {
 // exit still comes back to the folder that was open.
 thor_record_last_workspace :: proc(workspace: string) {
     // A pointer that a power loss damages only costs the reopen, so it skips the disk flush.
-    if err := atomicfile.write(LAST_WORKSPACE_FILE, transmute([]u8) workspace, durable = false); err != nil {
+    if err := atomicfile.write(LAST_WORKSPACE_FILE, transmute([]u8)workspace, durable = false); err != nil {
         log.errorf("Could not write %q: %v", LAST_WORKSPACE_FILE, err)
     }
 }
@@ -193,7 +188,7 @@ thor_record_last_workspace :: proc(workspace: string) {
 // Recently opened workspaces, most recent first, for the welcome page's
 // picker. Lives next to the session files, i.e. relative to the exe directory.
 RECENT_WORKSPACES_FILE :: "sessions/recent.json"
-RECENT_WORKSPACES_MAX :: 10
+RECENT_WORKSPACES_MAX  :: 10
 
 // The recorded recent workspaces (owned clones), pruned of folders that no
 // longer exist. Missing or malformed file is an empty list.
@@ -231,8 +226,8 @@ thor_record_recent_workspace :: proc(workspace: string) {
         }
     }
     existing := thor_recent_workspaces(context.temp_allocator)
-    normal := thor_normal_workspace(workspace)
-    kept := make([dynamic]string, 0, len(existing) + 1, context.temp_allocator)
+    normal   := thor_normal_workspace(workspace)
+    kept     := make([dynamic]string, 0, len(existing) + 1, context.temp_allocator)
     append(&kept, workspace)
     for p in existing {
         if thor_normal_workspace(p) == normal {
@@ -276,23 +271,23 @@ thor_save_session :: proc(thor: ^Thor) {
         append(&views, thor_file_view(thor, file))
     }
 
-    session := Session {
-        workspace        = thor.workspace_dir,
-        open_files       = paths[:],
-        file_views       = views[:],
-        active_file      = thor.pane_file[0],
+    session := Session{
+        workspace = thor.workspace_dir,
+        open_files = paths[:],
+        file_views = views[:],
+        active_file = thor.pane_file[0],
         explorer_visible = signal_get(&thor.explorer_visible),
-        console_visible  = signal_get(&thor.console_visible),
-        explorer_width   = thor.explorer_width,
-        console_height   = thor.console_height,
-        window_maximized  = thor.window_maximized,
-        layout            = LAYOUT_NAMES[thor.layout],
-        pane_files        = thor.pane_file[:thor_pane_count(thor)],
-        col_weight        = thor.col_weight,
-        row_weight        = thor.row_weight,
-        active_pane       = thor.active_pane,
-        active_task       = thor.active_task_name,
-        dock_layout       = thor_dock_layout(thor),
+        console_visible = signal_get(&thor.console_visible),
+        explorer_width = thor.explorer_width,
+        console_height = thor.console_height,
+        window_maximized = thor.window_maximized,
+        layout = LAYOUT_NAMES[thor.layout],
+        pane_files = thor.pane_file[:thor_pane_count(thor)],
+        col_weight = thor.col_weight,
+        row_weight = thor.row_weight,
+        active_pane = thor.active_pane,
+        active_task = thor.active_task_name,
+        dock_layout = thor_dock_layout(thor),
     }
 
     data, err := json.marshal(session, {pretty = true}, context.temp_allocator)
@@ -330,19 +325,15 @@ thor_file_view :: proc(thor: ^Thor, file: ^Open_File) -> File_View {
         return file.restore_pending ? file.restore : File_View{}
     }
     caret := textedit.primary_cursor(&file.state).caret
-    line := textedit.state_line_index(&file.state, caret)
-    top := file.view_top
+    line  := textedit.state_line_index(&file.state, caret)
+    top   := file.view_top
     for pane in 0 ..< thor_pane_count(thor) {
         if editor := thor_pane_editor(thor, pane); editor.state == &file.state {
             top = editview.editor_top_offset(editor)
             break
         }
     }
-    return {
-        line = line,
-        col = max(caret - textedit.state_line_start(&file.state, line), 0),
-        top_line = textedit.state_line_index(&file.state, top),
-    }
+    return {line = line, col = max(caret - textedit.state_line_start(&file.state, line), 0), top_line = textedit.state_line_index(&file.state, top)}
 }
 
 // Applies the view a session restore left on a file whose text just landed.
@@ -356,10 +347,10 @@ thor_apply_file_view :: proc(file: ^Open_File) {
     if count <= 0 {
         return
     }
-    text := textedit.text(&file.state)
-    line := clamp(file.restore.line, 0, count - 1)
+    text  := textedit.text(&file.state)
+    line  := clamp(file.restore.line, 0, count - 1)
     start := textedit.state_line_start(&file.state, line)
-    end := len(text)
+    end   := len(text)
     if line + 1 < count {
         end = max(textedit.state_line_start(&file.state, line + 1) - 1, start)
     }
@@ -416,7 +407,7 @@ thor_restore_session :: proc(thor: ^Thor) {
     thor.active_pane = 0
 
     thor_migrate_legacy_session(thor.workspace_dir)
-    path := thor_session_file(thor.workspace_dir)
+    path           := thor_session_file(thor.workspace_dir)
     data, read_err := os.read_entire_file(path, context.temp_allocator)
     if read_err != nil {
         return
@@ -445,7 +436,7 @@ thor_restore_session :: proc(thor: ^Thor) {
     signal_set(&thor.console_visible, session.console_visible)
     // The pane_layout setting, when it names one, wins over the session.
     saved_files := session.pane_files
-    old_second := [2]int{session.active_file, session.split_second_file}
+    old_second  := [2]int{session.active_file, session.split_second_file}
     if session.layout != "" {
         if layout, ok := layout_from_name(session.layout); ok && !forced {
             thor.layout = layout
@@ -475,7 +466,7 @@ thor_restore_session :: proc(thor: ^Thor) {
     // saved again. Drop it here; the pane fields are positions in this list, so
     // they move with it. Not routed to thor_open_folder_request: restore runs
     // inside init, where that path can raise the picker or spawn a window.
-    kept := make([dynamic]string, 0, len(session.open_files), context.temp_allocator)
+    kept  := make([dynamic]string, 0, len(session.open_files), context.temp_allocator)
     remap := make([]int, len(session.open_files), context.temp_allocator)
     for p, i in session.open_files {
         if os.is_dir(p) {

@@ -110,13 +110,13 @@ test_vet_shadowing :: proc(t: ^testing.T) {
     got, gerr := vet_shadowing(m, parsed, tree, nil, context.temp_allocator)
     testing.expect_value(t, gerr, nil)
 
-    want := make([dynamic]int, context.temp_allocator)
-    rest := SHADOW_SRC
+    want   := make([dynamic]int, context.temp_allocator)
+    rest   := SHADOW_SRC
     offset := 0
     for line in strings.split_lines_iterator(&rest) {
         if at := strings.index(line, "// shadow "); at >= 0 {
             name := strings.trim_space(line[at + len("// shadow "):])
-            col := strings.index(line, strings.concatenate({name, " "}, context.temp_allocator))
+            col  := strings.index(line, strings.concatenate({name, " "}, context.temp_allocator))
             append(&want, offset + col)
         }
         offset += len(line) + 1
@@ -134,7 +134,7 @@ test_vet_shadowing :: proc(t: ^testing.T) {
     testing.expect_value(t, got[0].shadowed, strings.index(SHADOW_SRC, "x := 1"))
 
     // A declaration in a skipped range is not reported.
-    first := got[0].offset
+    first      := got[0].offset
     skipped, _ := vet_shadowing(m, parsed, tree, {{first, first + 1}}, context.temp_allocator)
     testing.expect_value(t, len(skipped), len(got) - 1)
 }
@@ -173,13 +173,13 @@ test_vet_unused_imports :: proc(t: ^testing.T) {
     tree, terr := item_tree(parsed, context.temp_allocator)
     testing.expect_value(t, terr, nil)
     defer item_tree_destroy(tree, context.temp_allocator)
-    collections := Collections{}
+    collections   := Collections{}
     imports, ierr := file_imports(tree, ".", &collections, context.temp_allocator)
     testing.expect_value(t, ierr, nil)
     defer file_imports_destroy(imports, context.temp_allocator)
 
-    start := strings.index(IMPORT_SRC, "when")
-    end := strings.index(IMPORT_SRC, "    m := 1")
+    start        := strings.index(IMPORT_SRC, "when")
+    end          := strings.index(IMPORT_SRC, "    m := 1")
     unused, uerr := vet_unused_imports(tree, imports, m, {{start, end}}, context.temp_allocator)
     testing.expect_value(t, uerr, nil)
     names := make([dynamic]string, context.temp_allocator)
@@ -200,7 +200,7 @@ test_file_vet_flags :: proc(t: ^testing.T) {
         base:   Vet_Flags,
         want:   Vet_Flags,
     }
-    cases := []Case {
+    cases := []Case{
         {"", VET_DEFAULT, VET_DEFAULT},
         {"", {}, {}},
         {"#+vet\n", {}, VET_DEFAULT},
@@ -212,9 +212,9 @@ test_file_vet_flags :: proc(t: ^testing.T) {
         {"#+vet !cast\n", VET_DEFAULT, VET_DEFAULT - {.Cast}},
     }
     for c in cases {
-        src := strings.concatenate({c.header, "package p\n"}, context.temp_allocator)
+        src       := strings.concatenate({c.header, "package p\n"}, context.temp_allocator)
         parsed, _ := odinsyntax.parse(src, context.temp_allocator)
-        tree, _ := item_tree(parsed, context.temp_allocator)
+        tree, _   := item_tree(parsed, context.temp_allocator)
         testing.expectf(t, file_vet_flags(tree, c.base) == c.want, "%q: got %v, want %v", c.header, file_vet_flags(tree, c.base), c.want)
         item_tree_destroy(tree, context.temp_allocator)
     }

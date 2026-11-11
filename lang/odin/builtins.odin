@@ -51,7 +51,7 @@ builtin_package_candidates :: proc(ctx: ^Request_Context, dir, name: string, all
         if item.visibility != .Public || (!all && !has_builtin_attribute(item)) {
             continue
         }
-        data := view.datas[ref.file]
+        data     := view.datas[ref.file]
         inactive := !odinsema.package_ref_active(view.scope, ref)
         emit_candidate(ctx, out, item, view.sema_files[ref.file].path, data.lines, inactive, "")
     }

@@ -11,24 +11,24 @@ import odinsyntax "syntax"
 
 // The vet ids by check.
 @(private, rodata)
-VET_CODES := [odinsema.Vet_Flag]string {
+VET_CODES := [odinsema.Vet_Flag]string{
     .Unused_Variables = CODE_UNUSED_VAR,
-    .Unused_Imports   = CODE_UNUSED_IMPORT,
-    .Shadowing        = CODE_SHADOWING,
-    .Using_Stmt       = CODE_USING_STMT,
-    .When_Shadowing   = CODE_WHEN_SHADOWING,
-    .Cast             = CODE_CAST,
+    .Unused_Imports = CODE_UNUSED_IMPORT,
+    .Shadowing = CODE_SHADOWING,
+    .Using_Stmt = CODE_USING_STMT,
+    .When_Shadowing = CODE_WHEN_SHADOWING,
+    .Cast = CODE_CAST,
     .Unused_Procedures = CODE_UNUSED_PROC,
-    .Style            = CODE_STYLE,
-    .Semicolon        = CODE_SEMICOLON,
-    .Tabs             = CODE_TABS,
+    .Style = CODE_STYLE,
+    .Semicolon = CODE_SEMICOLON,
+    .Tabs = CODE_TABS,
 }
 
 // The `-vet` set less the checks whose id the workspace config turns off, plus the opt-in checks whose
 // id it sets to anything but off.
 @(private)
 workspace_vet_flags :: proc(e: ^Engine, workspace: string) -> odinsema.Vet_Flags {
-    flags := odinsema.VET_DEFAULT | config_vet(e, workspace)
+    flags      := odinsema.VET_DEFAULT | config_vet(e, workspace)
     severities := config_severities(e, workspace)
     for code, flag in VET_CODES {
         setting, ok := severities[code]
@@ -89,7 +89,7 @@ unused_procedures :: proc(rc: ^Request_Context, whens: []Branch, report: ^lang.D
         names[item.name] = i
         append(&decls, item.name_offset)
     }
-    used := make(map[string]struct{}, len(cands), context.temp_allocator)
+    used := make(map[string]struct {}, len(cands), context.temp_allocator)
     if odinsema.vet_note_names(rc.parsed.tree.text, names, &used, decls[:]) != nil {
         return
     }
@@ -136,7 +136,12 @@ syntax_vet :: proc(rc: ^Request_Context, flags: odinsema.Vet_Flags, report: ^lan
 }
 
 @(private = "file")
-report_offsets :: proc(rc: ^Request_Context, find: proc(parsed: odinsyntax.Parse, allocator := context.allocator) -> (out: [dynamic]int, err: mem.Allocator_Error), code, message: string, report: ^lang.Diagnostic_Report) {
+report_offsets :: proc(
+    rc: ^Request_Context,
+    find: proc(parsed: odinsyntax.Parse, allocator := context.allocator) -> (out: [dynamic]int, err: mem.Allocator_Error),
+    code, message: string,
+    report: ^lang.Diagnostic_Report,
+) {
     offsets, err := find(rc.parsed, context.temp_allocator)
     if err != nil {
         return
@@ -148,8 +153,8 @@ report_offsets :: proc(rc: ^Request_Context, find: proc(parsed: odinsyntax.Parse
 
 @(private = "file")
 unused_imports :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, whens: []Branch, report: ^lang.Diagnostic_Report) {
-    imports := odinsema.db_imports(&rc.snap, rc.live.id)
-    dead := branch_spans(whens, false)
+    imports     := odinsema.db_imports(&rc.snap, rc.live.id)
+    dead        := branch_spans(whens, false)
     unused, err := odinsema.vet_unused_imports(rc.live.tree, imports, m, dead, context.temp_allocator)
     if err != nil {
         return
@@ -182,7 +187,7 @@ poly_unused_imports :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, import
     if view == nil {
         return unused
     }
-    files := make([dynamic]odinsema.Poly_File, context.temp_allocator)
+    files  := make([dynamic]odinsema.Poly_File, context.temp_allocator)
     // The names of a Poly_File borrow its parse, so each parse stays pinned to the end.
     pinned := make([dynamic]^odinsyntax.Parse, context.temp_allocator)
     defer for p in pinned {
@@ -253,7 +258,14 @@ shadowing :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, whens: []Branch,
     }
     for s in usings {
         line, _ := offset_line_col(rc.live.lines, s.shadowed)
-        report_error(rc, report, s.offset, CODE_SHADOWING, fmt.aprintf("Declaration of '%s' from 'using' shadows declaration at line %d", s.field, line), .Warning)
+        report_error(
+            rc,
+            report,
+            s.offset,
+            CODE_SHADOWING,
+            fmt.aprintf("Declaration of '%s' from 'using' shadows declaration at line %d", s.field, line),
+            .Warning,
+        )
     }
 }
 
@@ -303,7 +315,14 @@ when_shadowing :: proc(rc: ^Request_Context, whens: []Branch, report: ^lang.Diag
         if builtin_candidates(rc, item.name, &cands) == "" {
             continue
         }
-        report_error(rc, report, item.name_offset, CODE_WHEN_SHADOWING, fmt.aprintf("Declaration of '%s' within a global 'when' shadows the builtin '%s'", item.name, item.name), .Warning)
+        report_error(
+            rc,
+            report,
+            item.name_offset,
+            CODE_WHEN_SHADOWING,
+            fmt.aprintf("Declaration of '%s' within a global 'when' shadows the builtin '%s'", item.name, item.name),
+            .Warning,
+        )
     }
 }
 

@@ -53,8 +53,8 @@ Temp_Walk :: struct {
     places:      map[string]int,
     cands:       [dynamic]Temp_Cand,
     root_places: map[int][dynamic]int,
-    root_skip:   map[int]bool,                         // locals whose address is taken, or that `using` or attributes name
-    real:        map[u32]odinsyntax.Syntax_Node,       // the declarations and assignments of the body, with their parents
+    root_skip:   map[int]bool,                   // locals whose address is taken, or that `using` or attributes name
+    real:        map[u32]odinsyntax.Syntax_Node, // the declarations and assignments of the body, with their parents
     alias:       map[Alias_Key]Temp_Alias,
 }
 
@@ -64,19 +64,28 @@ Temp_Walk :: struct {
 // arguments back, or a local or field of a record local that every path to the store filled with
 // one. A local whose address is taken is not followed. A procedure with `temp` or `tprint` in
 // its name is left out.
-temp_stores :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.Syntax_Node, allocator := context.allocator) -> (out: [dynamic]Temp_Store, err: mem.Allocator_Error) {
+temp_stores :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.Syntax_Node, allocator := context.allocator) -> (
+    out: [dynamic]Temp_Store,
+    err: mem.Allocator_Error,
+) {
     return flow_stores(c, file, m, lit, false, allocator)
 }
 
 // The same flow for the address of a by-value local (`dangling_place`): the stores into a place
 // that outlives the frame and the returns, of a value that is not itself `&x` or `x[:]`, which
 // the direct check reports. A procedure with `temp` in its name is not left out.
-dangling_flow :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.Syntax_Node, allocator := context.allocator) -> (out: [dynamic]Temp_Store, err: mem.Allocator_Error) {
+dangling_flow :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.Syntax_Node, allocator := context.allocator) -> (
+    out: [dynamic]Temp_Store,
+    err: mem.Allocator_Error,
+) {
     return flow_stores(c, file, m, lit, true, allocator)
 }
 
 @(private = "file")
-flow_stores :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.Syntax_Node, dangling: bool, allocator: mem.Allocator) -> (out: [dynamic]Temp_Store, err: mem.Allocator_Error) {
+flow_stores :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.Syntax_Node, dangling: bool, allocator: mem.Allocator) -> (
+    out: [dynamic]Temp_Store,
+    err: mem.Allocator_Error,
+) {
     out = make([dynamic]Temp_Store, allocator) or_return
     pl, is_lit := odinsyntax.as_proc_lit(lit)
     if !is_lit || m == nil || !dangling && temp_helper(lit) {
@@ -95,7 +104,7 @@ flow_stores :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.S
         return
     }
     lit_start, lit_end := odinsyntax.node_range(lit)
-    depth := -1
+    depth              := -1
     for s in m.scopes {
         if s.start == int(lit_start) && s.end == int(lit_end) {
             depth = s.proc_depth
@@ -105,19 +114,19 @@ flow_stores :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.S
     if depth < 0 {
         return
     }
-    alloc := context.temp_allocator
-    w := Temp_Walk {
-        c           = c,
-        file        = file,
-        dangling    = dangling,
-        refs        = make([dynamic]Name_Ref, alloc),
-        locals      = make(map[int]bool, alloc),
-        places      = make(map[string]int, alloc),
-        cands       = make([dynamic]Temp_Cand, alloc),
+    alloc  := context.temp_allocator
+    w      := Temp_Walk{
+        c = c,
+        file = file,
+        dangling = dangling,
+        refs = make([dynamic]Name_Ref, alloc),
+        locals = make(map[int]bool, alloc),
+        places = make(map[string]int, alloc),
+        cands = make([dynamic]Temp_Cand, alloc),
         root_places = make(map[int][dynamic]int, alloc),
-        root_skip   = make(map[int]bool, alloc),
-        real        = make(map[u32]odinsyntax.Syntax_Node, alloc),
-        alias       = make(map[Alias_Key]Temp_Alias, alloc),
+        root_skip = make(map[int]bool, alloc),
+        real = make(map[u32]odinsyntax.Syntax_Node, alloc),
+        alias = make(map[Alias_Key]Temp_Alias, alloc),
     }
     in_lit := locals_between(m, int(lit_start), int(lit_end), alloc)
     for li in in_lit {
@@ -132,7 +141,9 @@ flow_stores :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, lit: odinsyntax.S
             append(&w.refs, r) or_return
         }
     }
-    slice.sort_by(w.refs[:], proc(a, b: Name_Ref) -> bool {return a.start < b.start})
+    slice.sort_by(w.refs[:], proc(a, b: Name_Ref) -> bool {
+        return a.start < b.start
+    })
     for li in in_lit {
         l := m.locals[li]
         if w.locals[l.name_offset] {
@@ -169,7 +180,7 @@ temp_prepare :: proc(w: ^Temp_Walk, node: ^odinsyntax.Syntax_Node) -> mem.Alloca
         w.real[n.offset] = n
     case .Value_Decl:
         w.real[n.offset] = n
-        v, _ := odinsyntax.as_value_decl(n)
+        v, _  := odinsyntax.as_value_decl(n)
         attrs := odinsyntax.value_decl_attributes(&v)
         if _, has_attrs := odinsyntax.child_iter_next(&attrs); has_attrs {
             if names, ok := odinsyntax.value_decl_names(&v); ok {
@@ -331,7 +342,7 @@ taint_expr :: proc(w: ^Temp_Walk, cur: Bits, n: odinsyntax.Syntax_Node, depth :=
             return taint_expr(w, cur, operand, depth)
         }
     case .Or_Else_Expr:
-        oe, _ := odinsyntax.as_or_else_expr(n)
+        oe, _        := odinsyntax.as_or_else_expr(n)
         lhs, has_lhs := odinsyntax.or_else_expr_lhs(&oe)
         rhs, has_rhs := odinsyntax.or_else_expr_rhs(&oe)
         return has_lhs && taint_expr(w, cur, lhs, depth) || has_rhs && taint_expr(w, cur, rhs, depth)
@@ -361,11 +372,11 @@ taint_call :: proc(w: ^Temp_Walk, cur: Bits, call: odinsyntax.Syntax_Node, depth
     if !w.dangling && temp_call(call) {
         return true
     }
-    ce, _ := odinsyntax.as_call_expr(call)
+    ce, _  := odinsyntax.as_call_expr(call)
     callee := odinsyntax.call_expr_callee(&ce) or_return
-    list := odinsyntax.call_expr_args(&ce) or_return
-    args := make([dynamic]odinsyntax.Syntax_Node, context.temp_allocator)
-    it := odinsyntax.arg_list_args(&list)
+    list   := odinsyntax.call_expr_args(&ce) or_return
+    args   := make([dynamic]odinsyntax.Syntax_Node, context.temp_allocator)
+    it     := odinsyntax.arg_list_args(&list)
     for arg in odinsyntax.child_iter_next(&it) {
         if arg.green.kind == .Field_Value || arg.green.kind == .Spread_Expr {
             return false
@@ -428,7 +439,7 @@ proc_alias :: proc(w: ^Temp_Walk, op: Operand, depth: int) -> Temp_Alias {
     if !found {
         return {}
     }
-    pl, _ := odinsyntax.as_proc_lit(lit)
+    pl, _          := odinsyntax.as_proc_lit(lit)
     body, has_body := odinsyntax.proc_lit_body(&pl)
     if !has_body {
         return {}
@@ -450,7 +461,7 @@ collect_returns :: proc(w: ^Temp_Walk, file: File_Id, p: Proc_Type, n: odinsynta
     case .Proc_Lit:
         return
     case .Return_Stmt:
-        rs, _ := odinsyntax.as_return_stmt(n)
+        rs, _              := odinsyntax.as_return_stmt(n)
         values, has_values := odinsyntax.return_stmt_values(&rs)
         items: [dynamic]odinsyntax.Syntax_Node
         if has_values {
@@ -498,19 +509,19 @@ alias_expr :: proc(w: ^Temp_Walk, file: File_Id, p: Proc_Type, n: odinsyntax.Syn
         }
         return 0, false
     case .Slice_Expr:
-        se, _ := odinsyntax.as_slice_expr(n)
+        se, _   := odinsyntax.as_slice_expr(n)
         operand := odinsyntax.slice_expr_operand(&se) or_return
         return alias_expr(w, file, p, operand, depth)
     case .Cast_Expr:
-        ce, _ := odinsyntax.as_cast_expr(n)
+        ce, _   := odinsyntax.as_cast_expr(n)
         operand := odinsyntax.cast_expr_operand(&ce) or_return
         return alias_expr(w, file, p, operand, depth)
     case .Call_Expr:
-        ce, _ := odinsyntax.as_call_expr(n)
+        ce, _  := odinsyntax.as_call_expr(n)
         callee := odinsyntax.call_expr_callee(&ce) or_return
-        list := odinsyntax.call_expr_args(&ce) or_return
-        args := make([dynamic]odinsyntax.Syntax_Node, context.temp_allocator)
-        it := odinsyntax.arg_list_args(&list)
+        list   := odinsyntax.call_expr_args(&ce) or_return
+        args   := make([dynamic]odinsyntax.Syntax_Node, context.temp_allocator)
+        it     := odinsyntax.arg_list_args(&list)
         for arg in odinsyntax.child_iter_next(&it) {
             if arg.green.kind == .Field_Value || arg.green.kind == .Spread_Expr {
                 return 0, false
@@ -565,7 +576,7 @@ temp_updates :: proc(w: ^Temp_Walk, cur: Bits, root: int, dst_path: string, val:
         if dst_path != "" && path != dst_path && !strings.has_prefix(path, under) {
             continue
         }
-        taint := false
+        taint  := false
         suffix := path[len(dst_path):]
         switch {
         case w.root_skip[root]:
@@ -619,7 +630,7 @@ temp_step :: proc(w: ^Temp_Walk, s: Cfg_Step, cur: Bits, out: ^[dynamic]Temp_Sto
     updates := make([dynamic]Temp_Update, context.temp_allocator)
     #partial switch real.green.kind {
     case .Value_Decl:
-        v, _ := odinsyntax.as_value_decl(real)
+        v, _             := odinsyntax.as_value_decl(real)
         names, has_names := odinsyntax.value_decl_names(&v)
         if !has_names {
             return
@@ -630,13 +641,13 @@ temp_step :: proc(w: ^Temp_Walk, s: Cfg_Step, cur: Bits, out: ^[dynamic]Temp_Sto
             items = nil_items(values)
         }
         it := odinsyntax.name_list_names(&names)
-        i := 0
+        i  := 0
         for name in odinsyntax.child_iter_next(&it) {
             defer i += 1
             temp_updates(w, cur, int(name.offset), "", i < len(items) ? items[i] : {}, i < len(items), &updates)
         }
     case .Assign_Stmt:
-        a, _ := odinsyntax.as_assign_stmt(real)
+        a, _         := odinsyntax.as_assign_stmt(real)
         lhs, has_lhs := odinsyntax.assign_stmt_lhs(&a)
         rhs, has_rhs := odinsyntax.assign_stmt_rhs(&a)
         if !has_lhs || !has_rhs {
@@ -649,7 +660,12 @@ temp_step :: proc(w: ^Temp_Walk, s: Cfg_Step, cur: Bits, out: ^[dynamic]Temp_Sto
         targets, values := nil_items(lhs), nil_items(rhs)
         for target, i in targets {
             has_val := plain && i < len(values)
-            if has_val && out != nil && outliving_store(w.c, w.file, target, results = w.dangling) && !cleared_by_defer(real, target) && taint_expr(w, cur, values[i]) && !direct_dangling(w, values[i]) {
+            if has_val &&
+                out != nil &&
+                outliving_store(w.c, w.file, target, results = w.dangling) &&
+                !cleared_by_defer(real, target) &&
+                taint_expr(w, cur, values[i]) &&
+                !direct_dangling(w, values[i]) {
                 append(out, Temp_Store{offset = int(strip_parens(values[i]).offset)})
             }
             root_node, path, is_chain := flatten_place(target)
@@ -690,7 +706,7 @@ temp_step :: proc(w: ^Temp_Walk, s: Cfg_Step, cur: Bits, out: ^[dynamic]Temp_Sto
 @(private = "file")
 temp_flow :: proc(w: ^Temp_Walk, lit: odinsyntax.Syntax_Node, out: ^[dynamic]Temp_Store) -> mem.Allocator_Error {
     alloc := context.temp_allocator
-    g := cfg_cached(w.c, w.file, lit)
+    g     := cfg_cached(w.c, w.file, lit)
     if g == nil {
         return nil
     }
@@ -707,7 +723,7 @@ temp_flow :: proc(w: ^Temp_Walk, lit: odinsyntax.Syntax_Node, out: ^[dynamic]Tem
             append(&preds[s], b) or_return
         }
     }
-    words := (len(w.cands) + 63) / 64
+    words    := (len(w.cands) + 63) / 64
     out_bits := make([]Bits, len(g.blocks), alloc)
     for b in 0 ..< len(g.blocks) {
         out_bits[b] = make(Bits, words, alloc)
@@ -715,7 +731,7 @@ temp_flow :: proc(w: ^Temp_Walk, lit: odinsyntax.Syntax_Node, out: ^[dynamic]Tem
             word = ~u64(0)
         }
     }
-    cur := make(Bits, words, alloc)
+    cur   := make(Bits, words, alloc)
     enter := proc(g: ^Cfg, b: int, preds: [][dynamic]int, out_bits: []Bits, cur: Bits) {
         if Block_Id(b) == g.entry || len(preds[b]) == 0 {
             for &word in cur {
@@ -757,6 +773,8 @@ temp_flow :: proc(w: ^Temp_Walk, lit: odinsyntax.Syntax_Node, out: ^[dynamic]Tem
             temp_step(w, s, cur, out)
         }
     }
-    slice.sort_by(out[:], proc(a, b: Temp_Store) -> bool {return a.offset < b.offset})
+    slice.sort_by(out[:], proc(a, b: Temp_Store) -> bool {
+        return a.offset < b.offset
+    })
     return nil
 }

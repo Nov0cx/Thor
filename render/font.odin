@@ -62,7 +62,7 @@ font_metrics :: proc(f: ui.Font, size: f32, user: rawptr) -> ui.Font_Metrics {
         return {}
     }
     leading := half_leading(size)
-    ascent := size * ASCENT_FRACTION + leading
+    ascent  := size * ASCENT_FRACTION + leading
     return {
         ascent = ascent,
         // Negative, as Loom expects. The ink spans the whole line height, half
@@ -83,14 +83,7 @@ measure_run :: proc(f: ui.Font, size: f32, text: string, spacing: f32, user: raw
 
 // The x of byte offset `at`, from the shaped line: right across a ligature,
 // where measuring the prefix on its own is not.
-offset_x :: proc(
-    f: ui.Font,
-    size: f32,
-    text: string,
-    spacing, tab_origin: f32,
-    at: int,
-    user: rawptr,
-) -> f32 {
+offset_x :: proc(f: ui.Font, size: f32, text: string, spacing, tab_origin: f32, at: int, user: rawptr) -> f32 {
     if at <= 0 || size <= 0 {
         return 0
     }
@@ -100,13 +93,7 @@ offset_x :: proc(
 
 // The rune boundary nearest `x`, rounded to whichever side the pointer is
 // closer to, so a click past the middle of a glyph lands after it.
-index_at :: proc(
-    f: ui.Font,
-    size: f32,
-    text: string,
-    spacing, tab_origin, x: f32,
-    user: rawptr,
-) -> int {
+index_at :: proc(f: ui.Font, size: f32, text: string, spacing, tab_origin, x: f32, user: rawptr) -> int {
     if len(text) == 0 || x <= 0 || size <= 0 {
         return 0
     }

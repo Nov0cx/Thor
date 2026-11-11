@@ -54,13 +54,13 @@ thor_shell_menu_set :: proc(on: bool) -> bool {
         }
         return ok
     }
-    exe := menu_exe() or_return
+    exe  := menu_exe() or_return
     icon := strings.concatenate({"\"", exe, "\",0"}, context.temp_allocator)
     for class in MENU_CLASSES {
         parent := menu_key(class, false)
         if !registry_set(parent, "", SHELL_MENU_LABEL) ||
-           !registry_set(parent, "Icon", icon) ||
-           !registry_set(menu_key(class, true), "", menu_command(exe, class.argument)) {
+            !registry_set(parent, "Icon", icon) ||
+            !registry_set(menu_key(class, true), "", menu_command(exe, class.argument)) {
             log.warnf("explorer menu: writing %q failed", class.key)
             ok = false
         }
@@ -96,9 +96,7 @@ menu_key :: proc(class: Menu_Class, command: bool) -> string {
 @(private = "file")
 registry_set :: proc(subkey, name, value: string) -> bool {
     key: win32.HKEY
-    status := win32.RegCreateKeyExW(
-        win32.HKEY_CURRENT_USER, win32.utf8_to_wstring(subkey, context.temp_allocator), 0, nil, 0, win32.KEY_WRITE, nil, &key, nil,
-    )
+    status := win32.RegCreateKeyExW(win32.HKEY_CURRENT_USER, win32.utf8_to_wstring(subkey, context.temp_allocator), 0, nil, 0, win32.KEY_WRITE, nil, &key, nil)
     if status != 0 {
         return false
     }
@@ -115,9 +113,15 @@ registry_set :: proc(subkey, name, value: string) -> bool {
 @(private = "file")
 registry_default :: proc(subkey: string) -> string {
     buf: [1024]u16
-    size := win32.DWORD(size_of(buf))
+    size   := win32.DWORD(size_of(buf))
     status := win32.RegGetValueW(
-        win32.HKEY_CURRENT_USER, win32.utf8_to_wstring(subkey, context.temp_allocator), nil, win32.RRF_RT_REG_SZ, nil, raw_data(buf[:]), &size,
+        win32.HKEY_CURRENT_USER,
+        win32.utf8_to_wstring(subkey, context.temp_allocator),
+        nil,
+        win32.RRF_RT_REG_SZ,
+        nil,
+        raw_data(buf[:]),
+        &size,
     )
     if status != 0 {
         return ""

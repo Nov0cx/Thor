@@ -33,7 +33,10 @@ change_of :: proc(changes: []Change, path: string) -> (Change, bool) {
 // directory still reports itself; only what is inside it is noise.
 @(test)
 test_scan_skip_rel_covers_contents_only :: proc(t: ^testing.T) {
-    cases := []struct{rel: string, skip: bool} {
+    cases := []struct {
+        rel:  string,
+        skip: bool,
+    }{
         {"src\\main.odin", false},
         {"node_modules", false},
         {"node_modules\\pkg\\dist\\a.js", true},
@@ -50,13 +53,7 @@ test_scan_skip_rel_covers_contents_only :: proc(t: ^testing.T) {
         {"", false},
     }
     for c in cases {
-        testing.expectf(
-            t,
-            scan_skip_rel("D:\\work\\repo", c.rel) == c.skip,
-            "scan_skip_rel(%q) should be %v",
-            c.rel,
-            c.skip,
-        )
+        testing.expectf(t, scan_skip_rel("D:\\work\\repo", c.rel) == c.skip, "scan_skip_rel(%q) should be %v", c.rel, c.skip)
     }
 }
 
@@ -116,9 +113,7 @@ test_scan_diff_reports_every_kind :: proc(t: ^testing.T) {
 test_scan_diff_ignores_a_directory_write_time :: proc(t: ^testing.T) {
     old_scan := scan_of({{path = "src", modified = 1, is_dir = true}})
     defer scan_destroy(&old_scan)
-    new_scan := scan_of(
-        {{path = "src", modified = 2, is_dir = true}, {path = "src/new.odin", modified = 2, size = 4}},
-    )
+    new_scan := scan_of({{path = "src", modified = 2, is_dir = true}, {path = "src/new.odin", modified = 2, size = 4}})
     defer scan_destroy(&new_scan)
 
     changes := scan_diff(old_scan, new_scan, context.allocator)

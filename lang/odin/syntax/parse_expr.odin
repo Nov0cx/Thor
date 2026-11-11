@@ -138,7 +138,7 @@ token_precedence :: proc(p: ^Parser, kind: Token_Kind) -> int {
 
 @(private)
 parse_binary_expr :: proc(p: ^Parser, lhs: bool, prec_in: int) -> Expr {
-    cp := mark(p)
+    cp   := mark(p)
     expr := parse_unary_expr(p, lhs)
     if expr.kind == .None {
         return expr
@@ -263,8 +263,7 @@ parse_type :: proc(p: ^Parser) -> Expr {
 @(private)
 ends_operand :: proc(kind: Token_Kind) -> bool {
     #partial switch kind {
-    case .Close_Paren, .Close_Bracket, .Close_Brace, .Comma, .Semicolon, .Colon, .EOF,
-         .Eq, .Do, .Else, .Case, .In, .Where, .Arrow_Right, .Open_Brace:
+    case .Close_Paren, .Close_Bracket, .Close_Brace, .Comma, .Semicolon, .Colon, .EOF, .Eq, .Do, .Else, .Case, .In, .Where, .Arrow_Right, .Open_Brace:
         return true
     }
     return is_assignment_op(kind) || is_stmt_sync(kind)
@@ -273,8 +272,19 @@ ends_operand :: proc(kind: Token_Kind) -> bool {
 @(private)
 is_literal_type :: proc(e: Expr) -> bool {
     #partial switch unparen(e) {
-    case .Error, .Ident, .Selector_Expr, .Array_Type, .Struct_Type, .Union_Type, .Enum_Type,
-         .Dynamic_Array_Type, .Map_Type, .Bit_Set_Type, .Matrix_Type, .Call_Expr, .Bit_Field_Type:
+    case .Error,
+        .Ident,
+        .Selector_Expr,
+        .Array_Type,
+        .Struct_Type,
+        .Union_Type,
+        .Enum_Type,
+        .Dynamic_Array_Type,
+        .Map_Type,
+        .Bit_Set_Type,
+        .Matrix_Type,
+        .Call_Expr,
+        .Bit_Field_Type:
         return true
     }
     return false
@@ -295,7 +305,7 @@ parse_atom_expr :: proc(p: ^Parser, value: Expr, lhs: bool, cp: int) -> Expr {
         return {kind = .Error}
     }
     is_lhs := lhs
-    links := 0
+    links  := 0
     defer p.depth -= links
     loop: for {
         #partial switch at(p) {
@@ -395,7 +405,7 @@ parse_call_expr :: proc(p: ^Parser, cp: int, operand: Expr) -> Expr {
         return {kind = .Call_Expr}
     }
     for at(p) != .Close_Paren && at(p) != .EOF {
-        acp := mark(p)
+        acp    := mark(p)
         spread := allow(p, .Ellipsis)
         parse_expr(p, false)
         if allow(p, .Eq) {
@@ -611,7 +621,7 @@ parse_operand :: proc(p: ^Parser, lhs: bool) -> Expr {
 // `#name ...` in an expression.
 @(private)
 parse_directive_operand :: proc(p: ^Parser, lhs: bool) -> Expr {
-    cp := mark(p)
+    cp   := mark(p)
     name := parse_directive(p)
     switch name {
     case "type":
@@ -625,8 +635,7 @@ parse_directive_operand :: proc(p: ^Parser, lhs: bool) -> Expr {
             return parse_call_expr(p, cp, {kind = .Directive})
         }
         return {kind = .Directive}
-    case "location", "exists", "load", "load_or", "load_directory", "load_hash", "hash", "assert", "panic",
-         "defined", "config":
+    case "location", "exists", "load", "load_or", "load_directory", "load_hash", "hash", "assert", "panic", "defined", "config":
         return parse_call_expr(p, cp, {kind = .Directive})
     case "soa", "simd", "sparse":
         t := parse_type(p)

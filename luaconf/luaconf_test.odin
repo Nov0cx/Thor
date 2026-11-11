@@ -21,7 +21,9 @@ eval_fails :: proc(t: ^testing.T, text, part: string) {
 
 @(test)
 test_eval_values :: proc(t: ^testing.T) {
-    v := eval_ok(t, `
+    v   := eval_ok(
+        t,
+        `
 -- a comment
 local width = 2 * 2
 return {
@@ -32,7 +34,8 @@ return {
     list = { "a", "b" },
     nested = { ["key with space"] = 1 },
     empty = {},
-}`)
+}`,
+    )
     obj := v.(json.Object)
     testing.expect_value(t, obj["tab_width"].(json.Integer), 4)
     testing.expect_value(t, obj["ratio"].(json.Float), 1.5)
@@ -46,7 +49,7 @@ return {
 
 @(test)
 test_eval_thor_table :: proc(t: ^testing.T) {
-    v := eval_ok(t, `return { os = thor.os, arch = thor.arch, unset = thor.env("THOR_SURELY_UNSET_VAR") == nil }`)
+    v   := eval_ok(t, `return { os = thor.os, arch = thor.arch, unset = thor.env("THOR_SURELY_UNSET_VAR") == nil }`)
     obj := v.(json.Object)
     testing.expect_value(t, obj["os"].(json.String), OS_NAME)
     testing.expect_value(t, obj["unset"].(json.Boolean), true)
@@ -54,8 +57,11 @@ test_eval_thor_table :: proc(t: ^testing.T) {
 
 @(test)
 test_eval_sandbox :: proc(t: ^testing.T) {
-    v := eval_ok(t, `return { io = io == nil, os = os == nil, load = load == nil, req = require == nil,
-        dofile = dofile == nil, pcall = pcall == nil, debug = debug == nil, package = package == nil }`)
+    v := eval_ok(
+        t,
+        `return { io = io == nil, os = os == nil, load = load == nil, req = require == nil,
+        dofile = dofile == nil, pcall = pcall == nil, debug = debug == nil, package = package == nil }`,
+    )
     for key, value in v.(json.Object) {
         testing.expectf(t, value.(json.Boolean), "%s is reachable", key)
     }
@@ -84,7 +90,7 @@ test_eval_bad_shapes :: proc(t: ^testing.T) {
 
 @(test)
 test_patch_replace_keeps_comments :: proc(t: ^testing.T) {
-    src := `-- my settings
+    src      := `-- my settings
 return {
     -- width
     tab_width = 4, -- trailing
@@ -119,14 +125,14 @@ test_patch_insert :: proc(t: ^testing.T) {
 
 @(test)
 test_patch_nested :: proc(t: ^testing.T) {
-    src := "return {\n    language_intelligence = {\n        hover = true,\n    },\n}\n"
+    src      := "return {\n    language_intelligence = {\n        hover = true,\n    },\n}\n"
     out, err := patch_text(src, {"language_intelligence", "hover"}, json.Boolean(false))
     testing.expect_value(t, err, Patch_Error.None)
     testing.expect(t, strings.contains(out, "hover = false"))
 
     out, err = patch_text(src, {"language_backends", "clangd", "enabled"}, json.Boolean(false))
     testing.expect_value(t, err, Patch_Error.None)
-    v := eval_ok(t, out)
+    v   := eval_ok(t, out)
     got := lookup(v, {"language_backends", "clangd", "enabled"})
     testing.expect(t, values_equal(got, json.Boolean(false)))
     testing.expect(t, values_equal(lookup(v, {"language_intelligence", "hover"}), json.Boolean(true)))
@@ -134,7 +140,7 @@ test_patch_nested :: proc(t: ^testing.T) {
 
 @(test)
 test_patch_bracket_keys_and_code :: proc(t: ^testing.T) {
-    src := `local base = 3
+    src      := `local base = 3
 return {
     ["tab_width"] = base + 1,
     f = (function() local a, b = 1, 2 return a + b end)(),
@@ -167,7 +173,7 @@ test_patch_refuses_computed :: proc(t: ^testing.T) {
 
 @(test)
 test_append :: proc(t: ^testing.T) {
-    src := "return {\n    servers = {\n        { id = \"a\" },\n    },\n}\n"
+    src   := "return {\n    servers = {\n        { id = \"a\" },\n    },\n}\n"
     entry := make(json.Object, 1, context.temp_allocator)
     entry["id"] = json.String("b")
     out, err := append_text(src, {"servers"}, entry)
@@ -183,12 +189,12 @@ test_append :: proc(t: ^testing.T) {
 
 @(test)
 test_encode_round_trip :: proc(t: ^testing.T) {
-    text := `{"servers": [{"id": "clangd", "command": ["clangd", "--log=error"], "features": {"hover": false},
+    text       := `{"servers": [{"id": "clangd", "command": ["clangd", "--log=error"], "features": {"hover": false},
         "install": {"windows": "winget install \"LLVM\""}, "weight": 1.0, "n": 3}], "end": "for"}`
-    value, err := json.parse(transmute([]byte) string(text), allocator = context.temp_allocator)
+    value, err := json.parse(transmute([]byte)string(text), allocator = context.temp_allocator)
     testing.expect_value(t, err, json.Error.None)
     lua_text := encode(value)
-    back := eval_ok(t, lua_text)
+    back     := eval_ok(t, lua_text)
     testing.expect(t, values_equal(value, back))
     testing.expect(t, strings.contains(lua_text, `["end"] = "for"`))
     testing.expect(t, strings.contains(lua_text, "weight = 1.0"))
@@ -202,7 +208,7 @@ test_convert_json :: proc(t: ^testing.T) {
     defer os.remove_all(dir)
 
     json_path :: dir + "/settings.json"
-    lua_path :: dir + "/settings.lua"
+    lua_path  :: dir + "/settings.lua"
     testing.expect(t, os.write_entire_file(json_path, `{"tab_width": 2, "theme": "jogo"}`) == nil)
     testing.expect(t, convert_json(json_path, lua_path))
     testing.expect(t, !os.exists(json_path))

@@ -11,11 +11,7 @@ import "core:testing"
 test_request_envelope :: proc(t: ^testing.T) {
     out := make([dynamic]u8, context.temp_allocator)
     envelope_request(&out, 7, "textDocument/hover", `{"line":1}`)
-    testing.expect_value(
-        t,
-        string(out[:]),
-        `{"jsonrpc":"2.0","id":7,"method":"textDocument/hover","params":{"line":1}}`,
-    )
+    testing.expect_value(t, string(out[:]), `{"jsonrpc":"2.0","id":7,"method":"textDocument/hover","params":{"line":1}}`)
 }
 
 // Empty params are left out rather than sent as null: a server that reads params
@@ -44,11 +40,7 @@ test_response_envelope :: proc(t: ^testing.T) {
 
     clear(&out)
     envelope_error(&out, "3", -32601, "unhandled")
-    testing.expect_value(
-        t,
-        string(out[:]),
-        `{"jsonrpc":"2.0","id":3,"error":{"code":-32601,"message":"unhandled"}}`,
-    )
+    testing.expect_value(t, string(out[:]), `{"jsonrpc":"2.0","id":3,"error":{"code":-32601,"message":"unhandled"}}`)
 }
 
 // A method name is our own ASCII, but a message echoed back is not, so the
@@ -90,13 +82,8 @@ test_number_accepts_a_whole_float :: proc(t: ^testing.T) {
 // whose ids and offsets must be exact.
 @(test)
 test_parse_settings_keep_an_id_exact :: proc(t: ^testing.T) {
-    body := `{"id":9007199254740993}`
-    value, err := json.parse(
-        transmute([]u8) body,
-        spec = .JSON,
-        parse_integers = true,
-        allocator = context.allocator,
-    )
+    body       := `{"id":9007199254740993}`
+    value, err := json.parse(transmute([]u8)body, spec = .JSON, parse_integers = true, allocator = context.allocator)
     defer json.destroy_value(value, context.allocator)
     testing.expect_value(t, err, json.Error.None)
 

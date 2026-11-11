@@ -53,7 +53,7 @@ check_package :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     // The workspace is the natural place to run from — it is what the console and
     // git use, and what a relative path in the output would be relative to. With
     // no workspace open, the package's own directory serves.
-    cwd := req.workspace != "" ? req.workspace : dir
+    cwd  := req.workspace != "" ? req.workspace : dir
     args := make([dynamic]string, context.temp_allocator)
     append(&args, "check", dir, "-no-entry-point")
     collection_flags(e, req.workspace, &args)
@@ -69,8 +69,8 @@ check_package :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
 
     res.report.scope = strings.clone(dir)
     res.report.items = make([dynamic]lang.Diagnostic)
-    vet := Vet_Context{severities = config_severities(e, req.workspace), files = make(map[string]Vet_File, context.temp_allocator)}
-    it := output
+    vet      := Vet_Context{severities = config_severities(e, req.workspace), files = make(map[string]Vet_File, context.temp_allocator)}
+    it       := output
     previous := ""
     for line in strings.split_lines_iterator(&it) {
         p, ok := parse_diagnostic_line(line)
@@ -82,12 +82,7 @@ check_package :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
             p.message = previous
         }
         previous = p.message
-        d := lang.Diagnostic {
-            path     = absolute_path(p.path, cwd),
-            line     = p.line,
-            col      = p.col,
-            severity = p.severity,
-        }
+        d := lang.Diagnostic{path = absolute_path(p.path, cwd), line = p.line, col = p.col, severity = p.severity}
         if !vet_item(&vet, &d, p.message) {
             delete(d.path)
             continue
@@ -151,9 +146,9 @@ target_flags :: proc(e: ^Engine, workspace: string, args: ^[dynamic]string, path
     }
     config_ensure(cache, workspace)
     if !own && (cache.cfg.target_os != .Unknown || cache.cfg.target_arch != .Unknown) {
-        host := odinsema.target_host()
+        host      := odinsema.target_host()
         target_os := cache.cfg.target_os != .Unknown ? cache.cfg.target_os : host.os
-        arch := cache.cfg.target_arch != .Unknown ? cache.cfg.target_arch : host.arch
+        arch      := cache.cfg.target_arch != .Unknown ? cache.cfg.target_arch : host.arch
         if triple := target_triple(target_os, arch); triple != "" {
             append(args, fmt.tprintf("-target:%s", triple))
         }
@@ -163,9 +158,12 @@ target_flags :: proc(e: ^Engine, workspace: string, args: ^[dynamic]string, path
             continue
         }
         switch v in d.value {
-        case bool:   append(args, fmt.tprintf("-define:%s=%v", d.name, v))
-        case i64:    append(args, fmt.tprintf("-define:%s=%d", d.name, v))
-        case string: append(args, fmt.tprintf("-define:%s=%s", d.name, v))
+        case bool:
+            append(args, fmt.tprintf("-define:%s=%v", d.name, v))
+        case i64:
+            append(args, fmt.tprintf("-define:%s=%d", d.name, v))
+        case string:
+            append(args, fmt.tprintf("-define:%s=%s", d.name, v))
         }
     }
 }
@@ -174,7 +172,7 @@ target_flags :: proc(e: ^Engine, workspace: string, args: ^[dynamic]string, path
 // `-vet-packages` with the package of `path`, since the compiler vets the imported packages too.
 @(private = "file")
 vet_flag_args :: proc(e: ^Engine, workspace, path: string, args: ^[dynamic]string) {
-    flags := workspace_vet_flags(e, workspace)
+    flags    := workspace_vet_flags(e, workspace)
     name, ok := file_package_name(path)
     if !ok || flags == {} {
         return
@@ -182,13 +180,20 @@ vet_flag_args :: proc(e: ^Engine, workspace, path: string, args: ^[dynamic]strin
     append(args, fmt.tprintf("-vet-packages:%s", name))
     for flag in flags {
         switch flag {
-        case .Unused_Variables: append(args, "-vet-unused-variables")
-        case .Unused_Imports:   append(args, "-vet-unused-imports")
-        case .Shadowing:        append(args, "-vet-shadowing")
-        case .Using_Stmt:       append(args, "-vet-using-stmt")
-        case .When_Shadowing:   append(args, "-vet-when-shadowing")
-        case .Cast:             append(args, "-vet-cast")
-        case .Unused_Procedures: append(args, "-vet-unused-procedures")
+        case .Unused_Variables:
+            append(args, "-vet-unused-variables")
+        case .Unused_Imports:
+            append(args, "-vet-unused-imports")
+        case .Shadowing:
+            append(args, "-vet-shadowing")
+        case .Using_Stmt:
+            append(args, "-vet-using-stmt")
+        case .When_Shadowing:
+            append(args, "-vet-when-shadowing")
+        case .Cast:
+            append(args, "-vet-cast")
+        case .Unused_Procedures:
+            append(args, "-vet-unused-procedures")
         // A syntax-level vet error stops the compiler before it types the package, so these three are served live only.
         case .Style, .Semicolon, .Tabs:
         }
@@ -275,10 +280,13 @@ vet_item :: proc(vet: ^Vet_Context, d: ^lang.Diagnostic, message: string) -> boo
     d.severity = code == CODE_NIL_DEREF ? .Hint : .Warning
     if setting, set := vet.severities[code]; set {
         switch setting {
-        case .Off:     return false
-        case .Hint:    d.severity = .Hint
+        case .Off:
+            return false
+        case .Hint:
+            d.severity = .Hint
         case .Warning:
-        case .Error:   d.severity = .Error
+        case .Error:
+            d.severity = .Error
         }
     }
     return !ignored(file.ignores, d^)
@@ -293,7 +301,7 @@ declares_procedure :: proc(text, message: string) -> bool {
     }
     rest := message[open + 1:]
     name := rest[:max(strings.index_byte(rest, '\''), 0)]
-    at := strings.index(text, name)
+    at   := strings.index(text, name)
     if name == "" || at < 0 {
         return false
     }
@@ -305,7 +313,7 @@ declares_procedure :: proc(text, message: string) -> bool {
 @(private)
 closer_follows :: proc(src: string, line: int) -> bool {
     rest := src
-    n := 1
+    n    := 1
     for l in strings.split_lines_iterator(&rest) {
         if n > line {
             t := strings.trim_space(l)
@@ -348,7 +356,7 @@ vet_code :: proc(message: string) -> (string, bool) {
 @(private = "file")
 line_text :: proc(src: string, line: int) -> string {
     rest := src
-    n := 1
+    n    := 1
     for l in strings.split_lines_iterator(&rest) {
         if n == line {
             return l
@@ -383,10 +391,11 @@ parse_diagnostic_line :: proc(raw: string) -> (Parsed_Diagnostic, bool) {
         if line[i] != '(' {
             continue
         }
-        j := i + 1
+        j  := i + 1
         d1 := 0
         for j < len(line) && line[j] >= '0' && line[j] <= '9' {
-            j += 1; d1 += 1
+            j += 1
+            d1 += 1
         }
         if d1 == 0 || j >= len(line) || line[j] != ':' {
             continue
@@ -395,7 +404,8 @@ parse_diagnostic_line :: proc(raw: string) -> (Parsed_Diagnostic, bool) {
         j += 1
         d2 := 0
         for j < len(line) && line[j] >= '0' && line[j] <= '9' {
-            j += 1; d2 += 1
+            j += 1
+            d2 += 1
         }
         if d2 == 0 || j >= len(line) || line[j] != ')' {
             continue
@@ -419,7 +429,7 @@ parse_diagnostic_line :: proc(raw: string) -> (Parsed_Diagnostic, bool) {
         return {}, false
     }
 
-    rest := strings.trim_space(line[close + 1:])
+    rest  := strings.trim_space(line[close + 1:])
     level := rest
     if sep := strings.index(rest, ": "); sep >= 0 {
         level = rest[:sep]

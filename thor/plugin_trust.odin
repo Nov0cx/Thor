@@ -157,12 +157,7 @@ thor_scan_workspace_plugins :: proc(thor: ^Thor, allocator := context.temp_alloc
 // Holds a scanned plugin until the prompt is answered.
 @(private = "file")
 thor_hold_plugin :: proc(thor: ^Thor, p: plugin.Pending_Plugin, source: Plugin_Source) {
-    append(&thor.plugin_requests, Plugin_Request {
-        id     = strings.clone(p.id),
-        dir    = strings.clone(p.dir),
-        perms  = p.perms,
-        source = source,
-    })
+    append(&thor.plugin_requests, Plugin_Request{id = strings.clone(p.id), dir = strings.clone(p.dir), perms = p.perms, source = source})
 }
 
 // Opens the batched permission prompt for one source, bundled first. No-op when
@@ -184,7 +179,7 @@ thor_prompt_plugin_permissions :: proc(thor: ^Thor) {
 
     // One row per plugin. The dialog copies both slices, so the temp allocator
     // is enough even though the requests behind them are dropped in the answer.
-    ids := make([dynamic]string, context.temp_allocator)
+    ids   := make([dynamic]string, context.temp_allocator)
     perms := make([dynamic]string, context.temp_allocator)
     for request in thor.plugin_requests {
         if request.source != source {
@@ -195,22 +190,13 @@ thor_prompt_plugin_permissions :: proc(thor: ^Thor) {
     }
 
     title := "Allow these plugins?"
-    note := "Change later in Settings."
+    note  := "Change later in Settings."
     if source == .Workspace {
         title = "Run this folder's own plugins?"
         note = fmt.tprintf("From %s. Change later in Settings.", WORKSPACE_PLUGIN_DIR)
     }
 
-    thor_permission_open(
-        thor,
-        title,
-        note,
-        ids[:],
-        perms[:],
-        thor_grant_plugin_permissions,
-        thor_cancel_plugin_permissions,
-        thor,
-    )
+    thor_permission_open(thor, title, note, ids[:], perms[:], thor_grant_plugin_permissions, thor_cancel_plugin_permissions, thor)
 }
 
 // What a plugin asks for, as the prompt and the settings row spell it. A
@@ -230,7 +216,7 @@ thor_plugin_permission_text :: proc(perms: plugin.Permissions) -> string {
 // unrecorded, so the question comes back next start.
 @(private = "file")
 thor_grant_plugin_permissions :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor   := cast(^Thor)data
     source := thor.plugin_prompt_source
 
     bundled, workspaces := thor_read_grant_file()
@@ -270,7 +256,7 @@ thor_grant_plugin_permissions :: proc(data: rawptr) {
 // instead of moving on to the other source.
 @(private = "file")
 thor_cancel_plugin_permissions :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_drop_plugin_requests(thor, thor.plugin_prompt_source)
     thor.plugin_prompt_shown = false
 }
@@ -325,22 +311,25 @@ Plugin_Permission_State :: struct {
 // with none. Re-reads disk, so the modal always shows the current state.
 thor_plugin_permission_states :: proc(thor: ^Thor, allocator := context.temp_allocator) -> []Plugin_Permission_State {
     bundled, workspaces := thor_read_grant_file()
-    out := make([dynamic]Plugin_Permission_State, allocator)
+    out                 := make([dynamic]Plugin_Permission_State, allocator)
 
     shadowed := make(map[string]bool, context.temp_allocator)
     for p in thor_scan_workspace_plugins(thor) {
         allowed, known := thor_find_workspace_grant(workspaces[:], thor.workspace_dir, p.id)
-        satisfied := known && p.perms - allowed == {}
+        satisfied      := known && p.perms - allowed == {}
         shadowed[p.id] = satisfied
         _, loaded := plugin.manager_permissions(&thor.plugins, p.id)
-        append(&out, Plugin_Permission_State {
-            id      = strings.clone(p.id, allocator),
-            dir     = strings.clone(p.dir, allocator),
-            perms   = p.perms,
-            source  = .Workspace,
-            allowed = satisfied,
-            loaded  = loaded && satisfied,
-        })
+        append(
+            &out,
+            Plugin_Permission_State{
+                id = strings.clone(p.id, allocator),
+                dir = strings.clone(p.dir, allocator),
+                perms = p.perms,
+                source = .Workspace,
+                allowed = satisfied,
+                loaded = loaded && satisfied,
+            },
+        )
     }
 
     for p in plugin.manager_scan(&thor.plugins) {
@@ -348,15 +337,18 @@ thor_plugin_permission_states :: proc(thor: ^Thor, allocator := context.temp_all
             continue
         }
         allowed, known := thor_find_grant(bundled[:], p.id)
-        _, loaded := plugin.manager_permissions(&thor.plugins, p.id)
-        append(&out, Plugin_Permission_State {
-            id      = strings.clone(p.id, allocator),
-            dir     = strings.clone(p.dir, allocator),
-            perms   = p.perms,
-            source  = .Bundled,
-            allowed = known && p.perms - allowed == {},
-            loaded  = loaded,
-        })
+        _, loaded      := plugin.manager_permissions(&thor.plugins, p.id)
+        append(
+            &out,
+            Plugin_Permission_State{
+                id = strings.clone(p.id, allocator),
+                dir = strings.clone(p.dir, allocator),
+                perms = p.perms,
+                source = .Bundled,
+                allowed = known && p.perms - allowed == {},
+                loaded = loaded,
+            },
+        )
     }
     return out[:]
 }
@@ -451,7 +443,7 @@ thor_write_grant_file :: proc(bundled: []Plugin_Grant, workspaces: []Workspace_G
             return
         }
     }
-    data, err := json.marshal(Plugin_Grants {bundled, workspaces}, {pretty = true}, context.temp_allocator)
+    data, err := json.marshal(Plugin_Grants{bundled, workspaces}, {pretty = true}, context.temp_allocator)
     if err != nil {
         log.errorf("Could not marshal plugin grants: %v", err)
         return
@@ -497,7 +489,7 @@ thor_set_grant :: proc(rows: ^[dynamic]Plugin_Grant, id: string, perms: plugin.P
             return
         }
     }
-    append(rows, Plugin_Grant {id = id, permissions = names})
+    append(rows, Plugin_Grant{id = id, permissions = names})
 }
 
 @(private)
@@ -519,7 +511,7 @@ thor_set_workspace_grant :: proc(rows: ^[dynamic]Workspace_Grant, workspace, id:
             return
         }
     }
-    append(rows, Workspace_Grant {workspace = workspace, id = id, permissions = names})
+    append(rows, Workspace_Grant{workspace = workspace, id = id, permissions = names})
 }
 
 @(private)

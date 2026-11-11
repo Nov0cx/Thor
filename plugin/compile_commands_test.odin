@@ -28,8 +28,7 @@ test_compile_commands_already_present_is_noop :: proc(t: ^testing.T) {
     testing.expect(t, !has_tasks, "no task was added")
     _, has_clangd := env.files[resolved(".clangd")]
     testing.expect(t, !has_clangd, "no .clangd was written")
-    testing.expect(t, strings.contains(env.printed[len(env.printed) - 1], "already"),
-        "reported that the workspace is already configured")
+    testing.expect(t, strings.contains(env.printed[len(env.printed) - 1], "already"), "reported that the workspace is already configured")
 }
 
 // CMake: a task is added to configure the build, and a .clangd redirect is
@@ -50,8 +49,11 @@ test_compile_commands_cmake_adds_task_and_dot_clangd :: proc(t: ^testing.T) {
 
     tasks_lua, has_tasks := env.files[resolved(".thor/tasks.lua")]
     testing.expect(t, has_tasks, "a task was added")
-    testing.expect(t, strings.contains(tasks_lua, "cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON"),
-        "the task configures CMake with compile commands export")
+    testing.expect(
+        t,
+        strings.contains(tasks_lua, "cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON"),
+        "the task configures CMake with compile commands export",
+    )
 
     dot_clangd, has_clangd := env.files[resolved(".clangd")]
     testing.expect(t, has_clangd, ".clangd was written")
@@ -87,8 +89,7 @@ test_compile_commands_keeps_quoted_task :: proc(t: ^testing.T) {
     testing.expect(t, manager_run_command(&m, "configure-compile-commands"), "configure-compile-commands ran")
 
     tasks_lua := env.files[resolved(".thor/tasks.lua")]
-    testing.expectf(t, strings.contains(tasks_lua, `command = "git commit -m \"wip }\""`),
-        "the quoted task was mangled by the rewrite: %s", tasks_lua)
+    testing.expectf(t, strings.contains(tasks_lua, `command = "git commit -m \"wip }\""`), "the quoted task was mangled by the rewrite: %s", tasks_lua)
     testing.expect(t, strings.contains(tasks_lua, "cmake -S . -B build"), "the CMake task was still added")
 }
 
@@ -164,8 +165,7 @@ test_compile_commands_bazel_writes_snippet_and_task :: proc(t: ^testing.T) {
 
     build_text, has_build := env.files[resolved("BUILD.bazel")]
     testing.expect(t, has_build, "BUILD.bazel was created")
-    testing.expect(t, strings.contains(build_text, "hedron_compile_commands//:refresh_compile_commands.bzl"),
-        "BUILD.bazel loads the refresh rule")
+    testing.expect(t, strings.contains(build_text, "hedron_compile_commands//:refresh_compile_commands.bzl"), "BUILD.bazel loads the refresh rule")
     testing.expect(t, strings.contains(build_text, `name = "refresh_compile_commands"`), "BUILD.bazel defines the target")
 
     tasks_lua, has_tasks := env.files[resolved(".thor/tasks.lua")]
@@ -191,7 +191,7 @@ test_compile_commands_bazel_is_idempotent :: proc(t: ^testing.T) {
     manager_dialog_confirm(&m)
 
     module_after_first := strings.clone(env.files[resolved("MODULE.bazel")], context.temp_allocator)
-    build_after_first := strings.clone(env.files[resolved("BUILD.bazel")], context.temp_allocator)
+    build_after_first  := strings.clone(env.files[resolved("BUILD.bazel")], context.temp_allocator)
 
     testing.expect(t, manager_run_command(&m, "configure-compile-commands"), "second configure-compile-commands ran")
     testing.expect(t, m.dialog.ref == NOREF, "the second run did not open a confirm dialog")
@@ -218,8 +218,7 @@ test_compile_commands_bazel_legacy_workspace_only_hints :: proc(t: ^testing.T) {
 
     _, has_tasks := env.files[resolved(".thor/tasks.lua")]
     testing.expect(t, !has_tasks, "no task was added")
-    testing.expect(t, strings.contains(env.printed[len(env.printed) - 1], "WORKSPACE"),
-        "the hint mentions the legacy WORKSPACE setup")
+    testing.expect(t, strings.contains(env.printed[len(env.printed) - 1], "WORKSPACE"), "the hint mentions the legacy WORKSPACE setup")
 }
 
 // Make on POSIX: bear runs the build directly when present; when it is not,
@@ -240,8 +239,11 @@ test_compile_commands_make_posix :: proc(t: ^testing.T) {
     testing.expect(t, manager_run_command(&m, "configure-compile-commands"), "configure-compile-commands ran without bear")
     manager_dialog_confirm(&m)
     tasks_lua := env.files[resolved(".thor/tasks.lua")]
-    testing.expect(t, strings.contains(tasks_lua, "Install bear") && strings.contains(tasks_lua, "apt-get"),
-        "a bear-install task was added when bear is missing")
+    testing.expect(
+        t,
+        strings.contains(tasks_lua, "Install bear") && strings.contains(tasks_lua, "apt-get"),
+        "a bear-install task was added when bear is missing",
+    )
 
     env.path_bins["bear"] = "/usr/bin/bear"
     testing.expect(t, manager_run_command(&m, "configure-compile-commands"), "configure-compile-commands ran with bear")
@@ -267,8 +269,11 @@ test_compile_commands_make_windows :: proc(t: ^testing.T) {
     testing.expect(t, manager_run_command(&m, "configure-compile-commands"), "configure-compile-commands ran without compiledb")
     manager_dialog_confirm(&m)
     tasks_lua := env.files[resolved(".thor/tasks.lua")]
-    testing.expect(t, strings.contains(tasks_lua, "Install compiledb") && strings.contains(tasks_lua, "pip install compiledb"),
-        "a compiledb-install task was added when compiledb is missing")
+    testing.expect(
+        t,
+        strings.contains(tasks_lua, "Install compiledb") && strings.contains(tasks_lua, "pip install compiledb"),
+        "a compiledb-install task was added when compiledb is missing",
+    )
 
     env.path_bins["compiledb"] = `C:\Python\Scripts\compiledb.exe`
     testing.expect(t, manager_run_command(&m, "configure-compile-commands"), "configure-compile-commands ran with compiledb")
@@ -295,8 +300,7 @@ test_compile_commands_bare_script_posix_hint_only :: proc(t: ^testing.T) {
 
     _, has_tasks := env.files[resolved(".thor/tasks.lua")]
     testing.expect(t, !has_tasks, "no task was added for a bare script")
-    testing.expect(t, strings.contains(env.printed[len(env.printed) - 1], "bear -- ./build.sh"),
-        "the hint suggests wrapping the script with bear")
+    testing.expect(t, strings.contains(env.printed[len(env.printed) - 1], "bear -- ./build.sh"), "the hint suggests wrapping the script with bear")
 }
 
 // A bare build.bat on Windows has no bear equivalent, so it only explains
@@ -317,8 +321,7 @@ test_compile_commands_bare_script_windows_hint_only :: proc(t: ^testing.T) {
 
     _, has_tasks := env.files[resolved(".thor/tasks.lua")]
     testing.expect(t, !has_tasks, "no task was added for a bare script")
-    testing.expect(t, strings.contains(env.printed[len(env.printed) - 1], "no bear equivalent on Windows"),
-        "the hint explains there is no automatic option")
+    testing.expect(t, strings.contains(env.printed[len(env.printed) - 1], "no bear equivalent on Windows"), "the hint explains there is no automatic option")
 }
 
 // Nothing recognisable at the workspace root: a plain, honest no-op.
@@ -337,6 +340,5 @@ test_compile_commands_nothing_found :: proc(t: ^testing.T) {
 
     _, has_tasks := env.files[resolved(".thor/tasks.lua")]
     testing.expect(t, !has_tasks, "no task was added")
-    testing.expect(t, strings.contains(env.printed[len(env.printed) - 1], "nothing to configure"),
-        "reported that nothing was found")
+    testing.expect(t, strings.contains(env.printed[len(env.printed) - 1], "nothing to configure"), "reported that nothing was found")
 }

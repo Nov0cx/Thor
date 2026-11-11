@@ -60,12 +60,7 @@ Color_Group :: enum {
     Syntax,
 }
 
-GROUP_LABELS := [Color_Group]string {
-    .Surfaces = "Surfaces",
-    .Text     = "Text",
-    .Status   = "Status",
-    .Syntax   = "Syntax",
-}
+GROUP_LABELS := [Color_Group]string{.Surfaces = "Surfaces", .Text = "Text", .Status = "Status", .Syntax = "Syntax"}
 
 // One color role: its display label, its field, its group, the id a theme file
 // and a plugin name it by, and one line that says what it paints.
@@ -80,92 +75,95 @@ Color_Entry :: struct {
 // Every color role, grouped and in the order a written theme lists them. The one
 // key-to-field mapping in the program: assign_color, color, role_color, save
 // and the theme window rows all read it.
-COLORS := [?]Color_Entry {
-    {"Background",             offset_of(Theme, background),             .Surfaces, "background",           "The editor and the main panels."},
-    {"Second Background",      offset_of(Theme, second_background),      .Surfaces, "second_background",    "Headers, sidebars and the row under the pointer."},
-    {"Contrast",               offset_of(Theme, contrast),               .Surfaces, "contrast",             "The deepest surface: the window frame, input fields and shadows."},
-    {"Buttons",                offset_of(Theme, buttons),                .Surfaces, "buttons",              "Buttons, chips and tabs."},
-    {"Active",                 offset_of(Theme, active),                 .Surfaces, "active",               "The selected tab, row or button."},
-    {"Highlight",              offset_of(Theme, highlight),              .Surfaces, "highlight",            "The current line and marked areas."},
-    {"Border",                 offset_of(Theme, border),                 .Surfaces, "border",               "Lines between panels and around boxes."},
-    {"Notifications",          offset_of(Theme, notifications),          .Surfaces, "notifications",        "Toasts and the status flash."},
-    {"Tree",                   offset_of(Theme, tree),                   .Surfaces, "tree",                 "The indent guides of the file tree."},
-    {"Selection Background",   offset_of(Theme, selection_background),   .Surfaces, "selection_background", "Selected text. Use alpha to keep the syntax colors visible."},
-    {"Accent Color",           offset_of(Theme, accent_color),           .Surfaces, "accent",               "The caret, focus rings, toggles and the main buttons."},
-    {"Accent Secondary Color", offset_of(Theme, accent_secondary_color), .Surfaces, "accent_secondary",     "The second accent, for plugins and marks."},
-
-    {"Text",                   offset_of(Theme, text),                   .Text,     "text",                 "Body text of the editor."},
-    {"Primary Text Color",     offset_of(Theme, primary_text_color),     .Text,     "primary_text",         "Names in lists: files, symbols and results."},
-    {"Foreground",             offset_of(Theme, foreground),             .Text,     "foreground",           "Labels, titles and the text of controls."},
-    {"Muted Color",            offset_of(Theme, muted_color),            .Text,     "muted",                "Second lines, paths and hints."},
-    {"Disabled",               offset_of(Theme, disabled),               .Text,     "disabled",             "Controls you cannot use, and line numbers."},
-    {"Selection Foreground",   offset_of(Theme, selection_foreground),   .Text,     "selection_foreground", "Text on the selected palette row."},
-    {"Excluded Files Color",   offset_of(Theme, excluded_files_color),   .Text,     "excluded_files",       "Ignored files in the file tree."},
-    {"Links Color",            offset_of(Theme, links_color),            .Text,     "links",                "Links in rendered markdown."},
-
-    {"Success Color",          offset_of(Theme, success_color),          .Status,   "success",              "Added lines and passed tasks."},
-    {"Warning Color",          offset_of(Theme, warning_color),          .Status,   "warning",              "Warnings and changed files."},
-    {"Info Color",             offset_of(Theme, info_color),             .Status,   "info",                 "Information marks and modified files."},
-    {"Danger Color",           offset_of(Theme, danger_color),           .Status,   "danger",               "Destructive buttons and deleted lines."},
-    {"Error Color",            offset_of(Theme, error_color),            .Status,   "error",                "Errors and failed tasks."},
-    {"Conflict Color",         offset_of(Theme, conflict_color),         .Status,   "conflict",             "Git merge conflicts."},
-    {"Submodule Color",        offset_of(Theme, submodule_color),        .Status,   "submodule",            "Git submodules."},
-
-    {"Comments Color",         offset_of(Theme, comments_color),         .Syntax,   "comments",             "Comments."},
-    {"Keywords Color",         offset_of(Theme, keywords_color),         .Syntax,   "keywords",             "Keywords such as if, for and return."},
-    {"Functions Color",        offset_of(Theme, functions_color),        .Syntax,   "functions",            "Names of functions and procedures."},
-    {"Strings Color",          offset_of(Theme, strings_color),          .Syntax,   "strings",              "String and character literals."},
-    {"Numbers Color",          offset_of(Theme, numbers_color),          .Syntax,   "numbers",              "Number literals and constants."},
-    {"Operators Color",        offset_of(Theme, operators_color),        .Syntax,   "operators",            "Operators and punctuation."},
-    {"Variables Color",        offset_of(Theme, variables_color),        .Syntax,   "variables",            "Variables and fields."},
-    {"Parameters Color",       offset_of(Theme, parameters_color),       .Syntax,   "parameters",           "Parameters of a procedure."},
-    {"Attributes Color",       offset_of(Theme, attributes_color),       .Syntax,   "attributes",           "Attributes, directives and annotations."},
-    {"Tags Color",             offset_of(Theme, tags_color),             .Syntax,   "tags",                 "Types, and tags in markup."},
+COLORS := [?]Color_Entry{
+    {"Background", offset_of(Theme, background), .Surfaces, "background", "The editor and the main panels."},
+    {"Second Background", offset_of(Theme, second_background), .Surfaces, "second_background", "Headers, sidebars and the row under the pointer."},
+    {"Contrast", offset_of(Theme, contrast), .Surfaces, "contrast", "The deepest surface: the window frame, input fields and shadows."},
+    {"Buttons", offset_of(Theme, buttons), .Surfaces, "buttons", "Buttons, chips and tabs."},
+    {"Active", offset_of(Theme, active), .Surfaces, "active", "The selected tab, row or button."},
+    {"Highlight", offset_of(Theme, highlight), .Surfaces, "highlight", "The current line and marked areas."},
+    {"Border", offset_of(Theme, border), .Surfaces, "border", "Lines between panels and around boxes."},
+    {"Notifications", offset_of(Theme, notifications), .Surfaces, "notifications", "Toasts and the status flash."},
+    {"Tree", offset_of(Theme, tree), .Surfaces, "tree", "The indent guides of the file tree."},
+    {
+        "Selection Background",
+        offset_of(Theme, selection_background),
+        .Surfaces,
+        "selection_background",
+        "Selected text. Use alpha to keep the syntax colors visible.",
+    },
+    {"Accent Color", offset_of(Theme, accent_color), .Surfaces, "accent", "The caret, focus rings, toggles and the main buttons."},
+    {"Accent Secondary Color", offset_of(Theme, accent_secondary_color), .Surfaces, "accent_secondary", "The second accent, for plugins and marks."},
+    {"Text", offset_of(Theme, text), .Text, "text", "Body text of the editor."},
+    {"Primary Text Color", offset_of(Theme, primary_text_color), .Text, "primary_text", "Names in lists: files, symbols and results."},
+    {"Foreground", offset_of(Theme, foreground), .Text, "foreground", "Labels, titles and the text of controls."},
+    {"Muted Color", offset_of(Theme, muted_color), .Text, "muted", "Second lines, paths and hints."},
+    {"Disabled", offset_of(Theme, disabled), .Text, "disabled", "Controls you cannot use, and line numbers."},
+    {"Selection Foreground", offset_of(Theme, selection_foreground), .Text, "selection_foreground", "Text on the selected palette row."},
+    {"Excluded Files Color", offset_of(Theme, excluded_files_color), .Text, "excluded_files", "Ignored files in the file tree."},
+    {"Links Color", offset_of(Theme, links_color), .Text, "links", "Links in rendered markdown."},
+    {"Success Color", offset_of(Theme, success_color), .Status, "success", "Added lines and passed tasks."},
+    {"Warning Color", offset_of(Theme, warning_color), .Status, "warning", "Warnings and changed files."},
+    {"Info Color", offset_of(Theme, info_color), .Status, "info", "Information marks and modified files."},
+    {"Danger Color", offset_of(Theme, danger_color), .Status, "danger", "Destructive buttons and deleted lines."},
+    {"Error Color", offset_of(Theme, error_color), .Status, "error", "Errors and failed tasks."},
+    {"Conflict Color", offset_of(Theme, conflict_color), .Status, "conflict", "Git merge conflicts."},
+    {"Submodule Color", offset_of(Theme, submodule_color), .Status, "submodule", "Git submodules."},
+    {"Comments Color", offset_of(Theme, comments_color), .Syntax, "comments", "Comments."},
+    {"Keywords Color", offset_of(Theme, keywords_color), .Syntax, "keywords", "Keywords such as if, for and return."},
+    {"Functions Color", offset_of(Theme, functions_color), .Syntax, "functions", "Names of functions and procedures."},
+    {"Strings Color", offset_of(Theme, strings_color), .Syntax, "strings", "String and character literals."},
+    {"Numbers Color", offset_of(Theme, numbers_color), .Syntax, "numbers", "Number literals and constants."},
+    {"Operators Color", offset_of(Theme, operators_color), .Syntax, "operators", "Operators and punctuation."},
+    {"Variables Color", offset_of(Theme, variables_color), .Syntax, "variables", "Variables and fields."},
+    {"Parameters Color", offset_of(Theme, parameters_color), .Syntax, "parameters", "Parameters of a procedure."},
+    {"Attributes Color", offset_of(Theme, attributes_color), .Syntax, "attributes", "Attributes, directives and annotations."},
+    {"Tags Color", offset_of(Theme, tags_color), .Syntax, "tags", "Types, and tags in markup."},
 }
 
 // The built-in fallback theme: used as the base every loaded theme overlays, and
 // returned whole when a theme file is missing or malformed. Mirrors
 // assets/themes/mjolnir.lua.
 mjolnir :: proc() -> Theme {
-    return Theme {
+    return Theme{
         name = "Mjolnir",
-        background = ui.Color {0x1A, 0x1C, 0x23, 0xFF},
-        foreground = ui.Color {0xD0, 0xD4, 0xE0, 0xFF},
-        text = ui.Color {0xEC, 0xEF, 0xF1, 0xFF},
-        selection_background = ui.Color {0x3F, 0x51, 0xB5, 0x70},
-        selection_foreground = ui.Color {0xFF, 0xFF, 0xFF, 0xFF},
-        buttons = ui.Color {0x27, 0x2A, 0x33, 0xFF},
-        second_background = ui.Color {0x22, 0x25, 0x2C, 0xFF},
-        disabled = ui.Color {0x5C, 0x62, 0x70, 0xFF},
-        contrast = ui.Color {0x13, 0x15, 0x19, 0xFF},
-        active = ui.Color {0x2C, 0x30, 0x3A, 0xFF},
-        border = ui.Color {0x1C, 0x1F, 0x26, 0xFF},
-        highlight = ui.Color {0x33, 0x38, 0x46, 0xFF},
-        tree = ui.Color {0x3F, 0x4A, 0x5A, 0x50},
-        notifications = ui.Color {0x13, 0x15, 0x19, 0xFF},
-        accent_color = ui.Color {0x4F, 0xC3, 0xF7, 0xFF},
-        excluded_files_color = ui.Color {0x2E, 0x32, 0x3C, 0xFF},
-        success_color = ui.Color {0x69, 0xF0, 0xAE, 0xFF},
-        warning_color = ui.Color {0xFF, 0xCA, 0x28, 0xFF},
-        info_color = ui.Color {0x44, 0x8A, 0xFF, 0xFF},
-        danger_color = ui.Color {0xFF, 0x52, 0x52, 0xFF},
-        submodule_color = ui.Color {0xCE, 0x93, 0xD8, 0xFF},
-        conflict_color = ui.Color {0xFF, 0x70, 0x43, 0xFF},
-        accent_secondary_color = ui.Color {0x18, 0xFF, 0xFF, 0xFF},
-        muted_color = ui.Color {0x90, 0xA4, 0xAE, 0xFF},
-        primary_text_color = ui.Color {0xEC, 0xEF, 0xF1, 0xFF},
-        error_color = ui.Color {0xFF, 0x52, 0x52, 0xFF},
-        comments_color = ui.Color {0x61, 0x6A, 0x7A, 0xFF},
-        variables_color = ui.Color {0xEC, 0xEF, 0xF1, 0xFF},
-        links_color = ui.Color {0x18, 0xFF, 0xFF, 0xFF},
-        functions_color = ui.Color {0x44, 0x8A, 0xFF, 0xFF},
-        keywords_color = ui.Color {0xFF, 0x52, 0x52, 0xFF},
-        tags_color = ui.Color {0xFF, 0x52, 0x52, 0xFF},
-        strings_color = ui.Color {0xFF, 0xCA, 0x28, 0xFF},
-        operators_color = ui.Color {0x18, 0xFF, 0xFF, 0xFF},
-        attributes_color = ui.Color {0xFF, 0xCA, 0x28, 0xFF},
-        numbers_color = ui.Color {0xFF, 0x70, 0x43, 0xFF},
-        parameters_color = ui.Color {0xFF, 0x70, 0x43, 0xFF},
+        background = ui.Color{0x1A, 0x1C, 0x23, 0xFF},
+        foreground = ui.Color{0xD0, 0xD4, 0xE0, 0xFF},
+        text = ui.Color{0xEC, 0xEF, 0xF1, 0xFF},
+        selection_background = ui.Color{0x3F, 0x51, 0xB5, 0x70},
+        selection_foreground = ui.Color{0xFF, 0xFF, 0xFF, 0xFF},
+        buttons = ui.Color{0x27, 0x2A, 0x33, 0xFF},
+        second_background = ui.Color{0x22, 0x25, 0x2C, 0xFF},
+        disabled = ui.Color{0x5C, 0x62, 0x70, 0xFF},
+        contrast = ui.Color{0x13, 0x15, 0x19, 0xFF},
+        active = ui.Color{0x2C, 0x30, 0x3A, 0xFF},
+        border = ui.Color{0x1C, 0x1F, 0x26, 0xFF},
+        highlight = ui.Color{0x33, 0x38, 0x46, 0xFF},
+        tree = ui.Color{0x3F, 0x4A, 0x5A, 0x50},
+        notifications = ui.Color{0x13, 0x15, 0x19, 0xFF},
+        accent_color = ui.Color{0x4F, 0xC3, 0xF7, 0xFF},
+        excluded_files_color = ui.Color{0x2E, 0x32, 0x3C, 0xFF},
+        success_color = ui.Color{0x69, 0xF0, 0xAE, 0xFF},
+        warning_color = ui.Color{0xFF, 0xCA, 0x28, 0xFF},
+        info_color = ui.Color{0x44, 0x8A, 0xFF, 0xFF},
+        danger_color = ui.Color{0xFF, 0x52, 0x52, 0xFF},
+        submodule_color = ui.Color{0xCE, 0x93, 0xD8, 0xFF},
+        conflict_color = ui.Color{0xFF, 0x70, 0x43, 0xFF},
+        accent_secondary_color = ui.Color{0x18, 0xFF, 0xFF, 0xFF},
+        muted_color = ui.Color{0x90, 0xA4, 0xAE, 0xFF},
+        primary_text_color = ui.Color{0xEC, 0xEF, 0xF1, 0xFF},
+        error_color = ui.Color{0xFF, 0x52, 0x52, 0xFF},
+        comments_color = ui.Color{0x61, 0x6A, 0x7A, 0xFF},
+        variables_color = ui.Color{0xEC, 0xEF, 0xF1, 0xFF},
+        links_color = ui.Color{0x18, 0xFF, 0xFF, 0xFF},
+        functions_color = ui.Color{0x44, 0x8A, 0xFF, 0xFF},
+        keywords_color = ui.Color{0xFF, 0x52, 0x52, 0xFF},
+        tags_color = ui.Color{0xFF, 0x52, 0x52, 0xFF},
+        strings_color = ui.Color{0xFF, 0xCA, 0x28, 0xFF},
+        operators_color = ui.Color{0x18, 0xFF, 0xFF, 0xFF},
+        attributes_color = ui.Color{0xFF, 0xCA, 0x28, 0xFF},
+        numbers_color = ui.Color{0xFF, 0x70, 0x43, 0xFF},
+        parameters_color = ui.Color{0xFF, 0x70, 0x43, 0xFF},
     }
 }
 
@@ -214,7 +212,7 @@ theme_default :: proc() -> Theme {
 // Reads a theme from the value tree of a theme file.
 @(private = "file")
 from_value :: proc(root: json.Value, path: string) -> (Theme, bool) {
-    theme := theme_default()
+    theme   := theme_default()
     obj, ok := root.(json.Object)
     if !ok {
         log.warnf("Theme %q: root is not a table", path)
@@ -272,12 +270,12 @@ destroy :: proc(theme: ^Theme) {
 
 parse_hex :: proc(value: string) -> (ui.Color, bool) {
     if !strings.has_prefix(value, "#") {
-        return ui.Color {}, false
+        return ui.Color{}, false
     }
 
     hex := value[1:]
     if len(hex) != 6 && len(hex) != 8 {
-        return ui.Color {}, false
+        return ui.Color{}, false
     }
 
     // parse_uint takes digit separators and a sign, so "#ff_f00" would pass.
@@ -285,30 +283,20 @@ parse_hex :: proc(value: string) -> (ui.Color, bool) {
         switch hex[i] {
         case '0' ..= '9', 'a' ..= 'f', 'A' ..= 'F':
         case:
-            return ui.Color {}, false
+            return ui.Color{}, false
         }
     }
 
     parsed, ok := strconv.parse_uint(hex, 16)
     if !ok {
-        return ui.Color {}, false
+        return ui.Color{}, false
     }
 
     if len(hex) == 6 {
-        return ui.Color {
-            byte((parsed >> 16) & 0xFF),
-            byte((parsed >> 8) & 0xFF),
-            byte(parsed & 0xFF),
-            0xFF,
-        }, true
+        return ui.Color{byte((parsed >> 16) & 0xFF), byte((parsed >> 8) & 0xFF), byte(parsed & 0xFF), 0xFF}, true
     }
 
-    return ui.Color {
-        byte((parsed >> 24) & 0xFF),
-        byte((parsed >> 16) & 0xFF),
-        byte((parsed >> 8) & 0xFF),
-        byte(parsed & 0xFF),
-    }, true
+    return ui.Color{byte((parsed >> 24) & 0xFF), byte((parsed >> 16) & 0xFF), byte((parsed >> 8) & 0xFF), byte(parsed & 0xFF)}, true
 }
 
 // The index into COLORS of the role `key` names, by role id or display label;
@@ -338,7 +326,7 @@ color_at :: proc(theme: ^Theme, index: int) -> ^ui.Color {
 
 @(private = "file")
 theme_color_field :: proc(theme: ^Theme, offset: uintptr) -> ^ui.Color {
-    return cast(^ui.Color) (uintptr(theme) + offset)
+    return cast(^ui.Color)(uintptr(theme) + offset)
 }
 
 assign_color :: proc(theme: ^Theme, key: string, color: ui.Color) -> bool {
@@ -368,7 +356,7 @@ to_hex :: proc(color: ui.Color, allocator := context.temp_allocator) -> string {
     buf: [9]u8
     buf[0] = '#'
     n := 1
-    for value in ([]u8 {color.r, color.g, color.b}) {
+    for value in ([]u8{color.r, color.g, color.b}) {
         buf[n] = HEX_DIGITS[value >> 4]
         buf[n + 1] = HEX_DIGITS[value & 0xF]
         n += 2

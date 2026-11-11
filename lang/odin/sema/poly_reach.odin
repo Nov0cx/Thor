@@ -7,9 +7,9 @@ import odinsyntax "../syntax"
 // The part of a polymorphic procedure or record that the compiler checks only per instance: the
 // body and `where` clause of a procedure, the fields and `where` clause of a record.
 Poly_Body :: struct {
-    name:  string, // the constant that declares it; "" for an anonymous one
+    name:   string, // the constant that declares it; "" for an anonymous one
     span:   Offset_Span,
-    parent: int, // the body that holds this one; -1 for none
+    parent: int,             // the body that holds this one; -1 for none
     names:  [dynamic]string, // the identifiers in the body, outside nested polymorphic bodies
 }
 
@@ -51,7 +51,7 @@ poly_file_destroy :: proc(f: ^Poly_File) {
 // constant `n` is the value of.
 @(private = "file")
 poly_walk :: proc(w: ^Poly_Walker, n: odinsyntax.Syntax_Node, body: int, name: string) {
-    n := n
+    n    := n
     body := body
     #partial switch n.green.kind {
     case .Ident:
@@ -66,7 +66,7 @@ poly_walk :: proc(w: ^Poly_Walker, n: odinsyntax.Syntax_Node, body: int, name: s
     case .Proc_Lit, .Struct_Type, .Union_Type:
         if start, ok := poly_body_start(n); ok {
             _, end := odinsyntax.node_range(n)
-            b := Poly_Body{name = name, span = {start, int(end)}, parent = body}
+            b      := Poly_Body{name = name, span = {start, int(end)}, parent = body}
             b.names.allocator = w.file.bodies.allocator
             if _, err := append(&w.file.bodies, b); err != nil {
                 w.err = err
@@ -92,10 +92,10 @@ poly_walk :: proc(w: ^Poly_Walker, n: odinsyntax.Syntax_Node, body: int, name: s
 // Walks a declaration with its names left out. A constant passes its name to its value.
 @(private = "file")
 poly_walk_decl :: proc(w: ^Poly_Walker, n: odinsyntax.Syntax_Node, body: int) {
-    n := n
-    v, _ := odinsyntax.as_value_decl(n)
+    n        := n
+    v, _     := odinsyntax.as_value_decl(n)
     constant := is_constant_decl(n)
-    names := make([dynamic]string, context.temp_allocator)
+    names    := make([dynamic]string, context.temp_allocator)
     if list, ok := odinsyntax.value_decl_names(&v); ok {
         it := odinsyntax.name_list_names(&list)
         for name in odinsyntax.child_iter_next(&it) {
@@ -103,7 +103,7 @@ poly_walk_decl :: proc(w: ^Poly_Walker, n: odinsyntax.Syntax_Node, body: int) {
         }
     }
     values, has_values := odinsyntax.value_decl_values(&v)
-    it := odinsyntax.child_iter(&n, {kinds = ~odinsyntax.Kind_Set{}})
+    it                 := odinsyntax.child_iter(&n, {kinds = ~odinsyntax.Kind_Set{}})
     for child in odinsyntax.child_iter_next(&it) {
         #partial switch child.green.kind {
         case .Name_List:
@@ -111,7 +111,7 @@ poly_walk_decl :: proc(w: ^Poly_Walker, n: odinsyntax.Syntax_Node, body: int) {
         case .Expr_List:
             if has_values && child.offset == values.offset {
                 vi := odinsyntax.expr_list_items(&values)
-                i := 0
+                i  := 0
                 for value in odinsyntax.child_iter_next(&vi) {
                     name := ""
                     if constant && len(names) == 1 {
@@ -137,7 +137,7 @@ poly_body_start :: proc(n: odinsyntax.Syntax_Node) -> (int, bool) {
     ok: bool
     #partial switch n.green.kind {
     case .Proc_Lit:
-        pl, _ := odinsyntax.as_proc_lit(n)
+        pl, _        := odinsyntax.as_proc_lit(n)
         pt, has_type := odinsyntax.proc_lit_type(&pl)
         if !has_type {
             return 0, false
@@ -185,7 +185,7 @@ has_poly_type :: proc(n: odinsyntax.Syntax_Node) -> bool {
 // body or in a body that is instantiated. The match is by name, so a same-named local can only
 // keep a body in. An anonymous body counts as instantiated.
 poly_uninstantiated :: proc(files: []Poly_File, allocator := context.allocator) -> (out: [][]Offset_Span, err: mem.Allocator_Error) {
-    used := make(map[string]struct{}, 64, context.temp_allocator) or_return
+    used := make(map[string]struct {}, 64, context.temp_allocator) or_return
     for &f in files {
         for name in f.outside {
             used[name] = {}

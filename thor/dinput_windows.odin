@@ -16,7 +16,7 @@ import "core:log"
 import win32 "core:sys/windows"
 
 @(private = "file")
-Load_Library_A :: #type proc "system" (name: cstring) -> win32.HMODULE
+Load_Library_A :: #type proc "system"(name: cstring) -> win32.HMODULE
 
 // IMAGE_IMPORT_DESCRIPTOR and IMAGE_IMPORT_BY_NAME, which core:sys/windows does
 // not declare. The name of an import sits two bytes past its hint.
@@ -47,7 +47,7 @@ dinput: struct {
 // null module and never enumerates. Runs with no context — a worker thread may
 // load a library while the block is up.
 @(private = "file")
-load_library_hook :: proc "system" (name: cstring) -> win32.HMODULE {
+load_library_hook :: proc "system"(name: cstring) -> win32.HMODULE {
     if name != nil && name_equals_fold(name, "dinput8.dll") {
         dinput.refused = true
         return nil
@@ -58,12 +58,12 @@ load_library_hook :: proc "system" (name: cstring) -> win32.HMODULE {
 // ASCII case-insensitive compare against a NUL-terminated name. Stops at the
 // first difference, so it never reads past the terminator.
 @(private = "file")
-name_equals_fold :: proc "contextless" (name: cstring, want: string) -> bool {
-    lower :: proc "contextless" (c: u8) -> u8 {
+name_equals_fold :: proc "contextless"(name: cstring, want: string) -> bool {
+    lower :: proc "contextless"(c: u8) -> u8 {
         return c + ('a' - 'A') if 'A' <= c && c <= 'Z' else c
     }
 
-    bytes := cast([^]u8) name
+    bytes := cast([^]u8)name
     for i in 0 ..< len(want) {
         if lower(bytes[i]) != lower(want[i]) {
             return false
@@ -80,14 +80,14 @@ find_load_library_slot :: proc() -> ^uintptr {
     if base == 0 {
         return nil
     }
-    dos := cast(^win32.IMAGE_DOS_HEADER) rawptr(base)
-    nt := cast(^win32.IMAGE_NT_HEADERS64) rawptr(base + uintptr(dos.e_lfanew))
+    dos     := cast(^win32.IMAGE_DOS_HEADER)rawptr(base)
+    nt      := cast(^win32.IMAGE_NT_HEADERS64)rawptr(base + uintptr(dos.e_lfanew))
     imports := nt.OptionalHeader.ImportTable
     if imports.VirtualAddress == 0 {
         return nil
     }
 
-    descriptors := cast([^]Import_Descriptor) rawptr(base + uintptr(imports.VirtualAddress))
+    descriptors := cast([^]Import_Descriptor)rawptr(base + uintptr(imports.VirtualAddress))
     for d := 0; descriptors[d].name != 0; d += 1 {
         // A bound import has no name table of its own and names through the
         // address table instead.
@@ -95,8 +95,8 @@ find_load_library_slot :: proc() -> ^uintptr {
         if names_rva == 0 {
             names_rva = descriptors[d].first_thunk
         }
-        names := cast([^]uintptr) rawptr(base + uintptr(names_rva))
-        addresses := cast([^]uintptr) rawptr(base + uintptr(descriptors[d].first_thunk))
+        names     := cast([^]uintptr)rawptr(base + uintptr(names_rva))
+        addresses := cast([^]uintptr)rawptr(base + uintptr(descriptors[d].first_thunk))
         for i := 0; names[i] != 0; i += 1 {
             if names[i] & IMPORT_BY_ORDINAL != 0 {
                 continue
@@ -132,7 +132,7 @@ dinput_suppress :: proc() -> bool {
         log.debug("No LoadLibraryA import to hold DirectInput back with")
         return false
     }
-    dinput.original = cast(Load_Library_A) rawptr(dinput.slot^)
+    dinput.original = cast(Load_Library_A)rawptr(dinput.slot^)
     dinput.refused = false
     if !write_slot(rawptr(load_library_hook)) {
         log.debugf("Could not write the import entry: %v", win32.GetLastError())

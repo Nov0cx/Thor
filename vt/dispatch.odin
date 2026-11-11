@@ -406,7 +406,7 @@ dec_mode :: proc(t: ^Term, mode: int, on: bool) {
 @(private = "file")
 csi_report_mode :: proc(t: ^Term, mode: int, private: bool) {
     state, known := mode_state(t, mode, private)
-    value := 0
+    value        := 0
     if known {
         value = state ? 1 : 2
     }
@@ -573,7 +573,7 @@ sgr_underline :: proc(p: Params, index: int) -> Underline {
 // sub-arguments of this one. `index` is left on the last argument taken.
 @(private = "file")
 sgr_color :: proc(p: Params, index: ^int, fallback: Color) -> Color {
-    i := index^
+    i    := index^
     // The run of sub-arguments that belongs to this argument.
     last := i
     for last + 1 < p.n && p.sub[last + 1] {
@@ -589,11 +589,7 @@ sgr_color :: proc(p: Params, index: ^int, fallback: Color) -> Color {
             // 38:2:<space>:r:g:b carries a colour space that is not used here,
             // and 38:2:r:g:b leaves it out.
             base := last - i >= 5 ? i + 3 : i + 2
-            return color_rgb(
-                u8(clamp(param(p, base, 0), 0, 255)),
-                u8(clamp(param(p, base + 1, 0), 0, 255)),
-                u8(clamp(param(p, base + 2, 0), 0, 255)),
-            )
+            return color_rgb(u8(clamp(param(p, base, 0), 0, 255)), u8(clamp(param(p, base + 1, 0), 0, 255)), u8(clamp(param(p, base + 2, 0), 0, 255)))
         }
         return fallback
     }
@@ -610,11 +606,7 @@ sgr_color :: proc(p: Params, index: ^int, fallback: Color) -> Color {
             return fallback
         }
         index^ = i + 4
-        return color_rgb(
-            u8(clamp(param(p, i + 2, 0), 0, 255)),
-            u8(clamp(param(p, i + 3, 0), 0, 255)),
-            u8(clamp(param(p, i + 4, 0), 0, 255)),
-        )
+        return color_rgb(u8(clamp(param(p, i + 2, 0), 0, 255)), u8(clamp(param(p, i + 3, 0), 0, 255)), u8(clamp(param(p, i + 4, 0), 0, 255)))
     }
     return fallback
 }
@@ -664,9 +656,9 @@ osc_dispatch :: proc(t: ^Term, text: string) {
 // reports -1, which nothing acts on.
 @(private = "file")
 osc_split :: proc(text: string) -> (int, string) {
-    end := strings.index_byte(text, ';')
-    head := end < 0 ? text : text[:end]
-    rest := end < 0 ? "" : text[end + 1:]
+    end         := strings.index_byte(text, ';')
+    head        := end < 0 ? text : text[:end]
+    rest        := end < 0 ? "" : text[end + 1:]
     command, ok := strconv.parse_int(head)
     if !ok {
         return -1, rest
@@ -698,13 +690,7 @@ osc_palette :: proc(t: ^Term, rest: string) {
         spec := fields[i + 1]
         if spec == "?" {
             c := t.palette[index]
-            reply(
-                t,
-                fmt.tprintf(
-                    "\x1b]4;%d;rgb:%02x%02x/%02x%02x/%02x%02x\x1b\\",
-                    index, c[0], c[0], c[1], c[1], c[2], c[2],
-                ),
-            )
+            reply(t, fmt.tprintf("\x1b]4;%d;rgb:%02x%02x/%02x%02x/%02x%02x\x1b\\", index, c[0], c[0], c[1], c[1], c[2], c[2]))
             continue
         }
         if rgb, parsed := parse_color_spec(spec); parsed {
@@ -733,13 +719,7 @@ osc_reset_palette :: proc(t: ^Term, rest: string) {
 osc_dynamic_color :: proc(t: ^Term, command: int, slot: ^[3]u8, spec: string) {
     if spec == "?" {
         c := slot^
-        reply(
-            t,
-            fmt.tprintf(
-                "\x1b]%d;rgb:%02x%02x/%02x%02x/%02x%02x\x1b\\",
-                command, c[0], c[0], c[1], c[1], c[2], c[2],
-            ),
-        )
+        reply(t, fmt.tprintf("\x1b]%d;rgb:%02x%02x/%02x%02x/%02x%02x\x1b\\", command, c[0], c[0], c[1], c[1], c[2], c[2]))
         return
     }
     if rgb, ok := parse_color_spec(spec); ok {

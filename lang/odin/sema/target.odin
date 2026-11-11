@@ -100,56 +100,73 @@ target_arch_name :: proc(arch: Target_Arch) -> string {
 }
 
 @(private = "file")
-OS_NAMES := [Target_OS]string {
-    .Unknown      = "",
-    .Windows      = "windows",
-    .Darwin       = "darwin",
-    .Linux        = "linux",
-    .FreeBSD      = "freebsd",
-    .OpenBSD      = "openbsd",
-    .NetBSD       = "netbsd",
-    .Haiku        = "haiku",
-    .WASI         = "wasi",
-    .JS           = "js",
-    .Orca         = "orca",
+OS_NAMES := [Target_OS]string{
+    .Unknown = "",
+    .Windows = "windows",
+    .Darwin = "darwin",
+    .Linux = "linux",
+    .FreeBSD = "freebsd",
+    .OpenBSD = "openbsd",
+    .NetBSD = "netbsd",
+    .Haiku = "haiku",
+    .WASI = "wasi",
+    .JS = "js",
+    .Orca = "orca",
     .Freestanding = "freestanding",
 }
 
 @(private = "file")
-ARCH_NAMES := [Target_Arch]string {
-    .Unknown   = "",
-    .amd64     = "amd64",
-    .i386      = "i386",
-    .arm32     = "arm32",
-    .arm64     = "arm64",
-    .wasm32    = "wasm32",
+ARCH_NAMES := [Target_Arch]string{
+    .Unknown = "",
+    .amd64 = "amd64",
+    .i386 = "i386",
+    .arm32 = "arm32",
+    .arm64 = "arm64",
+    .wasm32 = "wasm32",
     .wasm64p32 = "wasm64p32",
-    .riscv64   = "riscv64",
+    .riscv64 = "riscv64",
 }
 
 // The target this program runs on. Test files count.
 target_host :: proc() -> Target {
     t := Target{tests = true}
     #partial switch ODIN_OS {
-    case .Windows:      t.os = .Windows
-    case .Darwin:       t.os = .Darwin
-    case .Linux:        t.os = .Linux
-    case .FreeBSD:      t.os = .FreeBSD
-    case .OpenBSD:      t.os = .OpenBSD
-    case .NetBSD:       t.os = .NetBSD
-    case .WASI:         t.os = .WASI
-    case .JS:           t.os = .JS
-    case .Orca:         t.os = .Orca
-    case .Freestanding: t.os = .Freestanding
+    case .Windows:
+        t.os = .Windows
+    case .Darwin:
+        t.os = .Darwin
+    case .Linux:
+        t.os = .Linux
+    case .FreeBSD:
+        t.os = .FreeBSD
+    case .OpenBSD:
+        t.os = .OpenBSD
+    case .NetBSD:
+        t.os = .NetBSD
+    case .WASI:
+        t.os = .WASI
+    case .JS:
+        t.os = .JS
+    case .Orca:
+        t.os = .Orca
+    case .Freestanding:
+        t.os = .Freestanding
     }
     #partial switch ODIN_ARCH {
-    case .amd64:     t.arch = .amd64
-    case .i386:      t.arch = .i386
-    case .arm32:     t.arch = .arm32
-    case .arm64:     t.arch = .arm64
-    case .wasm32:    t.arch = .wasm32
-    case .wasm64p32: t.arch = .wasm64p32
-    case .riscv64:   t.arch = .riscv64
+    case .amd64:
+        t.arch = .amd64
+    case .i386:
+        t.arch = .i386
+    case .arm32:
+        t.arch = .arm32
+    case .arm64:
+        t.arch = .arm64
+    case .wasm32:
+        t.arch = .wasm32
+    case .wasm64p32:
+        t.arch = .wasm64p32
+    case .riscv64:
+        t.arch = .riscv64
     }
     return t
 }
@@ -210,7 +227,7 @@ file_name_in_build :: proc(path: string, target: Target) -> bool {
     if under < 0 {
         return true
     }
-    last := name[under + 1:]
+    last   := name[under + 1:]
     before := ""
     if under > 0 {
         head := name[:under]
@@ -245,7 +262,7 @@ build_tag_holds :: proc(expr: string, target: Target) -> bool {
         words := alternative
         for word in strings.fields_iterator(&words) {
             terms += 1
-            term := word
+            term    := word
             negated := false
             for strings.has_prefix(term, "!") {
                 negated = !negated

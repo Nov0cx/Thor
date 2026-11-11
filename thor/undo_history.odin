@@ -12,21 +12,21 @@ import ui "../vendor/loom/loom"
 // The Undo History modal: the undo tree of one buffer as a graph, newest first, with a diff of the selected step.
 // Moving the selection moves the buffer; Enter keeps that state, Escape goes back to the start.
 
-UNDO_VIEW_WIDTH :: 980
-UNDO_ROW_H :: f32(28)
-UNDO_LANE_W :: f32(14)
-UNDO_DIFF_ROW_H :: f32(20)
+UNDO_VIEW_WIDTH      :: 980
+UNDO_ROW_H           :: f32(28)
+UNDO_LANE_W          :: f32(14)
+UNDO_DIFF_ROW_H      :: f32(20)
 // Bytes of op text a label quotes.
 UNDO_HISTORY_SNIPPET :: 40
 // Context lines above and below each hunk of the diff.
-UNDO_DIFF_CONTEXT :: 2
-UNDO_DIFF_HUNKS :: 3
-UNDO_DIFF_ROWS :: 60
+UNDO_DIFF_CONTEXT    :: 2
+UNDO_DIFF_HUNKS      :: 3
+UNDO_DIFF_ROWS       :: 60
 
 // State of the Undo History modal.
 Undo_View :: struct {
-    path:           string,                    // owned
-    rows:           [dynamic]Undo_Graph_Row,   // owned
+    path:           string,                  // owned
+    rows:           [dynamic]Undo_Graph_Row, // owned
     // The node the buffer held when the modal opened.
     origin:         int,
     selected:       int,
@@ -49,7 +49,7 @@ Undo_Diff_Row :: struct {
 
 // Opens the Undo History modal over the focused buffer.
 thor_cmd_undo_history :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     file := thor_active_open_file(thor)
     if file == nil || !file.loaded {
         return
@@ -193,10 +193,10 @@ undo_view_after_move :: proc(thor: ^Thor, file: ^Open_File) {
 // Moves the buffer one step: to the parent (`dir` < 0) or to a child (`dir` > 0), inside a row's run first.
 @(private)
 undo_view_step :: proc(thor: ^Thor, file: ^Open_File, dir: int) {
-    v := &thor.undo_view
-    state := &file.state
+    v       := &thor.undo_view
+    state   := &file.state
     current := textedit.history_current(state)
-    node := textedit.history_node(state, current)
+    node    := textedit.history_node(state, current)
     if node == nil {
         return
     }
@@ -258,7 +258,7 @@ thor_undo_history_view :: proc(thor: ^Thor) {
     if !thor.undo_open {
         return
     }
-    v := &thor.undo_view
+    v    := &thor.undo_view
     file := undo_view_file(thor)
     if file == nil {
         v.revision = 0
@@ -306,7 +306,7 @@ thor_undo_history_view :: proc(thor: ^Thor) {
 
 @(private = "file")
 undo_view_box :: proc(thor: ^Thor, file: ^Open_File) {
-    v := &thor.undo_view
+    v   := &thor.undo_view
     box := ui.scope(
         {
             key = "undo-box",
@@ -340,16 +340,7 @@ undo_view_box :: proc(thor: ^Thor, file: ^Open_File) {
     }
     ui.label(
         "↑↓ rows   ←→ single steps   Enter keep   Esc go back",
-        {
-            key = "hint",
-            props = {
-                w = ui.Grow(1),
-                pad = ui.xy(14, 6),
-                color = thor.theme.muted_color,
-                bg = thor.theme.second_background,
-                text_wrap = .Ellipsis,
-            },
-        },
+        {key = "hint", props = {w = ui.Grow(1), pad = ui.xy(14, 6), color = thor.theme.muted_color, bg = thor.theme.second_background, text_wrap = .Ellipsis}},
     )
 }
 
@@ -359,30 +350,14 @@ undo_view_header :: proc(thor: ^Thor, file: ^Open_File) {
     ui.scope(
         {
             key = "header",
-            props = {
-                w = ui.Grow(1),
-                h = ui.FIT,
-                dir = .Row,
-                align = .Center,
-                gap = {10, 0},
-                pad = ui.xy(14, 12),
-                bg = thor.theme.second_background,
-            },
+            props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {10, 0}, pad = ui.xy(14, 12), bg = thor.theme.second_background},
         },
     )
     thor_icon_label(thor, "history", thor.theme.accent_color)
     ui.label("Undo history", {key = "title", props = {color = thor.theme.foreground, text_wrap = .None}})
+    ui.label(thor_file_base(file.path), {key = "file", props = {color = thor.theme.foreground, text_wrap = .Ellipsis}})
     ui.label(
-        thor_file_base(file.path),
-        {key = "file", props = {color = thor.theme.foreground, text_wrap = .Ellipsis}},
-    )
-    ui.label(
-        fmt.tprintf(
-            "%d states · %d %s",
-            len(v.rows),
-            v.branches,
-            v.branches == 1 ? "branch" : "branches",
-        ),
+        fmt.tprintf("%d states · %d %s", len(v.rows), v.branches, v.branches == 1 ? "branch" : "branches"),
         {key = "counts", props = {color = thor.theme.muted_color, text_wrap = .None}},
     )
     ui.leaf({key = "gap", props = {w = ui.Grow(1)}})
@@ -403,17 +378,11 @@ undo_view_header :: proc(thor: ^Thor, file: ^Open_File) {
 
 @(private = "file")
 undo_view_list :: proc(thor: ^Thor, file: ^Open_File) {
-    v := &thor.undo_view
-    list := ui.scope(
-        {
-            key = "list",
-            flags = {.Clip, .Scroll_Y},
-            props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column, pad = ui.xy(6, 6)},
-        },
-    )
+    v    := &thor.undo_view
+    list := ui.scope({key = "list", flags = {.Clip, .Scroll_Y}, props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column, pad = ui.xy(6, 6)}})
     if v.scroll_pending && list.node != nil && list.rect.h > 0 {
-        top := f32(v.selected) * UNDO_ROW_H
-        view := list.rect.h - 12
+        top    := f32(v.selected) * UNDO_ROW_H
+        view   := list.rect.h - 12
         scroll := list.node.scroll.y
         if top < scroll {
             ui.set_scroll(list.node, .Y, top)
@@ -423,7 +392,7 @@ undo_view_list :: proc(thor: ^Thor, file: ^Open_File) {
         v.scroll_pending = false
     }
 
-    now := time.now()
+    now         := time.now()
     first, last := ui.virtual(len(v.rows), UNDO_ROW_H)
     defer ui.end_virtual()
     for i in first ..< last {
@@ -444,10 +413,10 @@ undo_view_list :: proc(thor: ^Thor, file: ^Open_File) {
 // One graph row. Reports a click and a double click.
 @(private = "file")
 undo_view_row :: proc(thor: ^Thor, file: ^Open_File, index: int, now: time.Time) -> (clicked, double: bool) {
-    v := &thor.undo_view
-    row := v.rows[index]
+    v     := &thor.undo_view
+    row   := v.rows[index]
     state := &file.state
-    node := textedit.history_node(state, row.node)
+    node  := textedit.history_node(state, row.node)
     if node == nil {
         return
     }
@@ -475,14 +444,7 @@ undo_view_row :: proc(thor: ^Thor, file: ^Open_File, index: int, now: time.Time)
     root := node.parent == textedit.NO_NODE
     ui.label(
         undo_row_label(state, row),
-        {
-            key = "label",
-            props = {
-                w = ui.Grow(1),
-                color = root ? thor.theme.muted_color : thor.theme.foreground,
-                text_wrap = .Ellipsis,
-            },
-        },
+        {key = "label", props = {w = ui.Grow(1), color = root ? thor.theme.muted_color : thor.theme.foreground, text_wrap = .Ellipsis}},
     )
     content := textedit.node_content_id(state, row.node)
     if content == file.saved_content {
@@ -492,33 +454,15 @@ undo_view_row :: proc(thor: ^Thor, file: ^Open_File, index: int, now: time.Time)
         undo_view_badge(thor, "start", thor.theme.accent_color)
     }
     if !root {
-        ui.label(
-            fmt.tprintf("L%d", node.line + 1),
-            {key = "line", props = {color = thor.theme.muted_color, text_wrap = .None, min_w = 44}},
-        )
+        ui.label(fmt.tprintf("L%d", node.line + 1), {key = "line", props = {color = thor.theme.muted_color, text_wrap = .None, min_w = 44}})
     }
-    ui.label(
-        undo_history_age(time.diff(node.stamp, now)),
-        {key = "age", props = {color = thor.theme.muted_color, text_wrap = .None, min_w = 56}},
-    )
+    ui.label(undo_history_age(time.diff(node.stamp, now)), {key = "age", props = {color = thor.theme.muted_color, text_wrap = .None, min_w = 56}})
     return it.clicked, it.double_clicked
 }
 
 @(private = "file")
 undo_view_badge :: proc(thor: ^Thor, text: string, color: ui.Color) {
-    ui.label(
-        text,
-        {
-            key = text,
-            props = {
-                pad = ui.xy(6, 1),
-                radius = ui.rad(4),
-                color = color,
-                border = {width = ui.all(1), color = color},
-                text_wrap = .None,
-            },
-        },
-    )
+    ui.label(text, {key = text, props = {pad = ui.xy(6, 1), radius = ui.rad(4), color = color, border = {width = ui.all(1), color = color}, text_wrap = .None}})
 }
 
 // The lanes beside a row: a bar for each line that passes, the node's dot, and a
@@ -526,17 +470,8 @@ undo_view_badge :: proc(thor: ^Thor, text: string, color: ui.Color) {
 @(private = "file")
 undo_view_graph :: proc(thor: ^Thor, v: ^Undo_View, row: Undo_Graph_Row, on: bool) {
     line := thor.theme.border
-    dot := on ? thor.theme.accent_color : thor.theme.muted_color
-    ui.scope(
-        {
-            key = "graph",
-            props = {
-                position = .Relative,
-                w = ui.Px(f32(v.lanes) * UNDO_LANE_W + 6),
-                h = ui.Px(UNDO_ROW_H),
-            },
-        },
-    )
+    dot  := on ? thor.theme.accent_color : thor.theme.muted_color
+    ui.scope({key = "graph", props = {position = .Relative, w = ui.Px(f32(v.lanes) * UNDO_LANE_W + 6), h = ui.Px(UNDO_ROW_H)}})
     x_of :: proc(lane: int) -> f32 {
         return 6 + f32(lane) * UNDO_LANE_W + UNDO_LANE_W / 2
     }
@@ -594,7 +529,7 @@ undo_step_label :: proc(node: ^textedit.Undo_Node) -> string {
     case:
         return fmt.tprintf("Edited %d places", len(hunks))
     }
-    removed := hunks[0].removed
+    removed  := hunks[0].removed
     inserted := ""
     for op in node.ops {
         if op.kind == .Insert {
@@ -712,7 +647,7 @@ undo_view_diff :: proc(thor: ^Thor, file: ^Open_File) {
             sign = "-"
         }
         number := row.line > 0 ? fmt.tprintf("%4d", row.line) : "    "
-        text := row.kind == .Hunk || row.kind == .Meta ? row.text : fmt.tprintf("%s %s %s", number, sign, row.text)
+        text   := row.kind == .Hunk || row.kind == .Meta ? row.text : fmt.tprintf("%s %s %s", number, sign, row.text)
         ui.label(
             text,
             {
@@ -787,12 +722,12 @@ undo_row_hunks :: proc(state: ^textedit.State, row: Undo_Graph_Row) -> []textedi
 // The diff rows of `hunks`, which must be places in the buffer's current content.
 @(private)
 undo_diff_rows :: proc(state: ^textedit.State, hunks: []textedit.Node_Hunk) -> []Undo_Diff_Row {
-    rows := make([dynamic]Undo_Diff_Row, context.temp_allocator)
-    txt := textedit.text(state)
+    rows       := make([dynamic]Undo_Diff_Row, context.temp_allocator)
+    txt        := textedit.text(state)
     line_count := textedit.state_line_count(state)
     line_text :: proc(state: ^textedit.State, txt: string, line: int) -> string {
         start := textedit.state_line_start(state, line)
-        end := line + 1 < textedit.state_line_count(state) ? textedit.state_line_start(state, line + 1) - 1 : len(txt)
+        end   := line + 1 < textedit.state_line_count(state) ? textedit.state_line_start(state, line + 1) - 1 : len(txt)
         return undo_display(txt[start:max(start, end)])
     }
 
@@ -801,12 +736,12 @@ undo_diff_rows :: proc(state: ^textedit.State, hunks: []textedit.Node_Hunk) -> [
             append(&rows, Undo_Diff_Row{kind = .Meta, text = fmt.tprintf("… %d more places", len(hunks) - hi)})
             break
         }
-        a := clamp(h.pos, 0, len(txt))
-        b := clamp(h.pos + h.inserted, a, len(txt))
-        first := textedit.state_line_index(state, a)
-        last := b > a ? textedit.state_line_index(state, b - 1) : first
-        start := textedit.state_line_start(state, first)
-        end := last + 1 < line_count ? textedit.state_line_start(state, last + 1) - 1 : len(txt)
+        a      := clamp(h.pos, 0, len(txt))
+        b      := clamp(h.pos + h.inserted, a, len(txt))
+        first  := textedit.state_line_index(state, a)
+        last   := b > a ? textedit.state_line_index(state, b - 1) : first
+        start  := textedit.state_line_start(state, first)
+        end    := last + 1 < line_count ? textedit.state_line_start(state, last + 1) - 1 : len(txt)
         prefix := txt[start:a]
 
         if hi > 0 || first > UNDO_DIFF_CONTEXT {

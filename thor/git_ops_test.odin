@@ -238,7 +238,7 @@ test_git_parse_config_z :: proc(t: ^testing.T) {
 
 @(test)
 test_git_parse_stash_lines :: proc(t: ^testing.T) {
-    ids := make([dynamic]string)
+    ids      := make([dynamic]string)
     subjects := make([dynamic]string)
     defer {
         for id in ids {
@@ -261,16 +261,19 @@ test_git_parse_stash_lines :: proc(t: ^testing.T) {
 // the raw pointer text.
 @(test)
 test_git_lfs_pointer_diff_collapses :: proc(t: ^testing.T) {
-    diff := strings.concatenate({
-        "diff --git a/big.bin b/big.bin\nindex 111..222 100644\n--- a/big.bin\n+++ b/big.bin\n",
-        "@@ -1,3 +1,3 @@\n",
-        "-version https://git-lfs.github.com/spec/v1\n",
-        "-oid sha256:aaaabbbbccccddddeeee\n",
-        "-size 1024\n",
-        "+version https://git-lfs.github.com/spec/v1\n",
-        "+oid sha256:eeeeffff000011112222\n",
-        "+size 2097152\n",
-    }, context.temp_allocator)
+    diff := strings.concatenate(
+        {
+            "diff --git a/big.bin b/big.bin\nindex 111..222 100644\n--- a/big.bin\n+++ b/big.bin\n",
+            "@@ -1,3 +1,3 @@\n",
+            "-version https://git-lfs.github.com/spec/v1\n",
+            "-oid sha256:aaaabbbbccccddddeeee\n",
+            "-size 1024\n",
+            "+version https://git-lfs.github.com/spec/v1\n",
+            "+oid sha256:eeeeffff000011112222\n",
+            "+size 2097152\n",
+        },
+        context.temp_allocator,
+    )
     testing.expect(t, git_diff_is_lfs_pointer(diff), "pointer diff not detected")
 
     rows := make([dynamic]Git_Diff_Row)

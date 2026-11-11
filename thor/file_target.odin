@@ -34,13 +34,13 @@ thor_file_target_override :: proc(thor: ^Thor, path: string) -> string {
 
 // Lists the build targets for the active Odin file. The choice is kept per file in the settings.
 thor_cmd_select_build_target :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     file := thor_active_open_file(thor)
     if file == nil || !thor_file_has_build_target(thor, file) {
         thor_flash_status(thor, "Open an Odin file to select its build target")
         return
     }
-    names := odin.target_names()
+    names  := odin.target_names()
     labels := make([dynamic]string, 0, len(names) + 1, context.temp_allocator)
     values := make([dynamic]string, 0, len(names) + 1, context.temp_allocator)
     append(&labels, WORKSPACE_DEFAULT_TARGET)
@@ -67,7 +67,7 @@ thor_build_target_preview :: proc(_: rawptr, _: string) {}
 
 @(private = "file")
 thor_build_target_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     file := thor_active_open_file(thor)
     if file == nil {
         return
@@ -90,7 +90,7 @@ thor_set_file_target :: proc(thor: ^Thor, path, triple: string) -> bool {
         thor_flash_status(thor, "That build target is not a compiler target", is_error = true)
         return false
     }
-    key := thor_file_language_key(thor, path)
+    key    := thor_file_language_key(thor, path)
     target := thor_file_settings_path(thor, path)
     if triple != "" {
         if err := setting.persist_file_target(target, key, triple); err != .None {
@@ -133,12 +133,12 @@ thor_apply_file_targets :: proc(thor: ^Thor) {
         return
     }
     changed := make([dynamic]^Open_File, context.temp_allocator)
-    wanted := make([dynamic]string, context.temp_allocator)
+    wanted  := make([dynamic]string, context.temp_allocator)
     for file in thor.open_files {
         if file.closed || thor_lang_key(thor, file.name) != ".odin" {
             continue
         }
-        want := thor_valid_target(thor_file_target_override(thor, file.path))
+        want         := thor_valid_target(thor_file_target_override(thor, file.path))
         current, own := odin.engine_target_label(thor.odin_engine, thor.workspace_dir, file.path)
         if !own {
             current = ""

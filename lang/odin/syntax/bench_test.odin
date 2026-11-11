@@ -14,9 +14,9 @@ BENCH :: #config(THOR_BENCH, false)
 STRICT :: #config(THOR_BENCH_STRICT, false)
 
 // Budgets of plan 4.8, in milliseconds.
-BUDGET_PARSE_10K_MS :: 8.0
+BUDGET_PARSE_10K_MS   :: 8.0
 BUDGET_REPARSE_P95_MS :: 0.5
-BUDGET_TREE_RATIO :: 8.0
+BUDGET_TREE_RATIO     :: 8.0
 
 // The file at `path` with CRLF collapsed to LF.
 @(private = "file")
@@ -42,10 +42,10 @@ test_bench_parse :: proc(t: ^testing.T) {
     }
     defer delete(src)
     lines := strings.count(src, "\n") + 1
-    best := max(time.Duration)
+    best  := max(time.Duration)
     ratio: f64
     for _ in 0 ..< 20 {
-        start := time.tick_now()
+        start       := time.tick_now()
         result, err := parse(src)
         best = min(best, time.tick_since(start))
         if err == nil {
@@ -88,10 +88,10 @@ test_bench_reparse :: proc(t: ^testing.T) {
     times := make([dynamic]time.Duration, 0, len(typed) * 8, context.temp_allocator)
     for _ in 0 ..< 8 {
         for n in 1 ..= len(typed) {
-            text := strings.concatenate({src[:anchor + 1], typed[:n], src[anchor + 1:]}, context.temp_allocator)
-            start := time.tick_now()
+            text          := strings.concatenate({src[:anchor + 1], typed[:n], src[anchor + 1:]}, context.temp_allocator)
+            start         := time.tick_now()
             next, _, rerr := reparse(&cur, text)
-            elapsed := time.tick_since(start)
+            elapsed       := time.tick_since(start)
             if !testing.expect_value(t, rerr, nil) {
                 return
             }
@@ -107,7 +107,13 @@ test_bench_reparse :: proc(t: ^testing.T) {
     }
     slice.sort(times[:])
     p95 := time.duration_milliseconds(times[len(times) * 95 / 100])
-    log.infof("bench reparse: %d keystrokes, median %.3f ms, p95 %.3f ms (budget %.1f)", len(times), time.duration_milliseconds(times[len(times) / 2]), p95, BUDGET_REPARSE_P95_MS)
+    log.infof(
+        "bench reparse: %d keystrokes, median %.3f ms, p95 %.3f ms (budget %.1f)",
+        len(times),
+        time.duration_milliseconds(times[len(times) / 2]),
+        p95,
+        BUDGET_REPARSE_P95_MS,
+    )
     over_budget(t, p95 <= BUDGET_REPARSE_P95_MS, "reparse p95 %.3f ms is over %.1f", p95, BUDGET_REPARSE_P95_MS)
 }
 

@@ -47,7 +47,7 @@ test_source_edit_points :: proc(t: ^testing.T) {
     Case :: struct {
         old, new: string,
     }
-    cases := [?]Case {
+    cases := [?]Case{
         {"abc", "aXc"},
         {"a\nb\nc", "a\nb\nc\n\nd"},
         {"one\ntwo\nthree", "one\nthree"},

@@ -22,37 +22,39 @@ Syntax_Element :: union {
     Syntax_Token,
 }
 
-node_root :: proc "contextless" (tree: ^Green_Tree) -> Syntax_Node {
+node_root :: proc "contextless"(tree: ^Green_Tree) -> Syntax_Node {
     return {green = tree.root, tree = tree}
 }
 
-node_range :: #force_inline proc "contextless" (n: Syntax_Node) -> (start, end: u32) {
+node_range :: #force_inline proc "contextless"(n: Syntax_Node) -> (start, end: u32) {
     return n.offset, n.offset + n.green.text_len
 }
 
-token_range :: #force_inline proc "contextless" (t: Syntax_Token) -> (start, end: u32) {
+token_range :: #force_inline proc "contextless"(t: Syntax_Token) -> (start, end: u32) {
     return t.offset, t.offset + t.green.len
 }
 
-element_range :: proc "contextless" (e: Syntax_Element) -> (start, end: u32) {
+element_range :: proc "contextless"(e: Syntax_Element) -> (start, end: u32) {
     switch v in e {
-    case Syntax_Node:  return node_range(v)
-    case Syntax_Token: return token_range(v)
+    case Syntax_Node:
+        return node_range(v)
+    case Syntax_Token:
+        return token_range(v)
     }
     return 0, 0
 }
 
 // The source text of a node, trivia inside it included.
-node_text :: #force_inline proc "contextless" (n: Syntax_Node) -> string {
+node_text :: #force_inline proc "contextless"(n: Syntax_Node) -> string {
     return n.tree.text[n.offset:][:n.green.text_len]
 }
 
-syntax_token_text :: #force_inline proc "contextless" (t: Syntax_Token) -> string {
+syntax_token_text :: #force_inline proc "contextless"(t: Syntax_Token) -> string {
     return t.tree.text[t.offset:][:t.green.len]
 }
 
 // The positioned form of `child`, a child of `parent` at `offset`.
-child_element :: #force_inline proc "contextless" (parent: ^Syntax_Node, child: Green_Element, offset: u32) -> Syntax_Element {
+child_element :: #force_inline proc "contextless"(parent: ^Syntax_Node, child: Green_Element, offset: u32) -> Syntax_Element {
     if n, is_node := element_node(child); is_node {
         return Syntax_Node{n, offset, parent, parent.tree}
     }
@@ -62,8 +64,8 @@ child_element :: #force_inline proc "contextless" (parent: ^Syntax_Node, child: 
 
 // The children of `n` with their positions. Each child's parent is `n`, so `n` must outlive them.
 node_children :: proc(n: ^Syntax_Node, allocator := context.allocator) -> []Syntax_Element {
-    kids := green_children(n.green)
-    out := make([]Syntax_Element, len(kids), allocator)
+    kids   := green_children(n.green)
+    out    := make([]Syntax_Element, len(kids), allocator)
     offset := n.offset
     for child, i in kids {
         out[i] = child_element(n, child, offset)
@@ -80,7 +82,7 @@ node_token_at :: proc(root: Syntax_Node, offset: u32, allocator := context.alloc
         return {}, false
     }
     at_end := offset == end
-    cur := new_clone(root, allocator)
+    cur    := new_clone(root, allocator)
     for {
         pos := cur.offset
         next: ^Green_Node
@@ -88,7 +90,7 @@ node_token_at :: proc(root: Syntax_Node, offset: u32, allocator := context.alloc
         kids := green_children(cur.green)
         for child, i in kids {
             child_len := element_len(child)
-            last := i == len(kids) - 1
+            last      := i == len(kids) - 1
             if (offset >= pos && offset < pos + child_len) || (at_end && last) {
                 if n, is_node := element_node(child); is_node {
                     next, next_pos = n, pos

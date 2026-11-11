@@ -7,7 +7,7 @@ import "core:testing"
 @(test)
 test_lsp_grant_keys_on_workspace_and_digest :: proc(t: ^testing.T) {
     before := thor_lsp_digest(transmute([]byte)string(`{"servers":[{"id":"a","command":["good"]}]}`))
-    after := thor_lsp_digest(transmute([]byte)string(`{"servers":[{"id":"a","command":["evil"]}]}`))
+    after  := thor_lsp_digest(transmute([]byte)string(`{"servers":[{"id":"a","command":["evil"]}]}`))
     testing.expect(t, before != after, "two files share a digest")
     testing.expect_value(t, len(before), 64)
 

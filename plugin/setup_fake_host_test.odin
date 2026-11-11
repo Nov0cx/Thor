@@ -17,12 +17,12 @@ Fake_Env :: struct {
 }
 
 make_fake_env :: proc(os_kind: string) -> Fake_Env {
-    return Fake_Env {
-        os_kind   = os_kind,
+    return Fake_Env{
+        os_kind = os_kind,
         path_bins = make(map[string]string),
-        files     = make(map[string]string),
-        docs      = make(map[string]string),
-        printed   = make([dynamic]string),
+        files = make(map[string]string),
+        docs = make(map[string]string),
+        printed = make([dynamic]string),
     }
 }
 
@@ -46,15 +46,18 @@ destroy_fake_env :: proc(env: ^Fake_Env) {
 // result with the manager's allocator regardless of what allocated it, so a
 // temp_allocator or literal return here is a mismatched free.
 fake_exec :: proc(host: rawptr, command: string, timeout: time.Duration) -> string {
-    env := cast(^Fake_Env) host
+    env := cast(^Fake_Env)host
     switch {
     case command == "echo %OS%":
         return strings.clone(env.os_kind == "windows" ? "Windows_NT\r\n" : "%OS%\n")
     case command == "uname -s":
         switch env.os_kind {
-        case "darwin": return strings.clone("Darwin\n")
-        case "linux":  return strings.clone("Linux\n")
-        case:          return strings.clone("")
+        case "darwin":
+            return strings.clone("Darwin\n")
+        case "linux":
+            return strings.clone("Linux\n")
+        case:
+            return strings.clone("")
         }
     case strings.has_prefix(command, "where "):
         bin := strings.trim_suffix(strings.trim_prefix(command, "where "), " 2>nul")
@@ -88,7 +91,7 @@ fake_data_root :: proc(host: rawptr) -> string {
 // The absolute path a plugin's thor.data_path(`rel`) gives, and the key
 // fake_read/fake_write/fake_doc then see for it.
 resolved_data :: proc(id, rel: string) -> string {
-    full, _ := filepath.join({fake_data_root(nil), id, rel}, context.temp_allocator)
+    full, _    := filepath.join({fake_data_root(nil), id, rel}, context.temp_allocator)
     clean, err := path_absolute(full, context.temp_allocator)
     if err != nil {
         clean, _ = filepath.clean(full, context.temp_allocator)
@@ -99,7 +102,7 @@ resolved_data :: proc(id, rel: string) -> string {
 // The absolute path resolve_path (sandbox.odin) computes for `rel` under the
 // fake workspace — the key fake_read/fake_write/fake_doc actually see.
 resolved :: proc(rel: string) -> string {
-    full, _ := filepath.join({fake_workspace(nil), rel}, context.temp_allocator)
+    full, _    := filepath.join({fake_workspace(nil), rel}, context.temp_allocator)
     clean, err := path_absolute(full, context.temp_allocator)
     if err != nil {
         clean, _ = filepath.clean(full, context.temp_allocator)
@@ -108,7 +111,7 @@ resolved :: proc(rel: string) -> string {
 }
 
 fake_read :: proc(host: rawptr, path: string) -> (string, bool) {
-    env := cast(^Fake_Env) host
+    env := cast(^Fake_Env)host
     if v, ok := env.files[path]; ok {
         return strings.clone(v), true
     }
@@ -116,12 +119,12 @@ fake_read :: proc(host: rawptr, path: string) -> (string, bool) {
 }
 
 fake_exists :: proc(host: rawptr, path: string) -> bool {
-    env := cast(^Fake_Env) host
+    env := cast(^Fake_Env)host
     return path in env.files
 }
 
 fake_write :: proc(host: rawptr, path: string, text: string) {
-    env := cast(^Fake_Env) host
+    env := cast(^Fake_Env)host
     if old, ok := env.files[path]; ok {
         delete(old)
     }
@@ -129,7 +132,7 @@ fake_write :: proc(host: rawptr, path: string, text: string) {
 }
 
 fake_doc :: proc(host: rawptr, path: string, text: string, focus: bool) {
-    env := cast(^Fake_Env) host
+    env := cast(^Fake_Env)host
     if old, ok := env.docs[path]; ok {
         delete(old)
     }
@@ -137,7 +140,7 @@ fake_doc :: proc(host: rawptr, path: string, text: string, focus: bool) {
 }
 
 fake_print :: proc(host: rawptr, text: string) {
-    env := cast(^Fake_Env) host
+    env := cast(^Fake_Env)host
     append(&env.printed, strings.clone(text))
 }
 
@@ -152,16 +155,16 @@ fake_confirm :: proc(host: rawptr, message: string) {
 // The Host every *-setup plugin test wires up; every fake_* proc reads or
 // writes through `env`.
 fake_host :: proc(env: ^Fake_Env) -> Host {
-    return Host {
-        data      = env,
-        exec      = fake_exec,
-        read      = fake_read,
-        exists    = fake_exists,
-        write     = fake_write,
-        doc       = fake_doc,
-        print     = fake_print,
-        pick      = fake_pick,
-        confirm   = fake_confirm,
+    return Host{
+        data = env,
+        exec = fake_exec,
+        read = fake_read,
+        exists = fake_exists,
+        write = fake_write,
+        doc = fake_doc,
+        print = fake_print,
+        pick = fake_pick,
+        confirm = fake_confirm,
         workspace = fake_workspace,
         data_root = fake_data_root,
     }

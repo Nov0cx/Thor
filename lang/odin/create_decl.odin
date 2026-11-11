@@ -48,9 +48,9 @@ create_decl_fixes :: proc(rc: ^Request_Context, caret: Caret, res: ^lang.Result)
     if !found || tok.parent == nil || tok.parent.green.kind != .Ident || tok.parent.parent == nil {
         return
     }
-    ident := tok.parent^
+    ident  := tok.parent^
     parent := tok.parent.parent^
-    name := src[start:end]
+    name   := src[start:end]
     switch {
     case is_callee(parent, ident):
         create_proc(rc, c, name, parent, res)
@@ -84,11 +84,11 @@ is_type_place :: proc(parent, ident: odinsyntax.Syntax_Node) -> bool {
     parent := parent
     #partial switch parent.green.kind {
     case .Comp_Lit:
-        cl := odinsyntax.Comp_Lit(parent)
+        cl    := odinsyntax.Comp_Lit(parent)
         t, ok := odinsyntax.comp_lit_type(&cl)
         return ok && same(t, ident)
     case .Value_Decl:
-        vd := odinsyntax.Value_Decl(parent)
+        vd    := odinsyntax.Value_Decl(parent)
         t, ok := odinsyntax.value_decl_type(&vd)
         return ok && same(t, ident)
     case .Field:
@@ -104,11 +104,11 @@ is_type_place :: proc(parent, ident: odinsyntax.Syntax_Node) -> bool {
         }
         return true
     case .Array_Type:
-        at := odinsyntax.Array_Type(parent)
+        at       := odinsyntax.Array_Type(parent)
         elem, ok := odinsyntax.array_type_elem(&at)
         return ok && same(elem, ident)
     case .Matrix_Type:
-        mt := odinsyntax.Matrix_Type(parent)
+        mt       := odinsyntax.Matrix_Type(parent)
         elem, ok := odinsyntax.matrix_type_elem(&mt)
         return ok && same(elem, ident)
     case .Pointer_Type, .Multi_Pointer_Type, .Dynamic_Array_Type, .Ellipsis_Type, .Distinct_Type, .Map_Type:
@@ -128,12 +128,12 @@ is_single_store :: proc(list, ident: odinsyntax.Syntax_Node) -> bool {
         return false
     }
     lhs, has_lhs := odinsyntax.assign_stmt_lhs(&as)
-    op, has_op := odinsyntax.assign_stmt_op(&as)
+    op, has_op   := odinsyntax.assign_stmt_op(&as)
     if !has_lhs || !has_op || op.green.kind != .Eq || lhs.offset != list.offset {
         return false
     }
     count := 0
-    it := odinsyntax.expr_list_items(&lhs)
+    it    := odinsyntax.expr_list_items(&lhs)
     for _ in odinsyntax.child_iter_next(&it) {
         count += 1
     }
@@ -143,15 +143,15 @@ is_single_store :: proc(list, ident: odinsyntax.Syntax_Node) -> bool {
 // Declares a procedure that takes the arguments of the call `parent`.
 @(private = "file")
 create_proc :: proc(rc: ^Request_Context, c: ^odinsema.Checker, name: string, call: odinsyntax.Syntax_Node, res: ^lang.Result) {
-    file := rc.live.id
-    ce, _ := odinsyntax.as_call_expr(call)
+    file           := rc.live.id
+    ce, _          := odinsyntax.as_call_expr(call)
     args, has_args := odinsyntax.call_expr_args(&ce)
     if !has_args {
         return
     }
-    names := make([dynamic]string, context.temp_allocator)
+    names  := make([dynamic]string, context.temp_allocator)
     params := make([dynamic]string, context.temp_allocator)
-    it := odinsyntax.arg_list_args(&args)
+    it     := odinsyntax.arg_list_args(&args)
     for arg in odinsyntax.child_iter_next(&it) {
         value := arg
         param := ""
@@ -159,8 +159,8 @@ create_proc :: proc(rc: ^Request_Context, c: ^odinsema.Checker, name: string, ca
         case .Spread_Expr:
             return
         case .Field_Value:
-            fv := odinsyntax.Field_Value(arg)
-            n, has_name := odinsyntax.field_value_name(&fv)
+            fv           := odinsyntax.Field_Value(arg)
+            n, has_name  := odinsyntax.field_value_name(&fv)
             v, has_value := odinsyntax.field_value_value(&fv)
             if !has_name || !has_value {
                 return
@@ -172,7 +172,7 @@ create_proc :: proc(rc: ^Request_Context, c: ^odinsema.Checker, name: string, ca
         if param == "" || param == "_" || slice.contains(names[:], param) {
             param = fmt.tprintf("p%d", len(names) + 1)
         }
-        op := odinsema.expr_type(c, file, value)
+        op       := odinsema.expr_type(c, file, value)
         type, ok := odinsema.type_source(c, file, op.type, context.temp_allocator)
         if op.type == odinsema.INVALID_TYPE || !ok {
             return
@@ -186,17 +186,20 @@ create_proc :: proc(rc: ^Request_Context, c: ^odinsema.Checker, name: string, ca
             result = fmt.tprintf(" -> %s", type)
         }
     }
-    at := item_end_at(rc, int(call.offset))
-    text := strings.concatenate({"\n\n", name, " :: proc(", strings.join(params[:], ", ", context.temp_allocator), ")", result, " {\n", indent_unit(rc.req), "unimplemented()\n}"}, context.temp_allocator)
+    at   := item_end_at(rc, int(call.offset))
+    text := strings.concatenate(
+        {"\n\n", name, " :: proc(", strings.join(params[:], ", ", context.temp_allocator), ")", result, " {\n", indent_unit(rc.req), "unimplemented()\n}"},
+        context.temp_allocator,
+    )
     push_action(res, rc.req, fmt.tprintf("Create procedure '%s'", name), Edit_Spec{at, at, text})
 }
 
 // Declares a struct; a composite literal of it gives the fields it names.
 @(private = "file")
 create_struct :: proc(rc: ^Request_Context, c: ^odinsema.Checker, name: string, parent, ident: odinsyntax.Syntax_Node, res: ^lang.Result) {
-    file := rc.live.id
-    unit := indent_unit(rc.req)
-    sb := strings.builder_make(context.temp_allocator)
+    file   := rc.live.id
+    unit   := indent_unit(rc.req)
+    sb     := strings.builder_make(context.temp_allocator)
     fields := 0
     if parent.green.kind == .Comp_Lit {
         cl := odinsyntax.Comp_Lit(parent)
@@ -205,8 +208,8 @@ create_struct :: proc(rc: ^Request_Context, c: ^odinsema.Checker, name: string, 
             if elem.green.kind != .Field_Value {
                 continue
             }
-            fv := odinsyntax.Field_Value(elem)
-            n, has_name := odinsyntax.field_value_name(&fv)
+            fv           := odinsyntax.Field_Value(elem)
+            n, has_name  := odinsyntax.field_value_name(&fv)
             v, has_value := odinsyntax.field_value_value(&fv)
             if !has_name || !has_value || n.green.kind != .Ident {
                 continue
@@ -220,7 +223,7 @@ create_struct :: proc(rc: ^Request_Context, c: ^odinsema.Checker, name: string, 
         }
     }
     body := "{}" if fields == 0 else strings.concatenate({"{\n", strings.to_string(sb), "}"}, context.temp_allocator)
-    at := item_end_at(rc, int(ident.offset))
+    at   := item_end_at(rc, int(ident.offset))
     push_action(res, rc.req, fmt.tprintf("Create struct '%s'", name), Edit_Spec{at, at, fmt.tprintf("\n\n%s :: struct %s", name, body)})
 }
 
@@ -229,8 +232,8 @@ create_struct :: proc(rc: ^Request_Context, c: ^odinsema.Checker, name: string, 
 declare_store :: proc(rc: ^Request_Context, list: odinsyntax.Syntax_Node, name: string, res: ^lang.Result) {
     as, _ := odinsyntax.as_assign_stmt(list.parent^)
     op, _ := odinsyntax.assign_stmt_op(&as)
-    at := int(op.offset)
-    lo := at
+    at    := int(op.offset)
+    lo    := at
     if lo > 0 && rc.req.source[lo - 1] == ' ' {
         lo -= 1
     }
@@ -241,7 +244,7 @@ declare_store :: proc(rc: ^Request_Context, list: odinsyntax.Syntax_Node, name: 
 @(private = "file")
 create_variable :: proc(rc: ^Request_Context, c: ^odinsema.Checker, name: string, ident: odinsyntax.Syntax_Node, res: ^lang.Result) {
     file := rc.live.id
-    t := odinsema.expected_type_at(c, file, int(ident.offset))
+    t    := odinsema.expected_type_at(c, file, int(ident.offset))
     if t == odinsema.INVALID_TYPE {
         return
     }
@@ -264,6 +267,6 @@ create_variable :: proc(rc: ^Request_Context, c: ^odinsema.Checker, name: string
         return
     }
     src := rc.req.source
-    ls := line_start(src, int(stmt.offset))
+    ls  := line_start(src, int(stmt.offset))
     push_action(res, rc.req, fmt.tprintf("Create variable '%s'", name), Edit_Spec{ls, ls, fmt.tprintf("%s%s: %s\n", line_indent(src, ls), name, type)})
 }

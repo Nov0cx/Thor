@@ -93,7 +93,7 @@ test_completion_click_accepts :: proc(t: ^testing.T) {
     testing.expect_value(t, top, 0)
 
     // Row 1 is "alphabet"; row 0 stays selected until the click moves it.
-    point := ui.Vec2 {box.x + 4, box.y + 2 + lh * 1.5}
+    point := ui.Vec2{box.x + 4, box.y + 2 + lh * 1.5}
     testing.expect_value(t, editor_completion_row_at(&editor, point), 1)
     testing.expect_value(t, editor.completion_selected, 0)
 
@@ -121,10 +121,10 @@ test_completion_click_outside_rows :: proc(t: ^testing.T) {
     editor_set_completions(&editor, []Completion_Item{{text = "alpha"}, {text = "alphabet"}})
 
     box, lh, _, _ := editor_completion_rects(&editor)
-    below := ui.Vec2 {box.x + 4, box.y + 2 + lh * cast(f32) len(editor.completion_rows) + 1}
+    below         := ui.Vec2{box.x + 4, box.y + 2 + lh * cast(f32)len(editor.completion_rows) + 1}
     testing.expect_value(t, editor_completion_row_at(&editor, below), -1)
 
-    left := ui.Vec2 {box.x - 4, box.y + 2}
+    left := ui.Vec2{box.x - 4, box.y + 2}
     testing.expect_value(t, editor_completion_row_at(&editor, left), -1)
 }
 
@@ -147,7 +147,7 @@ test_completion_click_in_text_dismisses :: proc(t: ^testing.T) {
     testing.expect(t, editor.completion_active)
 
     box, _, _, _ := editor_completion_rects(&editor)
-    point := ui.Vec2 {box.x + box.w + 40, box.y + box.h + 40}
+    point        := ui.Vec2{box.x + box.w + 40, box.y + box.h + 40}
     testing.expect_value(t, editor_completion_row_at(&editor, point), -1)
     editor_press(&editor, point, .Left, {}, 1)
     testing.expect(t, !editor.completion_active, "the click closed the popup")
@@ -181,7 +181,7 @@ test_right_click_places_caret_outside_selection :: proc(t: ^testing.T) {
     editor_set_on_context_menu(&editor, editor_test_count_menu, nil)
     editor_test_menu_hits = 0
 
-    point := ui.Vec2 {500, 30}
+    point   := ui.Vec2{500, 30}
     at, hit := editor_pos_at(&editor, point)
     testing.expect(t, hit, "the point is on a row")
     testing.expect(t, at >= 11, "the point is on the second line")
@@ -254,7 +254,7 @@ test_hover_diagnostic_lookup :: proc(t: ^testing.T) {
 
     editor: Editor
     editor.state = &state
-    diags := []Diagnostic {
+    diags := []Diagnostic{
         {start = 14, end = 15, line = 2, severity = .Warning, message = "shadowed"},
         {start = 19, end = 20, line = 2, severity = .Error, message = "type mismatch"},
     }
@@ -295,7 +295,7 @@ test_hint_diagnostic_rank :: proc(t: ^testing.T) {
 
     editor: Editor
     editor.state = &state
-    editor.diagnostics = []Diagnostic {
+    editor.diagnostics = []Diagnostic{
         {start = 14, end = 15, line = 2, severity = .Hint, message = "hint"},
         {start = 19, end = 20, line = 2, severity = .Warning, message = "warning"},
     }
@@ -372,7 +372,7 @@ test_patched_rows_match_rebuild :: proc(t: ^testing.T) {
     pieces := [?]string{"x", "\n", "a b\nc", "\t", "a very long line of text"}
     editor_ensure_visual_rows(&editor)
     for round in 0 ..< 300 {
-        n := textedit.length(&state)
+        n   := textedit.length(&state)
         pos := rand.int_max(n + 1)
         switch rand.int_max(5) {
         case 0, 1:
@@ -570,11 +570,7 @@ test_wrapped_rows_own_their_wrap_point :: proc(t: ^testing.T) {
 // caret on line 0.
 @(private = "file")
 editor_test_jump_setup :: proc(editor: ^Editor, state: ^textedit.State) {
-    textedit.set_text(
-        state,
-        "l00\nl01\nl02\nl03\nl04\nl05\nl06\nl07\nl08\nl09\n" +
-        "l10\nl11\nl12\nl13\nl14\nl15\nl16\nl17\nl18\nl19",
-    )
+    textedit.set_text(state, "l00\nl01\nl02\nl03\nl04\nl05\nl06\nl07\nl08\nl09\n" + "l10\nl11\nl12\nl13\nl14\nl15\nl16\nl17\nl18\nl19")
     editor.state = state
     editor.font_size = 16
     editor.view = ui.Rect{0, 0, 600, 600}
@@ -713,10 +709,7 @@ test_snippet_session_walks_tabstops :: proc(t: ^testing.T) {
     defer editor_test_free_completions(&editor)
 
     editor_test_completion_setup(&editor, &state, "fn\n")
-    editor_set_completions(
-        &editor,
-        []Completion_Item{{text = "fn", owner_id = 1, insert = "fn(${1:a}, ${2:b})$0", snippet = true, start = -1, end = -1}},
-    )
+    editor_set_completions(&editor, []Completion_Item{{text = "fn", owner_id = 1, insert = "fn(${1:a}, ${2:b})$0", snippet = true, start = -1, end = -1}})
     testing.expect_value(t, len(editor.completion_rows), 1)
 
     editor_key(&editor, {key = .Tab})
@@ -751,10 +744,7 @@ test_snippet_session_follows_typing :: proc(t: ^testing.T) {
     defer editor_test_free_completions(&editor)
 
     editor_test_completion_setup(&editor, &state, "fn\n")
-    editor_set_completions(
-        &editor,
-        []Completion_Item{{text = "fn", owner_id = 1, insert = "fn(${1:a}, ${2:b})$0", snippet = true, start = -1, end = -1}},
-    )
+    editor_set_completions(&editor, []Completion_Item{{text = "fn", owner_id = 1, insert = "fn(${1:a}, ${2:b})$0", snippet = true, start = -1, end = -1}})
     editor_key(&editor, {key = .Tab})
 
     editor_text(&editor, 'z', {})
@@ -781,10 +771,7 @@ test_snippet_session_ends_when_the_caret_leaves :: proc(t: ^testing.T) {
     defer editor_test_free_completions(&editor)
 
     editor_test_completion_setup(&editor, &state, "fn\n")
-    editor_set_completions(
-        &editor,
-        []Completion_Item{{text = "fn", owner_id = 1, insert = "fn(${1:a}, ${2:b})$0", snippet = true, start = -1, end = -1}},
-    )
+    editor_set_completions(&editor, []Completion_Item{{text = "fn", owner_id = 1, insert = "fn(${1:a}, ${2:b})$0", snippet = true, start = -1, end = -1}})
     editor_key(&editor, {key = .Tab})
     testing.expect(t, editor.snippet_active)
 
@@ -809,10 +796,7 @@ test_completion_replaces_its_own_range :: proc(t: ^testing.T) {
     defer editor_test_free_completions(&editor)
 
     editor_test_completion_setup(&editor, &state, "al\n")
-    editor_set_completions(
-        &editor,
-        []Completion_Item{{text = "alpha", owner_id = 1, insert = "ALPHA", start = 0, end = 2}},
-    )
+    editor_set_completions(&editor, []Completion_Item{{text = "alpha", owner_id = 1, insert = "ALPHA", start = 0, end = 2}})
     editor_key(&editor, {key = .Tab})
 
     testing.expect_value(t, textedit.text(&state), "ALPHA\n")
@@ -832,10 +816,7 @@ test_completion_keeps_a_fully_typed_owner_row :: proc(t: ^testing.T) {
     defer editor_test_free_completions(&editor)
 
     editor_test_completion_setup(&editor, &state, "al\n")
-    editor_set_completions(
-        &editor,
-        []Completion_Item{{text = "al", owner_id = 1, start = -1, end = -1}, {text = "al"}},
-    )
+    editor_set_completions(&editor, []Completion_Item{{text = "al", owner_id = 1, start = -1, end = -1}, {text = "al"}})
     testing.expect_value(t, len(editor.completion_rows), 1)
     if len(editor.completion_rows) == 1 {
         testing.expect_value(t, editor.completion_rows[0].owner_id, 1)
@@ -859,10 +840,7 @@ test_completion_narrows_a_complete_owner_list :: proc(t: ^testing.T) {
     editor_test_completion_setup(&editor, &state, "al\n")
     editor_set_completions(
         &editor,
-        []Completion_Item {
-            {text = "alpha", owner_id = 1, insert = "ALPHA", start = 0, end = 2},
-            {text = "beta", owner_id = 2, start = -1, end = -1},
-        },
+        []Completion_Item{{text = "alpha", owner_id = 1, insert = "ALPHA", start = 0, end = 2}, {text = "beta", owner_id = 2, start = -1, end = -1}},
         complete = true,
     )
     testing.expect_value(t, len(editor.completion_rows), 1)
@@ -897,8 +875,8 @@ test_set_state_drops_borrowed_spans :: proc(t: ^testing.T) {
     editor.view = ui.Rect{0, 0, 600, 600}
     editor_set_state(&editor, &state)
 
-    diagnostics := []Diagnostic {{start = 0, end = 5, line = 0, severity = .Error, message = "bad"}}
-    diffs := []Diff_Line_Kind {.Added, .Modified}
+    diagnostics := []Diagnostic{{start = 0, end = 5, line = 0, severity = .Error, message = "bad"}}
+    diffs       := []Diff_Line_Kind{.Added, .Modified}
     editor_set_diagnostics(&editor, diagnostics)
     editor_set_diff_lines(&editor, diffs)
     testing.expect(t, len(editor.diagnostics) == 1, "the setter pushes the borrowed diagnostics")
@@ -927,11 +905,8 @@ editor_test_overlay_setup :: proc(editor: ^Editor, state: ^textedit.State, text:
 // picks, which is all these tests need.
 @(private = "file")
 editor_test_row_point :: proc(editor: ^Editor, row: int) -> ui.Vec2 {
-    lh := cast(f32) font.line_height(editor.font_size)
-    return {
-        editor.view.x + editor.gutter_width + TEXT_PAD_LEFT + 1,
-        editor.view.y + cast(f32) row * lh + lh * 0.5,
-    }
+    lh := cast(f32)font.line_height(editor.font_size)
+    return {editor.view.x + editor.gutter_width + TEXT_PAD_LEFT + 1, editor.view.y + cast(f32)row * lh + lh * 0.5}
 }
 
 // The underline is the ctrl gesture, not the hover: without the modifier there is
@@ -1142,10 +1117,7 @@ test_editing_keys_follow_the_keymap :: proc(t: ^testing.T) {
 @(private = "file")
 editor_test_accept_snippet :: proc(editor: ^Editor, state: ^textedit.State, text, template: string) {
     editor_test_completion_setup(editor, state, text)
-    editor_set_completions(
-        editor,
-        []Completion_Item{{text = "fn", owner_id = 1, insert = template, snippet = true, start = -1, end = -1}},
-    )
+    editor_set_completions(editor, []Completion_Item{{text = "fn", owner_id = 1, insert = template, snippet = true, start = -1, end = -1}})
     editor_key(editor, {key = .Tab})
 }
 
@@ -1432,14 +1404,14 @@ test_inlay_gap_moves_caret_and_hit_test :: proc(t: ^testing.T) {
     width := editor_inlay_width(&editor, inlays[0])
     testing.expect(t, width > 0, "an inlay opens a gap")
 
-    left := editor.view.x + editor.gutter_width + TEXT_PAD_LEFT - editor.scroll_x
+    left          := editor.view.x + editor.gutter_width + TEXT_PAD_LEFT - editor.scroll_x
     x0, _, _, ok0 := editor_screen_at(&editor, 0)
     x1, _, _, ok1 := editor_screen_at(&editor, 1)
     testing.expect(t, ok0 && ok1)
     testing.expect_value(t, x0, left)
     testing.expect_value(t, x1, left + width)
 
-    y := editor_test_row_point(&editor, 0).y
+    y       := editor_test_row_point(&editor, 0).y
     at, hit := editor_pos_at(&editor, {left + width * 0.25, y})
     testing.expect(t, hit)
     testing.expect_value(t, at, 0)
@@ -1467,7 +1439,7 @@ test_zone_rows :: proc(t: ^testing.T) {
     testing.expect(t, !editor_row_continues(&editor, 0), "a spacer does not continue its line")
 
     rect, has := editor_zone_rect(&editor)
-    lh := cast(f32) font.line_height(editor.font_size)
+    lh        := cast(f32)font.line_height(editor.font_size)
     testing.expect(t, has)
     testing.expect_value(t, rect.y, editor.view.y + lh)
     testing.expect_value(t, rect.h, 3 * lh)
@@ -1546,7 +1518,7 @@ test_lens_rows :: proc(t: ^testing.T) {
     editor_ensure_visual_rows(&editor)
     rect, zone := editor_zone_rect(&editor)
     testing.expect(t, zone)
-    testing.expect_value(t, rect.y, editor.view.y + cast(f32) font.line_height(editor.font_size))
+    testing.expect_value(t, rect.y, editor.view.y + cast(f32)font.line_height(editor.font_size))
 
     editor_clear_zone(&editor)
     editor_set_lenses(&editor, nil)
@@ -1587,12 +1559,12 @@ test_patched_rows_match_rebuild_with_folds :: proc(t: ^testing.T) {
 
     gen := rand.create_u64(9)
     context.random_generator = rand.default_random_generator(&gen)
-    pieces := [?]string{"x", "\t", "a very long line of text"}
+    pieces         := [?]string{"x", "\t", "a very long line of text"}
     patched_rounds := 0
     for round in 0 ..< 200 {
         // A line start of line 20 or later, or a column inside any line.
         line := rand.int_max(60)
-        pos := textedit.state_line_start(&state, line) + rand.int_max(5)
+        pos  := textedit.state_line_start(&state, line) + rand.int_max(5)
         if rand.int_max(4) == 0 {
             pos = textedit.state_line_start(&state, 20 + rand.int_max(40))
             _ = textedit.insert_at(&state, pos, "new\n")

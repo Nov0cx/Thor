@@ -6,7 +6,7 @@ import "core:testing"
 @(private = "file")
 kinds_of :: proc(src: string, allocator := context.temp_allocator) -> []Token_Kind {
     toks := lex_all(src, context.temp_allocator)
-    out := make([dynamic]Token_Kind, 0, len(toks), allocator)
+    out  := make([dynamic]Token_Kind, 0, len(toks), allocator)
     for tok in toks {
         if !token_is_trivia(tok.kind) && tok.kind != .EOF {
             append(&out, tok.kind)
@@ -19,7 +19,7 @@ kinds_of :: proc(src: string, allocator := context.temp_allocator) -> []Token_Ki
 @(private = "file")
 semis_of :: proc(src: string) -> []u32 {
     toks := lex_all(src, context.temp_allocator)
-    out := make([dynamic]u32, 0, 8, context.temp_allocator)
+    out  := make([dynamic]u32, 0, 8, context.temp_allocator)
     for tok in toks {
         if .Implicit_Semi in tok.flags {
             append(&out, tok.offset)
@@ -172,7 +172,7 @@ test_semicolon_insertion :: proc(t: ^testing.T) {
         src:  string,
         want: []u32,
     }
-    cases := []Case {
+    cases := []Case{
         {"x\n", {1}},
         {"x", {1}},
         {"x +\ny\n", {5}},
@@ -200,7 +200,7 @@ test_semicolon_insertion :: proc(t: ^testing.T) {
     }
     for c in cases {
         got := semis_of(c.src)
-        ok := len(got) == len(c.want)
+        ok  := len(got) == len(c.want)
         for w, i in c.want {
             ok = ok && got[i] == w
         }
@@ -236,13 +236,7 @@ test_bom :: proc(t: ^testing.T) {
 
 @(test)
 test_lossless_small :: proc(t: ^testing.T) {
-    srcs := []string {
-        "",
-        "package p\n\nmain :: proc() {\n\tx := 1 /* c */\n}\n",
-        "\"unterminated\n`raw",
-        "\x00\x01\xff\xfe x",
-        "/* /* */",
-    }
+    srcs := []string{"", "package p\n\nmain :: proc() {\n\tx := 1 /* c */\n}\n", "\"unterminated\n`raw", "\x00\x01\xff\xfe x", "/* /* */"}
     for src in srcs {
         toks := lex_all(src, context.temp_allocator)
         pos: u32
@@ -257,14 +251,14 @@ test_lossless_small :: proc(t: ^testing.T) {
 
 @(test)
 test_restart_matches_cold :: proc(t: ^testing.T) {
-    src := "package p\n\nf :: proc(x: int) -> int {\n\treturn x + 1 // c\n}\n/* a\n */ y := `r\n`\n"
+    src  := "package p\n\nf :: proc(x: int) -> int {\n\treturn x + 1 // c\n}\n/* a\n */ y := `r\n`\n"
     cold := lex_all(src, context.temp_allocator)
     l: Lexer
     lexer_init(&l, src)
     for i in 0 ..< len(cold) {
         state := lexer_state(&l)
-        tail := lex_from(src, int(l.pos), state, context.temp_allocator)
-        ok := len(tail) == len(cold) - i
+        tail  := lex_from(src, int(l.pos), state, context.temp_allocator)
+        ok    := len(tail) == len(cold) - i
         for tok, j in tail {
             ok = ok && tok == cold[i + j]
         }

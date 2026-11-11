@@ -26,7 +26,7 @@ Plugin_Panel :: struct {
     title:    string, // owned
     dock:     Plugin_Dock,
     visible:  bool,
-    nodes:    []plugin.View_Node, // owned; the whole tree, cloned
+    nodes:    []plugin.View_Node,            // owned; the whole tree, cloned
     // One record per canvas node, kept because a draw callback takes a rawptr.
     canvases: [dynamic]^Plugin_Panel_Canvas, // owned
     hit:      Plugin_Panel_Hit,
@@ -55,7 +55,7 @@ Plugin_Panel_Canvas :: struct {
 @(private = "file")
 PLUGIN_CANVAS_FONT_SIZE :: 14
 
-PLUGIN_DOCK_RIGHT_W :: f32(280)
+PLUGIN_DOCK_RIGHT_W  :: f32(280)
 PLUGIN_DOCK_BOTTOM_H :: f32(200)
 
 // thor.panel{...}: creates the panel, or retitles it when it already exists. It
@@ -84,7 +84,7 @@ thor_plugin_panel :: proc(host: rawptr, id, title, dock: string) {
 // render owned goes first, so a plugin may re-render as often as it likes.
 thor_plugin_panel_render :: proc(host: rawptr, id: string, nodes: []plugin.View_Node) {
     thor := cast(^Thor)host
-    p := thor_find_plugin_panel(thor, id)
+    p    := thor_find_plugin_panel(thor, id)
     if p == nil {
         return
     }
@@ -237,7 +237,7 @@ thor_plugin_dock_view :: proc(thor: ^Thor, dock: Plugin_Dock) {
 
     // A callback may add a panel, which moves the list, so it is indexed anew.
     for index := 0; index < len(thor.plugin_panels); index += 1 {
-        p := thor.plugin_panels[index]
+        p   := thor.plugin_panels[index]
         hit := p.hit
         p.hit = {}
         switch hit.kind {
@@ -252,58 +252,18 @@ thor_plugin_dock_view :: proc(thor: ^Thor, dock: Plugin_Dock) {
 
 @(private = "file")
 plugin_panel_view :: proc(thor: ^Thor, p: ^Plugin_Panel) {
-    ui.scope(
-        {
-            key = "panel",
-            props = {
-                w = ui.Grow(1),
-                h = ui.Grow(1),
-                min_h = 80,
-                dir = .Column,
-                bg = thor.theme.second_background,
-            },
-        },
-    )
+    ui.scope({key = "panel", props = {w = ui.Grow(1), h = ui.Grow(1), min_h = 80, dir = .Column, bg = thor.theme.second_background}})
 
     {
         ui.scope(
-            {
-                key = "header",
-                props = {
-                    w = ui.Grow(1),
-                    h = ui.Px(32),
-                    dir = .Row,
-                    align = .Center,
-                    gap = {8, 0},
-                    pad = ui.xy(10, 0),
-                    bg = thor.theme.highlight,
-                },
-            },
+            {key = "header", props = {w = ui.Grow(1), h = ui.Px(32), dir = .Row, align = .Center, gap = {8, 0}, pad = ui.xy(10, 0), bg = thor.theme.highlight}},
         )
-        ui.label(
-            p.title,
-            {
-                key = "title",
-                props = {
-                    w = ui.Grow(1),
-                    color = thor.theme.primary_text_color,
-                    text_wrap = .Ellipsis,
-                },
-            },
-        )
+        ui.label(p.title, {key = "title", props = {w = ui.Grow(1), color = thor.theme.primary_text_color, text_wrap = .Ellipsis}})
         close := ui.scope(
             {
                 key = "close",
                 flags = {.Clickable},
-                props = {
-                    w = ui.Px(24),
-                    h = ui.Px(20),
-                    dir = .Row,
-                    justify = .Center,
-                    align = .Center,
-                    radius = ui.rad(4),
-                    cursor = .Pointer,
-                },
+                props = {w = ui.Px(24), h = ui.Px(20), dir = .Row, justify = .Center, align = .Center, radius = ui.rad(4), cursor = .Pointer},
                 hover = {bg = thor.theme.active},
             },
         )
@@ -321,14 +281,7 @@ plugin_panel_view :: proc(thor: ^Thor, p: ^Plugin_Panel) {
         {
             key = "content",
             flags = {.Clip, .Scroll_Y},
-            props = {
-                w = ui.Grow(1),
-                h = ui.Grow(1),
-                dir = .Column,
-                gap = {0, 6},
-                pad = ui.all(8),
-                bg = thor.theme.second_background,
-            },
+            props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column, gap = {0, 6}, pad = ui.all(8), bg = thor.theme.second_background},
         },
     )
     plugin_view_nodes(thor, p, p.nodes)
@@ -349,24 +302,11 @@ plugin_view_node :: proc(thor: ^Thor, p: ^Plugin_Panel, node: plugin.View_Node) 
     case .Label:
         ui.label(
             node.text,
-            {
-                key = "label",
-                props = {
-                    w = ui.Grow(1),
-                    color = thor_plugin_role_color(thor, node.role, thor.theme.foreground),
-                    text_wrap = .Words,
-                },
-            },
+            {key = "label", props = {w = ui.Grow(1), color = thor_plugin_role_color(thor, node.role, thor.theme.foreground), text_wrap = .Words}},
         )
 
     case .Button:
-        if plugin_view_button(
-            thor,
-            "button",
-            node.text,
-            thor_plugin_role_color(thor, node.role, thor.theme.primary_text_color),
-            thor.theme.buttons,
-        ) {
+        if plugin_view_button(thor, "button", node.text, thor_plugin_role_color(thor, node.role, thor.theme.primary_text_color), thor.theme.buttons) {
             p.hit = {kind = .Click, action = node.action}
         }
 
@@ -378,35 +318,20 @@ plugin_view_node :: proc(thor: ^Thor, p: ^Plugin_Panel, node: plugin.View_Node) 
                     w = ui.Grow(1),
                     h = node.height > 0 ? ui.Px(node.height) : ui.FIT,
                     dir = node.kind == .Row ? .Row : .Column,
-                    gap = node.kind == .Row \
-                    ? ui.Vec2{node.gap > 0 ? node.gap : 6, 0} \
-                    : ui.Vec2{0, node.gap > 0 ? node.gap : 6},
+                    gap = node.kind == .Row ? ui.Vec2{node.gap > 0 ? node.gap : 6, 0} : ui.Vec2{0, node.gap > 0 ? node.gap : 6},
                 },
             },
         )
         plugin_view_nodes(thor, p, node.children)
 
     case .List:
-        ui.scope(
-            {key = "list", props = {w = ui.Grow(1), h = ui.FIT, dir = .Column, gap = {0, 2}}},
-        )
+        ui.scope({key = "list", props = {w = ui.Grow(1), h = ui.FIT, dir = .Column, gap = {0, 2}}})
         for item, row in node.items {
             ui.push_id_int(i64(row))
-            hit := plugin_view_button(
-                thor,
-                "row",
-                item,
-                thor_plugin_role_color(thor, node.role, thor.theme.foreground),
-                thor.theme.second_background,
-            )
+            hit := plugin_view_button(thor, "row", item, thor_plugin_role_color(thor, node.role, thor.theme.foreground), thor.theme.second_background)
             ui.pop_id()
             if hit {
-                p.hit = {
-                    kind   = .Select,
-                    action = node.action,
-                    row    = row,
-                    item   = strings.clone(item, context.temp_allocator),
-                }
+                p.hit = {kind = .Select, action = node.action, row = row, item = strings.clone(item, context.temp_allocator)}
                 return
             }
         }
@@ -415,29 +340,14 @@ plugin_view_node :: proc(thor: ^Thor, p: ^Plugin_Panel, node: plugin.View_Node) 
         ui.leaf({key = "sep", props = {w = ui.Grow(1), h = ui.Px(1), bg = thor.theme.border}})
 
     case .Spacer:
-        ui.leaf(
-            {
-                key = "spacer",
-                props = {
-                    w = ui.Grow(1),
-                    h = node.height > 0 ? ui.Px(node.height) : ui.Grow(1),
-                },
-            },
-        )
+        ui.leaf({key = "spacer", props = {w = ui.Grow(1), h = node.height > 0 ? ui.Px(node.height) : ui.Grow(1)}})
 
     case .Canvas:
         target := plugin_canvas_for(p, node.action)
         if target == nil {
             return
         }
-        ui.custom(
-            {
-                key = "canvas",
-                props = {w = ui.Grow(1), h = ui.Px(node.height > 0 ? node.height : 120)},
-            },
-            plugin_canvas_draw,
-            target,
-        )
+        ui.custom({key = "canvas", props = {w = ui.Grow(1), h = ui.Px(node.height > 0 ? node.height : 120)}}, plugin_canvas_draw, target)
     }
 }
 
@@ -502,21 +412,13 @@ plugin_canvas_draw :: proc(node: ^ui.Node, user: rawptr) {
     if target == nil || target.action < 0 {
         return
     }
-    plugin.manager_panel_draw(
-        &target.panel.thor.plugins,
-        target.panel.id,
-        target.action,
-        node.rect.x,
-        node.rect.y,
-        node.rect.w,
-        node.rect.h,
-    )
+    plugin.manager_panel_draw(&target.panel.thor.plugins, target.panel.id, target.action, node.rect.x, node.rect.y, node.rect.w, node.rect.h)
 }
 
 // ctx:rect / ctx:outline inside a canvas draw.
 thor_plugin_draw_rect :: proc(host: rawptr, x, y, w, h: f32, role: string, fill: bool) {
-    thor := cast(^Thor)host
-    rect := rl.Rectangle{x, y, w, h}
+    thor  := cast(^Thor)host
+    rect  := rl.Rectangle{x, y, w, h}
     color := thor_plugin_role_color(thor, role, thor.theme.foreground)
     if fill {
         rl.DrawRectangleRec(rect, {color[0], color[1], color[2], color[3]})
@@ -527,27 +429,16 @@ thor_plugin_draw_rect :: proc(host: rawptr, x, y, w, h: f32, role: string, fill:
 
 // ctx:text inside a canvas draw.
 thor_plugin_draw_text :: proc(host: rawptr, x, y: f32, text, role: string) {
-    thor := cast(^Thor)host
+    thor  := cast(^Thor)host
     color := thor_plugin_role_color(thor, role, thor.theme.foreground)
-    font.draw(
-        text,
-        i32(x),
-        i32(y),
-        PLUGIN_CANVAS_FONT_SIZE,
-        {color[0], color[1], color[2], color[3]},
-    )
+    font.draw(text, i32(x), i32(y), PLUGIN_CANVAS_FONT_SIZE, {color[0], color[1], color[2], color[3]})
 }
 
 // ctx:line inside a canvas draw.
 thor_plugin_draw_line :: proc(host: rawptr, x0, y0, x1, y1, thickness: f32, role: string) {
-    thor := cast(^Thor)host
+    thor  := cast(^Thor)host
     color := thor_plugin_role_color(thor, role, thor.theme.foreground)
-    rl.DrawLineEx(
-        rl.Vector2{x0, y0},
-        rl.Vector2{x1, y1},
-        thickness,
-        {color[0], color[1], color[2], color[3]},
-    )
+    rl.DrawLineEx(rl.Vector2{x0, y0}, rl.Vector2{x1, y1}, thickness, {color[0], color[1], color[2], color[3]})
 }
 
 // ctx:measure: the size ctx:text would take.

@@ -10,7 +10,7 @@ import "core:time"
 BENCH :: #config(THOR_BENCH, false)
 
 BIG_FILE_LINES :: 1_000_000
-BIG_FILE_KEYS :: 200
+BIG_FILE_KEYS  :: 200
 
 // The buffer a 50 MB source file makes, built by `lines` lines of one shape.
 @(private = "file")
@@ -30,7 +30,7 @@ big_file_text :: proc(lines: int) -> string {
 big_file_report :: proc(name: string, samples: []time.Duration) {
     slice.sort(samples)
     median := time.duration_milliseconds(samples[len(samples) / 2])
-    worst := time.duration_milliseconds(samples[len(samples) - 1])
+    worst  := time.duration_milliseconds(samples[len(samples) - 1])
     log.infof("bench big file: %s median %.3f ms, worst %.3f ms", name, median, worst)
 }
 

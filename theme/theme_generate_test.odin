@@ -8,7 +8,7 @@ import ui "../vendor/loom/loom"
 // that cannot be seen on its own background, and a mid-grey with no direction of
 // its own.
 @(private = "file")
-SEED_PAIRS :: [?][2]ui.Color {
+SEED_PAIRS :: [?][2]ui.Color{
     {{0x1A, 0x1C, 0x23, 255}, {0x4F, 0xC3, 0xF7, 255}}, // an ordinary dark pair
     {{0xF5, 0xF5, 0xF2, 255}, {0x00, 0xBC, 0xD4, 255}}, // an ordinary light pair
     {{0x00, 0x00, 0x00, 255}, {0x01, 0x01, 0x02, 255}}, // near-black on black
@@ -21,7 +21,7 @@ SEED_PAIRS :: [?][2]ui.Color {
 test_theme_generate_contrast_floor :: proc(t: ^testing.T) {
     pairs := SEED_PAIRS
     for pair in pairs {
-        for dark in ([]bool {true, false}) {
+        for dark in ([]bool{true, false}) {
             theme := generate("Generated", pair[0], pair[1], dark)
             defer destroy(&theme)
 
@@ -38,9 +38,7 @@ test_theme_generate_contrast_floor :: proc(t: ^testing.T) {
                     continue
                 }
                 ratio := color_contrast_ratio(color_at(&theme, i)^, theme.background)
-                testing.expectf(
-                    t, ratio >= 4.4, "%v dark=%v: %q reads %v against the background", pair, dark, entry.key, ratio,
-                )
+                testing.expectf(t, ratio >= 4.4, "%v dark=%v: %q reads %v against the background", pair, dark, entry.key, ratio)
             }
 
             accent := color_contrast_ratio(theme.accent_color, theme.background)
@@ -51,12 +49,18 @@ test_theme_generate_contrast_floor :: proc(t: ^testing.T) {
 
 @(test)
 test_theme_generate_syntax_roles_are_distinct :: proc(t: ^testing.T) {
-    theme := generate("Generated", ui.Color {0x1A, 0x1C, 0x23, 255}, ui.Color {0x4F, 0xC3, 0xF7, 255}, true)
+    theme := generate("Generated", ui.Color{0x1A, 0x1C, 0x23, 255}, ui.Color{0x4F, 0xC3, 0xF7, 255}, true)
     defer destroy(&theme)
 
-    syntax := [?]ui.Color {
-        theme.functions_color, theme.operators_color, theme.attributes_color, theme.strings_color,
-        theme.keywords_color, theme.tags_color, theme.numbers_color, theme.parameters_color,
+    syntax := [?]ui.Color{
+        theme.functions_color,
+        theme.operators_color,
+        theme.attributes_color,
+        theme.strings_color,
+        theme.keywords_color,
+        theme.tags_color,
+        theme.numbers_color,
+        theme.parameters_color,
     }
     for a, i in syntax {
         for b, j in syntax {
@@ -69,23 +73,17 @@ test_theme_generate_syntax_roles_are_distinct :: proc(t: ^testing.T) {
 
 @(test)
 test_theme_generate_dark_and_light :: proc(t: ^testing.T) {
-    seed := ui.Color {0x80, 0x80, 0x80, 255}
-    accent := ui.Color {0x4F, 0xC3, 0xF7, 255}
+    seed   := ui.Color{0x80, 0x80, 0x80, 255}
+    accent := ui.Color{0x4F, 0xC3, 0xF7, 255}
 
     night := generate("Night", seed, accent, true)
     defer destroy(&night)
-    testing.expectf(
-        t, color_luminance(night.background) < 0.15, "dark clamps a grey seed, got %v",
-        color_luminance(night.background),
-    )
+    testing.expectf(t, color_luminance(night.background) < 0.15, "dark clamps a grey seed, got %v", color_luminance(night.background))
     testing.expect(t, color_on(night.background) == COLOR_ON_LIGHT, "dark takes a light label")
 
     day := generate("Day", seed, accent, false)
     defer destroy(&day)
-    testing.expectf(
-        t, color_luminance(day.background) > 0.7, "light clamps a grey seed, got %v",
-        color_luminance(day.background),
-    )
+    testing.expectf(t, color_luminance(day.background) > 0.7, "light clamps a grey seed, got %v", color_luminance(day.background))
     testing.expect(t, color_on(day.background) == COLOR_ON_DARK, "light takes a dark label")
 }
 
@@ -93,7 +91,7 @@ test_theme_generate_dark_and_light :: proc(t: ^testing.T) {
 // both. Under the tracking allocator a leak or a bad free is reported at exit.
 @(test)
 test_theme_generate_owns_its_name :: proc(t: ^testing.T) {
-    theme := generate("Owned", ui.Color {0x1A, 0x1C, 0x23, 255}, ui.Color {0x4F, 0xC3, 0xF7, 255}, true)
+    theme := generate("Owned", ui.Color{0x1A, 0x1C, 0x23, 255}, ui.Color{0x4F, 0xC3, 0xF7, 255}, true)
     testing.expect(t, theme.name == "Owned", "the name is kept")
     destroy(&theme)
     testing.expect(t, theme.name == "", "destroy clears the name")

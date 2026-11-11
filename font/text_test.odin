@@ -27,11 +27,11 @@ test_pack_glyph_atlas_rejects_oversized_glyph :: proc(t: ^testing.T) {
     defer rl.MemFree(recs)
 
     testing.expect_value(t, recs[1], rl.Rectangle{})
-    for i in ([2]int {0, 2}) {
+    for i in ([2]int{0, 2}) {
         rec := recs[i]
         testing.expect(t, rec.x >= 0 && rec.y >= 0, "negative rec origin")
-        testing.expect(t, rec.x + rec.width <= cast(f32) atlas_w, "rec overruns atlas width")
-        testing.expect(t, rec.y + rec.height <= cast(f32) atlas_h, "rec overruns atlas height")
+        testing.expect(t, rec.x + rec.width <= cast(f32)atlas_w, "rec overruns atlas width")
+        testing.expect(t, rec.y + rec.height <= cast(f32)atlas_h, "rec overruns atlas height")
     }
 }
 
@@ -48,7 +48,7 @@ test_pack_glyph_atlas_grows_for_tall_glyph :: proc(t: ^testing.T) {
     defer rl.MemFree(recs)
 
     rec := recs[1]
-    testing.expect(t, rec.y + rec.height <= cast(f32) atlas_h, "tall glyph overruns atlas height")
+    testing.expect(t, rec.y + rec.height <= cast(f32)atlas_h, "tall glyph overruns atlas height")
 }
 
 // A row must advance by its tallest glyph: advancing by the nominal size lets
@@ -68,11 +68,7 @@ test_pack_glyph_atlas_rows_do_not_overlap :: proc(t: ^testing.T) {
     for i in 0 ..< len(glyphs) {
         for j in i + 1 ..< len(glyphs) {
             a, b := recs[i], recs[j]
-            overlaps :=
-                a.x < b.x + b.width &&
-                b.x < a.x + a.width &&
-                a.y < b.y + b.height &&
-                b.y < a.y + a.height
+            overlaps := a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
             testing.expectf(t, !overlaps, "rects %d %v and %d %v overlap", i, a, j, b)
         }
     }
@@ -97,7 +93,7 @@ test_async_font_load :: proc(t: ^testing.T) {
 // face for stays synthetic. The faces are never listed.
 @(private = "file")
 check_style_faces :: proc(t: ^testing.T) {
-    preload_families := [1]string {"JetBrainsMono"}
+    preload_families := [1]string{"JetBrainsMono"}
     begin_async_load("assets/fonts/fonts.json", "assets/icons/icons.json", Preload{families = preload_families[:]})
     finish_async_load()
     defer shutdown()
@@ -148,7 +144,7 @@ count_errors :: proc(data: rawptr, level: log.Level, text: string, options: log.
 check_manifest_error_logged :: proc(t: ^testing.T) {
     count: Error_Count
     {
-        context.logger = runtime.Logger {count_errors, &count, .Debug, {}}
+        context.logger = runtime.Logger{count_errors, &count, .Debug, {}}
         begin_async_load("assets/fonts/fonts.json", "missing/icons.json")
         finish_async_load()
         shutdown()
@@ -160,7 +156,7 @@ check_manifest_error_logged :: proc(t: ^testing.T) {
 // Its paths are relative to its own folder.
 @(private = "file")
 check_user_manifest :: proc(t: ^testing.T) {
-    dir :: "thor_user_fonts.tmp"
+    dir  :: "thor_user_fonts.tmp"
     path :: dir + "/fonts.json"
     body := "{\"default\": \"UserMono\", \"fonts\": {\"UserMono\": {\"path\": \"../assets/fonts/Hack/Hack-Regular.ttf\"}}}"
     if !os.exists(dir) {
@@ -172,13 +168,13 @@ check_user_manifest :: proc(t: ^testing.T) {
         os.remove(dir)
     }
 
-    preload_families := [1]string {"JetBrainsMono"}
-    preload_packs := [1]string {"material"}
-    begin_async_load("assets/fonts/fonts.json", "assets/icons/icons.json", Preload {
-        families = preload_families[:],
-        icon_packs = preload_packs[:],
-        user_manifest = path,
-    })
+    preload_families := [1]string{"JetBrainsMono"}
+    preload_packs    := [1]string{"material"}
+    begin_async_load(
+        "assets/fonts/fonts.json",
+        "assets/icons/icons.json",
+        Preload{families = preload_families[:], icon_packs = preload_packs[:], user_manifest = path},
+    )
     finish_async_load()
     defer shutdown()
 
@@ -204,7 +200,7 @@ check_full_async_load :: proc(t: ^testing.T) {
     testing.expect(t, family_ok, "JetBrainsMono family missing")
     if family_ok {
         testing.expect_value(t, len(mono.cache), 6)
-        for size in ([6]i32 {14, 15, 16, 17, 18, 20}) {
+        for size in ([6]i32{14, 15, 16, 17, 18, 20}) {
             font, ok := mono.cache[size]
             testing.expect(t, ok, "font size missing from cache")
             if !ok {
@@ -237,20 +233,20 @@ check_full_async_load :: proc(t: ^testing.T) {
     testing.expect(t, iosevka_ok, "Iosevka family missing")
     if iosevka_ok {
         testing.expect_value(t, len(iosevka.cache), 4)
-        for size in ([4]i32 {15, 17, 18, 20}) {
+        for size in ([4]i32{15, 17, 18, 20}) {
             font, ok := iosevka.cache[size]
             testing.expect(t, ok, "Iosevka size missing from cache")
             if !ok {
                 continue
             }
-            testing.expect(t, font.glyphCount >= cast(i32) len(iosevka.codepoints), "Iosevka is missing requested codepoints")
+            testing.expect(t, font.glyphCount >= cast(i32)len(iosevka.codepoints), "Iosevka is missing requested codepoints")
         }
         // shape_line hands back the shared buffer, so keep the glyph id before
         // shaping again.
         arrow, arrow_n := shape_line(iosevka, "->")
         testing.expect_value(t, arrow_n, 2)
         if arrow_n == 2 {
-            arrow_gid := arrow[0].codepoint
+            arrow_gid    := arrow[0].codepoint
             dash, dash_n := shape_line(iosevka, "-")
             testing.expect_value(t, dash_n, 1)
             if dash_n == 1 {
@@ -263,14 +259,14 @@ check_full_async_load :: proc(t: ^testing.T) {
     testing.expect(t, icons_ok, "icon family missing")
     if icons_ok {
         testing.expect_value(t, len(icons.cache), 3)
-        for size in ([3]i32 {14, 16, 18}) {
+        for size in ([3]i32{14, 16, 18}) {
             font, ok := icons.cache[size]
             testing.expect(t, ok, "icon size missing from cache")
             if !ok {
                 continue
             }
             // Every preloaded icon name must resolve to a baked glyph.
-            testing.expect_value(t, font.glyphCount, cast(i32) len(icons.codepoints))
+            testing.expect_value(t, font.glyphCount, cast(i32)len(icons.codepoints))
         }
     }
 
@@ -278,13 +274,13 @@ check_full_async_load :: proc(t: ^testing.T) {
     testing.expect(t, devicons_ok, "devicons family missing")
     if devicons_ok {
         testing.expect_value(t, len(devicons.cache), 3)
-        for size in ([3]i32 {14, 16, 18}) {
+        for size in ([3]i32{14, 16, 18}) {
             font, ok := devicons.cache[size]
             testing.expect(t, ok, "devicon size missing from cache")
             if !ok {
                 continue
             }
-            testing.expect_value(t, font.glyphCount, cast(i32) len(devicons.codepoints))
+            testing.expect_value(t, font.glyphCount, cast(i32)len(devicons.codepoints))
         }
     }
 
@@ -293,7 +289,7 @@ check_full_async_load :: proc(t: ^testing.T) {
     if mdi_ok {
         testing.expect_value(t, mdi.pack_group, "files")
         testing.expect_value(t, len(mdi.cache), 3)
-        for size in ([3]i32 {14, 16, 18}) {
+        for size in ([3]i32{14, 16, 18}) {
             font, ok := mdi.cache[size]
             testing.expect(t, ok, "mdi icon size missing from cache")
             if !ok {
@@ -301,7 +297,7 @@ check_full_async_load :: proc(t: ^testing.T) {
             }
             // MDI lives in Plane 15, so this also covers astral codepoints
             // surviving the manifest's surrogate pairs into the atlas.
-            testing.expect_value(t, font.glyphCount, cast(i32) len(mdi.codepoints))
+            testing.expect_value(t, font.glyphCount, cast(i32)len(mdi.codepoints))
         }
     }
 
@@ -309,13 +305,13 @@ check_full_async_load :: proc(t: ^testing.T) {
     testing.expect(t, odin_ok, "odin icon family missing")
     if odin_ok {
         testing.expect_value(t, len(odin_icons.cache), 3)
-        for size in ([3]i32 {14, 16, 18}) {
+        for size in ([3]i32{14, 16, 18}) {
             font, ok := odin_icons.cache[size]
             testing.expect(t, ok, "odin icon size missing from cache")
             if !ok {
                 continue
             }
-            testing.expect_value(t, font.glyphCount, cast(i32) len(odin_icons.codepoints))
+            testing.expect_value(t, font.glyphCount, cast(i32)len(odin_icons.codepoints))
         }
     }
 
@@ -324,13 +320,13 @@ check_full_async_load :: proc(t: ^testing.T) {
     if material_ok {
         testing.expect_value(t, material.pack_group, "primary")
         testing.expect_value(t, len(material.cache), 3)
-        for size in ([3]i32 {14, 16, 18}) {
+        for size in ([3]i32{14, 16, 18}) {
             font, ok := material.cache[size]
             testing.expect(t, ok, "material icon size missing from cache")
             if !ok {
                 continue
             }
-            testing.expect_value(t, font.glyphCount, cast(i32) len(material.codepoints))
+            testing.expect_value(t, font.glyphCount, cast(i32)len(material.codepoints))
         }
     }
 
@@ -338,22 +334,22 @@ check_full_async_load :: proc(t: ^testing.T) {
     // must still render: the baked atlas has the backtick codepoint glyph, and
     // draw_line_shaped falls back to it when shaping yields an unbaked glyph id.
     if family, ok := families["JetBrainsMono"]; ok {
-        font := get_font(17, "JetBrainsMono")
+        font           := get_font(17, "JetBrainsMono")
         backtick_index := rl.GetGlyphIndex(font, '`')
         testing.expect(t, font.glyphs[backtick_index].value == '`', "backtick glyph not baked into the atlas")
 
-        fence := "```"
+        fence    := "```"
         infos, n := shape_line(family, fence)
         testing.expect_value(t, n, 3) // three glyphs, one per backtick (no ligature)
-        shaped := family.shaped[17]
+        shaped   := family.shaped[17]
         unmapped := 0
         for i in 0 ..< n {
-            gid := cast(u32) infos[i].codepoint
+            gid := cast(u32)infos[i].codepoint
             if _, mapped := shaped[gid]; !mapped {
                 unmapped += 1
                 // The unbaked case the fallback exists for; the source char is
                 // a backtick, which is baked, so it still draws.
-                cluster := cast(int) infos[i].cluster
+                cluster := cast(int)infos[i].cluster
                 testing.expect(t, fence[cluster] == '`', "fallback source char is not a backtick")
             }
         }
@@ -458,12 +454,12 @@ check_full_async_load :: proc(t: ^testing.T) {
         infos, n := shape_line(family, "->")
         testing.expect_value(t, n, 2)
         if n == 2 {
-            arrow_gids[0] = cast(u32) infos[0].codepoint
-            arrow_gids[1] = cast(u32) infos[1].codepoint
+            arrow_gids[0] = cast(u32)infos[0].codepoint
+            arrow_gids[1] = cast(u32)infos[1].codepoint
 
             dash_infos, dash_n := shape_line(family, "-")
             testing.expect_value(t, dash_n, 1)
-            dash_gid := cast(u32) dash_infos[0].codepoint
+            dash_gid := cast(u32)dash_infos[0].codepoint
 
             testing.expect(t, arrow_gids[0] != dash_gid, "'->' did not trigger ligature substitution")
 
@@ -480,12 +476,12 @@ check_full_async_load :: proc(t: ^testing.T) {
     // codepoints it replaced. Both text families are monospace, so every line
     // stays a whole number of cells wide, ligature or not. The samples are
     // ASCII, so len() is the cell count.
-    for name in ([2]string {"JetBrainsMono", "Iosevka"}) {
+    for name in ([2]string{"JetBrainsMono", "Iosevka"}) {
         cell := measure("0", 17, name)
         testing.expect(t, cell > 0, "monospace cell width not measured")
         // "```" is the unbaked-glyph fallback, which must advance one cell too.
-        for line in ([?]string {"->", "=>", "!=", "::", "...", "```", "a -> b", "<==>", "|||>"}) {
-            testing.expect_value(t, measure(line, 17, name), cell * cast(i32) len(line))
+        for line in ([?]string{"->", "=>", "!=", "::", "...", "```", "a -> b", "<==>", "|||>"}) {
+            testing.expect_value(t, measure(line, 17, name), cell * cast(i32)len(line))
         }
         // Multiple lines measure as the widest line.
         testing.expect_value(t, measure("ab\nabcd\na", 17, name), cell * 4)
@@ -510,7 +506,7 @@ check_full_async_load :: proc(t: ^testing.T) {
     // marker and resolved when the placement is walked, so the cached line stays
     // valid. Restored to the default for any later test.
     {
-        cell := measure("0", 17, "JetBrainsMono")
+        cell   := measure("0", 17, "JetBrainsMono")
         before := shape_cache_len(&shape_cache)
         testing.expect_value(t, measure("\ta", 17, "JetBrainsMono"), cell * 5)
         set_tab_width(8)
@@ -530,14 +526,14 @@ check_full_async_load :: proc(t: ^testing.T) {
     if family, ok := families["JetBrainsMono"]; ok {
         dash_infos, dash_n := shape_line(family, "-")
         testing.expect_value(t, dash_n, 1)
-        dash_gid := cast(u32) dash_infos[0].codepoint
+        dash_gid := cast(u32)dash_infos[0].codepoint
 
         set_ligatures(false)
         testing.expect(t, !ligatures_enabled(), "ligature toggle not recorded")
         plain, plain_n := shape_line(family, "->")
         testing.expect_value(t, plain_n, 2)
         if plain_n == 2 {
-            testing.expect_value(t, cast(u32) plain[0].codepoint, dash_gid)
+            testing.expect_value(t, cast(u32)plain[0].codepoint, dash_gid)
         }
         // A monospace family measures the same either way.
         cell := measure("0", 17, "JetBrainsMono")
@@ -547,7 +543,7 @@ check_full_async_load :: proc(t: ^testing.T) {
         back, back_n := shape_line(family, "->")
         testing.expect_value(t, back_n, 2)
         if back_n == 2 {
-            testing.expect(t, cast(u32) back[0].codepoint != dash_gid, "ligature not restored")
+            testing.expect(t, cast(u32)back[0].codepoint != dash_gid, "ligature not restored")
         }
     }
 
@@ -556,8 +552,8 @@ check_full_async_load :: proc(t: ^testing.T) {
     // miss (new content), not on a repeat of content already shaped.
     defer shape_cache_clear(&shape_cache)
     line := "if x == 1 { return true }"
-    w1 := measure(line, 17, "JetBrainsMono")
-    w2 := measure(line, 17, "JetBrainsMono")
+    w1   := measure(line, 17, "JetBrainsMono")
+    w2   := measure(line, 17, "JetBrainsMono")
     testing.expect_value(t, w1, w2)
 
     before := shape_cache_len(&shape_cache)
@@ -571,7 +567,7 @@ check_full_async_load :: proc(t: ^testing.T) {
 
     // The x of an offset and the offset at an x agree with each other and with
     // the measured width, a ligature included.
-    for text in ([]string {"if x == 1 { return }", "a -> b", "\tx"}) {
+    for text in ([]string{"if x == 1 { return }", "a -> b", "\tx"}) {
         testing.expect_value(t, offset_at(text, len(text), 17, "JetBrainsMono"), f32(measure(text, 17, "JetBrainsMono")))
         prev := f32(-1)
         for i in 0 ..= len(text) {
@@ -585,8 +581,8 @@ check_full_async_load :: proc(t: ^testing.T) {
     }
     // Inside the "->" ligature the offset lands part of the way through it.
     arrow_start := offset_at("a -> b", 2, 17, "JetBrainsMono")
-    arrow_mid := offset_at("a -> b", 3, 17, "JetBrainsMono")
-    arrow_end := offset_at("a -> b", 4, 17, "JetBrainsMono")
+    arrow_mid   := offset_at("a -> b", 3, 17, "JetBrainsMono")
+    arrow_end   := offset_at("a -> b", 4, 17, "JetBrainsMono")
     testing.expect(t, arrow_start < arrow_mid && arrow_mid < arrow_end, "the caret inside a ligature does not move")
 
     // A character outside the baked set comes from the family's own file, and
@@ -605,14 +601,14 @@ check_full_async_load :: proc(t: ^testing.T) {
 // picker (prebake_async).
 @(private = "file")
 check_selective_preload :: proc(t: ^testing.T) {
-    preload_families := [1]string {"Iosevka"}
-    preload_packs := [2]string {"material", "mdi"}
-    extra_sizes := [1]i32 {28}
-    begin_async_load("assets/fonts/fonts.json", "assets/icons/icons.json", Preload {
-        families = preload_families[:],
-        icon_packs = preload_packs[:],
-        extra_sizes = extra_sizes[:],
-    })
+    preload_families := [1]string{"Iosevka"}
+    preload_packs    := [2]string{"material", "mdi"}
+    extra_sizes      := [1]i32{28}
+    begin_async_load(
+        "assets/fonts/fonts.json",
+        "assets/icons/icons.json",
+        Preload{families = preload_families[:], icon_packs = preload_packs[:], extra_sizes = extra_sizes[:]},
+    )
     finish_async_load()
     defer shutdown()
 
@@ -676,7 +672,7 @@ check_selective_preload :: proc(t: ^testing.T) {
         arrow, arrow_n := shape_line(cascadia, "->")
         testing.expect_value(t, arrow_n, 2)
         if arrow_n == 2 {
-            arrow_gid := arrow[0].codepoint
+            arrow_gid    := arrow[0].codepoint
             dash, dash_n := shape_line(cascadia, "-")
             testing.expect_value(t, dash_n, 1)
             if dash_n == 1 {
@@ -686,8 +682,8 @@ check_selective_preload :: proc(t: ^testing.T) {
     }
 
     // Prebake bakes off-thread and publishes through the pump.
-    prebake_names := [1]string {"FiraCode"}
-    spawned := prebake_async(prebake_names[:], extra_sizes[:])
+    prebake_names := [1]string{"FiraCode"}
+    spawned       := prebake_async(prebake_names[:], extra_sizes[:])
     testing.expect_value(t, spawned, 5) // 4 manifest sizes + 28
     published := 0
     for _ in 0 ..< 10_000 {

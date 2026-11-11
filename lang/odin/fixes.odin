@@ -30,18 +30,18 @@ struct_field_fixes :: proc(rc: ^Request_Context, caret: Caret, res: ^lang.Result
 
 @(private = "file")
 fill_struct_literal :: proc(rc: ^Request_Context, c: ^odinsema.Checker, lit: odinsyntax.Syntax_Node, res: ^lang.Result) {
-    src := rc.req.source
-    lit := lit
-    t := odinsema.literal_type(c, rc.live.id, lit)
+    src           := rc.req.source
+    lit           := lit
+    t             := odinsema.literal_type(c, rc.live.id, lit)
     st, is_struct := odinsema.type_get(&c.table, odinsema.type_base(&c.table, t)).(odinsema.Struct_Type)
     if !is_struct || .Raw_Union in st.flags {
         return
     }
-    named := make([dynamic]string, context.temp_allocator)
-    last_end := -1
+    named        := make([dynamic]string, context.temp_allocator)
+    last_end     := -1
     first_offset := -1
-    cl := odinsyntax.Comp_Lit(lit)
-    it := odinsyntax.comp_lit_elems(&cl)
+    cl           := odinsyntax.Comp_Lit(lit)
+    it           := odinsyntax.comp_lit_elems(&cl)
     for elem in odinsyntax.child_iter_next(&it) {
         elem := elem
         if elem.green.kind != .Field_Value {
@@ -57,7 +57,7 @@ fill_struct_literal :: proc(rc: ^Request_Context, c: ^odinsema.Checker, lit: odi
             first_offset = int(elem.offset)
         }
     }
-    open, has_open := odinsyntax.find_child_token(&lit, {tokens = {.Open_Brace}})
+    open, has_open   := odinsyntax.find_child_token(&lit, {tokens = {.Open_Brace}})
     close, has_close := odinsyntax.find_child_token(&lit, {tokens = {.Close_Brace}, last = true})
     if !has_open || !has_close {
         return
@@ -77,11 +77,14 @@ fill_struct_literal :: proc(rc: ^Request_Context, c: ^odinsema.Checker, lit: odi
         return
     }
     title := fmt.tprintf("Add missing field: %s", st_field_name(missing[0])) if len(missing) == 1 else fmt.tprintf("Add %d missing fields", len(missing))
-    at := int(close.offset)
+    at    := int(close.offset)
     multi := strings.contains(src[int(open.offset):at], "\n")
     if multi && strings.trim_space(src[line_start(src, at):at]) == "" {
-        indent := line_indent(src, first_offset) if first_offset >= 0 else strings.concatenate({line_indent(src, at), indent_unit(rc.req)}, context.temp_allocator)
-        sb := strings.builder_make(context.temp_allocator)
+        indent := line_indent(src, first_offset) if first_offset >= 0 else strings.concatenate(
+            {line_indent(src, at), indent_unit(rc.req)},
+            context.temp_allocator,
+        )
+        sb     := strings.builder_make(context.temp_allocator)
         for m in missing {
             fmt.sbprintf(&sb, "%s%s,\n", indent, m)
         }
@@ -98,7 +101,12 @@ fill_struct_literal :: proc(rc: ^Request_Context, c: ^odinsema.Checker, lit: odi
     if last_end >= 0 {
         rest := strings.trim_space(src[last_end:at])
         if rest == "," {
-            push_action(res, rc.req, title, Edit_Spec{last_end + strings.index_byte(src[last_end:at], ',') + 1, at, strings.concatenate({" ", text}, context.temp_allocator)})
+            push_action(
+                res,
+                rc.req,
+                title,
+                Edit_Spec{last_end + strings.index_byte(src[last_end:at], ',') + 1, at, strings.concatenate({" ", text}, context.temp_allocator)},
+            )
             return
         }
         push_action(res, rc.req, title, Edit_Spec{last_end, last_end, strings.concatenate({", ", text}, context.temp_allocator)})
@@ -163,7 +171,7 @@ single_value :: proc(stmt: odinsyntax.Syntax_Node) -> (odinsyntax.Syntax_Node, b
     }
     value: odinsyntax.Syntax_Node
     count := 0
-    it := odinsyntax.expr_list_items(&list)
+    it    := odinsyntax.expr_list_items(&list)
     for v in odinsyntax.child_iter_next(&it) {
         value = v
         count += 1

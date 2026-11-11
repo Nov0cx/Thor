@@ -13,7 +13,7 @@ foreign import crypt32 "system:Crypt32.lib"
 
 @(default_calling_convention = "system", private = "file")
 foreign crypt32 {
-    CryptProtectData :: proc(
+    CryptProtectData   :: proc(
         data_in: ^win.DATA_BLOB,
         description: win.LPCWSTR,
         entropy: ^win.DATA_BLOB,
@@ -46,7 +46,7 @@ clipboard_key :: proc(create: bool) -> (key: Clipboard_Key, ok: bool) {
             log.errorf("Could not read %q: %v", CLIPBOARD_KEY_FILE, err)
             return
         }
-        blob_in := win.DATA_BLOB {cbData = win.DWORD(len(sealed)), pbData = raw_data(sealed)}
+        blob_in := win.DATA_BLOB{cbData = win.DWORD(len(sealed)), pbData = raw_data(sealed)}
         blob_out: win.DATA_BLOB
         if !CryptUnprotectData(&blob_in, nil, nil, nil, nil, CRYPTPROTECT_UI_FORBIDDEN, &blob_out) {
             log.errorf("Could not unseal %q: error %d", CLIPBOARD_KEY_FILE, win.GetLastError())
@@ -66,7 +66,7 @@ clipboard_key :: proc(create: bool) -> (key: Clipboard_Key, ok: bool) {
     }
 
     crypto.rand_bytes(key[:])
-    blob_in := win.DATA_BLOB {cbData = win.DWORD(len(key)), pbData = &key[0]}
+    blob_in := win.DATA_BLOB{cbData = win.DWORD(len(key)), pbData = &key[0]}
     blob_out: win.DATA_BLOB
     if !CryptProtectData(&blob_in, nil, nil, nil, nil, CRYPTPROTECT_UI_FORBIDDEN, &blob_out) {
         log.errorf("Could not seal the clipboard key: error %d", win.GetLastError())

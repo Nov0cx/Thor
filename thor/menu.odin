@@ -23,12 +23,12 @@ Menu_Item :: struct {
 }
 
 Menu :: struct {
-    items:  [dynamic]Menu_Item,
-    anchor: ui.Vec2,
+    items:         [dynamic]Menu_Item,
+    anchor:        ui.Vec2,
     // Box size of the last frame, zero until the first layout.
-    size: ui.Vec2,
+    size:          ui.Vec2,
     // Pane key the focus goes back to when the menu closes.
-    return_focus: string,
+    return_focus:  string,
     // The box takes the focus on the next frame, so no pane reads keys under it.
     focus_pending: bool,
 }
@@ -45,26 +45,8 @@ thor_menu_clear :: proc(thor: ^Thor) {
     clear(&thor.menu.items)
 }
 
-thor_menu_add :: proc(
-    thor: ^Thor,
-    title: string,
-    run: proc(data: rawptr),
-    data: rawptr,
-    enabled := true,
-    action := "",
-    shortcut := "",
-) {
-    append(
-        &thor.menu.items,
-        Menu_Item {
-            title = title,
-            shortcut = shortcut,
-            action = action,
-            run = run,
-            data = data,
-            enabled = enabled,
-        },
-    )
+thor_menu_add :: proc(thor: ^Thor, title: string, run: proc(data: rawptr), data: rawptr, enabled := true, action := "", shortcut := "") {
+    append(&thor.menu.items, Menu_Item{title = title, shortcut = shortcut, action = action, run = run, data = data, enabled = enabled})
 }
 
 thor_menu_add_separator :: proc(thor: ^Thor) {
@@ -109,17 +91,7 @@ thor_menu_view :: proc(thor: ^Thor) {
 
     // The backdrop catches a click anywhere else, which dismisses the menu.
     backdrop := ui.scope(
-        {
-            key = "menu-backdrop",
-            flags = {.Floating, .Clickable},
-            props = {
-                position = .Fixed,
-                inset = {0, 0, 0, 0},
-                w = ui.Grow(1),
-                h = ui.Grow(1),
-                z = 500,
-            },
-        },
+        {key = "menu-backdrop", flags = {.Floating, .Clickable}, props = {position = .Fixed, inset = {0, 0, 0, 0}, w = ui.Grow(1), h = ui.Grow(1), z = 500}},
     )
 
     // Kept inside the window: a menu near the right or bottom edge flips back.
@@ -188,17 +160,7 @@ thor_menu_view :: proc(thor: ^Thor) {
 @(private = "file")
 menu_row :: proc(thor: ^Thor, item: Menu_Item) -> bool {
     if item.separator {
-        ui.leaf(
-            {
-                key = "sep",
-                props = {
-                    w = ui.Grow(1),
-                    h = ui.Px(1),
-                    margin = ui.xy(6, 4),
-                    bg = thor.theme.border,
-                },
-            },
-        )
+        ui.leaf({key = "sep", props = {w = ui.Grow(1), h = ui.Px(1), margin = ui.xy(6, 4), bg = thor.theme.border}})
         return false
     }
 
@@ -219,17 +181,7 @@ menu_row :: proc(thor: ^Thor, item: Menu_Item) -> bool {
             hover = {bg = item.enabled ? thor.theme.buttons : nil},
         },
     )
-    ui.label(
-        item.title,
-        {
-            key = "title",
-            props = {
-                w = ui.Grow(1),
-                color = item.enabled ? thor.theme.foreground : thor.theme.disabled,
-                text_wrap = .None,
-            },
-        },
-    )
+    ui.label(item.title, {key = "title", props = {w = ui.Grow(1), color = item.enabled ? thor.theme.foreground : thor.theme.disabled, text_wrap = .None}})
     chord := item.shortcut
     if chord == "" {
         chord = thor_action_shortcut(thor, item.action)

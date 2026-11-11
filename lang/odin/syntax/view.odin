@@ -25,11 +25,11 @@ Child_Iter :: struct {
     started: bool,
 }
 
-child_iter :: proc "contextless" (n: ^Syntax_Node, q: Child_Query) -> Child_Iter {
+child_iter :: proc "contextless"(n: ^Syntax_Node, q: Child_Query) -> Child_Iter {
     return {parent = n, query = q, offset = n.offset, started = q.after == {}}
 }
 
-child_iter_next :: proc "contextless" (it: ^Child_Iter) -> (Syntax_Node, bool) {
+child_iter_next :: proc "contextless"(it: ^Child_Iter) -> (Syntax_Node, bool) {
     e, ok := next_match(it, false)
     if !ok {
         return {}, false
@@ -37,7 +37,7 @@ child_iter_next :: proc "contextless" (it: ^Child_Iter) -> (Syntax_Node, bool) {
     return e.(Syntax_Node)
 }
 
-find_child_node :: proc "contextless" (n: ^Syntax_Node, q: Child_Query) -> (found: Syntax_Node, ok: bool) {
+find_child_node :: proc "contextless"(n: ^Syntax_Node, q: Child_Query) -> (found: Syntax_Node, ok: bool) {
     it := child_iter(n, q)
     for c in child_iter_next(&it) {
         found, ok = c, true
@@ -48,7 +48,7 @@ find_child_node :: proc "contextless" (n: ^Syntax_Node, q: Child_Query) -> (foun
     return
 }
 
-find_child_token :: proc "contextless" (n: ^Syntax_Node, q: Child_Query) -> (found: Syntax_Token, ok: bool) {
+find_child_token :: proc "contextless"(n: ^Syntax_Node, q: Child_Query) -> (found: Syntax_Token, ok: bool) {
     it := child_iter(n, q)
     for {
         e, more := next_match(&it, true)
@@ -63,11 +63,11 @@ find_child_token :: proc "contextless" (n: ^Syntax_Node, q: Child_Query) -> (fou
 }
 
 @(private)
-next_match :: proc "contextless" (it: ^Child_Iter, want_token: bool) -> (Syntax_Element, bool) {
+next_match :: proc "contextless"(it: ^Child_Iter, want_token: bool) -> (Syntax_Element, bool) {
     kids := green_children(it.parent.green)
     for it.index < len(kids) {
         child := kids[it.index]
-        pos := it.offset
+        pos   := it.offset
         it.index += 1
         it.offset += element_len(child)
         if n, is_node := element_node(child); is_node {
@@ -93,7 +93,7 @@ next_match :: proc "contextless" (it: ^Child_Iter, want_token: bool) -> (Syntax_
 }
 
 // The type of a field: after the ':' when there is one, else the only type it holds.
-field_type :: proc "contextless" (n: ^Field) -> (Syntax_Node, bool) {
+field_type :: proc "contextless"(n: ^Field) -> (Syntax_Node, bool) {
     if _, has_colon := find_child_token((^Syntax_Node)(n), {tokens = {.Colon}}); has_colon {
         return find_child_node((^Syntax_Node)(n), {kinds = KINDS_EXPR - {.Directive}, after = {.Colon}, before = {.Eq}})
     }

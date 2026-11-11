@@ -22,15 +22,9 @@ thor_reveal_path :: proc(path: string) -> bool {
     // call and would otherwise hold the pipe open and block the frame.
     command: string
     when ODIN_OS == .Darwin {
-        command = strings.concatenate(
-            {"open -R ", thor_shell_quote(path), " </dev/null >/dev/null 2>&1 &"},
-            context.temp_allocator,
-        )
+        command = strings.concatenate({"open -R ", thor_shell_quote(path), " </dev/null >/dev/null 2>&1 &"}, context.temp_allocator)
     } else {
-        command = strings.concatenate(
-            {"( ", reveal_command(path, dir), " ) </dev/null >/dev/null 2>&1 &"},
-            context.temp_allocator,
-        )
+        command = strings.concatenate({"( ", reveal_command(path, dir), " ) </dev/null >/dev/null 2>&1 &"}, context.temp_allocator)
     }
 
     output := shell.run(command, dir)
@@ -59,11 +53,16 @@ reveal_command :: proc(path, dir: string) -> string {
         {
             "gdbus call --session --dest org.freedesktop.FileManager1",
             " --object-path /org/freedesktop/FileManager1",
-            " --method org.freedesktop.FileManager1.ShowItems \"['", uri, "']\" \"\"",
+            " --method org.freedesktop.FileManager1.ShowItems \"['",
+            uri,
+            "']\" \"\"",
             " || dbus-send --session --print-reply --dest=org.freedesktop.FileManager1",
             " /org/freedesktop/FileManager1 org.freedesktop.FileManager1.ShowItems",
-            " array:string:", uri, " string:''",
-            " || ", fallback,
+            " array:string:",
+            uri,
+            " string:''",
+            " || ",
+            fallback,
         },
         context.temp_allocator,
     )
@@ -82,8 +81,7 @@ reveal_file_uri :: proc(path: string) -> string {
     for i in 0 ..< len(path) {
         c := path[i]
         switch {
-        case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9',
-             c == '-', c == '.', c == '_', c == '~', c == '/':
+        case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '-', c == '.', c == '_', c == '~', c == '/':
             strings.write_byte(&b, c)
         case:
             strings.write_byte(&b, '%')
@@ -105,11 +103,8 @@ thor_open_in_browser :: proc(target: string) -> bool {
     }
 
     if browser := os.get_env("BROWSER", context.temp_allocator); browser != "" {
-        command := strings.concatenate(
-            {browser, " ", thor_shell_quote(target), " </dev/null >/dev/null 2>&1 &"},
-            context.temp_allocator,
-        )
-        output := shell.run(command, ".")
+        command := strings.concatenate({browser, " ", thor_shell_quote(target), " </dev/null >/dev/null 2>&1 &"}, context.temp_allocator)
+        output  := shell.run(command, ".")
         delete(output)
         return true
     }
@@ -121,11 +116,8 @@ thor_open_in_browser :: proc(target: string) -> bool {
         opener = "xdg-open "
     }
 
-    command := strings.concatenate(
-        {opener, thor_shell_quote(target), " </dev/null >/dev/null 2>&1 &"},
-        context.temp_allocator,
-    )
-    output := shell.run(command, ".")
+    command := strings.concatenate({opener, thor_shell_quote(target), " </dev/null >/dev/null 2>&1 &"}, context.temp_allocator)
+    output  := shell.run(command, ".")
     delete(output)
     return true
 }

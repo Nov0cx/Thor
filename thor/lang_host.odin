@@ -9,14 +9,14 @@ import "core:time"
 import rl "vendor:raylib"
 
 import "../atomicfile"
-import ui "../vendor/loom/loom"
+import "../editview"
 import "../lang"
 import "../lang/lsp"
 import "../lang/odin"
+import "../prof"
 import "../setting"
 import "../textedit"
-import "../editview"
-import "../prof"
+import ui "../vendor/loom/loom"
 
 // The directory of the Odin analyzer's tree cache: user/cache/odin beside the binary. Temp-allocated.
 thor_odin_cache_dir :: proc() -> string {
@@ -115,9 +115,9 @@ thor_lang_busy_label :: proc(kinds: bit_set[lang.Request_Kind]) -> string {
 // enforces them on every dispatch. A feature that goes off has its in-flight
 // work cancelled by the manager; what it already put on screen is dropped here.
 thor_apply_language_settings :: proc(thor: ^Thor) {
-    enabled := setting.language_enabled(&thor.config)
+    enabled  := setting.language_enabled(&thor.config)
     features := setting.language_features(&thor.config)
-    before := thor_language_gate(thor)
+    before   := thor_language_gate(thor)
     lang.manager_set_enabled(&thor.lang_manager, enabled)
     lang.manager_set_features(&thor.lang_manager, features)
     for id in lang.manager_gate_ids(&thor.lang_manager) {
@@ -205,7 +205,7 @@ thor_lang_key :: proc(thor: ^Thor, name: string) -> string {
 // configures; a server that sets "override" for .odin takes the front instead.
 // The one place a backend is added. `replace` swaps the set of a running manager.
 thor_register_backends :: proc(thor: ^Thor, replace := false) {
-    first := odin.engine_backend(thor.odin_engine)
+    first  := odin.engine_backend(thor.odin_engine)
     second := lsp.client_backend(thor.lsp_client)
     if lsp.client_overrides(thor.lsp_client, ".odin") {
         first, second = second, first
@@ -323,7 +323,7 @@ thor_poll_lang_reload :: proc(thor: ^Thor) {
 // Command / panel action: start every language server again against the config
 // as it now reads on disk.
 thor_cmd_restart_language_servers :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor.lang_reload_pending = true
     thor_flash_status(thor, "Restarting language servers")
 }
@@ -444,27 +444,13 @@ thor_lang_notify :: proc(thor: ^Thor, file: ^Open_File, event: lang.Doc_Event) {
         file.lang_revision = file.state.revision
         // textedit.text borrows the buffer snapshot; manager_notify copies what
         // it keeps before returning, so the slice never outlives this call.
-        lang.manager_notify(
-            &thor.lang_manager,
-            .Opened,
-            file.path,
-            ext,
-            textedit.text(&file.state),
-            file.state.revision,
-        )
+        lang.manager_notify(&thor.lang_manager, .Opened, file.path, ext, textedit.text(&file.state), file.state.revision)
     case .Changed:
         if !file.lang_open || file.lang_revision == file.state.revision || thor_big_file(file) {
             return
         }
         file.lang_revision = file.state.revision
-        lang.manager_notify(
-            &thor.lang_manager,
-            .Changed,
-            file.path,
-            ext,
-            textedit.text(&file.state),
-            file.state.revision,
-        )
+        lang.manager_notify(&thor.lang_manager, .Changed, file.path, ext, textedit.text(&file.state), file.state.revision)
     case .Saved:
         if !file.lang_open {
             return
@@ -492,7 +478,7 @@ thor_sync_lang_documents :: proc(thor: ^Thor) {
 // Alt+Enter: resolve the symbol under the caret in the active file, or in the peek when it has the focus.
 thor_goto_definition :: proc(thor: ^Thor) {
     if thor.peek.open && thor.focus_owner == PEEK_KEY && thor.peek.file != nil && thor.peek.file.loaded {
-        file := thor.peek.file
+        file  := thor.peek.file
         caret := textedit.primary_cursor(&file.state).caret
         thor_peek_close(thor)
         thor_focus_pane(thor, thor.peek.pane)
@@ -509,7 +495,7 @@ thor_goto_definition :: proc(thor: ^Thor) {
 // Alt+Shift+Enter: the declaration of the type of the symbol under the caret, in the active file or the peek.
 thor_goto_type_definition :: proc(thor: ^Thor) {
     if thor.peek.open && thor.focus_owner == PEEK_KEY && thor.peek.file != nil && thor.peek.file.loaded {
-        file := thor.peek.file
+        file  := thor.peek.file
         caret := textedit.primary_cursor(&file.state).caret
         thor_peek_close(thor)
         thor_focus_pane(thor, thor.peek.pane)
@@ -526,7 +512,7 @@ thor_goto_type_definition :: proc(thor: ^Thor) {
 // Ctrl+Click: the editor hands back the buffer it was clicked in and the byte
 // offset under the cursor. Match the buffer to its open file and dispatch.
 thor_editor_goto_definition :: proc(data: rawptr, state: ^textedit.State, offset: int) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     for file in thor.open_files {
         if &file.state == state {
             thor_dispatch_goto(thor, file, offset)
@@ -548,16 +534,7 @@ thor_dispatch_goto :: proc(thor: ^Thor, file: ^Open_File, offset: int, kind := l
         return
     }
     source := textedit.text(&file.state)
-    lang.manager_request_latest(
-        &thor.lang_manager,
-        kind,
-        file.path,
-        ext,
-        source,
-        offset,
-        file.state.revision,
-        thor.workspace_dir,
-    )
+    lang.manager_request_latest(&thor.lang_manager, kind, file.path, ext, source, offset, file.state.revision, thor.workspace_dir)
 }
 
 // A row's jump target in the Go to Symbol picker: the file and byte offset to
@@ -580,16 +557,7 @@ thor_goto_symbol :: proc(thor: ^Thor) {
         return
     }
     source := textedit.text(&file.state)
-    lang.manager_request_latest(
-        &thor.lang_manager,
-        .Document_Symbols,
-        file.path,
-        ext,
-        source,
-        0,
-        file.state.revision,
-        thor.workspace_dir,
-    )
+    lang.manager_request_latest(&thor.lang_manager, .Document_Symbols, file.path, ext, source, 0, file.state.revision, thor.workspace_dir)
 }
 
 // Shared by thor_goto_workspace_symbol and thor_workspace_symbol_query_changed:
@@ -627,29 +595,13 @@ thor_goto_workspace_symbol :: proc(thor: ^Thor) {
         // The scan reads and parses every .odin file off-thread, which takes a
         // beat on a big workspace; the loading picker below keeps the chord
         // instant regardless.
-        id = lang.manager_request_latest(
-            &thor.lang_manager,
-            .Workspace_Symbols,
-            path,
-            ext,
-            source,
-            0,
-            revision,
-            thor.workspace_dir,
-        )
+        id = lang.manager_request_latest(&thor.lang_manager, .Workspace_Symbols, path, ext, source, 0, revision, thor.workspace_dir)
         if id == 0 {
             return
         }
     }
     thor.workspace_symbols_request_id = id
-    thor_palette_pick_rich_loading(
-        thor,
-        "Go to symbol...",
-        thor_pick_symbol,
-        thor,
-        thor_workspace_symbol_query_changed,
-        thor,
-    )
+    thor_palette_pick_rich_loading(thor, "Go to symbol...", thor_pick_symbol, thor, thor_workspace_symbol_query_changed, thor)
     if thor.workspace_symbols_needs_query {
         // A server-backed workspace/symbol answers an empty query with nothing
         // (pyright, gopls, clangd): skip that round trip entirely and land the
@@ -665,7 +617,7 @@ thor_goto_workspace_symbol :: proc(thor: ^Thor) {
 // current rows (re-marked loading) until the new ones land.
 @(private = "file")
 thor_workspace_symbol_query_changed :: proc(data: rawptr, query: string) {
-    thor := cast(^Thor)data
+    thor                        := cast(^Thor)data
     ext, path, source, revision := thor_workspace_symbol_scope(thor)
     if !lang.manager_allows(&thor.lang_manager, ext, .Workspace_Symbols) {
         return
@@ -704,7 +656,7 @@ thor_find_references :: proc(thor: ^Thor) {
         return
     }
     source := textedit.text(&file.state)
-    id := lang.manager_request_latest(
+    id     := lang.manager_request_latest(
         &thor.lang_manager,
         .References,
         file.path,
@@ -718,12 +670,7 @@ thor_find_references :: proc(thor: ^Thor) {
         return
     }
     thor.references_request_id = id
-    thor_palette_pick_rich_loading(
-        thor,
-        "References...",
-        thor_pick_symbol,
-        thor,
-    )
+    thor_palette_pick_rich_loading(thor, "References...", thor_pick_symbol, thor)
 }
 
 // Ctrl+R: rename the symbol under the caret across the workspace. Prompts for
@@ -741,8 +688,8 @@ thor_rename_symbol :: proc(thor: ^Thor) -> bool {
     if !lang.manager_allows(&thor.lang_manager, thor_lang_key(thor, file.name), .Rename) {
         return false
     }
-    cursor := textedit.primary_cursor(&file.state)
-    source := textedit.text(&file.state)
+    cursor     := textedit.primary_cursor(&file.state)
+    source     := textedit.text(&file.state)
     lo, hi, ok := textedit.word_range_at(source, cursor.caret)
     if !ok {
         return false
@@ -757,13 +704,7 @@ thor_rename_symbol :: proc(thor: ^Thor) -> bool {
             return false
         }
     }
-    thor_palette_prompt(
-        thor,
-        "Rename symbol",
-        thor_confirm_symbol_rename,
-        thor,
-        source[lo:hi],
-    )
+    thor_palette_prompt(thor, "Rename symbol", thor_confirm_symbol_rename, thor, source[lo:hi])
     return true
 }
 
@@ -773,7 +714,7 @@ thor_rename_symbol :: proc(thor: ^Thor) -> bool {
 // file the edits were computed against from the others they touch.
 @(private = "file")
 thor_confirm_symbol_rename :: proc(data: rawptr, input: string) {
-    thor := cast(^Thor) data
+    thor     := cast(^Thor)data
     new_name := strings.trim_space(input)
     if new_name == "" {
         return
@@ -794,17 +735,7 @@ thor_confirm_symbol_rename :: proc(data: rawptr, input: string) {
     if lo, _, ok := textedit.word_range_at(source, offset); ok {
         offset = lo
     }
-    id := lang.manager_request_latest(
-        &thor.lang_manager,
-        .Rename,
-        file.path,
-        ext,
-        source,
-        offset,
-        file.state.revision,
-        thor.workspace_dir,
-        new_name,
-    )
+    id := lang.manager_request_latest(&thor.lang_manager, .Rename, file.path, ext, source, offset, file.state.revision, thor.workspace_dir, new_name)
     if id == 0 {
         return
     }
@@ -882,17 +813,13 @@ Apply_Step :: struct {
 // write failed after others landed. A target that cannot be restored (a
 // directory) drops the Ctrl+Z record.
 @(private)
-thor_apply_edits :: proc(
-    thor: ^Thor,
-    edits: []lang.Text_Edit,
-    origin: string,
-    snapshot: u64,
-    resource_ops: []lang.Resource_Op = nil,
-) -> (applied: int, files: int, ok: bool, reason: string) {
-    run := Apply_Run {
-        record     = make([dynamic]Edit_Undo_File),
-        reversible = true,
-    }
+thor_apply_edits :: proc(thor: ^Thor, edits: []lang.Text_Edit, origin: string, snapshot: u64, resource_ops: []lang.Resource_Op = nil) -> (
+    applied: int,
+    files: int,
+    ok: bool,
+    reason: string,
+) {
+    run   := Apply_Run{record = make([dynamic]Edit_Undo_File), reversible = true}
     steps := thor_edit_steps(edits, resource_ops)
 
     failed := false
@@ -924,7 +851,7 @@ thor_apply_edits :: proc(
 // batch.
 @(private = "file")
 thor_edit_steps :: proc(edits: []lang.Text_Edit, ops: []lang.Resource_Op) -> []Apply_Step {
-    steps := make([dynamic]Apply_Step, context.temp_allocator)
+    steps   := make([dynamic]Apply_Step, context.temp_allocator)
     ordered := false
     for edit in edits {
         ordered ||= edit.seq != 0
@@ -977,7 +904,7 @@ thor_edit_steps :: proc(edits: []lang.Text_Edit, ops: []lang.Resource_Op) -> []A
 thor_apply_resource_op :: proc(thor: ^Thor, run: ^Apply_Run, op: ^lang.Resource_Op) -> (ok: bool, reason: string) {
     switch op.kind {
     case .Create:
-        existed := os.exists(op.path)
+        existed   := os.exists(op.path)
         // The one case thor_create_resource leaves the file alone.
         untouched := existed && op.ignore_if_exists && !op.overwrite
         before: string
@@ -994,12 +921,7 @@ thor_apply_resource_op :: proc(thor: ^Thor, run: ^Apply_Run, op: ^lang.Resource_
         if untouched {
             return true, ""
         }
-        append(&run.record, Edit_Undo_File {
-            kind    = .Created,
-            path    = strings.clone(op.path),
-            existed = existed,
-            before  = strings.clone(before),
-        })
+        append(&run.record, Edit_Undo_File{kind = .Created, path = strings.clone(op.path), existed = existed, before = strings.clone(before)})
     case .Rename:
         // An overwriting rename destroys what stood at the target, which no
         // record here can put back.
@@ -1012,11 +934,7 @@ thor_apply_resource_op :: proc(thor: ^Thor, run: ^Apply_Run, op: ^lang.Resource_
         if thor_same_path(op.path, op.new_path) {
             return true, "" // thor_rename_resource made this a no-op
         }
-        append(&run.record, Edit_Undo_File {
-            kind     = .Renamed,
-            path     = strings.clone(op.path),
-            new_path = strings.clone(op.new_path),
-        })
+        append(&run.record, Edit_Undo_File{kind = .Renamed, path = strings.clone(op.path), new_path = strings.clone(op.new_path)})
     case .Delete:
         before: string
         if data, rerr := os.read_entire_file(op.path, context.temp_allocator); rerr == nil && !os.is_dir(op.path) {
@@ -1027,11 +945,7 @@ thor_apply_resource_op :: proc(thor: ^Thor, run: ^Apply_Run, op: ^lang.Resource_
         if dok, dreason := thor_delete_resource(thor, op.path); !dok {
             return false, dreason
         }
-        append(&run.record, Edit_Undo_File {
-            kind   = .Deleted,
-            path   = strings.clone(op.path),
-            before = strings.clone(before),
-        })
+        append(&run.record, Edit_Undo_File{kind = .Deleted, path = strings.clone(op.path), before = strings.clone(before)})
     }
     return true, ""
 }
@@ -1039,13 +953,7 @@ thor_apply_resource_op :: proc(thor: ^Thor, run: ^Apply_Run, op: ^lang.Resource_
 // One batch of text edits: every edit is checked against the files as they are
 // now, then each file is written.
 @(private = "file")
-thor_apply_text_batch :: proc(
-    thor: ^Thor,
-    run: ^Apply_Run,
-    edits: []lang.Text_Edit,
-    origin: string,
-    snapshot: u64,
-) -> (ok: bool, reason: string) {
+thor_apply_text_batch :: proc(thor: ^Thor, run: ^Apply_Run, edits: []lang.Text_Edit, origin: string, snapshot: u64) -> (ok: bool, reason: string) {
     targets := make([dynamic]Edit_Target, context.temp_allocator)
     for edit in edits {
         index, found := thor_edit_target(thor, &targets, edit.path, origin, snapshot)
@@ -1067,22 +975,18 @@ thor_apply_text_batch :: proc(
         if target.file != nil {
             ranges := make([dynamic]textedit.Replace, context.temp_allocator)
             for edit in target.edits {
-                append(&ranges, textedit.Replace {start = edit.start, end = edit.end, text = edit.new_text})
+                append(&ranges, textedit.Replace{start = edit.start, end = edit.end, text = edit.new_text})
             }
             // No undo entry is pushed when nothing lands, so nothing to reverse.
             if n := textedit.replace_ranges(&target.file.state, ranges[:]); n > 0 {
                 run.applied += n
-                append(&run.record, Edit_Undo_File {
-                    path     = strings.clone(target.path),
-                    open     = true,
-                    revision = target.file.state.revision,
-                })
+                append(&run.record, Edit_Undo_File{path = strings.clone(target.path), open = true, revision = target.file.state.revision})
             }
             continue
         }
         // Not open: splice the edits (ascending, non-overlapping) into the file's
         // bytes and write it back. The watcher picks the change up from there.
-        b := strings.builder_make(context.temp_allocator)
+        b    := strings.builder_make(context.temp_allocator)
         last := 0
         for edit in target.edits {
             strings.write_string(&b, target.text[last:edit.start])
@@ -1092,14 +996,10 @@ thor_apply_text_batch :: proc(
         strings.write_string(&b, target.text[last:])
         // The splice works in LF; the file goes back with the endings it had.
         written := thor_to_disk_text(strings.to_string(b), target.ending, context.temp_allocator)
-        if werr := atomicfile.write(target.path, transmute([]byte) written); werr != nil {
+        if werr := atomicfile.write(target.path, transmute([]byte)written); werr != nil {
             return false, "a file could not be written"
         }
-        append(&run.record, Edit_Undo_File {
-            path   = strings.clone(target.path),
-            before = strings.clone(target.disk_text),
-            after  = strings.clone(written),
-        })
+        append(&run.record, Edit_Undo_File{path = strings.clone(target.path), before = strings.clone(target.disk_text), after = strings.clone(written)})
         run.applied += len(target.edits)
     }
     return true, ""
@@ -1196,13 +1096,13 @@ thor_undo_last_edits :: proc(thor: ^Thor) -> bool {
                 entry.revision = file.state.revision // what a redo has to still find
                 continue
             }
-            if werr := atomicfile.write(entry.path, transmute([]byte) entry.before); werr != nil {
+            if werr := atomicfile.write(entry.path, transmute([]byte)entry.before); werr != nil {
                 failed = true
             }
         case .Created:
             // Overwritten targets get their bytes back; a file the set made goes.
             if entry.existed {
-                if werr := atomicfile.write(entry.path, transmute([]byte) entry.before); werr != nil {
+                if werr := atomicfile.write(entry.path, transmute([]byte)entry.before); werr != nil {
                     failed = true
                 }
             } else if dok, _ := thor_delete_resource(thor, entry.path); !dok {
@@ -1213,7 +1113,7 @@ thor_undo_last_edits :: proc(thor: ^Thor) -> bool {
                 failed = true
             }
         case .Deleted:
-            if werr := atomicfile.write(entry.path, transmute([]byte) entry.before); werr != nil {
+            if werr := atomicfile.write(entry.path, transmute([]byte)entry.before); werr != nil {
                 failed = true
             }
         }
@@ -1223,7 +1123,7 @@ thor_undo_last_edits :: proc(thor: ^Thor) -> bool {
         }
     }
 
-    files := len(thor.edit_undo)
+    files  := len(thor.edit_undo)
     record := thor.edit_undo
     thor.edit_undo = nil
     if thor_record_moves_files(record[:]) {
@@ -1260,11 +1160,11 @@ thor_redo_last_edits :: proc(thor: ^Thor) -> bool {
                 entry.revision = file.state.revision // what a later undo has to find
                 continue
             }
-            if werr := atomicfile.write(entry.path, transmute([]byte) entry.after); werr != nil {
+            if werr := atomicfile.write(entry.path, transmute([]byte)entry.after); werr != nil {
                 failed = true
             }
         case .Created:
-            if werr := atomicfile.write(entry.path, transmute([]byte) entry.after); werr != nil {
+            if werr := atomicfile.write(entry.path, transmute([]byte)entry.after); werr != nil {
                 failed = true
             }
         case .Renamed:
@@ -1282,7 +1182,7 @@ thor_redo_last_edits :: proc(thor: ^Thor) -> bool {
         }
     }
 
-    files := len(thor.edit_redo)
+    files  := len(thor.edit_redo)
     record := thor.edit_redo
     thor.edit_redo = nil
     if thor_record_moves_files(record[:]) {
@@ -1326,7 +1226,7 @@ thor_edits_still_apply :: proc(thor: ^Thor, record: []Edit_Undo_File, forward: b
             continue
         case .Renamed:
             from := forward ? entry.new_path : entry.path
-            to := forward ? entry.path : entry.new_path
+            to   := forward ? entry.path : entry.new_path
             if !os.exists(from) || os.exists(to) {
                 return false
             }
@@ -1396,13 +1296,7 @@ thor_apply_rename :: proc(thor: ^Thor, res: ^lang.Result) {
 // on-disk scan never saw, an `origin` buffer edited since the request was made,
 // or an unreadable file.
 @(private = "file")
-thor_edit_target :: proc(
-    thor: ^Thor,
-    targets: ^[dynamic]Edit_Target,
-    path: string,
-    origin: string,
-    snapshot: u64,
-) -> (int, bool) {
+thor_edit_target :: proc(thor: ^Thor, targets: ^[dynamic]Edit_Target, path: string, origin: string, snapshot: u64) -> (int, bool) {
     canonical := thor_abs_path(path)
     for target, index in targets^ {
         if thor_same_path(target.path, canonical) {
@@ -1426,12 +1320,12 @@ thor_edit_target :: proc(
         } else if file.state.revision != file.saved_revision {
             return 0, false // unsaved changes; the engine measured the disk copy
         }
-        append(targets, Edit_Target {
-            path  = canonical,
-            file  = file,
+        append(targets, Edit_Target{
+            path = canonical,
+            file = file,
             // A copy: the targets are collected first and edited after, so this
             // one outlives edits made to another buffer in the same set.
-            text  = textedit.text_clone(&file.state, context.temp_allocator),
+            text = textedit.text_clone(&file.state, context.temp_allocator),
             edits = make([dynamic]lang.Text_Edit, context.temp_allocator),
         })
         return len(targets) - 1, true
@@ -1441,15 +1335,18 @@ thor_edit_target :: proc(
     if rerr != nil {
         return 0, false
     }
-    disk := string(data)
+    disk    := string(data)
     text, _ := thor_to_buffer_text(disk)
-    append(targets, Edit_Target {
-        path      = canonical,
-        text      = text,
-        disk_text = disk,
-        ending    = thor_detect_line_ending(disk),
-        edits     = make([dynamic]lang.Text_Edit, context.temp_allocator),
-    })
+    append(
+        targets,
+        Edit_Target{
+            path = canonical,
+            text = text,
+            disk_text = disk,
+            ending = thor_detect_line_ending(disk),
+            edits = make([dynamic]lang.Text_Edit, context.temp_allocator),
+        },
+    )
     return len(targets) - 1, true
 }
 
@@ -1459,7 +1356,7 @@ thor_edit_target :: proc(
 // caret is not in a call.
 thor_signature_help :: proc(thor: ^Thor) {
     editor := thor_active_editor(thor)
-    file := thor_active_open_file(thor)
+    file   := thor_active_open_file(thor)
     thor_request_signature(thor, editor, file, auto = false)
 }
 
@@ -1467,7 +1364,7 @@ thor_signature_help :: proc(thor: ^Thor) {
 // arguments), resolve the enclosing call silently — no flash when the caret is
 // not in one, and any live popup is dismissed instead.
 thor_editor_signature_help :: proc(data: rawptr, editor: ^editview.Editor, state: ^textedit.State, offset: int) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     for file in thor.open_files {
         if &file.state != state {
             continue
@@ -1481,7 +1378,7 @@ thor_editor_signature_help :: proc(data: rawptr, editor: ^editview.Editor, state
 // the file bound to `state`, exactly like thor_editor_signature_help, and asks
 // thor_format_on_type whether it applies.
 thor_editor_on_type :: proc(data: rawptr, editor: ^editview.Editor, state: ^textedit.State, offset: int, char: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     for file in thor.open_files {
         if &file.state != state {
             continue
@@ -1505,30 +1402,12 @@ thor_request_signature :: proc(thor: ^Thor, editor: ^editview.Editor, file: ^Ope
         return
     }
     source := textedit.text(&file.state)
-    caret := textedit.primary_cursor(&file.state).caret
+    caret  := textedit.primary_cursor(&file.state).caret
     id: u64
     if auto {
-        id = lang.manager_request_debounced(
-            &thor.lang_manager,
-            .Signature_Help,
-            file.path,
-            ext,
-            source,
-            caret,
-            file.state.revision,
-            thor.workspace_dir,
-        )
+        id = lang.manager_request_debounced(&thor.lang_manager, .Signature_Help, file.path, ext, source, caret, file.state.revision, thor.workspace_dir)
     } else {
-        id = lang.manager_request_latest(
-            &thor.lang_manager,
-            .Signature_Help,
-            file.path,
-            ext,
-            source,
-            caret,
-            file.state.revision,
-            thor.workspace_dir,
-        )
+        id = lang.manager_request_latest(&thor.lang_manager, .Signature_Help, file.path, ext, source, caret, file.state.revision, thor.workspace_dir)
     }
     if id == 0 {
         return
@@ -1552,7 +1431,7 @@ thor_package_doc :: proc(thor: ^Thor) {
         return
     }
     source := textedit.text(&file.state)
-    id := lang.manager_request_latest(
+    id     := lang.manager_request_latest(
         &thor.lang_manager,
         .Package_Doc,
         file.path,
@@ -1594,10 +1473,10 @@ thor_show_package_doc :: proc(thor: ^Thor, res: ^lang.Result) {
             return
         }
     }
-    stem := thor_doc_file_stem(strings.trim_prefix(res.doc.title, "package "))
+    stem           := thor_doc_file_stem(strings.trim_prefix(res.doc.title, "package "))
     // A .md doc so it renders as Markdown documentation (OLS-style: fenced
     // signatures + doc prose), not as an Odin source tab.
-    file_name := strings.concatenate({stem, ".md"}, context.temp_allocator)
+    file_name      := strings.concatenate({stem, ".md"}, context.temp_allocator)
     path, join_err := filepath.join({dir, file_name}, context.temp_allocator)
     if join_err != nil {
         log.errorf("Could not build a doc path for %q: %v", file_name, join_err)
@@ -1660,7 +1539,7 @@ thor_doc_file_stem :: proc(name: string) -> string {
 // pane without moving keyboard focus off the user's code.
 @(private = "file")
 thor_render_doc_in_pane :: proc(thor: ^Thor, path, text: string, pane: int) {
-    if werr := atomicfile.write(path, transmute([]byte) text); werr != nil {
+    if werr := atomicfile.write(path, transmute([]byte)text); werr != nil {
         log.errorf("Could not write %q: %v", path, werr)
         thor_flash_status(thor, "Could not write the documentation page", is_error = true)
         return
@@ -1692,7 +1571,7 @@ thor_render_doc_in_pane :: proc(thor: ^Thor, path, text: string, pane: int) {
 // the pane so the async result routes back to it. Returns true when one was
 // dispatched, so the editor holds off on its buffer-word fallback.
 thor_editor_completion :: proc(data: rawptr, editor: ^editview.Editor, state: ^textedit.State, offset: int) -> bool {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     for file in thor.open_files {
         if &file.state != state {
             continue
@@ -1707,7 +1586,7 @@ thor_editor_completion :: proc(data: rawptr, editor: ^editview.Editor, state: ^t
         source := textedit.text(&file.state)
         // Debounced: a fast typist would otherwise spawn a worker and clone the
         // whole buffer per keystroke, only for the next key to cancel it.
-        id := lang.manager_request_debounced(
+        id     := lang.manager_request_debounced(
             &thor.lang_manager,
             .Completion,
             file.path,
@@ -1765,16 +1644,16 @@ thor_update_completion :: proc(thor: ^Thor, res: ^lang.Result) {
 
     items := make([dynamic]editview.Completion_Item, context.temp_allocator)
     for item, i in thor.completion_items {
-        append(&items, editview.Completion_Item {
-            text     = item.label,
+        append(&items, editview.Completion_Item{
+            text = item.label,
             owner_id = i + 1, // zero says "the editor's own buffer word"
-            insert   = item.insert,
-            filter   = item.filter,
-            start    = item.start,
-            end      = item.end,
-            snippet  = item.snippet,
-            color    = thor_symbol_color(thor, item.kind),
-            note     = item.note,
+            insert = item.insert,
+            filter = item.filter,
+            start = item.start,
+            end = item.end,
+            snippet = item.snippet,
+            color = thor_symbol_color(thor, item.kind),
+            note = item.note,
         })
     }
     editview.editor_set_completions(editor, items[:], complete = !res.incomplete)
@@ -1933,13 +1812,8 @@ thor_merge_resolved_docs :: proc(thor: ^Thor, res: ^lang.Result) {
 // where the text landed shifts by the length it changed; thor_apply_edits then
 // validates every one against what is really there and refuses the whole set
 // rather than splicing half of it.
-thor_completion_accept :: proc(
-    data: rawptr,
-    editor: ^editview.Editor,
-    state: ^textedit.State,
-    owner_id, at, delta: int,
-) {
-    thor := cast(^Thor) data
+thor_completion_accept :: proc(data: rawptr, editor: ^editview.Editor, state: ^textedit.State, owner_id, at, delta: int) {
+    thor  := cast(^Thor)data
     index := owner_id - 1
     if index < 0 || index >= len(thor.completion_items) {
         return
@@ -2040,12 +1914,7 @@ thor_apply_resolved_completion :: proc(thor: ^Thor, res: ^lang.Result) {
         return
     }
     if len(item.extra_edits) > 0 {
-        if _, _, ok, reason := thor_apply_edits(
-            thor,
-            item.extra_edits[:],
-            file.path,
-            file.state.revision,
-        ); !ok {
+        if _, _, ok, reason := thor_apply_edits(thor, item.extra_edits[:], file.path, file.state.revision); !ok {
             thor_flash_status(thor, fmt.tprintf("completion follow-up aborted: %s", reason), is_error = true)
         }
     }
@@ -2074,7 +1943,7 @@ thor_request_semantic :: proc(thor: ^Thor, file: ^Open_File) {
     source := textedit.text(&file.state)
     // Debounced as well as serialized: a fast typist would otherwise have a
     // classification in flight continuously, each one obsolete before it lands.
-    id := lang.manager_request_debounced(
+    id     := lang.manager_request_debounced(
         &thor.lang_manager,
         .Semantic_Tokens,
         file.path,
@@ -2141,7 +2010,7 @@ thor_clear_doc_symbols :: proc(thor: ^Thor) {
 // pane is remembered so the async result routes back to it. A snapshot of the
 // buffer goes with the request, so the worker never races later edits.
 thor_editor_hover :: proc(data: rawptr, editor: ^editview.Editor, state: ^textedit.State, offset: int) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     for file in thor.open_files {
         if &file.state != state {
             continue
@@ -2154,16 +2023,7 @@ thor_editor_hover :: proc(data: rawptr, editor: ^editview.Editor, state: ^texted
             return
         }
         source := textedit.text(&file.state)
-        id := lang.manager_request_latest(
-            &thor.lang_manager,
-            .Hover,
-            file.path,
-            ext,
-            source,
-            offset,
-            file.state.revision,
-            thor.workspace_dir,
-        )
+        id     := lang.manager_request_latest(&thor.lang_manager, .Hover, file.path, ext, source, offset, file.state.revision, thor.workspace_dir)
         if id == 0 {
             return
         }
@@ -2177,7 +2037,7 @@ thor_editor_hover :: proc(data: rawptr, editor: ^editview.Editor, state: ^texted
 // the backend resolved; a failed go-to-definition flashes the statusline.
 thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
     prof.proc_scope()
-    thor := cast(^Thor) user
+    thor := cast(^Thor)user
     #partial switch res.kind {
     case .Definition:
         if thor_peek_take_result(thor, res) {
@@ -2296,7 +2156,7 @@ thor_show_signature :: proc(thor: ^Thor, res: ^lang.Result) {
         return
     }
     thor.signature_request_id = 0
-    auto := thor.signature_auto
+    auto   := thor.signature_auto
     editor := thor.signature_editor
     if !res.ok || len(res.signature.entries) == 0 {
         // An auto request that finds no call just dismisses whatever popup was up
@@ -2311,11 +2171,7 @@ thor_show_signature :: proc(thor: ^Thor, res: ^lang.Result) {
     if editor.state == nil || editor.state.revision != res.revision {
         return
     }
-    editview.editor_show_signature(
-        editor,
-        thor_signature_text(res.signature),
-        textedit.primary_cursor(editor.state).caret,
-    )
+    editview.editor_show_signature(editor, thor_signature_text(res.signature), textedit.primary_cursor(editor.state).caret)
 }
 
 // Lays the signature entries out for the popup. A lone signature is drawn bare,
@@ -2351,12 +2207,7 @@ thor_signature_line :: proc(entry: lang.Signature_Entry, active: bool) -> string
     if entry.active_start < 0 || entry.active_end > len(label) {
         return label
     }
-    return fmt.tprintf(
-        "%s[%s]%s",
-        label[:entry.active_start],
-        label[entry.active_start:entry.active_end],
-        label[entry.active_end:],
-    )
+    return fmt.tprintf("%s[%s]%s", label[:entry.active_start], label[entry.active_start:entry.active_end], label[entry.active_end:])
 }
 
 // Fills the already-open (loading) references picker once its scan lands. Drops
@@ -2388,13 +2239,8 @@ thor_build_reference_items :: proc(thor: ^Thor, res: ^lang.Result) -> []Pick_Ite
     thor_clear_doc_symbols(thor)
     items := make([dynamic]Pick_Item, context.temp_allocator)
     for sym in res.symbols {
-        append(&thor.doc_symbols, Doc_Symbol {path = strings.clone(sym.path), offset = sym.offset})
-        append(&items, Pick_Item {
-            text     = sym.signature,
-            name_len = 0,
-            color    = thor.theme.primary_text_color,
-            detail   = thor_symbol_detail(thor, sym),
-        })
+        append(&thor.doc_symbols, Doc_Symbol{path = strings.clone(sym.path), offset = sym.offset})
+        append(&items, Pick_Item{text = sym.signature, name_len = 0, color = thor.theme.primary_text_color, detail = thor_symbol_detail(thor, sym)})
     }
     return items[:]
 }
@@ -2437,13 +2283,7 @@ thor_show_symbols :: proc(thor: ^Thor, res: ^lang.Result, empty_message: string)
         return
     }
     items := thor_build_symbol_items(thor, res)
-    thor_palette_pick_rich(
-        thor,
-        "Go to symbol...",
-        items,
-        thor_pick_symbol,
-        thor,
-    )
+    thor_palette_pick_rich(thor, "Go to symbol...", items, thor_pick_symbol, thor)
 }
 
 // A go-to-definition that resolved to several workspace declarations: lists the
@@ -2451,13 +2291,7 @@ thor_show_symbols :: proc(thor: ^Thor, res: ^lang.Result, empty_message: string)
 @(private = "file")
 thor_show_definition_candidates :: proc(thor: ^Thor, res: ^lang.Result) {
     items := thor_build_symbol_items(thor, res)
-    thor_palette_pick_rich(
-        thor,
-        "Multiple definitions...",
-        items,
-        thor_pick_symbol,
-        thor,
-    )
+    thor_palette_pick_rich(thor, "Multiple definitions...", items, thor_pick_symbol, thor)
 }
 
 // Rebuilds the picker's jump targets (doc_symbols) from a symbol result and
@@ -2467,18 +2301,16 @@ thor_build_symbol_items :: proc(thor: ^Thor, res: ^lang.Result) -> []Pick_Item {
     thor_clear_doc_symbols(thor)
     items := make([dynamic]Pick_Item, context.temp_allocator)
     for sym in res.symbols {
-        append(&thor.doc_symbols, Doc_Symbol {path = strings.clone(sym.path), offset = sym.offset})
+        append(&thor.doc_symbols, Doc_Symbol{path = strings.clone(sym.path), offset = sym.offset})
         // A server-backed symbol carries no signature when it could not read the
         // declaring line (SymbolInformation has no `detail` field at all, and a
         // cross-file workspace scan needs a disk read the native engine never
         // does): fall back to the bare name rather than a row with no text.
         text := sym.signature != "" ? sym.signature : sym.name
-        append(&items, Pick_Item {
-            text     = text,
-            name_len = min(len(sym.name), len(text)),
-            color    = thor_symbol_color(thor, sym.kind),
-            detail   = thor_symbol_detail(thor, sym),
-        })
+        append(
+            &items,
+            Pick_Item{text = text, name_len = min(len(sym.name), len(text)), color = thor_symbol_color(thor, sym.kind), detail = thor_symbol_detail(thor, sym)},
+        )
     }
     return items[:]
 }
@@ -2486,7 +2318,7 @@ thor_build_symbol_items :: proc(thor: ^Thor, res: ^lang.Result) -> []Pick_Item {
 // Pick callback: jumps to the chosen row's file and offset. The index is into
 // doc_symbols, which the palette kept in the order it was handed the items.
 thor_pick_symbol :: proc(data: rawptr, index: int) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if index < 0 || index >= len(thor.doc_symbols) {
         return
     }
@@ -2509,15 +2341,24 @@ thor_symbol_detail :: proc(thor: ^Thor, sym: lang.Symbol) -> string {
 @(private)
 thor_symbol_color :: proc(thor: ^Thor, kind: string) -> ui.Color {
     switch kind {
-    case "function": return thor.theme.functions_color
-    case "type":     return thor.theme.keywords_color
-    case "enum":     return thor.theme.keywords_color
-    case "constant": return thor.theme.numbers_color
-    case "var":      return thor.theme.variables_color
-    case "keyword":  return thor.theme.keywords_color
-    case "namespace": return thor.theme.functions_color
-    case "field":    return thor.theme.variables_color
-    case "enum_member": return thor.theme.numbers_color
+    case "function":
+        return thor.theme.functions_color
+    case "type":
+        return thor.theme.keywords_color
+    case "enum":
+        return thor.theme.keywords_color
+    case "constant":
+        return thor.theme.numbers_color
+    case "var":
+        return thor.theme.variables_color
+    case "keyword":
+        return thor.theme.keywords_color
+    case "namespace":
+        return thor.theme.functions_color
+    case "field":
+        return thor.theme.variables_color
+    case "enum_member":
+        return thor.theme.numbers_color
     }
     return thor.theme.primary_text_color
 }
@@ -2578,7 +2419,7 @@ thor_goto_file_line_col :: proc(thor: ^Thor, path: string, line, col: int) {
 // Byte offset of the (1-based) line/column within a loaded file's buffer.
 @(private = "file")
 offset_for_line_col :: proc(file: ^Open_File, line, col: int) -> int {
-    text := textedit.text(&file.state)
+    text  := textedit.text(&file.state)
     start := textedit.state_line_start(&file.state, max(line - 1, 0)) + max(col - 1, 0)
     return clamp(start, 0, len(text))
 }
@@ -2641,4 +2482,3 @@ thor_clear_pending_goto :: proc(thor: ^Thor) {
     thor.pending_goto_active = false
     thor.pending_goto_line = 0
 }
-

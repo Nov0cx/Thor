@@ -33,17 +33,7 @@ test_capabilities_providers :: proc(t: ^testing.T) {
 
     // Resolve_Completion rides completionProvider, the way Package_Doc rides
     // hoverProvider; whether the server actually resolves is a second question.
-    testing.expect_value(
-        t, caps.kinds,
-        bit_set[lang.Request_Kind] {
-            .Definition,
-            .Hover,
-            .Package_Doc,
-            .Completion,
-            .Resolve_Completion,
-            .Semantic_Tokens,
-        },
-    )
+    testing.expect_value(t, caps.kinds, bit_set[lang.Request_Kind]{.Definition, .Hover, .Package_Doc, .Completion, .Resolve_Completion, .Semantic_Tokens})
 }
 
 // A reply that is not a capabilities object leaves a server that claims nothing,
@@ -82,7 +72,7 @@ test_capabilities_encoding :: proc(t: ^testing.T) {
         text: string,
         want: Encoding,
     }
-    cases := []Case {
+    cases := []Case{
         {`{"capabilities": {}}`, .Utf16},
         {`{"capabilities": {"positionEncoding": "utf-16"}}`, .Utf16},
         {`{"capabilities": {"positionEncoding": "utf-8"}}`, .Utf8},
@@ -170,7 +160,23 @@ test_capabilities_real_reply :: proc(t: ^testing.T) {
     testing.expect_value(
         t,
         caps.kinds,
-        lang.FEATURES_ALL - {.Diagnostics, .Syntax_Diagnostics, .Progress, .Apply_Edit, .Message, .Format, .Format_Range, .Format_On_Type, .Resolve_Action, .Call_Hierarchy, .Type_Hierarchy, .Implementations, .Selection_Range, .Code_Lens},
+        lang.FEATURES_ALL -
+            {
+                .Diagnostics,
+                .Syntax_Diagnostics,
+                .Progress,
+                .Apply_Edit,
+                .Message,
+                .Format,
+                .Format_Range,
+                .Format_On_Type,
+                .Resolve_Action,
+                .Call_Hierarchy,
+                .Type_Hierarchy,
+                .Implementations,
+                .Selection_Range,
+                .Code_Lens,
+            },
     )
 }
 
@@ -178,11 +184,9 @@ test_capabilities_real_reply :: proc(t: ^testing.T) {
 // second round trip, and the characters it wants to be told about.
 @(test)
 test_capabilities_completion_options :: proc(t: ^testing.T) {
-    caps := decode(
-        `{"capabilities": {
+    caps := decode(`{"capabilities": {
             "completionProvider": {"resolveProvider": true, "triggerCharacters": [".", ":"]}
-        }}`,
-    )
+        }}`)
 
     testing.expect(t, .Completion in caps.kinds)
     testing.expect(t, .Resolve_Completion in caps.kinds)
@@ -237,9 +241,7 @@ test_capabilities_on_type_triggers :: proc(t: ^testing.T) {
     testing.expect_value(t, with_more.on_type_triggers[1], ";")
     testing.expect_value(t, with_more.on_type_triggers[2], "\n")
 
-    first_only := decode(
-        `{"capabilities": {"documentOnTypeFormattingProvider": {"firstTriggerCharacter": ":"}}}`,
-    )
+    first_only := decode(`{"capabilities": {"documentOnTypeFormattingProvider": {"firstTriggerCharacter": ":"}}}`)
     testing.expect_value(t, len(first_only.on_type_triggers), 1)
     testing.expect_value(t, first_only.on_type_triggers[0], ":")
 

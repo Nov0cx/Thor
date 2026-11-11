@@ -14,16 +14,16 @@ import "../setting"
 
 // Beside the binary, in the one directory Thor owns and writes to. Truncated at
 // every start: what matters is the session that just went wrong.
-LOG_FILE :: "thor.log"
+LOG_FILE     :: "thor.log"
 PROFILE_FILE :: "thor.spall"
 
 // The loggers a run holds. `to_file` is false when the file could not be opened,
 // which leaves the console logger alone rather than failing the start.
 Log_State :: struct {
-    logger:  log.Logger, // what to put in the context
-    console: log.Logger,
-    file:    log.Logger,
-    to_file: bool,
+    logger:    log.Logger, // what to put in the context
+    console:   log.Logger,
+    file:      log.Logger,
+    to_file:   bool,
     // The allocator the loggers were made from, kept because the caller installs
     // a tracking allocator after this and tears it down before the free.
     allocator: runtime.Allocator,
@@ -59,10 +59,7 @@ user_file_path :: proc(name: string, allocator := context.allocator) -> string {
 
 // The console logger, and a file logger beside it when the file opens.
 log_init :: proc(lowest: log.Level, allocator := context.allocator) -> Log_State {
-    state := Log_State {
-        console   = log.create_console_logger(lowest, {.Level, .Terminal_Color}, allocator = allocator),
-        allocator = allocator,
-    }
+    state := Log_State{console = log.create_console_logger(lowest, {.Level, .Terminal_Color}, allocator = allocator), allocator = allocator}
     state.logger = state.console
 
     path := log_file_path(context.temp_allocator)

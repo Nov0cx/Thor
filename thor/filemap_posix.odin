@@ -38,13 +38,13 @@ file_map_open :: proc(m: ^File_Map, path: string) -> ([]u8, bool) {
         return nil, true
     }
 
-    size := cast(int) info.st_size
+    size    := cast(int)info.st_size
     address := posix.mmap(nil, c.size_t(size), {.READ}, {.PRIVATE}, fd, 0)
     if address == posix.MAP_FAILED {
         return nil, false
     }
 
-    m.data = (cast([^]u8) address)[:size]
+    m.data = (cast([^]u8)address)[:size]
     return m.data, true
 }
 

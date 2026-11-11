@@ -101,9 +101,8 @@ parse_stmt :: proc(p: ^Parser, start := -1) -> Syntax_Kind {
     defer leave(p)
 
     #partial switch at(p) {
-    case .Context, .Proc, .Ident, .Integer, .Float, .Imag, .Rune, .String, .Open_Paren, .Pointer, .Asm,
-         .Add, .Sub, .Xor, .Not, .And, .Increment, .Decrement:
-        cp := start if start >= 0 else mark(p)
+    case .Context, .Proc, .Ident, .Integer, .Float, .Imag, .Rune, .String, .Open_Paren, .Pointer, .Asm, .Add, .Sub, .Xor, .Not, .And, .Increment, .Decrement:
+        cp   := start if start >= 0 else mark(p)
         kind := parse_simple_stmt(p, {.Label}, cp)
         #partial switch kind {
         case .Expr_Stmt:
@@ -121,12 +120,18 @@ parse_stmt :: proc(p: ^Parser, start := -1) -> Syntax_Kind {
         bump_error(p, force = true)
         return .Error
 
-    case .Foreign: return parse_foreign_decl(p, start)
-    case .Import:  return parse_import_decl(p, start)
-    case .If:      return parse_if_stmt(p, start)
-    case .When:    return parse_when_stmt(p, start)
-    case .For:     return parse_for_stmt(p, start)
-    case .Switch:  return parse_switch_stmt(p, start)
+    case .Foreign:
+        return parse_foreign_decl(p, start)
+    case .Import:
+        return parse_import_decl(p, start)
+    case .If:
+        return parse_if_stmt(p, start)
+    case .When:
+        return parse_when_stmt(p, start)
+    case .For:
+        return parse_for_stmt(p, start)
+    case .Switch:
+        return parse_switch_stmt(p, start)
 
     case .Defer:
         cp := start if start >= 0 else mark(p)
@@ -161,7 +166,7 @@ parse_stmt :: proc(p: ^Parser, start := -1) -> Syntax_Kind {
         return .Return_Stmt
 
     case .Break, .Continue, .Fallthrough:
-        cp := start if start >= 0 else mark(p)
+        cp              := start if start >= 0 else mark(p)
         fallthrough_tok := at(p) == .Fallthrough
         bump(p)
         if !fallthrough_tok && at(p) == .Ident {
@@ -224,11 +229,16 @@ parse_stmt :: proc(p: ^Parser, start := -1) -> Syntax_Kind {
         cp := start if start >= 0 else mark(p)
         bump(p)
         #partial switch at(p) {
-        case .If:         parse_if_stmt(p)
-        case .When:       parse_when_stmt(p)
-        case .Open_Brace: parse_body(p)
-        case .Do:         parse_do_body(p)
-        case:             recover_stmt(p)
+        case .If:
+            parse_if_stmt(p)
+        case .When:
+            parse_when_stmt(p)
+        case .Open_Brace:
+            parse_body(p)
+        case .Do:
+            parse_do_body(p)
+        case:
+            recover_stmt(p)
         }
         finish_stmt(p, cp, .Error, nested_end(p, cp))
         return .Error
@@ -247,8 +257,8 @@ parse_stmt :: proc(p: ^Parser, start := -1) -> Syntax_Kind {
 // `#name` before a statement: a prefix of it, or a directive call.
 @(private)
 parse_directive_stmt :: proc(p: ^Parser, start: int) -> Syntax_Kind {
-    dcp := mark(p)
-    cp := start if start >= 0 else dcp
+    dcp  := mark(p)
+    cp   := start if start >= 0 else dcp
     name := parse_directive(p)
     switch name {
     case "bounds_check", "no_bounds_check", "type_assert", "no_type_assert":
@@ -306,8 +316,8 @@ parse_directive :: proc(p: ^Parser) -> string {
 @(private)
 parse_simple_stmt :: proc(p: ^Parser, flags: Stmt_Flags, stmt_cp: int) -> Syntax_Kind {
     lcp := mark(p)
-    n := parse_expr_list(p, true)
-    op := at(p)
+    n   := parse_expr_list(p, true)
+    op  := at(p)
     switch {
     case is_assignment_op(op):
         wrap(p, lcp, .Expr_List)
@@ -338,7 +348,7 @@ parse_simple_stmt :: proc(p: ^Parser, flags: Stmt_Flags, stmt_cp: int) -> Syntax
             label_end := mark_end(p)
             if at(p) == .Hash {
                 name_kind, name_tok := lookahead(p, 1)
-                next, _ := lookahead(p, 2)
+                next, _             := lookahead(p, 2)
                 if name_kind == .Ident {
                     name := token_text(p.src, name_tok)
                     if (name == "partial" && next == .Switch) || (name == "reverse" && next == .For) {
@@ -371,8 +381,7 @@ parse_simple_stmt :: proc(p: ^Parser, flags: Stmt_Flags, stmt_cp: int) -> Syntax
 @(private)
 is_assignment_op :: proc(kind: Token_Kind) -> bool {
     #partial switch kind {
-    case .Eq, .Add_Eq, .Sub_Eq, .Mul_Eq, .Quo_Eq, .Mod_Eq, .Mod_Mod_Eq, .And_Eq, .Or_Eq,
-         .Xor_Eq, .And_Not_Eq, .Shl_Eq, .Shr_Eq, .Cmp_And_Eq, .Cmp_Or_Eq:
+    case .Eq, .Add_Eq, .Sub_Eq, .Mul_Eq, .Quo_Eq, .Mod_Eq, .Mod_Mod_Eq, .And_Eq, .Or_Eq, .Xor_Eq, .And_Not_Eq, .Shl_Eq, .Shr_Eq, .Cmp_And_Eq, .Cmp_Or_Eq:
         return true
     }
     return false
@@ -382,9 +391,9 @@ is_assignment_op :: proc(kind: Token_Kind) -> bool {
 @(private)
 parse_value_decl :: proc(p: ^Parser, stmt_cp, lcp, names_end: int) {
     wrap_range(p, lcp, names_end, .Name_List)
-    has_type := parse_type_or_ident(p).kind != .None
-    mutable := true
-    values := 0
+    has_type      := parse_type_or_ident(p).kind != .None
+    mutable       := true
+    values        := 0
     missing_value := false
     #partial switch at(p) {
     case .Eq, .Colon:
@@ -625,7 +634,7 @@ parse_if_stmt :: proc(p: ^Parser, start := -1) -> Syntax_Kind {
     if allow(p, .Semicolon) {
         has_cond = parse_expr(p, false).kind != .None
     } else {
-        icp := mark(p)
+        icp  := mark(p)
         kind := parse_simple_stmt(p, {}, icp)
         if control_separator(p) {
             if kind == .Expr_Stmt {
@@ -647,10 +656,14 @@ parse_if_stmt :: proc(p: ^Parser, start := -1) -> Syntax_Kind {
     skip_newline_for_literal(p)
     if allow(p, .Else) {
         #partial switch at(p) {
-        case .If:         parse_if_stmt(p)
-        case .Open_Brace: parse_block_stmt(p, false)
-        case .Do:         parse_do_body(p)
-        case:             error_here(p, .Expected_Stmt)
+        case .If:
+            parse_if_stmt(p)
+        case .Open_Brace:
+            parse_block_stmt(p, false)
+        case .Do:
+            parse_do_body(p)
+        case:
+            error_here(p, .Expected_Stmt)
         }
     }
     finish_stmt(p, cp, .If_Stmt, nested_end(p, cp))
@@ -682,10 +695,14 @@ parse_when_stmt :: proc(p: ^Parser, start := -1) -> Syntax_Kind {
     skip_newline_for_literal(p)
     if allow(p, .Else) {
         #partial switch at(p) {
-        case .When:       parse_when_stmt(p)
-        case .Open_Brace: parse_block_stmt(p, true)
-        case .Do:         parse_do_body(p)
-        case:             error_here(p, .Expected_Stmt)
+        case .When:
+            parse_when_stmt(p)
+        case .Open_Brace:
+            parse_block_stmt(p, true)
+        case .Do:
+            parse_do_body(p)
+        case:
+            error_here(p, .Expected_Stmt)
         }
     }
     finish_stmt(p, cp, .When_Stmt, nested_end(p, cp))
@@ -699,7 +716,7 @@ parse_for_stmt :: proc(p: ^Parser, start := -1) -> Syntax_Kind {
     }
     cp := start if start >= 0 else mark(p)
     bump(p)
-    is_range := false
+    is_range  := false
     cond_kind := Syntax_Kind.None
 
     general: if at(p) != .Open_Brace && at(p) != .Do {
@@ -835,7 +852,7 @@ parse_switch_stmt :: proc(p: ^Parser, start := -1) -> Syntax_Kind {
             is_type = true
             parse_expr(p, true)
         } else {
-            tcp := mark(p)
+            tcp  := mark(p)
             kind := parse_simple_stmt(p, {.In}, tcp)
             if kind == .Range_Stmt {
                 is_type = true

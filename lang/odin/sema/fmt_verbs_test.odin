@@ -8,7 +8,7 @@ import "core:testing"
 @(private = "file")
 steps_text :: proc(format: string, arg_count: int) -> string {
     steps, unused := format_steps(format, arg_count, context.temp_allocator)
-    b := strings.builder_make(context.temp_allocator)
+    b             := strings.builder_make(context.temp_allocator)
     for s in steps {
         switch s.kind {
         case .Verb, .Width, .Precision:
@@ -30,7 +30,7 @@ test_format_steps :: proc(t: ^testing.T) {
         args:   int,
         want:   string,
     }
-    cases := []Case {
+    cases := []Case{
         {"plain text", 0, "unused=bit_set[0..=63]{}"},
         {"%d and %s", 2, "Verb@0:0:d Verb@7:1:s unused=bit_set[0..=63]{}"},
         {"100%% {{x}}", 0, "unused=bit_set[0..=63]{}"},

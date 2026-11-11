@@ -31,8 +31,8 @@ whole_row :: proc(text: string) -> editview.Visual_Row {
 // nor a tab, and whitespace between words is left unmarked.
 @(test)
 test_markers_cover_the_indentation_only :: proc(t: ^testing.T) {
-    editor := overlay_editor()
-    row := `	  x y`
+    editor  := overlay_editor()
+    row     := `	  x y`
     markers := thor_row_markers(&editor, row, whole_row(row), nil, TEXT_X)
 
     testing.expect_value(t, len(markers), 3)
@@ -52,7 +52,7 @@ test_markers_cover_the_indentation_only :: proc(t: ^testing.T) {
 @(test)
 test_markers_of_an_unindented_row :: proc(t: ^testing.T) {
     editor := overlay_editor()
-    row := "x  y"
+    row    := "x  y"
     testing.expect_value(t, len(thor_row_markers(&editor, row, whole_row(row), nil, TEXT_X)), 0)
 }
 
@@ -62,8 +62,8 @@ test_markers_of_an_unindented_row :: proc(t: ^testing.T) {
 @(test)
 test_a_swatch_gap_does_not_stretch_the_last_marker :: proc(t: ^testing.T) {
     editor := overlay_editor()
-    row := `  "#1A1C23"`
-    gap := editview.editor_swatch_span(&editor)
+    row    := `  "#1A1C23"`
+    gap    := editview.editor_swatch_span(&editor)
 
     buffer: [editview.MAX_ROW_SWATCHES]editview.Row_Swatch
     swatches := thor_row_swatches(row, buffer[:])
@@ -84,7 +84,7 @@ test_a_swatch_gap_does_not_stretch_the_last_marker :: proc(t: ^testing.T) {
 // share; a row the word misses takes none.
 @(test)
 test_the_link_is_clipped_to_its_row :: proc(t: ^testing.T) {
-    first := editview.Visual_Row{start = 0, end = 10, line = 0, first = true}
+    first  := editview.Visual_Row{start = 0, end = 10, line = 0, first = true}
     second := editview.Visual_Row{start = 10, end = 20, line = 0}
 
     start, end, ok := thor_row_link_bytes(first, 6, 14)
@@ -149,7 +149,7 @@ test_a_stop_is_clipped_to_its_row :: proc(t: ^testing.T) {
     defer delete(editor.snippet_stops)
     snippet_editor(&editor, snippet.Stop{start = 6, end = 14, index = 1})
 
-    first := editview.Visual_Row{start = 0, end = 10, first = true}
+    first  := editview.Visual_Row{start = 0, end = 10, first = true}
     second := editview.Visual_Row{start = 10, end = 20}
 
     head := thor_row_stops(&editor, first)
@@ -179,11 +179,7 @@ test_an_empty_stop_is_marked_once :: proc(t: ^testing.T) {
     testing.expect_value(t, head[0].end, 10)
 
     testing.expect_value(t, len(thor_row_stops(&editor, editview.Visual_Row{start = 10, end = 20})), 0)
-    testing.expect_value(
-        t,
-        len(thor_row_stops(&editor, editview.Visual_Row{start = 10, end = 20, first = true})),
-        1,
-    )
+    testing.expect_value(t, len(thor_row_stops(&editor, editview.Visual_Row{start = 10, end = 20, first = true})), 1)
 }
 
 // Nothing is marked when no session is live, even with stops still in the list.

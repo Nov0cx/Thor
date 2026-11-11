@@ -7,9 +7,29 @@ import "core:strings"
 
 // Lua words that cannot be a bare table key.
 @(private)
-KEYWORDS := []string {
-    "and", "break", "do", "else", "elseif", "end", "false", "for", "function", "goto", "if", "in",
-    "local", "nil", "not", "or", "repeat", "return", "then", "true", "until", "while",
+KEYWORDS := []string{
+    "and",
+    "break",
+    "do",
+    "else",
+    "elseif",
+    "end",
+    "false",
+    "for",
+    "function",
+    "goto",
+    "if",
+    "in",
+    "local",
+    "nil",
+    "not",
+    "or",
+    "repeat",
+    "return",
+    "then",
+    "true",
+    "until",
+    "while",
 }
 
 // Writes `value` as a whole config file: `return { ... }`.
@@ -182,7 +202,7 @@ write_value :: proc(b: ^strings.Builder, value: json.Value, indent: int) {
 
 // Keys that name an entry come first, the rest in byte order.
 @(private)
-LEADING_KEYS := []string {"id", "name", "title"}
+LEADING_KEYS := []string{"id", "name", "title"}
 
 @(private)
 key_less :: proc(a, b: string) -> bool {

@@ -7,18 +7,11 @@ import win32 "core:sys/windows"
 // user32.lib cannot be linked (its CloseWindow/ShowCursor collide with
 // raylib's), so the layout calls are resolved at runtime.
 @(private = "file")
-Get_Keyboard_Layout_Proc :: #type proc "system" (thread: win32.DWORD) -> win32.HANDLE
+Get_Keyboard_Layout_Proc :: #type proc "system"(thread: win32.DWORD) -> win32.HANDLE
 @(private = "file")
-Map_Virtual_Key_Proc :: #type proc "system" (code, map_type: win32.UINT, layout: win32.HANDLE) -> win32.UINT
+Map_Virtual_Key_Proc :: #type proc "system"(code, map_type: win32.UINT, layout: win32.HANDLE) -> win32.UINT
 @(private = "file")
-To_Unicode_Proc :: #type proc "system" (
-    vk, scan: win32.UINT,
-    state: ^[256]u8,
-    buffer: [^]u16,
-    capacity: win32.c_int,
-    flags: win32.UINT,
-    layout: win32.HANDLE,
-) -> win32.c_int
+To_Unicode_Proc :: #type proc "system"(vk, scan: win32.UINT, state: ^[256]u8, buffer: [^]u16, capacity: win32.c_int, flags: win32.UINT, layout: win32.HANDLE) -> win32.c_int
 
 @(private = "file")
 Layout :: struct {
@@ -69,9 +62,9 @@ resolve_user32 :: proc() -> bool {
             log.warn("Could not load user32.dll; Right Alt stays AltGr")
             return false
         }
-        layout.keyboard_layout = cast(Get_Keyboard_Layout_Proc) GetProcAddress(lib, "GetKeyboardLayout")
-        layout.map_virtual_key = cast(Map_Virtual_Key_Proc) GetProcAddress(lib, "MapVirtualKeyExW")
-        layout.to_unicode = cast(To_Unicode_Proc) GetProcAddress(lib, "ToUnicodeEx")
+        layout.keyboard_layout = cast(Get_Keyboard_Layout_Proc)GetProcAddress(lib, "GetKeyboardLayout")
+        layout.map_virtual_key = cast(Map_Virtual_Key_Proc)GetProcAddress(lib, "MapVirtualKeyExW")
+        layout.to_unicode = cast(To_Unicode_Proc)GetProcAddress(lib, "ToUnicodeEx")
     }
     return layout.keyboard_layout != nil && layout.map_virtual_key != nil && layout.to_unicode != nil
 }

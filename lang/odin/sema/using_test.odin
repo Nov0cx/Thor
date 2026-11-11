@@ -59,7 +59,7 @@ test_using_lookup :: proc(t: ^testing.T) {
         return
     }
     defer check_end(&env)
-    cases := []Using_Case {
+    cases := []Using_Case{
         {"pos", "a := ", "Vec", "Entity ::"},
         {"id", "b := ", "int", "Base ::"},
         {"x", "c := ", "f32", "Vec ::"},
@@ -75,7 +75,7 @@ test_using_lookup :: proc(t: ^testing.T) {
         if !testing.expectf(t, at >= 0, "%s after %q: not in the source", k.name, k.after) {
             continue
         }
-        op, ok := using_lookup(&env.c, ANON_FILE, k.name, at)
+        op, ok       := using_lookup(&env.c, ANON_FILE, k.name, at)
         sym, has_sym := using_symbol(&env.c, ANON_FILE, at)
         if k.want == "" {
             testing.expectf(t, !ok, "%s after %q: want no using hit", k.name, k.after)
@@ -91,7 +91,7 @@ test_using_lookup :: proc(t: ^testing.T) {
             continue
         }
         _, start, _, rok := symbol_range(&env.c, sym)
-        want := marker_offset(USING_SRC, k.name, k.decl_after)
+        want             := marker_offset(USING_SRC, k.name, k.decl_after)
         testing.expectf(t, rok && start == want, "%s after %q: declaration at %d, want %d", k.name, k.after, start, want)
     }
     testing.expect_value(t, env.c.err, nil)
@@ -104,7 +104,7 @@ test_using_ident_type :: proc(t: ^testing.T) {
         return
     }
     defer check_end(&env)
-    at := marker_offset(USING_SRC, "id", "b := ")
+    at    := marker_offset(USING_SRC, "id", "b := ")
     n, ok := expr_node_at(&env.c, ANON_FILE, at, "id")
     if !testing.expect(t, ok, "no expression node") {
         return

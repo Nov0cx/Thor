@@ -16,8 +16,8 @@ Marked :: struct {
 
 @(private = "file")
 strip_marks :: proc(marked: string) -> Marked {
-    out := Marked{caret = -1, decl = -1}
-    sb := strings.builder_make(context.temp_allocator)
+    out  := Marked{caret = -1, decl = -1}
+    sb   := strings.builder_make(context.temp_allocator)
     rest := marked
     for len(rest) > 0 {
         switch {
@@ -147,7 +147,7 @@ test_scope_type_switch :: proc(t: ^testing.T) {
     expect_local(t, "package p\nf :: proc(»u: U) {\n    switch v in «u {\n    }\n}", .Param)
     expect_ref(t, "package p\nf :: proc(u: U) {\n    switch v in u {\n    }\n    _ = «v\n}", .Free)
 
-    m := strip_marks(src)
+    m           := strip_marks(src)
     parsed, err := odinsyntax.parse(m.src)
     testing.expect_value(t, err, nil)
     defer odinsyntax.parse_destroy(&parsed)
@@ -159,8 +159,16 @@ test_scope_type_switch :: proc(t: ^testing.T) {
 
 @(test)
 test_scope_labels :: proc(t: ^testing.T) {
-    expect_local(t, "package p\nf :: proc(xs: []int) {\n    »outer: for x in xs {\n        for y in xs {\n            break «outer\n        }\n    }\n}", .Label)
-    expect_local(t, "package p\nf :: proc(xs: []int) {\n    »outer: for x in xs {\n        for y in xs {\n            if y == 0 do continue «outer\n        }\n    }\n}", .Label)
+    expect_local(
+        t,
+        "package p\nf :: proc(xs: []int) {\n    »outer: for x in xs {\n        for y in xs {\n            break «outer\n        }\n    }\n}",
+        .Label,
+    )
+    expect_local(
+        t,
+        "package p\nf :: proc(xs: []int) {\n    »outer: for x in xs {\n        for y in xs {\n            if y == 0 do continue «outer\n        }\n    }\n}",
+        .Label,
+    )
     expect_local(t, "package p\nf :: proc() {\n    »blk: {\n        break «blk\n    }\n}", .Label)
     expect_local(t, "package p\nf :: proc() {\n    »loop: for {\n        g() or_break «loop\n    }\n}", .Label)
     // A label is not a value, and a value is not a label.
@@ -265,7 +273,7 @@ test_scope_using_and_blank :: proc(t: ^testing.T) {
     expect_ref(t, "package p\n@(«private) f :: proc() {}", .None)
     expect_ref(t, "package p\nf :: proc() {  «  }", .None)
 
-    src := "package p\nf :: proc(s: S) {\n    using s\n}"
+    src         := "package p\nf :: proc(s: S) {\n    using s\n}"
     parsed, err := odinsyntax.parse(src)
     testing.expect_value(t, err, nil)
     defer odinsyntax.parse_destroy(&parsed)
@@ -280,8 +288,8 @@ test_scope_using_and_blank :: proc(t: ^testing.T) {
 
 @(test)
 test_scope_local_references :: proc(t: ^testing.T) {
-    src := "package p\nf :: proc(x: int) {\n    »y := x\n    {\n        y := y + 1\n        _ = y\n    }\n    _ = y * y\n    g :: proc() { _ = y }\n}"
-    m := strip_marks(src)
+    src         := "package p\nf :: proc(x: int) {\n    »y := x\n    {\n        y := y + 1\n        _ = y\n    }\n    _ = y * y\n    g :: proc() { _ = y }\n}"
+    m           := strip_marks(src)
     parsed, err := odinsyntax.parse(m.src)
     testing.expect_value(t, err, nil)
     defer odinsyntax.parse_destroy(&parsed)
@@ -325,7 +333,7 @@ test_scope_smoke_repo_files :: proc(t: ^testing.T) {
             continue
         }
         defer delete(data)
-        src := string(data)
+        src         := string(data)
         parsed, err := odinsyntax.parse(src)
         if !testing.expect_value(t, err, nil) {
             continue
@@ -369,7 +377,7 @@ starts_with :: proc(src: string, offset: int, want: string) -> bool {
 
 @(test)
 test_scope_local_type_and_value_offsets :: proc(t: ^testing.T) {
-    src := "package p\n" +
+    src         := "package p\n" +
         "f :: proc(a: int, b := 2, c: f32 = 1.5) -> (r: bool) {\n" +
         "    x: u8 = 3\n" +
         "    y, z := g()\n" +
@@ -398,7 +406,7 @@ test_scope_local_type_and_value_offsets :: proc(t: ^testing.T) {
         index:  int,
         source: Local_Source,
     }
-    cases := []Want {
+    cases := []Want{
         {"a", "int", "", -1, .Value},
         {"b", "", "2", -1, .Value},
         {"c", "f32", "1.5", -1, .Value},

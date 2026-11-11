@@ -86,12 +86,7 @@ thor_open_path :: proc(thor: ^Thor, path: string) {
 
 // The picker rows, in order. Indices line up with Open_Folder_Choice.
 @(private = "file")
-OPEN_FOLDER_CHOICES := [?]string {
-    "This Window",
-    "New Window",
-    "Always This Window",
-    "Always New Window",
-}
+OPEN_FOLDER_CHOICES := [?]string{"This Window", "New Window", "Always This Window", "Always New Window"}
 
 @(private = "file")
 Open_Folder_Choice :: enum {
@@ -144,20 +139,14 @@ thor_prompt_open_folder :: proc(thor: ^Thor, dir: string) {
     thor.pending_open_folder = strings.clone(dir)
     thor.open_folder_prompt = fmt.aprintf("Open %s in", filepath.base(dir))
 
-    thor_palette_pick(
-        thor,
-        thor.open_folder_prompt,
-        OPEN_FOLDER_CHOICES[:],
-        thor_pick_open_folder,
-        thor,
-    )
+    thor_palette_pick(thor, thor.open_folder_prompt, OPEN_FOLDER_CHOICES[:], thor_pick_open_folder, thor)
 }
 
 // A row was picked. The two "Always" rows persist the choice first, then do the
 // same thing their plain counterparts do.
 @(private = "file")
 thor_pick_open_folder :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     defer thor_clear_pending_open_folder(thor)
 
     if thor.pending_open_folder == "" {
@@ -169,7 +158,7 @@ thor_pick_open_folder :: proc(data: rawptr, choice: string) {
     found := false
     for label, index in OPEN_FOLDER_CHOICES {
         if label == choice {
-            picked = cast(Open_Folder_Choice) index
+            picked = cast(Open_Folder_Choice)index
             found = true
             break
         }
@@ -210,7 +199,7 @@ thor_open_folder_in_new_window :: proc(thor: ^Thor, dir: string) {
 // to open a folder, which reloads anyway.
 thor_persist_open_folder_in :: proc(thor: ^Thor, choice: setting.Open_Folder_In) {
     value := setting.open_folder_in_value(choice)
-    path := setting.USER_SETTINGS
+    path  := setting.USER_SETTINGS
     if err := setting.persist_string(path, "open_folder_in", value); err != .None {
         thor_settings_save_failed(thor, path, err)
         return
@@ -340,7 +329,7 @@ thor_poll_dropped_files :: proc(thor: ^Thor) {
     }
     dropped := rl.LoadDroppedFiles()
     defer rl.UnloadDroppedFiles(dropped)
-    files := transmute(Dropped_Files) dropped
+    files := transmute(Dropped_Files)dropped
 
     // GLFW feeds the drop point through the cursor-position callback before it
     // fires the drop itself, so raylib's cursor is the release point here even
@@ -364,7 +353,7 @@ thor_poll_dropped_files :: proc(thor: ^Thor) {
             case .Failed:
                 continue // thor_queue_import already flashed the reason
             case .Already_There:
-                // Fall through and open it instead.
+            // Fall through and open it instead.
             }
         }
 
@@ -386,7 +375,7 @@ thor_poll_dropped_files :: proc(thor: ^Thor) {
 // File menu / palette: pick a folder to open as the workspace, in this window or
 // a new one.
 thor_cmd_open_folder :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if dir, ok := thor_pick_folder("Open Folder", thor.workspace_dir); ok {
         defer delete(dir)
         thor_open_folder_request(thor, dir)
@@ -395,7 +384,7 @@ thor_cmd_open_folder :: proc(data: rawptr) {
 
 // File menu / palette: pick a folder and open it in a new window, no prompt.
 thor_cmd_open_folder_new_window :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if dir, ok := thor_pick_folder("Open Folder in New Window", thor.workspace_dir); ok {
         defer delete(dir)
         thor_new_window_for(thor, dir)
@@ -426,7 +415,7 @@ thor_new_window_for :: proc(thor: ^Thor, dir: string) {
 
 // File menu / palette: pick a file to open as a tab, from anywhere on disk.
 thor_cmd_open_file :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if path, ok := thor_pick_file("Open File", thor.workspace_dir); ok {
         defer delete(path)
         thor_open_file(thor, path)

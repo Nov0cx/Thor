@@ -14,15 +14,15 @@ import "../render"
 import "../textedit"
 import ui "../vendor/loom/loom"
 
-TITLEBAR_HEIGHT :: 44
-STATUSBAR_HEIGHT :: 28
-TAB_HEIGHT :: 38
+TITLEBAR_HEIGHT           :: 44
+STATUSBAR_HEIGHT          :: 28
+TAB_HEIGHT                :: 38
 // The terminal strip: shorter than the file tabs, since it sits inside a panel.
-TERMINAL_STRIP_HEIGHT :: 28
+TERMINAL_STRIP_HEIGHT     :: 28
 TERMINAL_STRIP_TAB_HEIGHT :: 22
-TERMINAL_STRIP_NAME_MAX :: 140
+TERMINAL_STRIP_NAME_MAX   :: 140
 // Width of the bar between two dock panels, which is also its drag area.
-DOCK_SPLITTER_WIDTH :: 3
+DOCK_SPLITTER_WIDTH       :: 3
 
 // What the status bar shows. A field left zero hides its segment.
 Status_Info :: struct {
@@ -67,7 +67,7 @@ Tab_Info :: struct {
 thor_push_theme :: proc(thor: ^Thor) {
     t := thor.theme
     ui.set_theme(
-        ui.Theme {
+        ui.Theme{
             name = t.name,
             dark = true,
             bg = t.background,
@@ -171,28 +171,9 @@ thor_icon_font :: proc(thor: ^Thor, family: string) -> ui.Font {
 // `key` only matters where two icons are siblings under one node; the default
 // keeps every other call site to one word. `min_w` holds the icon open in a row
 // that shrinks.
-thor_icon_label :: proc(
-    thor: ^Thor,
-    name: string,
-    color: ui.Color,
-    size: f32 = 16,
-    key := "icon",
-    min_w: f32 = 0,
-) {
+thor_icon_label :: proc(thor: ^Thor, name: string, color: ui.Color, size: f32 = 16, key := "icon", min_w: f32 = 0) {
     text, family := thor_icon(name)
-    ui.label(
-        text,
-        {
-            key = key,
-            props = {
-                color = color,
-                font = thor_icon_font(thor, family),
-                font_size = size,
-                text_wrap = .None,
-                min_w = min_w,
-            },
-        },
-    )
+    ui.label(text, {key = key, props = {color = color, font = thor_icon_font(thor, family), font_size = size, text_wrap = .None, min_w = min_w}})
 }
 
 // The hammer mark, fit to `height` at the texture's own aspect. Draws nothing
@@ -202,16 +183,7 @@ thor_logo_image :: proc(thor: ^Thor, key: string, height: f32) {
     if tex.id == 0 || tex.width == 0 || tex.height == 0 {
         return
     }
-    ui.image(
-        render.register_texture(&thor.backend, tex),
-        {
-            key = key,
-            props = {
-                w = ui.Px(height * f32(tex.width) / f32(tex.height)),
-                h = ui.Px(height),
-            },
-        },
-    )
+    ui.image(render.register_texture(&thor.backend, tex), {key = key, props = {w = ui.Px(height * f32(tex.width) / f32(tex.height)), h = ui.Px(height)}})
 }
 
 @(private = "file")
@@ -238,14 +210,7 @@ thor_titlebar :: proc(thor: ^Thor) {
         {
             key = "logo",
             flags = {.Clickable},
-            props = {
-                w = ui.Px(34),
-                h = ui.Px(28),
-                justify = .Center,
-                align = .Center,
-                radius = ui.rad(4),
-                cursor = .Pointer,
-            },
+            props = {w = ui.Px(34), h = ui.Px(28), justify = .Center, align = .Center, radius = ui.rad(4), cursor = .Pointer},
             hover = {bg = thor.theme.buttons},
         },
     )
@@ -331,11 +296,7 @@ thor_task_controls :: proc(thor: ^Thor) {
         return
     }
 
-    if add := thor_text_button(
-        thor,
-        "+",
-        {key = "task-add", props = {w = ui.Px(28), pad = {}}},
-    ); add.clicked {
+    if add := thor_text_button(thor, "+", {key = "task-add", props = {w = ui.Px(28), pad = {}}}); add.clicked {
         thor_cmd_add_task(thor)
         return
     } else {
@@ -345,11 +306,7 @@ thor_task_controls :: proc(thor: ^Thor) {
     sel := thor_text_button(
         thor,
         thor_task_selector_label(thor),
-        {
-            key = "task-select",
-            props = {max_w = 220, bg = thor.theme.buttons, text_wrap = .Ellipsis},
-            hover = {bg = thor.theme.active},
-        },
+        {key = "task-select", props = {max_w = 220, bg = thor.theme.buttons, text_wrap = .Ellipsis}, hover = {bg = thor.theme.active}},
     )
     thor_task_select_tip(thor, sel.id)
     if sel.clicked {
@@ -386,15 +343,7 @@ thor_update_button :: proc(thor: ^Thor) {
         {
             key = "update",
             flags = {.Clickable},
-            props = {
-                h = ui.Px(28),
-                dir = .Row,
-                align = .Center,
-                gap = {6, 0},
-                pad = ui.xy(10, 0),
-                radius = ui.rad(4),
-                bg = thor.theme.buttons,
-            },
+            props = {h = ui.Px(28), dir = .Row, align = .Center, gap = {6, 0}, pad = ui.xy(10, 0), radius = ui.rad(4), bg = thor.theme.buttons},
             hover = {bg = thor.theme.active},
         },
     )
@@ -404,7 +353,11 @@ thor_update_button :: proc(thor: ^Thor) {
         thor_update_bar(thor, percent)
     }
     ui.end()
-    thor_tip(thor, it.id, thor.update_state == .Installing ? "Installing the update. Thor restarts when it is done" : "A new version is available. Click to install it")
+    thor_tip(
+        thor,
+        it.id,
+        thor.update_state == .Installing ? "Installing the update. Thor restarts when it is done" : "A new version is available. Click to install it",
+    )
     if it.clicked {
         thor_click_update(thor)
     }
@@ -431,15 +384,7 @@ thor_ext_update_button :: proc(thor: ^Thor) {
         {
             key = "ext_update",
             flags = {.Clickable},
-            props = {
-                h = ui.Px(28),
-                dir = .Row,
-                align = .Center,
-                gap = {6, 0},
-                pad = ui.xy(10, 0),
-                radius = ui.rad(4),
-                bg = thor.theme.buttons,
-            },
+            props = {h = ui.Px(28), dir = .Row, align = .Center, gap = {6, 0}, pad = ui.xy(10, 0), radius = ui.rad(4), bg = thor.theme.buttons},
             hover = {bg = thor.theme.active},
         },
     )
@@ -458,13 +403,8 @@ thor_ext_update_button :: proc(thor: ^Thor) {
 // text_align/text_align_v place the node's own text; justify/align place
 // children, which a leaf has none of.
 @(private = "file")
-thor_text_button :: proc(
-    thor: ^Thor,
-    label: string,
-    el: ui.Element = {},
-    loc := #caller_location,
-) -> ui.Interaction {
-    e := ui.Element {
+thor_text_button :: proc(thor: ^Thor, label: string, el: ui.Element = {}, loc := #caller_location) -> ui.Interaction {
+    e := ui.Element{
         text = label,
         flags = {.Clickable},
         props = {
@@ -485,26 +425,10 @@ thor_text_button :: proc(
 }
 
 @(private = "file")
-thor_titlebar_button :: proc(
-    thor: ^Thor,
-    icon, key: string,
-    danger := false,
-    tip := "",
-) -> bool {
+thor_titlebar_button :: proc(thor: ^Thor, icon, key: string, danger := false, tip := "") -> bool {
     hover := danger ? thor.theme.danger_color : thor.theme.buttons
-    it := ui.begin(
-        {
-            key = key,
-            flags = {.Clickable},
-            props = {
-                w = ui.Px(40),
-                h = ui.Px(28),
-                justify = .Center,
-                align = .Center,
-                radius = ui.rad(4),
-            },
-            hover = {bg = hover},
-        },
+    it    := ui.begin(
+        {key = key, flags = {.Clickable}, props = {w = ui.Px(40), h = ui.Px(28), justify = .Center, align = .Center, radius = ui.rad(4)}, hover = {bg = hover}},
     )
     thor_icon_label(thor, icon, thor.theme.foreground, 14)
     ui.end()
@@ -571,10 +495,10 @@ thor_workspace :: proc(thor: ^Thor) {
     signal_set(&thor.console_visible, thor.console_open)
 }
 
-EXPLORER_PANEL :: "Explorer"
-EDITOR_PANEL :: "Editor"
-CONSOLE_PANEL :: "Terminal"
-PLUGIN_RIGHT_PANEL :: "Panels"
+EXPLORER_PANEL      :: "Explorer"
+EDITOR_PANEL        :: "Editor"
+CONSOLE_PANEL       :: "Terminal"
+PLUGIN_RIGHT_PANEL  :: "Panels"
 PLUGIN_BOTTOM_PANEL :: "Output"
 
 // The workspace's saved arrangement, or the starting one when it has none. Once
@@ -606,22 +530,14 @@ thor_seed_dock :: proc(thor: ^Thor, dock: ui.Dock_Id) {
 // is none yet.
 @(private = "file")
 thor_console_panel :: proc(thor: ^Thor) {
-    panel := ui.scope(
-        {
-            key = "console-panel",
-            props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column, bg = thor.theme.background},
-        },
-    )
+    panel := ui.scope({key = "console-panel", props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column, bg = thor.theme.background}})
     thor.region_rects[.Console] = panel.rect
     thor_terminal_strip(thor)
 
     console := thor_active_console(thor)
     if console == nil {
         thor.console_focused = false
-        ui.label(
-            "No terminal",
-            {key = "no-terminal", props = {pad = ui.xy(12, 8), color = thor.theme.disabled}},
-        )
+        ui.label("No terminal", {key = "no-terminal", props = {pad = ui.xy(12, 8), color = thor.theme.disabled}})
         return
     }
     thor_console_view(thor, console)
@@ -648,17 +564,17 @@ thor_terminal_strip :: proc(thor: ^Thor) {
         },
     )
 
-    active := thor_terminal_tab_active(thor)
+    active       := thor_terminal_tab_active(thor)
     select_index := -1
-    close_index := -1
-    menu_index := -1
+    close_index  := -1
+    menu_index   := -1
 
     for i in 0 ..< thor_terminal_tab_count(thor) {
         info := thor_terminal_tab_info(thor, i)
-        on := i == active
+        on   := i == active
 
         ui.push_id_int(i64(i))
-        it := ui.begin(
+        it  := ui.begin(
             {
                 key = "tab",
                 flags = {.Clickable, .Draggable, .Group},
@@ -682,33 +598,13 @@ thor_terminal_strip :: proc(thor: ^Thor) {
         } else if info.loading {
             dot = thor.theme.info_color
         }
-        ui.leaf(
-            {
-                key = "dot",
-                props = {w = ui.Px(6), h = ui.Px(6), radius = ui.rad(3), bg = dot},
-            },
-        )
-        ui.label(
-            info.name,
-            {
-                props = {
-                    max_w = TERMINAL_STRIP_NAME_MAX,
-                    color = on ? thor.theme.foreground : thor.theme.muted_color,
-                    text_wrap = .Ellipsis,
-                },
-            },
-        )
+        ui.leaf({key = "dot", props = {w = ui.Px(6), h = ui.Px(6), radius = ui.rad(3), bg = dot}})
+        ui.label(info.name, {props = {max_w = TERMINAL_STRIP_NAME_MAX, color = on ? thor.theme.foreground : thor.theme.muted_color, text_wrap = .Ellipsis}})
         close := ui.begin(
             {
                 key = "close",
                 flags = {.Clickable},
-                props = {
-                    w = ui.Px(16),
-                    h = ui.Px(16),
-                    justify = .Center,
-                    align = .Center,
-                    radius = ui.rad(3),
-                },
+                props = {w = ui.Px(16), h = ui.Px(16), justify = .Center, align = .Center, radius = ui.rad(3)},
                 hover = {bg = thor.theme.danger_color},
             },
         )
@@ -738,14 +634,7 @@ thor_terminal_strip :: proc(thor: ^Thor) {
         {
             key = "add",
             flags = {.Clickable},
-            props = {
-                w = ui.Px(24),
-                h = ui.Px(TERMINAL_STRIP_TAB_HEIGHT),
-                justify = .Center,
-                align = .Center,
-                radius = ui.rad(4),
-                cursor = .Pointer,
-            },
+            props = {w = ui.Px(24), h = ui.Px(TERMINAL_STRIP_TAB_HEIGHT), justify = .Center, align = .Center, radius = ui.rad(4), cursor = .Pointer},
             hover = {bg = thor.theme.buttons},
         },
     )
@@ -778,10 +667,10 @@ thor_editor_column :: proc(thor: ^Thor, view: Workspace_View) {
     thor.panes_area = panes.rect
     thor.pane_rect = {}
     layout := thor.layout
-    cols := layout_columns(layout)
+    cols   := layout_columns(layout)
     // The rects are from the last frame. The first frame has none, so the
     // slots share the row by Grow.
-    col_w := thor_pane_sizes(thor.col_weight[:], cols, panes.rect.w - f32(cols - 1) * PANE_HANDLE_WIDTH)
+    col_w  := thor_pane_sizes(thor.col_weight[:], cols, panes.rect.w - f32(cols - 1) * PANE_HANDLE_WIDTH)
     for col in 0 ..< cols {
         ui.push_id_int(i64(col))
         defer ui.pop_id()
@@ -793,7 +682,7 @@ thor_editor_column :: proc(thor: ^Thor, view: Workspace_View) {
             w = ui.Px(col_w[col])
         }
         stack := ui.scope({key = "column", props = {w = w, h = ui.Grow(1), dir = .Column}})
-        rows := LAYOUT_ROWS[layout][col]
+        rows  := LAYOUT_ROWS[layout][col]
         row_h := thor_pane_sizes(thor.row_weight[col][:], rows, stack.rect.h - f32(rows - 1) * PANE_HANDLE_WIDTH)
         first := layout_first_pane(layout, col)
         for row in 0 ..< rows {
@@ -819,7 +708,7 @@ thor_editor_column :: proc(thor: ^Thor, view: Workspace_View) {
 @(private = "file")
 thor_pane_overlays :: proc(thor: ^Thor) {
     picking := thor.pane_pick.open
-    target := -1
+    target  := -1
     if thor.tab_drag >= 0 || (thor.explorer.dragging && thor.explorer.drag_target == "") {
         target = thor_pane_at(thor, ui.mouse_pos())
     }
@@ -882,7 +771,7 @@ thor_pane_overlays :: proc(thor: ^Thor) {
 @(private = "file")
 thor_pane_handle :: proc(thor: ^Thor, key: string, along: ui.Direction, weights: []f32, i: int, avail: f32) {
     row := along == .Row
-    it := ui.leaf(
+    it  := ui.leaf(
         {
             key = key,
             flags = {.Clickable, .Draggable},
@@ -929,32 +818,22 @@ thor_workspace_pane :: proc(thor: ^Thor, view: Workspace_View, pane: int, key: s
 @(private = "file")
 thor_tabbar :: proc(thor: ^Thor) {
     bar := ui.scope(
-        {
-            key = "tabbar",
-            flags = {.Clip},
-            props = {
-                w = ui.Grow(1),
-                h = ui.Px(TAB_HEIGHT),
-                dir = .Row,
-                align = .Stretch,
-                bg = thor.theme.second_background,
-            },
-        },
+        {key = "tabbar", flags = {.Clip}, props = {w = ui.Grow(1), h = ui.Px(TAB_HEIGHT), dir = .Row, align = .Stretch, bg = thor.theme.second_background}},
     )
     thor.region_rects[.Tabbar] = bar.rect
 
-    active := signal_get(&thor.active_file)
+    active       := signal_get(&thor.active_file)
     select_index := -1
-    close_index := -1
-    menu_index := -1
+    close_index  := -1
+    menu_index   := -1
     drop_index, drop_pane := -1, -1
 
     for i in 0 ..< len(thor.open_files) {
         info := thor_tab_info(thor, i)
-        on := i == active
+        on   := i == active
 
         ui.push_id_int(i64(i))
-        it := ui.begin(
+        it   := ui.begin(
             {
                 key = "tab",
                 flags = {.Clickable, .Group},
@@ -981,29 +860,13 @@ thor_tabbar :: proc(thor: ^Thor) {
         ui.label(info.name, {props = {color = text, text_wrap = .Ellipsis}})
         thor_tab_pane_badges(thor, i)
         if info.modified {
-            ui.leaf(
-                {
-                    key = "dot",
-                    props = {
-                        w = ui.Px(6),
-                        h = ui.Px(6),
-                        radius = ui.rad(3),
-                        bg = thor.theme.accent_color,
-                    },
-                },
-            )
+            ui.leaf({key = "dot", props = {w = ui.Px(6), h = ui.Px(6), radius = ui.rad(3), bg = thor.theme.accent_color}})
         }
         close := ui.begin(
             {
                 key = "close",
                 flags = {.Clickable},
-                props = {
-                    w = ui.Px(18),
-                    h = ui.Px(18),
-                    justify = .Center,
-                    align = .Center,
-                    radius = ui.rad(3),
-                },
+                props = {w = ui.Px(18), h = ui.Px(18), justify = .Center, align = .Center, radius = ui.rad(3)},
                 hover = {bg = thor.theme.danger_color},
             },
         )
@@ -1087,7 +950,7 @@ thor_tab_pane_badges :: proc(thor: ^Thor, index: int) {
 // them. Loom also reports a press, a release and a click when Enter or Space
 // activates the focused node, and a pane that takes those keys has no use for it.
 thor_mouse_only :: proc(thor: ^Thor, it: ui.Interaction) -> ui.Interaction {
-    out := it
+    out   := it
     input := thor.ui_context.input
     if .Left not_in input.mouse_pressed {
         out.pressed = false
@@ -1129,21 +992,14 @@ thor_editor_view :: proc(thor: ^Thor, editor: ^editview.Editor, file: ^Open_File
     // the raw delta and moves no offset itself: editview owns the scroll, and it
     // needs the wheel even at the end of the file, for zoom and for the
     // completion popup.
-    it := ui.begin(
-        {
-            key = key,
-            flags = {.Clip, .Clickable, .Focusable, .Draggable, .Scroll_X, .Scroll_Y, .Wheel},
-            // Relative, so it is the containing block of the rows: Loom resolves
-            // an absolute inset against the nearest positioned ancestor, which
-            // would otherwise be the dock panel above the tab strip.
-            props = {
-                position = .Relative,
-                w = ui.Grow(1),
-                h = ui.Grow(1),
-                bg = thor.theme.background,
-            },
-        },
-    )
+    it := ui.begin({
+        key = key,
+        flags = {.Clip, .Clickable, .Focusable, .Draggable, .Scroll_X, .Scroll_Y, .Wheel},
+        // Relative, so it is the containing block of the rows: Loom resolves
+        // an absolute inset against the nearest positioned ancestor, which
+        // would otherwise be the dock panel above the tab strip.
+        props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), bg = thor.theme.background},
+    })
     defer ui.end()
     // Enter and Space are text here, not a click at the pointer.
     it = thor_mouse_only(thor, it)
@@ -1210,7 +1066,7 @@ thor_editor_view :: proc(thor: ^Thor, editor: ^editview.Editor, file: ^Open_File
     ui.leaf({key = "content", props = {w = ui.Px(content_w), h = ui.Px(f32(len(rows)) * line_h)}})
 
     first := clamp(int(editor.scroll_y / line_h), 0, len(rows) - 1)
-    last := clamp(first + int(it.rect.h / line_h) + 2, first, len(rows))
+    last  := clamp(first + int(it.rect.h / line_h) + 2, first, len(rows))
 
     thor_paint_gutter(thor, editor, it, rows, first, last, line_h)
 
@@ -1220,12 +1076,7 @@ thor_editor_view :: proc(thor: ^Thor, editor: ^editview.Editor, file: ^Open_File
         {
             key = "text",
             flags = {.Clip},
-            props = {
-                position = .Absolute,
-                inset = {editor.gutter_width, 0, 0, 0},
-                w = ui.Px(max(it.rect.w - editor.gutter_width, 0)),
-                h = ui.Px(it.rect.h),
-            },
+            props = {position = .Absolute, inset = {editor.gutter_width, 0, 0, 0}, w = ui.Px(max(it.rect.w - editor.gutter_width, 0)), h = ui.Px(it.rect.h)},
         },
     )
     text_x := editview.TEXT_PAD_LEFT - editor.scroll_x
@@ -1250,7 +1101,7 @@ thor_editor_view :: proc(thor: ^Thor, editor: ^editview.Editor, file: ^Open_File
         row_text := text[row.start:row.end]
         buffer: [editview.MAX_ROW_SWATCHES]editview.Row_Swatch
         swatches := thor_row_swatches(row_text, buffer[:])
-        spans := thor_row_spans(editor, row_text, row.start, row.end, swatches)
+        spans    := thor_row_spans(editor, row_text, row.start, row.end, swatches)
 
         ui.push_id_int(i64(index))
         ui.leaf(
@@ -1311,25 +1162,15 @@ thor_editor_view :: proc(thor: ^Thor, editor: ^editview.Editor, file: ^Open_File
 // fold's start-line text.
 @(private = "file")
 thor_paint_fold_marker :: proc(thor: ^Thor, editor: ^editview.Editor, x, row_y: f32) {
-    size := f32(editor.font_size)
+    size   := f32(editor.font_size)
     radius := max(size * 0.09, 1.5)
-    gap := radius * 3
-    box_x := x + 8
-    top := row_y + render.half_leading(size)
-    ui.paint_rect(
-        {box_x - 5, top + size * 0.15, gap * 2 + 10, size * 0.7},
-        thor.theme.selection_background,
-        ui.rad(size * 0.35),
-        true,
-    )
+    gap    := radius * 3
+    box_x  := x + 8
+    top    := row_y + render.half_leading(size)
+    ui.paint_rect({box_x - 5, top + size * 0.15, gap * 2 + 10, size * 0.7}, thor.theme.selection_background, ui.rad(size * 0.35), true)
     cy := top + size * 0.5
     for i in 0 ..< 3 {
-        ui.paint_rect(
-            {box_x + f32(i) * gap - radius, cy - radius, radius * 2, radius * 2},
-            thor.theme.disabled,
-            ui.rad(radius),
-            true,
-        )
+        ui.paint_rect({box_x + f32(i) * gap - radius, cy - radius, radius * 2, radius * 2}, thor.theme.disabled, ui.rad(radius), true)
     }
 }
 
@@ -1399,17 +1240,12 @@ thor_first_span_after :: proc(spans: []editview.Highlight_Span, offset: int) -> 
 // with the gaps of hex swatches and inlay hints merged in as a span `lead`. A
 // highlight that covers an anchor is split there, and an anchor no highlight
 // covers rides on a zero-length span, so the run builder stops at every gap.
-thor_row_spans :: proc(
-    editor: ^editview.Editor,
-    row_text: string,
-    start, end: int,
-    swatches: []editview.Row_Swatch,
-) -> []ui.Text_Span {
+thor_row_spans :: proc(editor: ^editview.Editor, row_text: string, start, end: int, swatches: []editview.Row_Swatch) -> []ui.Text_Span {
     if end <= start {
         return nil
     }
     gaps := thor_row_gaps(editor, start, end, swatches)
-    out := make([dynamic]ui.Text_Span, 0, 16, context.temp_allocator)
+    out  := make([dynamic]ui.Text_Span, 0, 16, context.temp_allocator)
 
     at := 0
     take_lead :: proc(gaps: []Row_Gap, at: ^int, anchor: int) -> f32 {
@@ -1434,7 +1270,7 @@ thor_row_spans :: proc(
         }
 
         piece := lo
-        lead := take_lead(gaps, &at, lo)
+        lead  := take_lead(gaps, &at, lo)
         for at < len(gaps) && gaps[at].anchor < hi {
             append(&out, ui.Text_Span{start = piece, end = gaps[at].anchor, color = h.color, lead = lead})
             piece = gaps[at].anchor
@@ -1505,9 +1341,9 @@ thor_paint_row_inlays :: proc(
     if len(inlays) == 0 {
         return
     }
-    size := f32(editview.editor_inlay_font_size(editor))
+    size   := f32(editview.editor_inlay_font_size(editor))
     line_h := f32(font.line_height(editor.font_size))
-    i := 0
+    i      := 0
     for i < len(inlays) {
         anchor := inlays[i].offset
         // The gap closes at the anchor; the swatch sits at its right end, the inlays before it.
@@ -1524,9 +1360,9 @@ thor_paint_row_inlays :: proc(
         for ; i < len(inlays) && inlays[i].offset == anchor; i += 1 {
             inlay := inlays[i]
             width := editview.editor_inlay_width(editor, inlay)
-            left := x + (inlay.pad_left ? editview.INLAY_MARGIN : 0)
-            pill := width - (inlay.pad_left ? editview.INLAY_MARGIN : 0) - (inlay.pad_right ? editview.INLAY_MARGIN : 0)
-            top := row_y + (line_h - size - 4) * 0.5
+            left  := x + (inlay.pad_left ? editview.INLAY_MARGIN : 0)
+            pill  := width - (inlay.pad_left ? editview.INLAY_MARGIN : 0) - (inlay.pad_right ? editview.INLAY_MARGIN : 0)
+            top   := row_y + (line_h - size - 4) * 0.5
             ui.paint_rect({left, top, pill, size + 4}, thor.theme.second_background, ui.rad(3), true)
             ui.push_id_int(i64(inlay.offset) * 4 + i64(i % 4))
             ui.leaf(
@@ -1589,7 +1425,7 @@ thor_row_swatches :: proc(row_text: string, out: []editview.Row_Swatch) -> []edi
 thor_paint_swatch :: proc(editor: ^editview.Editor, color: ui.Color, x, row_y: f32) {
     size := f32(editor.font_size) * editview.SWATCH_SCALE
     left := x - size - editview.SWATCH_PAD
-    top := row_y + render.half_leading(f32(editor.font_size)) + (f32(editor.font_size) - size) * 0.5
+    top  := row_y + render.half_leading(f32(editor.font_size)) + (f32(editor.font_size) - size) * 0.5
     ui.paint_rect({left, top, size, size}, color, {}, true)
     ui.paint_rect({left, top, size, 1}, {0, 0, 0, 140}, {}, true)
     ui.paint_rect({left, top + size - 1, size, 1}, {0, 0, 0, 140}, {}, true)
@@ -1609,14 +1445,7 @@ thor_tab_px :: proc(thor: ^Thor, editor: ^editview.Editor) -> f32 {
 // A one-pixel guide at each indentation stop of every visible row, under the
 // text. The stops are whole tab widths, so they line up with the tab grid.
 @(private = "file")
-thor_paint_indent_guides :: proc(
-    thor: ^Thor,
-    editor: ^editview.Editor,
-    text: string,
-    rows: []editview.Visual_Row,
-    first, last: int,
-    line_h, text_x: f32,
-) {
+thor_paint_indent_guides :: proc(thor: ^Thor, editor: ^editview.Editor, text: string, rows: []editview.Visual_Row, first, last: int, line_h, text_x: f32) {
     if !editor.indent_guides {
         return
     }
@@ -1629,7 +1458,7 @@ thor_paint_indent_guides :: proc(
             continue
         }
         stops := editview.editor_indent_stops(editor, text, rows[index].line)
-        y := f32(index) * line_h - editor.scroll_y
+        y     := f32(index) * line_h - editor.scroll_y
         for at in 0 ..< stops {
             ui.paint_rect({text_x + f32(at) * step, y, 1, line_h}, thor.theme.tree)
         }
@@ -1637,34 +1466,23 @@ thor_paint_indent_guides :: proc(
 }
 
 @(private = "file")
-thor_paint_gutter :: proc(
-    thor: ^Thor,
-    editor: ^editview.Editor,
-    pane: ui.Interaction,
-    rows: []editview.Visual_Row,
-    first, last: int,
-    line_h: f32,
-) {
+thor_paint_gutter :: proc(thor: ^Thor, editor: ^editview.Editor, pane: ui.Interaction, rows: []editview.Visual_Row, first, last: int, line_h: f32) {
     ui.paint_rect({0, 0, editor.gutter_width, pane.rect.h}, thor.theme.second_background)
 
-    caret_line := textedit.state_line_index(
-        editor.state,
-        textedit.primary_cursor(editor.state).caret,
-    )
+    caret_line := textedit.state_line_index(editor.state, textedit.primary_cursor(editor.state).caret)
 
     // An expanded region shows its chevron only while the gutter is hovered; a
     // collapsed one always shows one, so a fold is never invisible.
     fold_x, fold_col := editview.editor_fold_col(editor)
-    mouse := ui.mouse_pos()
-    gutter_hovered := pane.hovered && fold_col > 0 &&
-        mouse.x >= pane.rect.x && mouse.x - pane.rect.x < editor.gutter_width
+    mouse            := ui.mouse_pos()
+    gutter_hovered   := pane.hovered && fold_col > 0 && mouse.x >= pane.rect.x && mouse.x - pane.rect.x < editor.gutter_width
 
     for index in first ..< last {
         if rows[index].spacer {
             continue
         }
         row := rows[index]
-        y := f32(index) * line_h - editor.scroll_y
+        y   := f32(index) * line_h - editor.scroll_y
 
         // Diff bar at the outer edge: full height for an added or a modified
         // line, a short strip at the top edge for a deletion, which owns no line.
@@ -1696,7 +1514,7 @@ thor_paint_gutter :: proc(
             ui.paint_rect({3, y + line_h * 0.5 - 3, 6, 6}, color, ui.rad(3), true)
         }
 
-        on := row.line == caret_line
+        on    := row.line == caret_line
         // Relative numbering counts from the caret line, which still shows its
         // own number; absolute numbering counts every line from 1.
         shown := row.line + 1
@@ -1707,23 +1525,17 @@ thor_paint_gutter :: proc(
         width := f32(font.measure(label, editor.font_size, ""))
 
         ui.push_id_int(i64(index))
-        ui.leaf(
-            {
-                key = "ln",
-                text = label,
-                props = {
-                    position = .Absolute,
-                    // Right-aligned against the gutter's inner edge.
-                    inset = {editor.gutter_width - editview.GUTTER_PAD_RIGHT - width, y, 0, 0},
-                    w = ui.FIT,
-                    h = ui.Px(line_h),
-                    color = on ? thor.theme.foreground : thor.theme.disabled,
-                    font = thor.font_mono,
-                    font_size = f32(editor.font_size),
-                    text_wrap = .None,
-                },
-            },
-        )
+        ui.leaf({key = "ln", text = label, props = {
+            position = .Absolute,
+            // Right-aligned against the gutter's inner edge.
+            inset = {editor.gutter_width - editview.GUTTER_PAD_RIGHT - width, y, 0, 0},
+            w = ui.FIT,
+            h = ui.Px(line_h),
+            color = on ? thor.theme.foreground : thor.theme.disabled,
+            font = thor.font_mono,
+            font_size = f32(editor.font_size),
+            text_wrap = .None,
+        }})
         ui.pop_id()
     }
 }
@@ -1731,15 +1543,10 @@ thor_paint_gutter :: proc(
 // A triangle centred in the fold column: pointing right at the hidden body when
 // the region is collapsed, down over the body it can hide when it is expanded.
 @(private = "file")
-thor_paint_fold_chevron :: proc(
-    thor: ^Thor,
-    editor: ^editview.Editor,
-    col_x, col_w, row_y: f32,
-    folded: bool,
-) {
+thor_paint_fold_chevron :: proc(thor: ^Thor, editor: ^editview.Editor, col_x, col_w, row_y: f32, folded: bool) {
     cx := col_x + col_w * 0.5
     cy := row_y + render.half_leading(f32(editor.font_size)) + f32(editor.font_size) * 0.5
-    s := f32(editor.font_size) * 0.3
+    s  := f32(editor.font_size) * 0.3
     points: [3]ui.Vec2
     if folded {
         points = {{cx - s * 0.5, cy - s}, {cx - s * 0.5, cy + s}, {cx + s * 0.7, cy}}
@@ -1752,14 +1559,7 @@ thor_paint_fold_chevron :: proc(
 // A squiggle under the part of every diagnostic range that falls on a visible
 // row. The x of a byte matches the caret maths, so it tracks the glyphs.
 @(private = "file")
-thor_paint_diagnostics :: proc(
-    thor: ^Thor,
-    editor: ^editview.Editor,
-    text: string,
-    rows: []editview.Visual_Row,
-    first, last: int,
-    line_h, text_x: f32,
-) {
+thor_paint_diagnostics :: proc(thor: ^Thor, editor: ^editview.Editor, text: string, rows: []editview.Visual_Row, first, last: int, line_h, text_x: f32) {
     if len(editor.diagnostics) == 0 {
         return
     }
@@ -1769,17 +1569,15 @@ thor_paint_diagnostics :: proc(
         }
         row := rows[index]
         // Seated just under the glyph box, which sits half a leading down the row.
-        y :=
-            f32(index) * line_h - editor.scroll_y +
-            render.half_leading(f32(editor.font_size)) + f32(editor.font_size) - 1
+        y   := f32(index) * line_h - editor.scroll_y + render.half_leading(f32(editor.font_size)) + f32(editor.font_size) - 1
         for d in editor.diagnostics {
             lo := max(d.start, row.start)
             hi := min(d.end, row.end)
             if lo >= hi {
                 continue
             }
-            x0 := text_x + thor_row_x(editor, text, row.start, row.end, lo)
-            x1 := text_x + thor_row_x(editor, text, row.start, row.end, hi)
+            x0    := text_x + thor_row_x(editor, text, row.start, row.end, lo)
+            x1    := text_x + thor_row_x(editor, text, row.start, row.end, hi)
             color := editview.editor_severity_color(editor, d.severity)
             if d.severity == .Hint {
                 color.a /= 2
@@ -1793,10 +1591,10 @@ thor_paint_diagnostics :: proc(
 @(private = "file")
 thor_paint_squiggle :: proc(x0, x1, y: f32, color: ui.Color) {
     AMPLITUDE :: f32(2)
-    STEP :: f32(2)
+    STEP      :: f32(2)
     previous := ui.Vec2{x0, y}
-    x := x0
-    up := true
+    x        := x0
+    up       := true
     for x < x1 {
         next_x := min(x + STEP, x1)
         next_y := up ? y - AMPLITUDE : y
@@ -1808,14 +1606,7 @@ thor_paint_squiggle :: proc(x0, x1, y: f32, color: ui.Color) {
 }
 
 @(private = "file")
-thor_paint_selections :: proc(
-    thor: ^Thor,
-    editor: ^editview.Editor,
-    text: string,
-    rows: []editview.Visual_Row,
-    first, last: int,
-    line_h, text_x: f32,
-) {
+thor_paint_selections :: proc(thor: ^Thor, editor: ^editview.Editor, text: string, rows: []editview.Visual_Row, first, last: int, line_h, text_x: f32) {
     for cursor in editor.state.cursors {
         lo, hi := cursor.anchor, cursor.caret
         if lo > hi {
@@ -1829,36 +1620,21 @@ thor_paint_selections :: proc(
                 continue
             }
             row := rows[index]
-            a := max(lo, row.start)
-            b := min(hi, row.end)
+            a   := max(lo, row.start)
+            b   := min(hi, row.end)
             if b <= a {
                 continue
             }
             x0 := thor_row_x(editor, text, row.start, row.end, a)
             x1 := thor_row_x(editor, text, row.start, row.end, b)
-            ui.paint_rect(
-                {
-                    text_x + x0,
-                    f32(index) * line_h - editor.scroll_y,
-                    max(x1 - x0, 2),
-                    line_h,
-                },
-                thor.theme.selection_background,
-            )
+            ui.paint_rect({text_x + x0, f32(index) * line_h - editor.scroll_y, max(x1 - x0, 2), line_h}, thor.theme.selection_background)
         }
     }
 }
 
 // Marks the uses of the symbol at the caret: a faint fill, and an accent underline on a write.
 @(private = "file")
-thor_paint_occurrences :: proc(
-    thor: ^Thor,
-    editor: ^editview.Editor,
-    text: string,
-    rows: []editview.Visual_Row,
-    first, last: int,
-    line_h, text_x: f32,
-) {
+thor_paint_occurrences :: proc(thor: ^Thor, editor: ^editview.Editor, text: string, rows: []editview.Visual_Row, first, last: int, line_h, text_x: f32) {
     if len(editor.occurrences) == 0 {
         return
     }
@@ -1870,14 +1646,14 @@ thor_paint_occurrences :: proc(
                 continue
             }
             row := rows[index]
-            a := max(occ.start, row.start)
-            b := min(occ.end, row.end)
+            a   := max(occ.start, row.start)
+            b   := min(occ.end, row.end)
             if b <= a {
                 continue
             }
             x0 := thor_row_x(editor, text, row.start, row.end, a)
             x1 := thor_row_x(editor, text, row.start, row.end, b)
-            y := f32(index) * line_h - editor.scroll_y
+            y  := f32(index) * line_h - editor.scroll_y
             ui.paint_rect({text_x + x0, y, max(x1 - x0, 2), line_h}, fill)
             if occ.write {
                 ui.paint_rect({text_x + x0, y + line_h - 1, max(x1 - x0, 2), 1}, thor.theme.accent_color)
@@ -1887,14 +1663,7 @@ thor_paint_occurrences :: proc(
 }
 
 @(private = "file")
-thor_paint_carets :: proc(
-    thor: ^Thor,
-    editor: ^editview.Editor,
-    text: string,
-    rows: []editview.Visual_Row,
-    first, last: int,
-    line_h, text_x: f32,
-) {
+thor_paint_carets :: proc(thor: ^Thor, editor: ^editview.Editor, text: string, rows: []editview.Visual_Row, first, last: int, line_h, text_x: f32) {
     if !editor.focused {
         return
     }
@@ -1912,12 +1681,7 @@ thor_paint_carets :: proc(
             }
             x := thor_row_x(editor, text, row.start, row.end, cursor.caret)
             ui.paint_rect(
-                {
-                    text_x + x,
-                    f32(index) * line_h - editor.scroll_y + render.half_leading(f32(editor.font_size)),
-                    2,
-                    f32(editor.font_size),
-                },
+                {text_x + x, f32(index) * line_h - editor.scroll_y + render.half_leading(f32(editor.font_size)), 2, f32(editor.font_size)},
                 thor.theme.accent_color,
                 {},
                 true,
@@ -1932,12 +1696,7 @@ thor_paint_carets :: proc(
 // laid-out text, so a caret, a selection and a squiggle all land on the glyphs.
 // A caller that already built the spans passes them instead of a second scan.
 @(private)
-thor_row_x :: proc(
-    editor: ^editview.Editor,
-    text: string,
-    row_start, row_end, at: int,
-    spans: []ui.Text_Span = nil,
-) -> f32 {
+thor_row_x :: proc(editor: ^editview.Editor, text: string, row_start, row_end, at: int, spans: []ui.Text_Span = nil) -> f32 {
     rel := clamp(at - row_start, 0, max(row_end - row_start, 0))
     lead: f32
     if spans != nil {
@@ -1967,26 +1726,10 @@ BUSY_PULSE_RATE :: 4.0
 // One status segment: an optional icon, a label, and the hover explanation the
 // terse label needs. A clickable segment lights up under the pointer to say so.
 @(private = "file")
-thor_status_segment :: proc(
-    thor: ^Thor,
-    key, icon, text: string,
-    color: ui.Color,
-    tip := "",
-    clickable := false,
-) -> ui.Interaction {
+thor_status_segment :: proc(thor: ^Thor, key, icon, text: string, color: ui.Color, tip := "", clickable := false) -> ui.Interaction {
     // Hoverable, not clickable: a segment that only explains itself still has
     // to be hit-tested, or the tip never comes up.
-    e := ui.Element {
-        key = key,
-        flags = {.Hoverable},
-        props = {
-            h = ui.Grow(1),
-            dir = .Row,
-            align = .Center,
-            gap = {4, 0},
-            color = color,
-        },
-    }
+    e := ui.Element{key = key, flags = {.Hoverable}, props = {h = ui.Grow(1), dir = .Row, align = .Center, gap = {4, 0}, color = color}}
     if clickable {
         e.flags = {.Clickable}
         e.props.cursor = .Pointer
@@ -2009,7 +1752,7 @@ thor_status_segment :: proc(
 thor_statusbar :: proc(thor: ^Thor) {
     info := thor_status_info(thor)
     text := thor.theme.foreground
-    dim := thor.theme.muted_color
+    dim  := thor.theme.muted_color
 
     bar := ui.scope(
         {
@@ -2093,34 +1836,12 @@ thor_statusbar :: proc(thor: ^Thor) {
         return
     }
 
-    thor_status_segment(
-        thor,
-        "caret",
-        "",
-        fmt.tprintf("Ln %d, Col %d", info.line, info.column),
-        text,
-        "Line and column of the caret",
-    )
+    thor_status_segment(thor, "caret", "", fmt.tprintf("Ln %d, Col %d", info.line, info.column), text, "Line and column of the caret")
     if info.zoom > 0 {
-        thor_status_segment(
-            thor,
-            "zoom",
-            "",
-            fmt.tprintf("%d%%", info.zoom),
-            dim,
-            "Editor zoom, against the font size in the settings",
-        )
+        thor_status_segment(thor, "zoom", "", fmt.tprintf("%d%%", info.zoom), dim, "Editor zoom, against the font size in the settings")
     }
     if info.line_ending != "" {
-        eol := thor_status_segment(
-            thor,
-            "eol",
-            "",
-            info.line_ending,
-            dim,
-            "Line endings on disk. Click to change them",
-            clickable = true,
-        )
+        eol := thor_status_segment(thor, "eol", "", info.line_ending, dim, "Line endings on disk. Click to change them", clickable = true)
         if eol.clicked {
             thor_toggle_line_ending(thor)
         }
@@ -2130,14 +1851,7 @@ thor_statusbar :: proc(thor: ^Thor) {
     }
     if info.indent_width > 0 {
         label := info.indent_spaces ? "Spaces" : "Tab Size"
-        thor_status_segment(
-            thor,
-            "indent",
-            "",
-            fmt.tprintf("%s: %d", label, info.indent_width),
-            dim,
-            "Indentation the file is written with",
-        )
+        thor_status_segment(thor, "indent", "", fmt.tprintf("%s: %d", label, info.indent_width), dim, "Indentation the file is written with")
     }
     if info.build_target != "" {
         target_seg := thor_status_segment(

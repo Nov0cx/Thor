@@ -13,7 +13,7 @@ import "core:testing"
 test_frame_round_trip :: proc(t: ^testing.T) {
     buf := make([dynamic]u8)
     defer delete(buf)
-    frame_write(&buf, transmute([]u8) string(`{"id":1}`))
+    frame_write(&buf, transmute([]u8)string(`{"id":1}`))
 
     body, err, ok := frame_take(&buf)
     defer delete(body)
@@ -29,7 +29,7 @@ test_frame_round_trip :: proc(t: ^testing.T) {
 test_frame_take_one_byte_at_a_time :: proc(t: ^testing.T) {
     whole := make([dynamic]u8)
     defer delete(whole)
-    frame_write(&whole, transmute([]u8) string("hello"))
+    frame_write(&whole, transmute([]u8)string("hello"))
 
     buf := make([dynamic]u8)
     defer delete(buf)
@@ -57,7 +57,7 @@ test_frame_take_three_in_one_chunk :: proc(t: ^testing.T) {
     buf := make([dynamic]u8)
     defer delete(buf)
     for text in ([]string{"one", "two", "three"}) {
-        frame_write(&buf, transmute([]u8) text)
+        frame_write(&buf, transmute([]u8)text)
     }
 
     for want in ([]string{"one", "two", "three"}) {
@@ -75,9 +75,9 @@ test_frame_take_three_in_one_chunk :: proc(t: ^testing.T) {
 @(test)
 test_frame_take_body_holds_a_header :: proc(t: ^testing.T) {
     payload := "a\r\n\r\nContent-Length: 9\r\n\r\nb"
-    buf := make([dynamic]u8)
+    buf     := make([dynamic]u8)
     defer delete(buf)
-    frame_write(&buf, transmute([]u8) payload)
+    frame_write(&buf, transmute([]u8)payload)
 
     body, err, ok := frame_take(&buf)
     defer delete(body)
@@ -112,7 +112,7 @@ test_frame_take_empty_body :: proc(t: ^testing.T) {
     buf := make([dynamic]u8)
     defer delete(buf)
     append(&buf, "Content-Length: 0\r\n\r\n")
-    frame_write(&buf, transmute([]u8) string("next"))
+    frame_write(&buf, transmute([]u8)string("next"))
 
     body, err, ok := frame_take(&buf)
     defer delete(body)
@@ -151,7 +151,7 @@ test_frame_take_bad_lengths :: proc(t: ^testing.T) {
         value: string,
         want:  Frame_Error,
     }
-    cases := []Case {
+    cases := []Case{
         {"-1", .Missing_Length},
         {"+4", .Missing_Length},
         {"12abc", .Missing_Length},
@@ -235,9 +235,9 @@ test_frame_take_header_bound :: proc(t: ^testing.T) {
 @(test)
 test_frame_write_counts_bytes :: proc(t: ^testing.T) {
     payload := "é€😀"
-    buf := make([dynamic]u8)
+    buf     := make([dynamic]u8)
     defer delete(buf)
-    frame_write(&buf, transmute([]u8) payload)
+    frame_write(&buf, transmute([]u8)payload)
 
     testing.expect(t, strings.contains(string(buf[:]), "Content-Length: 9\r\n\r\n"))
     body, err, ok := frame_take(&buf)
@@ -257,17 +257,7 @@ test_json_round_trip_escapes :: proc(t: ^testing.T) {
     }
     // Built rather than written, so no control character sits raw in the source.
     controls := [?]u8{'b', 'e', 'l', 'l', 0x07, ' ', 'u', 'n', 'i', 't', 0x1f, ' ', 'e', 'n', 'd'}
-    cases := []string {
-        "plain",
-        "tab\there",
-        "line\nbreak\r\n",
-        "quote\" and \\ backslash",
-        string(controls[:]),
-        "¡¢£ ÿ",
-        "�",
-        "😀𝄞",
-        "mixed é\t😀 end",
-    }
+    cases    := []string{"plain", "tab\there", "line\nbreak\r\n", "quote\" and \\ backslash", string(controls[:]), "¡¢£ ÿ", "�", "😀𝄞", "mixed é\t😀 end"}
     for text in cases {
         encoded, marshal_err := json.marshal(Payload{text = text}, {}, context.temp_allocator)
         testing.expectf(t, marshal_err == nil, "%q did not marshal: %v", text, marshal_err)

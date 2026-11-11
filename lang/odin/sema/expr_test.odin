@@ -54,7 +54,7 @@ expect_expr :: proc(t: ^testing.T, c: ^Checker, file: File_Id, src: string, k: E
     if !testing.expectf(t, ok, "%q: no expression node", k.expr, loc = loc) {
         return
     }
-    op := expr_type(c, file, n)
+    op  := expr_type(c, file, n)
     got := type_string(&c.table, op.type, context.temp_allocator)
     if op.mode == .Invalid {
         got = "<invalid>"
@@ -190,82 +190,86 @@ s2: [dynamic]int
 
 @(test)
 test_expr_operands :: proc(t: ^testing.T) {
-    expect_exprs(t, EXPR_SRC, {
-        {"1 + 2 * 3", "untyped int", ""},
-        {"'x'", "untyped rune", ""},
-        {`"lit"`, "untyped string", "_ = "},
-        {"2.5 * 2", "untyped float", ""},
-        {"i + 2", "int", ""},
-        {"2 + i", "int", ""},
-        {"f * 2", "f64", ""},
-        {"i == 2", "untyped bool", ""},
-        {"b && true", "untyped bool", ""},
-        {"i << 2", "int", ""},
-        {"-i", "int", ""},
-        {"!b", "untyped bool", ""},
-        {"b", "bool", "!"},
-        {"e.pos", "Point", ""},
-        {"e.id", "int", ""},
-        {"e.base", "Base", ""},
-        {"e.name", "string", ""},
-        {"pe.next", "^Entity", ""},
-        {"pe.pos.x", "f32", ""},
-        {"pe.next.id", "int", ""},
-        {"Color.Green", "Color", ""},
-        {"bf.hi", "u8", ""},
-        {"v.xy", "[2]f32", ""},
-        {"v.z", "f32", ""},
-        {"v.rgb", "[3]f32", ""},
-        {"pair()", "(int, string)", ""},
-        {"maybe()", "int", ""},
-        {"add(1, 2)", "int", ""},
-        {"add(f32(1), 2)", "f32", ""},
-        {`ident("s")`, "string", ""},
-        {"ident(f)", "f64", ""},
-        {"first(s)", "int", ""},
-        {"l", "List(int)", "_ = l\n"},
-        {"l.items", "[]int", ""},
-        {"l.count", "int", ""},
-        {"s[0]", "int", "_ = s[0]"},
-        {"a[1]", "u8", ""},
-        {`m["k"]`, "f64", ""},
-        {"str[0]", "u8", ""},
-        {"g[.Red]", "int", ""},
-        {"s[1:]", "[]int", ""},
-        {"a[:2]", "[]u8", ""},
-        {"str[1:]", "string", ""},
-        {"pe^", "Entity", ""},
-        {"&i", "^int", ""},
-        {"&e.pos", "^Point", ""},
-        {`&m["k"]`, "^f64", ""},
-        {"&sh.(Point)", "^Point", ""},
-        {"cast(u8)i", "u8", ""},
-        {"u16(i)", "u16", ""},
-        {"transmute(u32)f32(1)", "u32", ""},
-        {"auto_cast f", "f64", ""},
-        {"sh.(Point)", "Point", ""},
-        {"sh.(Point) or_else Point{}", "Point", ""},
-        {`find("x") or_return`, "int", ""},
-        {"n", "int", "_ = n\n"},
-        {"i > 0 ? f32(1) : 2", "f32", ""},
-        {"1 if b else 2", "untyped int", ""},
-        {"Point{1, 2}", "Point", ""},
-        {"[?]int{1, 2, 3}", "[3]int", ""},
-        {"Colors{.Red}", "Colors", ""},
-        {"map[string]int{}", "map[string]int", ""},
-        {"len(s)", "int", ""},
-        {`len("abc")`, "untyped int", ""},
-        {"len(a)", "untyped int", ""},
-        {"size_of(Point)", "untyped int", ""},
-        {"make([]int, 4)", "[]int", ""},
-        {"make(map[string]int)", "map[string]int", ""},
-        {"new(Point)", "^Point", ""},
-        {"min(i, 3)", "int", ""},
-        {"max(f32(1), 2)", "f32", ""},
-        {"abs(f)", "f64", ""},
-        {"raw_data(s)", "[^]int", ""},
-        {"append(&s2, 1)", "int", ""},
-    })
+    expect_exprs(
+        t,
+        EXPR_SRC,
+        {
+            {"1 + 2 * 3", "untyped int", ""},
+            {"'x'", "untyped rune", ""},
+            {`"lit"`, "untyped string", "_ = "},
+            {"2.5 * 2", "untyped float", ""},
+            {"i + 2", "int", ""},
+            {"2 + i", "int", ""},
+            {"f * 2", "f64", ""},
+            {"i == 2", "untyped bool", ""},
+            {"b && true", "untyped bool", ""},
+            {"i << 2", "int", ""},
+            {"-i", "int", ""},
+            {"!b", "untyped bool", ""},
+            {"b", "bool", "!"},
+            {"e.pos", "Point", ""},
+            {"e.id", "int", ""},
+            {"e.base", "Base", ""},
+            {"e.name", "string", ""},
+            {"pe.next", "^Entity", ""},
+            {"pe.pos.x", "f32", ""},
+            {"pe.next.id", "int", ""},
+            {"Color.Green", "Color", ""},
+            {"bf.hi", "u8", ""},
+            {"v.xy", "[2]f32", ""},
+            {"v.z", "f32", ""},
+            {"v.rgb", "[3]f32", ""},
+            {"pair()", "(int, string)", ""},
+            {"maybe()", "int", ""},
+            {"add(1, 2)", "int", ""},
+            {"add(f32(1), 2)", "f32", ""},
+            {`ident("s")`, "string", ""},
+            {"ident(f)", "f64", ""},
+            {"first(s)", "int", ""},
+            {"l", "List(int)", "_ = l\n"},
+            {"l.items", "[]int", ""},
+            {"l.count", "int", ""},
+            {"s[0]", "int", "_ = s[0]"},
+            {"a[1]", "u8", ""},
+            {`m["k"]`, "f64", ""},
+            {"str[0]", "u8", ""},
+            {"g[.Red]", "int", ""},
+            {"s[1:]", "[]int", ""},
+            {"a[:2]", "[]u8", ""},
+            {"str[1:]", "string", ""},
+            {"pe^", "Entity", ""},
+            {"&i", "^int", ""},
+            {"&e.pos", "^Point", ""},
+            {`&m["k"]`, "^f64", ""},
+            {"&sh.(Point)", "^Point", ""},
+            {"cast(u8)i", "u8", ""},
+            {"u16(i)", "u16", ""},
+            {"transmute(u32)f32(1)", "u32", ""},
+            {"auto_cast f", "f64", ""},
+            {"sh.(Point)", "Point", ""},
+            {"sh.(Point) or_else Point{}", "Point", ""},
+            {`find("x") or_return`, "int", ""},
+            {"n", "int", "_ = n\n"},
+            {"i > 0 ? f32(1) : 2", "f32", ""},
+            {"1 if b else 2", "untyped int", ""},
+            {"Point{1, 2}", "Point", ""},
+            {"[?]int{1, 2, 3}", "[3]int", ""},
+            {"Colors{.Red}", "Colors", ""},
+            {"map[string]int{}", "map[string]int", ""},
+            {"len(s)", "int", ""},
+            {`len("abc")`, "untyped int", ""},
+            {"len(a)", "untyped int", ""},
+            {"size_of(Point)", "untyped int", ""},
+            {"make([]int, 4)", "[]int", ""},
+            {"make(map[string]int)", "map[string]int", ""},
+            {"new(Point)", "^Point", ""},
+            {"min(i, 3)", "int", ""},
+            {"max(f32(1), 2)", "f32", ""},
+            {"abs(f)", "f64", ""},
+            {"raw_data(s)", "[^]int", ""},
+            {"append(&s2, 1)", "int", ""},
+        },
+    )
 }
 
 @(test)
@@ -279,7 +283,7 @@ test_expr_modes :: proc(t: ^testing.T) {
         expr: string,
         mode: Operand_Mode,
     }
-    cases := [?]Mode_Case {
+    cases := [?]Mode_Case{
         {"1 + 2 * 3", .Const},
         {"Color.Green", .Const},
         {"nothing()", .No_Value},
@@ -288,7 +292,7 @@ test_expr_modes :: proc(t: ^testing.T) {
         {"List(int)", .Type},
     }
     for k in cases {
-        at := marker_offset(EXPR_SRC, k.expr, "")
+        at    := marker_offset(EXPR_SRC, k.expr, "")
         n, ok := expr_node_at(&env.c, ANON_FILE, at, k.expr)
         if !testing.expectf(t, ok, "%q: no expression node", k.expr) {
             continue
@@ -331,26 +335,30 @@ walk :: proc(s: []int, m: map[string]f64, str: string, g: [Color]u8, sh: Shape, 
     }
 }
 `
-    expect_exprs(t, src, {
-        {"x", "int", "_ = x"},
-        {"k", "string", "_ = k"},
-        {"val", "f64", "_ = val"},
-        {"r", "rune", "_ = r"},
-        {"ri", "int", "_ = ri"},
-        {"j", "int", "_ = j"},
-        {"elem", "u8", "_ = elem"},
-        {"c", "Color", "_ = c"},
-        {"p.x", "f32", "_ = "},
-        {"pi", "int", "_ = pi"},
-        {"q", "Point", "_ = q"},
-        {"col", "Color", "_ = col"},
-        {"ci", "int", "_ = ci"},
-        {"part", "string", "_ = part"},
-        {"pn", "int", "_ = pn"},
-        {"v.x", "f32", "case Point:"},
-        {"v", "int", "case int:"},
-        {"v", "Shape", "case:"},
-    })
+    expect_exprs(
+        t,
+        src,
+        {
+            {"x", "int", "_ = x"},
+            {"k", "string", "_ = k"},
+            {"val", "f64", "_ = val"},
+            {"r", "rune", "_ = r"},
+            {"ri", "int", "_ = ri"},
+            {"j", "int", "_ = j"},
+            {"elem", "u8", "_ = elem"},
+            {"c", "Color", "_ = c"},
+            {"p.x", "f32", "_ = "},
+            {"pi", "int", "_ = pi"},
+            {"q", "Point", "_ = q"},
+            {"col", "Color", "_ = col"},
+            {"ci", "int", "_ = ci"},
+            {"part", "string", "_ = part"},
+            {"pn", "int", "_ = pn"},
+            {"v.x", "f32", "case Point:"},
+            {"v", "int", "case int:"},
+            {"v", "Shape", "case:"},
+        },
+    )
 }
 
 @(test)
@@ -373,14 +381,19 @@ use :: proc() {
     _ = s.next
 }
 `
-    app := put_file(t, dir, "app/app.odin", app_src)
-    put_file(t, dir, "geom/geom.odin", `package geom
+    app     := put_file(t, dir, "app/app.odin", app_src)
+    put_file(
+        t,
+        dir,
+        "geom/geom.odin",
+        `package geom
 
 MAX :: 3
 Kind :: enum { Square, Circle }
 Shape :: struct { kind: Kind, next: ^Shape }
 make_shape :: proc() -> Shape { return {} }
-`)
+`,
+    )
     env: Check_Env
     if !check_begin(t, &env, Snapshot_Input{}) {
         return
@@ -388,7 +401,7 @@ make_shape :: proc() -> Shape { return {} }
     defer check_end(&env)
     id := db_file_id(&env.snap, app)
     env.c.home_key = file_cache(&env.c, id).dir_key
-    cases := [?]Expr_Case {
+    cases := [?]Expr_Case{
         {"g.Kind.Circle", "geom.Kind", ""},
         {"g.make_shape()", "geom.Shape", ""},
         {"g.make_shape().kind", "geom.Kind", ""},
@@ -412,13 +425,18 @@ test_expr_build_constants :: proc(t: ^testing.T) {
         return
     }
     defer os.remove_all(dir)
-    put_file(t, dir, "runtime/core.odin", `package runtime
+    put_file(
+        t,
+        dir,
+        "runtime/core.odin",
+        `package runtime
 
 Allocator :: struct { data: rawptr }
 Odin_OS_Type :: type_of(ODIN_OS)
 Odin_Sanitizer_Flags :: type_of(ODIN_SANITIZER_FLAGS)
-`)
-    src := `package app
+`,
+    )
+    src      := `package app
 
 use :: proc(d: [dynamic]int, m: map[string]int) {
     _ = ODIN_OS
@@ -431,7 +449,7 @@ use :: proc(d: [dynamic]int, m: map[string]int) {
     _ = m.allocator
 }
 `
-    app := put_file(t, dir, "app/app.odin", src)
+    app      := put_file(t, dir, "app/app.odin", src)
     universe := [?]Universe_Package{{fmt.tprintf("%s/runtime", dir), false}}
     env: Check_Env
     target := Target{os = .Windows, arch = .amd64}
@@ -441,7 +459,7 @@ use :: proc(d: [dynamic]int, m: map[string]int) {
     defer check_end(&env)
     id := db_file_id(&env.snap, app)
     env.c.home_key = file_cache(&env.c, id).dir_key
-    cases := [?]Expr_Case {
+    cases := [?]Expr_Case{
         {"ODIN_OS", "runtime.Odin_OS_Type", "_ = "},
         {"ODIN_ARCH", "enum int {Unknown, amd64, i386, arm32, arm64, wasm32, wasm64p32, riscv64}", ""},
         {"ODIN_OS == .Windows", "untyped bool", ""},
@@ -470,14 +488,14 @@ Sweep_Fail :: struct {
 
 @(private = "file")
 Sweep :: struct {
-    c:          ^Checker,
-    fails:      map[string]Sweep_Fail,
-    idents:     int,
-    idents_ok:  int,
-    selectors:  int,
-    selects_ok: int,
-    cascades:   int, // selectors whose operand is invalid
-    implicits:  int,
+    c:           ^Checker,
+    fails:       map[string]Sweep_Fail,
+    idents:      int,
+    idents_ok:   int,
+    selectors:   int,
+    selects_ok:  int,
+    cascades:    int, // selectors whose operand is invalid
+    implicits:   int,
     implicit_ok: int,
 }
 
@@ -488,15 +506,15 @@ sweep_fail :: proc(s: ^Sweep, file: File_Id, offset: int, key: string) {
         entry.count += 1
         return
     }
-    parsed := checker_parse(s.c, file)
-    text := parsed.tree.text
-    line := strings.count(text[:offset], "\n") + 1
-    end := strings.index_byte(text[offset:], '\n')
+    parsed  := checker_parse(s.c, file)
+    text    := parsed.tree.text
+    line    := strings.count(text[:offset], "\n") + 1
+    end     := strings.index_byte(text[offset:], '\n')
     snippet := end < 0 ? text[offset:] : text[offset:][:end]
-    path := db_file_path(s.c.snap, file)
+    path    := db_file_path(s.c.snap, file)
     s.fails[strings.clone(key, context.temp_allocator)] = Sweep_Fail{
-        key    = key,
-        count  = 1,
+        key = key,
+        count = 1,
         sample = fmt.tprintf("%s:%d: %s", filepath.base(path), line, strings.trim_space(snippet)),
     }
 }
@@ -602,9 +620,9 @@ sweep_decl :: proc(s: ^Sweep, file: File_Id, start: int) {
                 s.selects_ok += 1
                 continue
             }
-            se, _ := odinsyntax.as_selector_expr(sel)
+            se, _      := odinsyntax.as_selector_expr(sel)
             operand, _ := odinsyntax.selector_expr_operand(&se)
-            op := expr_type(c, file, operand)
+            op         := expr_type(c, file, operand)
             if !sweep_typed(op) {
                 s.cascades += 1
                 sweep_fail(s, file, ref.start, fmt.tprintf("selector on invalid %v", operand.green.kind))
@@ -622,7 +640,7 @@ sweep_decl :: proc(s: ^Sweep, file: File_Id, start: int) {
                 s.implicit_ok += 1
                 continue
             }
-            path := node_path(c, file, int(n.offset))
+            path   := node_path(c, file, int(n.offset))
             parent := len(path) >= 2 ? path[len(path) - 2].green.kind : .None
             for p, k in path {
                 if same_node(p, n) && k > 0 {
@@ -643,17 +661,17 @@ test_expr_repository_sweep :: proc(t: ^testing.T) {
     if !testing.expectf(t, len(dirs) > 10, "only %d package directories", len(dirs)) {
         return
     }
-    root := ODIN_ROOT
+    root           := ODIN_ROOT
     builtin_dir, _ := filepath.join({root, "base", "builtin"}, context.temp_allocator)
     runtime_dir, _ := filepath.join({root, "base", "runtime"}, context.temp_allocator)
-    universe := [?]Universe_Package{{builtin_dir, true}, {runtime_dir, false}}
-    collections := Collections{odin_root = root}
+    universe       := [?]Universe_Package{{builtin_dir, true}, {runtime_dir, false}}
+    collections    := Collections{odin_root = root}
     env: Check_Env
     if !check_begin(t, &env, Snapshot_Input{collections = &collections}, universe[:]) {
         return
     }
     defer check_end(&env)
-    s := Sweep{c = &env.c, fails = make(map[string]Sweep_Fail, context.temp_allocator)}
+    s     := Sweep{c = &env.c, fails = make(map[string]Sweep_Fail, context.temp_allocator)}
     start := time.tick_now()
     for dir in dirs {
         view := db_package(&env.snap, db_package_id(&env.snap, dir))
@@ -669,7 +687,7 @@ test_expr_repository_sweep :: proc(t: ^testing.T) {
                 continue
             }
             root_node := odinsyntax.node_root(parsed.tree)
-            pos := int(root_node.offset)
+            pos       := int(root_node.offset)
             for child in odinsyntax.green_children(root_node.green) {
                 if _, is_node := odinsyntax.element_node(child); is_node {
                     sweep_decl(&s, id, pos)
@@ -679,18 +697,36 @@ test_expr_repository_sweep :: proc(t: ^testing.T) {
         }
     }
     total := s.idents + s.selectors
-    ok := s.idents_ok + s.selects_ok
+    ok    := s.idents_ok + s.selects_ok
     testing.expect(t, total > 10_000, "the sweep must reach the repository's expressions")
     testing.expect_value(t, env.c.err, nil)
-    pct :: proc(a, b: int) -> f64 { return b > 0 ? 100 * f64(a) / f64(b) : 0 }
-    log.infof("expr_type sweep: %d of %d typed (%.2f%%); identifiers %d of %d (%.2f%%), selectors %d of %d (%.2f%%, %d on an invalid operand), implicit selectors %d of %d (%.2f%%), in %v",
-        ok, total, pct(ok, total), s.idents_ok, s.idents, pct(s.idents_ok, s.idents), s.selects_ok, s.selectors,
-        pct(s.selects_ok, s.selectors), s.cascades, s.implicit_ok, s.implicits, pct(s.implicit_ok, s.implicits), time.tick_since(start))
+    pct :: proc(a, b: int) -> f64 {
+        return b > 0 ? 100 * f64(a) / f64(b) : 0
+    }
+    log.infof(
+        "expr_type sweep: %d of %d typed (%.2f%%); identifiers %d of %d (%.2f%%), selectors %d of %d (%.2f%%, %d on an invalid operand), implicit selectors %d of %d (%.2f%%), in %v",
+        ok,
+        total,
+        pct(ok, total),
+        s.idents_ok,
+        s.idents,
+        pct(s.idents_ok, s.idents),
+        s.selects_ok,
+        s.selectors,
+        pct(s.selects_ok, s.selectors),
+        s.cascades,
+        s.implicit_ok,
+        s.implicits,
+        pct(s.implicit_ok, s.implicits),
+        time.tick_since(start),
+    )
     fails := make([dynamic]Sweep_Fail, context.temp_allocator)
     for _, f in s.fails {
         append(&fails, f)
     }
-    slice.sort_by(fails[:], proc(a, b: Sweep_Fail) -> bool { return a.count > b.count })
+    slice.sort_by(fails[:], proc(a, b: Sweep_Fail) -> bool {
+        return a.count > b.count
+    })
     for f, i in fails {
         if i >= 25 {
             break
@@ -702,7 +738,7 @@ test_expr_repository_sweep :: proc(t: ^testing.T) {
 // `append` of a string to `[dynamic]byte` picks append_elem_string, not the fixed-capacity member.
 @(test)
 test_expr_append_string_to_bytes :: proc(t: ^testing.T) {
-    src := `package p
+    src            := `package p
 
 f :: proc(buf: ^[dynamic]byte, s: string) {
     _, err := append(buf, s)
@@ -711,8 +747,8 @@ f :: proc(buf: ^[dynamic]byte, s: string) {
 `
     builtin_dir, _ := filepath.join({ODIN_ROOT, "base", "builtin"}, context.temp_allocator)
     runtime_dir, _ := filepath.join({ODIN_ROOT, "base", "runtime"}, context.temp_allocator)
-    universe := [?]Universe_Package{{builtin_dir, true}, {runtime_dir, false}}
-    collections := Collections{odin_root = ODIN_ROOT}
+    universe       := [?]Universe_Package{{builtin_dir, true}, {runtime_dir, false}}
+    collections    := Collections{odin_root = ODIN_ROOT}
     env: Check_Env
     if !check_begin(t, &env, Snapshot_Input{has_live = true, live_text = src, collections = &collections}, universe[:]) {
         return

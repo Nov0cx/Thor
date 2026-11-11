@@ -18,12 +18,12 @@ indent_fold_ranges :: proc(source: string, allocator := context.allocator) -> []
         line:   int,
         indent: int,
     }
-    out := make([dynamic]Fold_Range, allocator)
+    out  := make([dynamic]Fold_Range, allocator)
     open := make([dynamic]Open, context.temp_allocator)
 
-    line := 0
+    line      := 0
     last_text := -1 // the last line with text
-    at := 0
+    at        := 0
     for at <= len(source) {
         end := at
         for end < len(source) && source[end] != '\n' {
@@ -33,7 +33,7 @@ indent_fold_ranges :: proc(source: string, allocator := context.allocator) -> []
         if !blank {
             closer := first == '}' || first == ']' || first == ')'
             for len(open) > 0 && open[len(open) - 1].indent >= indent {
-                top := pop(&open)
+                top        := pop(&open)
                 close_line := last_text
                 if closer && top.indent == indent {
                     close_line = line
@@ -108,7 +108,7 @@ run_folder :: proc(m: ^Manager, lang: ^Language, source: string, allocator := co
         }
     }
     tbl := lua.gettop(L)
-    n := list_len(L, tbl)
+    n   := list_len(L, tbl)
     out := make([dynamic]Fold_Range, allocator)
     for i in 1 ..= n {
         lua.rawgeti(L, tbl, i)
@@ -117,9 +117,9 @@ run_folder :: proc(m: ^Manager, lang: ^Language, source: string, allocator := co
             break
         }
         if lua.istable(L, -1) {
-            elem := lua.gettop(L)
+            elem  := lua.gettop(L)
             first := elem_int(L, elem, 1)
-            last := elem_int(L, elem, 2)
+            last  := elem_int(L, elem, 2)
             if first >= 1 && last > first && last <= lines {
                 append(&out, Fold_Range{first - 1, last - 1})
             }

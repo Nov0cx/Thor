@@ -31,20 +31,16 @@ resolve_links :: proc(links: []Link, req: ^Request, res: ^Result) {
         return
     }
 
-    head := res^
+    head    := res^
     merging := req.kind in MERGE_KINDS
     fallback: Result
     have_fallback := false
-    answered := false
+    answered      := false
     for link in links {
         if request_cancelled(req) {
             break
         }
-        part := Result {
-            id       = head.id,
-            kind     = head.kind,
-            revision = head.revision,
-        }
+        part := Result{id = head.id, kind = head.kind, revision = head.revision}
         link.resolve(link.data, req, &part)
         if !part.ok {
             // Keeps the first refusal whole: a reason in `message` belongs to it.
@@ -155,16 +151,26 @@ result_merge :: proc(dst, src: ^Result, kind: Request_Kind) {
         dedup_symbols(&dst.symbols)
     case .Inlay_Hints:
         move_all(&dst.inlays, &src.inlays)
-        slice.stable_sort_by(dst.inlays[:], proc(a, b: Inlay_Hint) -> bool {return a.offset < b.offset})
+        slice.stable_sort_by(dst.inlays[:], proc(a, b: Inlay_Hint) -> bool {
+            return a.offset < b.offset
+        })
         dedup_inlays(&dst.inlays)
     case .Code_Lens:
         move_all(&dst.lenses, &src.lenses)
-        slice.stable_sort_by(dst.lenses[:], proc(a, b: Code_Lens_Item) -> bool {return a.start < b.start})
-        dedup_by(&dst.lenses, proc(a, b: Code_Lens_Item) -> bool {return a.start == b.start && a.end == b.end})
+        slice.stable_sort_by(dst.lenses[:], proc(a, b: Code_Lens_Item) -> bool {
+            return a.start < b.start
+        })
+        dedup_by(&dst.lenses, proc(a, b: Code_Lens_Item) -> bool {
+            return a.start == b.start && a.end == b.end
+        })
     case .Document_Highlight:
         move_all(&dst.highlights, &src.highlights)
-        slice.stable_sort_by(dst.highlights[:], proc(a, b: Document_Highlight) -> bool {return a.start < b.start})
-        dedup_by(&dst.highlights, proc(a, b: Document_Highlight) -> bool {return a.start == b.start && a.end == b.end})
+        slice.stable_sort_by(dst.highlights[:], proc(a, b: Document_Highlight) -> bool {
+            return a.start < b.start
+        })
+        dedup_by(&dst.highlights, proc(a, b: Document_Highlight) -> bool {
+            return a.start == b.start && a.end == b.end
+        })
     }
     dst.ok = true
     result_release(src)

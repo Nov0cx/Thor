@@ -27,7 +27,7 @@ parse_console_location :: proc(raw: string) -> (Console_Location, bool) {
             continue
         }
         // "(LINE" — at least one digit.
-        j := i + 1
+        j  := i + 1
         ls := j
         for j < len(line) && line[j] >= '0' && line[j] <= '9' {
             j += 1
@@ -40,7 +40,7 @@ parse_console_location :: proc(raw: string) -> (Console_Location, bool) {
         // Optional ":COL" / ",COL".
         colno := 0
         if j < len(line) && (line[j] == ':' || line[j] == ',') {
-            k := j + 1
+            k  := j + 1
             cs := k
             for k < len(line) && line[k] >= '0' && line[k] <= '9' {
                 k += 1
@@ -57,18 +57,12 @@ parse_console_location :: proc(raw: string) -> (Console_Location, bool) {
         }
 
         raw_path := line[:i]
-        path := strings.trim_space(raw_path)
+        path     := strings.trim_space(raw_path)
         if !path_has_extension(path) {
             continue
         }
 
-        return Console_Location {
-            path       = path,
-            line       = lineno,
-            col        = colno,
-            span_start = leading_space_count(raw_path),
-            span_end   = j + 1,
-        }, true
+        return Console_Location{path = path, line = lineno, col = colno, span_start = leading_space_count(raw_path), span_end = j + 1}, true
     }
     return {}, false
 }
@@ -92,7 +86,7 @@ path_has_extension :: proc(path: string) -> bool {
     if len(ext) > 8 {
         return false
     }
-    for c in transmute([]u8) ext {
+    for c in transmute([]u8)ext {
         if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
             return false
         }
@@ -112,7 +106,7 @@ leading_space_count :: proc(s: string) -> int {
 // Console_Link_Proc: reports the clickable span of a scrollback line that names
 // an existing source file, for the hover underline.
 thor_console_link :: proc(data: rawptr, line: string) -> (start: int, end: int, ok: bool) {
-    thor := cast(^Thor) data
+    thor       := cast(^Thor)data
     loc, found := parse_console_location(line)
     if !found {
         return 0, 0, false
@@ -126,7 +120,7 @@ thor_console_link :: proc(data: rawptr, line: string) -> (start: int, end: int, 
 // Console_Activate_Proc: opens the source file named by a clicked scrollback
 // line at its reported line/column.
 thor_console_activate :: proc(data: rawptr, line: string) {
-    thor := cast(^Thor) data
+    thor       := cast(^Thor)data
     loc, found := parse_console_location(line)
     if !found {
         return
@@ -151,4 +145,3 @@ thor_console_resolve_path :: proc(thor: ^Thor, path: string) -> string {
     }
     return joined
 }
-

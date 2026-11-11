@@ -133,7 +133,7 @@ call_at :: proc(ctx: ^Request_Context, off: int) -> (Call_Site, bool) {
 site_of :: proc(list, call: odinsyntax.Syntax_Node, off: int) -> (Call_Site, bool) {
     open_end, close_start := -1, -1
     _, list_end := odinsyntax.node_range(list)
-    pos := int(list.offset)
+    pos         := int(list.offset)
     for child in odinsyntax.green_children(list.green) {
         child_len := int(odinsyntax.element_len(child))
         if tok, is_token := odinsyntax.element_token(child); is_token {
@@ -154,7 +154,7 @@ site_of :: proc(list, call: odinsyntax.Syntax_Node, off: int) -> (Call_Site, boo
     if close_start >= 0 ? off > close_start : off > int(list_end) {
         return {}, false
     }
-    ce, _ := odinsyntax.as_call_expr(call)
+    ce, _              := odinsyntax.as_call_expr(call)
     callee, has_callee := odinsyntax.call_expr_callee(&ce)
     if !has_callee {
         return {}, false
@@ -163,7 +163,7 @@ site_of :: proc(list, call: odinsyntax.Syntax_Node, off: int) -> (Call_Site, boo
     if sel, is_sel := odinsyntax.as_selector_expr(callee); is_sel {
         _, site.method = odinsyntax.selector_expr_arrow(&sel)
     }
-    commas := 0
+    commas  := 0
     has_arg := false
     pos = int(list.offset)
     for child in odinsyntax.green_children(list.green) {
@@ -200,7 +200,7 @@ site_of :: proc(list, call: odinsyntax.Syntax_Node, off: int) -> (Call_Site, boo
 @(private = "file")
 collect_entries :: proc(ctx: ^Request_Context, c: ^odinsema.Checker, site: Call_Site, out: ^[dynamic]Sig_Entry) {
     file := ctx.live.id
-    fn := odinsema.expr_type(c, file, site.callee)
+    fn   := odinsema.expr_type(c, file, site.callee)
     name := callee_name(site.callee)
     #partial switch fn.mode {
     case .Builtin:
@@ -228,7 +228,7 @@ type_entry :: proc(c: ^odinsema.Checker, fn: odinsema.Operand, name: string, out
         return
     }
     entry := Sig_Entry{params = make([dynamic]Sig_Param, context.temp_allocator), type = fn.type}
-    sb := strings.builder_make(context.temp_allocator)
+    sb    := strings.builder_make(context.temp_allocator)
     strings.write_string(&sb, name)
     params: []odinsema.Proc_Param
     file: odinsema.File_Id
@@ -269,12 +269,10 @@ type_entry :: proc(c: ^odinsema.Checker, fn: odinsema.Operand, name: string, out
         }
         start := strings.builder_len(sb)
         write_param(&sb, c, param, false)
-        append(&entry.params, Sig_Param{
-            name        = strings.trim_prefix(param.name, "$"),
-            start       = start,
-            end         = strings.builder_len(sb),
-            has_default = param.has_default,
-        })
+        append(
+            &entry.params,
+            Sig_Param{name = strings.trim_prefix(param.name, "$"), start = start, end = strings.builder_len(sb), has_default = param.has_default},
+        )
     }
     strings.write_byte(&sb, ')')
     entry.label = strings.to_string(sb)
@@ -401,7 +399,7 @@ add_entry :: proc(c: ^odinsema.Checker, op: odinsema.Operand, name: string, out:
 @(private = "file")
 source_label :: proc(c: ^odinsema.Checker, sym: odinsema.Symbol, fallback: string, entry: ^Sig_Entry) -> bool {
     name := fallback
-    sep := ": "
+    sep  := ": "
     type_offset, value_offset := -1, -1
     if sym.item == odinsema.LOCAL_ITEM {
         l, ok := odinsema.local_at(c, sym.file, int(sym.child))
@@ -455,7 +453,7 @@ proc_type_at :: proc(c: ^odinsema.Checker, file: odinsema.File_Id, offset: int) 
         case .Proc_Type:
             return n, true
         case .Proc_Lit:
-            pl, _ := odinsyntax.as_proc_lit(n)
+            pl, _        := odinsyntax.as_proc_lit(n)
             pt, has_type := odinsyntax.proc_lit_type(&pl)
             n, ok = odinsyntax.Syntax_Node(pt), has_type
         case .Tag_Expr:
@@ -505,7 +503,7 @@ collect_tokens :: proc(g: ^odinsyntax.Green_Node, offset: int, raw: ^[dynamic]Ra
 // inside parentheses and no comma before a closing one.
 @(private)
 write_label_tokens :: proc(sb: ^strings.Builder, n: odinsyntax.Syntax_Node, out: ^[dynamic]Label_Token) {
-    raw := make([dynamic]Raw_Token, context.temp_allocator)
+    raw   := make([dynamic]Raw_Token, context.temp_allocator)
     space := false
     collect_tokens(n.green, int(n.offset), &raw, &space)
     text := n.tree.text
@@ -542,7 +540,7 @@ label_range :: proc(toks: []Label_Token, start, end: int) -> (lo, hi: int, ok: b
 // Reads the parameters of the procedure type node `pt` into `entry`.
 @(private = "file")
 source_params :: proc(pt: odinsyntax.Syntax_Node, toks: []Label_Token, entry: ^Sig_Entry) {
-    ptv, _ := odinsyntax.as_proc_type(pt)
+    ptv, _   := odinsyntax.as_proc_type(pt)
     list, ok := odinsyntax.proc_type_params(&ptv)
     if ok {
         list_params(list, toks, entry)
@@ -554,16 +552,16 @@ source_params :: proc(pt: odinsyntax.Syntax_Node, toks: []Label_Token, entry: ^S
 @(private = "file")
 list_params :: proc(list: odinsyntax.Param_List, toks: []Label_Token, entry: ^Sig_Entry) {
     list := list
-    it := odinsyntax.param_list_fields(&list)
+    it   := odinsyntax.param_list_fields(&list)
     for fnode in odinsyntax.child_iter_next(&it) {
-        field, _ := odinsyntax.as_field(fnode)
+        field, _     := odinsyntax.as_field(fnode)
         fstart, fend := odinsyntax.node_range(fnode)
-        variadic := false
+        variadic     := false
         if t, has_type := odinsyntax.field_type(&field); has_type {
             variadic = t.green.kind == .Ellipsis_Type
         }
-        _, has_default := odinsyntax.field_default(&field)
-        _, has_colon := odinsyntax.find_child_token((^odinsyntax.Syntax_Node)(&field), {tokens = {.Colon}})
+        _, has_default   := odinsyntax.field_default(&field)
+        _, has_colon     := odinsyntax.find_child_token((^odinsyntax.Syntax_Node)(&field), {tokens = {.Colon}})
         names, has_names := odinsyntax.field_names(&field)
         if !has_colon || !has_names {
             lo, hi, found := label_range(toks, int(fstart), int(fend))
@@ -573,24 +571,27 @@ list_params :: proc(list: odinsyntax.Param_List, toks: []Label_Token, entry: ^Si
             continue
         }
         name_nodes := make([dynamic]odinsyntax.Syntax_Node, context.temp_allocator)
-        nit := odinsyntax.name_list_names(&names)
+        nit        := odinsyntax.name_list_names(&names)
         for nn in odinsyntax.child_iter_next(&nit) {
             append(&name_nodes, nn)
         }
         for nn, k in name_nodes {
-            nstart, nend := odinsyntax.node_range(nn)
-            last := k == len(name_nodes) - 1
+            nstart, nend  := odinsyntax.node_range(nn)
+            last          := k == len(name_nodes) - 1
             lo, hi, found := label_range(toks, int(nstart), last ? int(fend) : int(nend))
             if !found {
                 continue
             }
-            append(&entry.params, Sig_Param{
-                name        = strings.trim_prefix(strings.trim_space(odinsyntax.node_text(nn)), "$"),
-                start       = lo,
-                end         = hi,
-                variadic    = variadic,
-                has_default = has_default,
-            })
+            append(
+                &entry.params,
+                Sig_Param{
+                    name = strings.trim_prefix(strings.trim_space(odinsyntax.node_text(nn)), "$"),
+                    start = lo,
+                    end = hi,
+                    variadic = variadic,
+                    has_default = has_default,
+                },
+            )
         }
     }
 }
@@ -614,16 +615,19 @@ type_label :: proc(c: ^odinsema.Checker, p: odinsema.Proc_Type, name: string, en
         if i > 0 {
             strings.write_string(&sb, ", ")
         }
-        start := strings.builder_len(sb)
+        start    := strings.builder_len(sb)
         variadic := .Variadic in param.flags || .C_Vararg in param.flags
         write_param(&sb, c, param, variadic)
-        append(&entry.params, Sig_Param{
-            name        = strings.trim_prefix(param.name, "$"),
-            start       = start,
-            end         = strings.builder_len(sb),
-            variadic    = variadic,
-            has_default = param.has_default,
-        })
+        append(
+            &entry.params,
+            Sig_Param{
+                name = strings.trim_prefix(param.name, "$"),
+                start = start,
+                end = strings.builder_len(sb),
+                variadic = variadic,
+                has_default = param.has_default,
+            },
+        )
     }
     strings.write_byte(&sb, ')')
     switch {

@@ -14,23 +14,23 @@ import "core:sync"
 import "core:thread"
 
 import lang ".."
-import odinsema "sema"
 import "../../prof"
+import odinsema "sema"
 
 Engine :: struct {
-    config:        Config_Cache,
-    format_config: Format_Config_Cache,
-    db:            odinsema.Db, // owned
-    root:          Odin_Root,
-    tree_cache:    Tree_Cache_File,
-    packages:      Package_Index, // the packages completion offers to import
-    counts:        Count_Cache,   // identifier counts of disk files; see count_cache.odin
-    warm:          ^thread.Thread, // the prewarm thread; joined by engine_destroy
-    warm_joined:   bool,
-    warm_workspace: string,        // owned; read by the prewarm thread
-    warm_stop:     bool,           // atomic; set by engine_destroy, so the workspace walk stops early
+    config:         Config_Cache,
+    format_config:  Format_Config_Cache,
+    db:             odinsema.Db, // owned
+    root:           Odin_Root,
+    tree_cache:     Tree_Cache_File,
+    packages:       Package_Index,  // the packages completion offers to import
+    counts:         Count_Cache,    // identifier counts of disk files; see count_cache.odin
+    warm:           ^thread.Thread, // the prewarm thread; joined by engine_destroy
+    warm_joined:    bool,
+    warm_workspace: string, // owned; read by the prewarm thread
+    warm_stop:      bool,   // atomic; set by engine_destroy, so the workspace walk stops early
     // One compiler run at a time (see check_package). Atomic.
-    checking:      bool,
+    checking:       bool,
     // Settings-driven admin gate; main thread only.
     admin_enabled:  bool,
     admin_features: bit_set[lang.Request_Kind],
@@ -128,11 +128,7 @@ prewarm_workspace :: proc(e: ^Engine, workspace: string) {
     }
     collections := workspace_collections(e, workspace)
     tree_cache_ensure(e)
-    input := odinsema.Snapshot_Input {
-        target      = config_target(e, workspace),
-        collections = &collections,
-        cancel      = &e.warm_stop,
-    }
+    input := odinsema.Snapshot_Input{target = config_target(e, workspace), collections = &collections, cancel = &e.warm_stop}
     snap: odinsema.Snapshot
     defer odinsema.snapshot_end(&snap)
     if !odinsema.snapshot_begin(&e.db, &snap, input) {
@@ -150,20 +146,20 @@ prewarm_workspace :: proc(e: ^Engine, workspace: string) {
 
 // Wraps the engine as a lang.Backend for lang.manager_register.
 engine_backend :: proc(e: ^Engine) -> lang.Backend {
-    return lang.Backend {
-        data            = e,
-        name            = "odin (in-client)",
-        id              = ENGINE_ID,
-        handles         = handles,
-        resolve         = resolve,
-        destroy         = engine_destroy,
-        supports        = supports,
-        notify          = notify,
+    return lang.Backend{
+        data = e,
+        name = "odin (in-client)",
+        id = ENGINE_ID,
+        handles = handles,
+        resolve = resolve,
+        destroy = engine_destroy,
+        supports = supports,
+        notify = notify,
         on_type_trigger = on_type_trigger,
-        gate_ids        = gate_ids,
-        set_gate        = set_gate,
-        gate_defaults   = gate_defaults,
-        gate_label      = gate_label,
+        gate_ids = gate_ids,
+        set_gate = set_gate,
+        gate_defaults = gate_defaults,
+        gate_label = gate_label,
     }
 }
 

@@ -7,7 +7,7 @@ import "core:testing"
 
 @(test)
 test_console_location_odin :: proc(t: ^testing.T) {
-    line := `D:\thor\thor\thor.odin(42:9) Error: 'foo' undeclared`
+    line    := `D:\thor\thor\thor.odin(42:9) Error: 'foo' undeclared`
     loc, ok := parse_console_location(line)
     testing.expect(t, ok, "should parse an odin error line")
     testing.expect_value(t, loc.path, `D:\thor\thor\thor.odin`)
@@ -20,7 +20,7 @@ test_console_location_odin :: proc(t: ^testing.T) {
 
 @(test)
 test_console_location_leading_indent :: proc(t: ^testing.T) {
-    line := "    pkg/file.odin(3:1) Warning: unused import"
+    line    := "    pkg/file.odin(3:1) Warning: unused import"
     loc, ok := parse_console_location(line)
     testing.expect(t, ok, "should parse an indented line")
     testing.expect_value(t, loc.path, "pkg/file.odin")

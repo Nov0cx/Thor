@@ -69,10 +69,7 @@ thor_raise_command :: proc(pid: int) -> (string, bool) {
     when ODIN_OS == .Darwin {
         // System Events addresses a process by its unix id, which is the only
         // identity the record carries.
-        return fmt.tprintf(
-            `osascript -e 'tell application "System Events" to set frontmost of (first process whose unix id is %d) to true'`,
-            pid,
-        ), true
+        return fmt.tprintf(`osascript -e 'tell application "System Events" to set frontmost of (first process whose unix id is %d) to true'`, pid), true
     } else {
         // xdotool activates the match itself; wmctrl needs the window id looked
         // up in its own listing first, and an empty id must fail rather than
@@ -81,10 +78,7 @@ thor_raise_command :: proc(pid: int) -> (string, bool) {
             return fmt.tprintf("xdotool search --onlyvisible --pid %d windowactivate %%1", pid), true
         }
         if _, found := shell.which("wmctrl", context.temp_allocator); found {
-            return fmt.tprintf(
-                `id=$(wmctrl -lp | awk '$3=="%d" {{print $1; exit}}'); [ -n "$id" ] && wmctrl -ia "$id"`,
-                pid,
-            ), true
+            return fmt.tprintf(`id=$(wmctrl -lp | awk '$3=="%d" {{print $1; exit}}'); [ -n "$id" ] && wmctrl -ia "$id"`, pid), true
         }
         return "", false
     }

@@ -93,7 +93,7 @@ with_ok :: proc(c: ^Checker, value: Type_Id) -> Operand {
 
 @(private)
 operand_of :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, expected: Type_Id) -> Operand {
-    n := n
+    n    := n
     kind := n.green.kind
     if kind in odinsyntax.KINDS_TYPE && kind != .Ellipsis_Type {
         return {mode = .Type, type = type_expr(c, file, n)}
@@ -110,30 +110,30 @@ operand_of :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, expect
     case .Ternary_Expr, .Ternary_If_Expr, .Ternary_When_Expr:
         return ternary_operand(c, file, n, expected)
     case .Paren_Expr:
-        p, _ := odinsyntax.as_paren_expr(n)
+        p, _      := odinsyntax.as_paren_expr(n)
         inner, ok := odinsyntax.paren_expr_expr(&p)
         return ok ? expr_values(c, file, inner, expected) : {}
     case .Selector_Expr:
         return selector_operand(c, file, n)
     case .Implicit_Selector:
-        is, _ := odinsyntax.as_implicit_selector(n)
+        is, _     := odinsyntax.as_implicit_selector(n)
         field, ok := odinsyntax.implicit_selector_field(&is)
         if !ok {
             return {}
         }
         return implicit_operand(c, odinsyntax.node_text(odinsyntax.Syntax_Node(field)), expected)
     case .Selector_Call_Expr:
-        sc, _ := odinsyntax.as_selector_call_expr(n)
+        sc, _    := odinsyntax.as_selector_call_expr(n)
         call, ok := odinsyntax.selector_call_expr_call(&sc)
         return ok ? call_operand(c, file, odinsyntax.Syntax_Node(call), expected) : {}
     case .Call_Expr:
         return call_operand(c, file, n, expected)
     case .Index_Expr:
-        ie, _ := odinsyntax.as_index_expr(n)
+        ie, _       := odinsyntax.as_index_expr(n)
         operand, ok := odinsyntax.index_expr_operand(&ie)
         return ok ? index_operand(c, expr_type(c, file, operand).type) : {}
     case .Matrix_Index_Expr:
-        me, _ := odinsyntax.as_matrix_index_expr(n)
+        me, _       := odinsyntax.as_matrix_index_expr(n)
         operand, ok := odinsyntax.matrix_index_expr_operand(&me)
         if !ok {
             return {}
@@ -145,7 +145,7 @@ operand_of :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, expect
     case .Slice_Expr:
         return slice_operand(c, file, n)
     case .Deref_Expr:
-        de, _ := odinsyntax.as_deref_expr(n)
+        de, _       := odinsyntax.as_deref_expr(n)
         operand, ok := odinsyntax.deref_expr_operand(&de)
         if !ok {
             return {}
@@ -166,37 +166,37 @@ operand_of :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, expect
         if expected != INVALID_TYPE {
             return {mode = .Value, type = expected}
         }
-        ac, _ := odinsyntax.as_auto_cast_expr(n)
+        ac, _       := odinsyntax.as_auto_cast_expr(n)
         operand, ok := odinsyntax.auto_cast_expr_operand(&ac)
         return ok ? {mode = .Value, type = expr_type(c, file, operand).type} : {}
     case .Type_Assertion:
         return assertion_operand(c, file, n)
     case .Or_Else_Expr:
-        oe, _ := odinsyntax.as_or_else_expr(n)
+        oe, _   := odinsyntax.as_or_else_expr(n)
         lhs, ok := odinsyntax.or_else_expr_lhs(&oe)
         if !ok {
             return {}
         }
-        op := expr_values(c, file, lhs, expected)
+        op    := expr_values(c, file, lhs, expected)
         types := tuple_types(c, &op.type)
         if len(types) == 0 {
             return {}
         }
         return {mode = .Value, type = types[0]}
     case .Or_Return_Expr:
-        oe, _ := odinsyntax.as_or_return_expr(n)
+        oe, _       := odinsyntax.as_or_return_expr(n)
         operand, ok := odinsyntax.or_return_expr_operand(&oe)
         return ok ? drop_last(c, expr_values(c, file, operand, expected)) : {}
     case .Or_Branch_Expr:
-        ob, _ := odinsyntax.as_or_branch_expr(n)
+        ob, _       := odinsyntax.as_or_branch_expr(n)
         operand, ok := odinsyntax.or_branch_expr_operand(&ob)
         return ok ? drop_last(c, expr_values(c, file, operand, expected)) : {}
     case .Spread_Expr:
-        se, _ := odinsyntax.as_spread_expr(n)
+        se, _     := odinsyntax.as_spread_expr(n)
         inner, ok := odinsyntax.spread_expr_expr(&se)
         return ok ? expr_type(c, file, inner, expected) : {}
     case .Proc_Lit:
-        p, _ := odinsyntax.as_proc_lit(n)
+        p, _   := odinsyntax.as_proc_lit(n)
         pt, ok := odinsyntax.proc_lit_type(&p)
         if !ok {
             return {}
@@ -206,7 +206,7 @@ operand_of :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, expect
     case .Proc_Group:
         return {mode = .Value, type = proc_group_type(c, file, n)}
     case .Tag_Expr:
-        tag, _ := odinsyntax.as_tag_expr(n)
+        tag, _    := odinsyntax.as_tag_expr(n)
         inner, ok := odinsyntax.tag_expr_expr(&tag)
         if !ok {
             return {}
@@ -273,7 +273,7 @@ proc_group_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -
     temp := scratch_begin(c)
     defer scratch_end(temp)
     members := make([dynamic]Type_Id, c.tmp)
-    it := odinsyntax.proc_group_members(&g)
+    it      := odinsyntax.proc_group_members(&g)
     for m in odinsyntax.child_iter_next(&it) {
         if _, err := append(&members, expr_type(c, file, m).type); !note_alloc(c, err) {
             return INVALID_TYPE
@@ -286,12 +286,18 @@ proc_group_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -
 @(private)
 untyped_of :: proc(v: Const_Value) -> Type_Id {
     switch _ in v {
-    case i64:    return type_untyped(.Int)
-    case Wide_Int: return type_untyped(.Int)
-    case f64:    return type_untyped(.Float)
-    case string: return type_untyped(.String)
-    case bool:   return type_untyped(.Bool)
-    case rune:   return type_untyped(.Rune)
+    case i64:
+        return type_untyped(.Int)
+    case Wide_Int:
+        return type_untyped(.Int)
+    case f64:
+        return type_untyped(.Float)
+    case string:
+        return type_untyped(.String)
+    case bool:
+        return type_untyped(.Bool)
+    case rune:
+        return type_untyped(.Rune)
     }
     return INVALID_TYPE
 }
@@ -305,11 +311,16 @@ literal_operand :: proc(c: ^Checker, n: odinsyntax.Syntax_Node) -> Operand {
     lit, _ := odinsyntax.as_literal(n)
     if tok, ok := odinsyntax.literal_token(&lit); ok {
         #partial switch tok.green.kind {
-        case .Integer: return {mode = .Const, type = type_untyped(.Int)}
-        case .Float:   return {mode = .Const, type = type_untyped(.Float)}
-        case .Imag:    return {mode = .Const, type = type_untyped(.Complex)}
-        case .Rune:    return {mode = .Const, type = type_untyped(.Rune)}
-        case .String:  return {mode = .Const, type = type_untyped(.String)}
+        case .Integer:
+            return {mode = .Const, type = type_untyped(.Int)}
+        case .Float:
+            return {mode = .Const, type = type_untyped(.Float)}
+        case .Imag:
+            return {mode = .Const, type = type_untyped(.Complex)}
+        case .Rune:
+            return {mode = .Const, type = type_untyped(.Rune)}
+        case .String:
+            return {mode = .Const, type = type_untyped(.String)}
         }
     }
     return {}
@@ -317,8 +328,8 @@ literal_operand :: proc(c: ^Checker, n: odinsyntax.Syntax_Node) -> Operand {
 
 @(private)
 unary_operand :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, expected: Type_Id) -> Operand {
-    u, _ := odinsyntax.as_unary_expr(n)
-    op, has_op := odinsyntax.unary_expr_op(&u)
+    u, _                 := odinsyntax.as_unary_expr(n)
+    op, has_op           := odinsyntax.unary_expr_op(&u)
     operand, has_operand := odinsyntax.unary_expr_operand(&u)
     if !has_op || !has_operand {
         return {}
@@ -364,7 +375,7 @@ unary_operand :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, exp
 // untyped bool; a shift gives the type of its left side.
 @(private)
 binary_operand :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, expected: Type_Id) -> Operand {
-    b, _ := odinsyntax.as_binary_expr(n)
+    b, _           := odinsyntax.as_binary_expr(n)
     op_tok, has_op := odinsyntax.binary_expr_op(&b)
     lhs_n, has_lhs := odinsyntax.binary_expr_lhs(&b)
     rhs_n, has_rhs := odinsyntax.binary_expr_rhs(&b)
@@ -423,7 +434,7 @@ binary_operand :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, ex
     if lhs.mode == .Invalid && rhs.mode == .Invalid {
         return {}
     }
-    type := lhs.type
+    type      := lhs.type
     l_untyped := type_is_untyped(&c.table, lhs.type)
     r_untyped := type_is_untyped(&c.table, rhs.type)
     switch {
@@ -633,7 +644,7 @@ local_operand :: proc(c: ^Checker, r: Resolved, at: int) -> Operand {
             return bound
         }
     }
-    l := r.local
+    l    := r.local
     info := decl_info(c, r.symbol)
     #partial switch l.kind {
     case .Type:
@@ -683,7 +694,7 @@ switch_clause_type :: proc(c: ^Checker, file: File_Id, l: Local, at: int) -> (Ty
     if !has_clause {
         return INVALID_TYPE, false
     }
-    cc, _ := odinsyntax.as_case_clause(clause)
+    cc, _      := odinsyntax.as_case_clause(clause)
     values, ok := odinsyntax.case_clause_values(&cc)
     if !ok {
         return INVALID_TYPE, false
@@ -844,8 +855,10 @@ find_field_at :: proc(c: ^Checker, t: Type_Id, name: string, depth: int) -> (Fie
         #partial switch v.kind {
         case .Any:
             switch name {
-            case "data": return {type_basic(.Rawptr), NO_FILE, -1, depth}, true
-            case "id":   return {type_basic(.Typeid), NO_FILE, -1, depth}, true
+            case "data":
+                return {type_basic(.Rawptr), NO_FILE, -1, depth}, true
+            case "id":
+                return {type_basic(.Typeid), NO_FILE, -1, depth}, true
             }
         case .Quaternion64, .Quaternion128, .Quaternion256:
             // A quaternion has the components `x`, `y`, `z` and `w`.
@@ -899,14 +912,14 @@ swizzle_type :: proc(c: ^Checker, t: Type_Id, name: string) -> (Type_Id, bool) {
 
 @(private)
 selector_operand :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Operand {
-    sel, _ := odinsyntax.as_selector_expr(n)
+    sel, _               := odinsyntax.as_selector_expr(n)
     operand, has_operand := odinsyntax.selector_expr_operand(&sel)
-    field, has_field := odinsyntax.selector_expr_field(&sel)
+    field, has_field     := odinsyntax.selector_expr_field(&sel)
     if !has_operand || !has_field {
         return {}
     }
     name := odinsyntax.node_text(odinsyntax.Syntax_Node(field))
-    op := expr_type(c, file, operand)
+    op   := expr_type(c, file, operand)
     #partial switch op.mode {
     case .Package:
         sym, ok := member_lookup(c, op.dir, name, NO_FILE, true, true)
@@ -981,19 +994,30 @@ member_operand :: proc(c: ^Checker, t: Type_Id, file: File_Id, m: Enum_Member) -
 @(private)
 index_operand :: proc(c: ^Checker, t: Type_Id) -> Operand {
     #partial switch v in type_get(&c.table, deref_base(c, t)) {
-    case Array_Type:            return {mode = .Value, type = v.elem}
-    case Slice_Type:            return {mode = .Value, type = v.elem}
-    case Dynamic_Array_Type:    return {mode = .Value, type = v.elem}
-    case Multi_Pointer_Type:    return {mode = .Value, type = v.elem}
-    case Enumerated_Array_Type: return {mode = .Value, type = v.elem}
-    case Simd_Type:             return {mode = .Value, type = v.elem}
-    case Soa_Type:              return {mode = .Value, type = v.elem}
-    case Matrix_Type:           return {mode = .Value, type = v.elem}
-    case Map_Type:              return with_ok(c, v.value)
+    case Array_Type:
+        return {mode = .Value, type = v.elem}
+    case Slice_Type:
+        return {mode = .Value, type = v.elem}
+    case Dynamic_Array_Type:
+        return {mode = .Value, type = v.elem}
+    case Multi_Pointer_Type:
+        return {mode = .Value, type = v.elem}
+    case Enumerated_Array_Type:
+        return {mode = .Value, type = v.elem}
+    case Simd_Type:
+        return {mode = .Value, type = v.elem}
+    case Soa_Type:
+        return {mode = .Value, type = v.elem}
+    case Matrix_Type:
+        return {mode = .Value, type = v.elem}
+    case Map_Type:
+        return with_ok(c, v.value)
     case Basic_Type:
         #partial switch v.kind {
-        case .String, .Cstring:     return {mode = .Value, type = type_basic(.U8)}
-        case .String16, .Cstring16: return {mode = .Value, type = type_basic(.U16)}
+        case .String, .Cstring:
+            return {mode = .Value, type = type_basic(.U8)}
+        case .String16, .Cstring16:
+            return {mode = .Value, type = type_basic(.U16)}
         }
     case Untyped_Type:
         if v.kind == .String {
@@ -1005,7 +1029,7 @@ index_operand :: proc(c: ^Checker, t: Type_Id) -> Operand {
 
 @(private)
 slice_operand :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Operand {
-    se, _ := odinsyntax.as_slice_expr(n)
+    se, _       := odinsyntax.as_slice_expr(n)
     operand, ok := odinsyntax.slice_expr_operand(&se)
     if !ok {
         return {}
@@ -1054,7 +1078,7 @@ assertion_operand :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node)
 // A composite literal: its own type, else the expected one. `[?]T{...}` takes its length from its elements.
 @(private)
 comp_lit_operand :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, expected: Type_Id) -> Operand {
-    cl, _ := odinsyntax.as_comp_lit(n)
+    cl, _    := odinsyntax.as_comp_lit(n)
     type, ok := odinsyntax.comp_lit_type(&cl)
     if !ok {
         return {mode = .Value, type = expected}

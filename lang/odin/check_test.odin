@@ -16,7 +16,7 @@ import "../../shell"
 test_parse_error_line :: proc(t: ^testing.T) {
     // A Windows absolute path (note the drive-letter colon, which the parser must
     // not mistake for the line:col colon).
-    line := `D:\thor\thor\thor.odin(42:9) Error: 'foo' undeclared`
+    line  := `D:\thor\thor\thor.odin(42:9) Error: 'foo' undeclared`
     p, ok := parse_diagnostic_line(line)
     testing.expect(t, ok, "should parse an error line")
     testing.expect_value(t, p.path, `D:\thor\thor\thor.odin`)
@@ -90,8 +90,8 @@ test_check_reports_package_error :: proc(t: ^testing.T) {
 
     path, _ := filepath.join({root, "broken.odin"}, context.temp_allocator)
     // `nope` is undeclared, on line 4.
-    src := "package broken\n\nbad :: proc() -> int {\n\treturn nope\n}\n"
-    if err := os.write_entire_file(path, transmute([]byte) src); err != nil {
+    src     := "package broken\n\nbad :: proc() -> int {\n\treturn nope\n}\n"
+    if err := os.write_entire_file(path, transmute([]byte)src); err != nil {
         testing.fail_now(t, "could not write the test package")
     }
     defer os.remove(path)
@@ -132,8 +132,8 @@ test_check_reports_clean_package :: proc(t: ^testing.T) {
     defer os.remove(root)
 
     path, _ := filepath.join({root, "fine.odin"}, context.temp_allocator)
-    src := "package fine\n\ngood :: proc() -> int {\n\treturn 1\n}\n"
-    if err := os.write_entire_file(path, transmute([]byte) src); err != nil {
+    src     := "package fine\n\ngood :: proc() -> int {\n\treturn 1\n}\n"
+    if err := os.write_entire_file(path, transmute([]byte)src); err != nil {
         testing.fail_now(t, "could not write the test package")
     }
     defer os.remove(path)
@@ -165,10 +165,10 @@ test_check_passes_config_collections :: proc(t: ^testing.T) {
     if !ok {
         return
     }
-    libs, _ := filepath.join({root, "libs"}, context.temp_allocator)
-    foo, _ := filepath.join({libs, "foo"}, context.temp_allocator)
+    libs, _    := filepath.join({root, "libs"}, context.temp_allocator)
+    foo, _     := filepath.join({libs, "foo"}, context.temp_allocator)
     cfg_dir, _ := filepath.join({root, ".thor"}, context.temp_allocator)
-    app, _ := filepath.join({root, "app"}, context.temp_allocator)
+    app, _     := filepath.join({root, "app"}, context.temp_allocator)
     _ = os.make_directory(libs)
     _ = os.make_directory(foo)
     _ = os.make_directory(cfg_dir)
@@ -189,7 +189,7 @@ test_check_passes_config_collections :: proc(t: ^testing.T) {
     files := [?]struct {
         path: string,
         src:  string,
-    } {
+    }{
         {foo_path, "package foo\n\nbar :: proc() -> int {\n\treturn 1\n}\n"},
         {cfg_path, "return { collections = { { name = \"shared\", path = \"libs\" } } }\n"},
         {app_path, "package app\n\nimport \"shared:foo\"\n\nuse :: proc() -> int {\n\treturn foo.bar()\n}\n"},
@@ -241,8 +241,8 @@ test_check_failed_run_reports_not_ok :: proc(t: ^testing.T) {
 
     // The file does not exist, and its directory holds no .odin file at all.
     path, _ := filepath.join({root, "ghost.odin"}, context.temp_allocator)
-    req := lang.Request{kind = .Diagnostics, path = path, ext = ".odin", workspace = root}
-    res := lang.Result{kind = .Diagnostics}
+    req     := lang.Request{kind = .Diagnostics, path = path, ext = ".odin", workspace = root}
+    res     := lang.Result{kind = .Diagnostics}
     resolve(e, &req, &res)
     defer free_report(&res)
 

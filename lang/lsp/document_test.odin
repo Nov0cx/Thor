@@ -13,7 +13,7 @@ test_uri_from_path :: proc(t: ^testing.T) {
         path: string,
         want: string,
     }
-    cases := []Case {
+    cases := []Case{
         {"/home/user/main.c", "file:///home/user/main.c"},
         {"C:/src/main.c", "file:///C:/src/main.c"},
         {"C:\\src\\main.c", "file:///C:/src/main.c"},
@@ -37,7 +37,7 @@ test_uri_to_path :: proc(t: ^testing.T) {
         uri:  string,
         want: string,
     }
-    cases := []Case {
+    cases := []Case{
         {"file:///home/user/main.c", "/home/user/main.c"},
         {"file:///C:/src/main.c", "C:/src/main.c"},
         {"file:///C%3A/src/main.c", "C:/src/main.c"},
@@ -74,14 +74,7 @@ test_uri_to_path_refuses :: proc(t: ^testing.T) {
 // keyed the document on.
 @(test)
 test_uri_round_trip :: proc(t: ^testing.T) {
-    paths := []string {
-        "/home/user/main.c",
-        "C:/src/main.c",
-        "/tmp/my file.c",
-        "/tmp/héllo世界.c",
-        "/tmp/a#b?c&d.c",
-        "C:/Users/tester/AppData/Local/Temp/x.c",
-    }
+    paths := []string{"/home/user/main.c", "C:/src/main.c", "/tmp/my file.c", "/tmp/héllo世界.c", "/tmp/a#b?c&d.c", "C:/Users/tester/AppData/Local/Temp/x.c"}
     for path in paths {
         uri := uri_from_path(path)
         defer delete(uri)
@@ -265,8 +258,8 @@ test_did_change_incremental_params :: proc(t: ^testing.T) {
     }
     start_line, slok := number(start["line"])
     start_char, scok := number(start["character"])
-    end_line, elok := number(end["line"])
-    end_char, ecok := number(end["character"])
+    end_line, elok   := number(end["line"])
+    end_char, ecok   := number(end["character"])
     testing.expect(t, slok && scok && elok && ecok)
     testing.expect_value(t, start_line, 0)
     testing.expect_value(t, start_char, 6)

@@ -15,13 +15,13 @@ Git_Host_Kind :: enum {
     GitHub,
     // thor:ignore style/naming
     GitLab,
-    Other,  // repo page still opens as https://<host>/<path>
+    Other, // repo page still opens as https://<host>/<path>
 }
 
 Git_Host_Info :: struct {
     kind: Git_Host_Kind,
-    host: string,  // owned; "github.com", "gitlab.example.org:8443"
-    path: string,  // owned; "owner/repo", GitLab subgroups included
+    host: string, // owned; "github.com", "gitlab.example.org:8443"
+    path: string, // owned; "owner/repo", GitLab subgroups included
 }
 
 git_host_info_destroy :: proc(info: ^Git_Host_Info) {
@@ -62,8 +62,8 @@ git_parse_remote_url :: proc(url: string) -> (info: Git_Host_Info, ok: bool) {
         path = rest[slash + 1:]
     case strings.contains_rune(trimmed, '@') && strings.contains_rune(trimmed, ':'):
         // scp-like: git@host:owner/repo.git
-        at := strings.index_byte(trimmed, '@')
-        rest := trimmed[at + 1:]
+        at    := strings.index_byte(trimmed, '@')
+        rest  := trimmed[at + 1:]
         colon := strings.index_byte(rest, ':')
         if colon <= 0 {
             return
@@ -91,7 +91,7 @@ git_parse_remote_url :: proc(url: string) -> (info: Git_Host_Info, ok: bool) {
         kind = .GitLab
     }
 
-    info = Git_Host_Info {kind = kind, host = strings.clone(host), path = strings.clone(path)}
+    info = Git_Host_Info{kind = kind, host = strings.clone(host), path = strings.clone(path)}
     ok = true
     return
 }
@@ -120,10 +120,7 @@ git_host_file_url :: proc(info: Git_Host_Info, branch, rel: string, allocator :=
 git_host_compare_url :: proc(info: Git_Host_Info, branch: string, allocator := context.temp_allocator) -> string {
     escaped := git_url_escape_path(branch, allocator)
     if info.kind == .GitLab {
-        return strings.concatenate(
-            {git_host_repo_url(info, allocator), "/-/merge_requests/new?merge_request%5Bsource_branch%5D=", escaped},
-            allocator,
-        )
+        return strings.concatenate({git_host_repo_url(info, allocator), "/-/merge_requests/new?merge_request%5Bsource_branch%5D=", escaped}, allocator)
     }
     return strings.concatenate({git_host_repo_url(info, allocator), "/compare/", escaped, "?expand=1"}, allocator)
 }
@@ -133,7 +130,7 @@ git_host_compare_url :: proc(info: Git_Host_Info, branch: string, allocator := c
 git_url_escape_path :: proc(path: string, allocator := context.temp_allocator) -> string {
     b: strings.Builder
     strings.builder_init(&b, allocator)
-    for c in transmute([]u8) path {
+    for c in transmute([]u8)path {
         switch {
         case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
             strings.write_byte(&b, c)
@@ -152,9 +149,9 @@ git_url_escape_path :: proc(path: string, allocator := context.temp_allocator) -
 // One open pull/merge request from the CLI's JSON listing.
 Git_Pr_Entry :: struct {
     number: int,
-    title:  string,  // owned
-    branch: string,  // owned
-    url:    string,  // owned
+    title:  string, // owned
+    branch: string, // owned
+    url:    string, // owned
 }
 
 git_pr_entries_destroy :: proc(entries: ^[dynamic]Git_Pr_Entry) {
@@ -223,9 +220,9 @@ git_json_number :: proc(object: json.Object, key: string) -> (n: int, ok: bool) 
     }
     #partial switch v in value {
     case json.Integer:
-        return cast(int) v, true
+        return cast(int)v, true
     case json.Float:
-        return cast(int) v, true
+        return cast(int)v, true
     }
     return
 }
@@ -237,8 +234,8 @@ git_first_url :: proc(output: string) -> string {
         return ""
     }
     rest := output[start:]
-    end := len(rest)
-    for c, i in transmute([]u8) rest {
+    end  := len(rest)
+    for c, i in transmute([]u8)rest {
         if c == ' ' || c == '\n' || c == '\r' || c == '\t' {
             end = i
             break

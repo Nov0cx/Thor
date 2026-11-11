@@ -30,7 +30,7 @@ Syntax_Vet :: struct {
 // The directory name and the file name of `path`, which tell apart two files of one name.
 @(private = "file")
 mark_file :: proc(path: string) -> string {
-    clean, _ := strings.replace_all(path, "\\", "/", context.temp_allocator)
+    clean, _  := strings.replace_all(path, "\\", "/", context.temp_allocator)
     dir, name := filepath.split(clean)
     return strings.concatenate({filepath.base(strings.trim_right(dir, "/")), "/", name}, context.temp_allocator)
 }
@@ -78,12 +78,12 @@ sample :: proc(shown: ^map[string]int, what, flag, dir: string, m: Vet_Mark) {
         return
     }
     shown[strings.clone(key)] += 1
-    path := strings.concatenate({dir, "/", filepath.base(m.file)}, context.temp_allocator)
+    path    := strings.concatenate({dir, "/", filepath.base(m.file)}, context.temp_allocator)
     src, ok := lang.source_read(path, context.temp_allocator)
-    text := ""
+    text    := ""
     if ok {
         rest := src
-        n := 1
+        n    := 1
         for l in strings.split_lines_iterator(&rest) {
             if n == m.line {
                 text = l
@@ -120,7 +120,11 @@ test_vet_syntax_oracle :: proc(t: ^testing.T) {
     }
     free_all(context.temp_allocator)
     slice.sort(dirs[:])
-    kinds := [?]Syntax_Vet{{"-vet-semicolon", "Found unneeded semicolon"}, {"-vet-tabs", "With '-vet-tabs'"}, {"-vet-style", "Expected a comma, got a newline"}}
+    kinds  := [?]Syntax_Vet{
+        {"-vet-semicolon", "Found unneeded semicolon"},
+        {"-vet-tabs", "With '-vet-tabs'"},
+        {"-vet-style", "Expected a comma, got a newline"},
+    }
     target := odinsema.target_host()
     target.tests = true
     extra, missed, packages, marks := 0, 0, 0, 0
@@ -136,11 +140,11 @@ test_vet_syntax_oracle :: proc(t: ^testing.T) {
         }
         for kind, k in kinds {
             want := make(map[Vet_Mark]bool, context.temp_allocator)
-            own := make(map[string]bool, context.temp_allocator)
+            own  := make(map[string]bool, context.temp_allocator)
             for path in files {
                 own[mark_file(path)] = true
             }
-            args := []string{"check", dir, "-no-entry-point", "-max-error-count:100000", "-terse-errors", kind.flag}
+            args           := []string{"check", dir, "-no-entry-point", "-max-error-count:100000", "-terse-errors", kind.flag}
             output, _, ran := shell.exec_status("odin", args, ".", ORACLE_TIMEOUT)
             if !ran {
                 continue
@@ -169,9 +173,12 @@ test_vet_syntax_oracle :: proc(t: ^testing.T) {
                 }
                 offsets: [dynamic]int
                 switch k {
-                case 0: offsets, _ = odinsema.vet_semicolons(parsed, context.temp_allocator)
-                case 1: offsets, _ = odinsema.vet_tabs(parsed, context.temp_allocator)
-                case 2: offsets, _ = odinsema.vet_style(parsed, context.temp_allocator)
+                case 0:
+                    offsets, _ = odinsema.vet_semicolons(parsed, context.temp_allocator)
+                case 1:
+                    offsets, _ = odinsema.vet_tabs(parsed, context.temp_allocator)
+                case 2:
+                    offsets, _ = odinsema.vet_style(parsed, context.temp_allocator)
                 }
                 for offset in offsets {
                     line, col := line_col_of(src, offset)
@@ -235,10 +242,10 @@ test_vet_unused_procedure_oracle :: proc(t: ^testing.T) {
         if ferr != nil {
             continue
         }
-        name := ""
+        name    := ""
         sources := make([dynamic]string, context.temp_allocator)
-        paths := make([dynamic]string, context.temp_allocator)
-        trees := make([dynamic]^odinsema.Item_Tree, context.temp_allocator)
+        paths   := make([dynamic]string, context.temp_allocator)
+        trees   := make([dynamic]^odinsema.Item_Tree, context.temp_allocator)
         for path in files {
             src, ok := lang.source_read(path, context.temp_allocator)
             if !ok {
@@ -260,13 +267,21 @@ test_vet_unused_procedure_oracle :: proc(t: ^testing.T) {
         if name == "" {
             continue
         }
-        args := []string{"check", dir, "-no-entry-point", "-max-error-count:100000", "-terse-errors", "-vet-unused-procedures", strings.concatenate({"-vet-packages:", name}, context.temp_allocator)}
+        args           := []string{
+            "check",
+            dir,
+            "-no-entry-point",
+            "-max-error-count:100000",
+            "-terse-errors",
+            "-vet-unused-procedures",
+            strings.concatenate({"-vet-packages:", name}, context.temp_allocator),
+        }
         output, _, ran := shell.exec_status("odin", args, ".", ORACLE_TIMEOUT)
         if !ran {
             continue
         }
         want := make(map[Vet_Mark]bool, context.temp_allocator)
-        it := output
+        it   := output
         for line in strings.split_lines_iterator(&it) {
             p, ok := parse_diagnostic_line(line)
             if ok && strings.has_suffix(p.message, "declared but not used") {
@@ -274,7 +289,7 @@ test_vet_unused_procedure_oracle :: proc(t: ^testing.T) {
             }
         }
         delete(output)
-        used := make(map[string]struct{}, context.temp_allocator)
+        used  := make(map[string]struct {}, context.temp_allocator)
         names := make(map[string]int, context.temp_allocator)
         decls := make([dynamic]int, context.temp_allocator)
         cands := make([dynamic][dynamic]int, len(trees), context.temp_allocator)

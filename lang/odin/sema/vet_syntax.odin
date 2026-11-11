@@ -12,8 +12,8 @@ vet_semicolons :: proc(parsed: odinsyntax.Parse, allocator := context.allocator)
     if parsed.tree == nil {
         return
     }
-    toks := odinsyntax.lex_all(parsed.tree.text, context.temp_allocator)
-    headers := make(map[int]struct{}, 16, context.temp_allocator) or_return
+    toks    := odinsyntax.lex_all(parsed.tree.text, context.temp_allocator)
+    headers := make(map[int]struct {}, 16, context.temp_allocator) or_return
     if parsed.tree.root != nil {
         header_semicolons(odinsyntax.node_root(parsed.tree), &headers) or_return
     }
@@ -30,7 +30,7 @@ vet_semicolons :: proc(parsed: odinsyntax.Parse, allocator := context.allocator)
             next += 1
         }
         starts_line := prev < 0 || toks[prev].kind == .Newline
-        ends := next >= len(toks) || toks[next].kind == .Newline || toks[next].kind == .EOF || toks[next].kind == .Close_Brace
+        ends        := next >= len(toks) || toks[next].kind == .Newline || toks[next].kind == .EOF || toks[next].kind == .Close_Brace
         if starts_line || ends {
             append(&out, int(tok.offset)) or_return
         }
@@ -40,7 +40,7 @@ vet_semicolons :: proc(parsed: odinsyntax.Parse, allocator := context.allocator)
 
 // Adds the offsets of the semicolons that separate the parts of an `if`, `for`, `switch` or `when` header.
 @(private = "file")
-header_semicolons :: proc(n: odinsyntax.Syntax_Node, out: ^map[int]struct{}) -> mem.Allocator_Error {
+header_semicolons :: proc(n: odinsyntax.Syntax_Node, out: ^map[int]struct {}) -> mem.Allocator_Error {
     n := n
     #partial switch n.green.kind {
     case .If_Stmt, .For_Stmt, .Range_Stmt, .Switch_Stmt, .Type_Switch_Stmt, .When_Stmt:
@@ -72,7 +72,7 @@ vet_tabs :: proc(parsed: odinsyntax.Parse, allocator := context.allocator) -> (o
 
 @(private = "file")
 tabs_walk :: proc(text: string, n: odinsyntax.Syntax_Node, out: ^[dynamic]int) -> mem.Allocator_Error {
-    n := n
+    n  := n
     it := odinsyntax.child_iter(&n, {kinds = ~odinsyntax.Kind_Set{}})
     for child in odinsyntax.child_iter_next(&it) {
         in_foreign := n.parent != nil && n.parent.green.kind == .Foreign_Block
@@ -153,7 +153,9 @@ style_walk :: proc(toks: []odinsyntax.Token, n: odinsyntax.Syntax_Node, out: ^[d
 // element has no comma after it.
 @(private = "file")
 missing_comma :: proc(toks: []odinsyntax.Token, closer: int) -> (at: int, missing: bool) {
-    i, found := slice.binary_search_by(toks, closer, proc(t: odinsyntax.Token, offset: int) -> slice.Ordering {return slice.cmp(int(t.offset), offset)})
+    i, found := slice.binary_search_by(toks, closer, proc(t: odinsyntax.Token, offset: int) -> slice.Ordering {
+        return slice.cmp(int(t.offset), offset)
+    })
     if !found {
         return
     }

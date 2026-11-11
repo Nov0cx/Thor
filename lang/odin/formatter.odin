@@ -89,10 +89,7 @@ format_config_ensure :: proc(cache: ^Format_Config_Cache, workspace: string) {
 // with no Engine, for the command line. `newline_present` is true when the file
 // names `newline_style`. Problems in the file go to context.logger.
 load_format_options :: proc(workspace: string) -> (opts: format.Options, newline_present: bool) {
-    cache := Format_Config_Cache {
-        alloc = context.allocator,
-        opts  = format.default_options(),
-    }
+    cache := Format_Config_Cache{alloc = context.allocator, opts = format.default_options()}
     defer delete(cache.workspace, cache.alloc)
     format_config_ensure(&cache, workspace)
     return cache.opts, cache.newline_present
@@ -118,8 +115,8 @@ format_config_parse :: proc(cache: ^Format_Config_Cache, path: string) {
     }
 
     for key, v in obj {
-        is_int := slice.contains(FORMAT_INT_KEYS, key)
-        is_bool := slice.contains(FORMAT_BOOL_KEYS, key)
+        is_int    := slice.contains(FORMAT_INT_KEYS, key)
+        is_bool   := slice.contains(FORMAT_BOOL_KEYS, key)
         is_string := slice.contains(FORMAT_STRING_KEYS, key)
         if !is_int && !is_bool && !is_string {
             log.warnf("odin-formatter.lua: unknown key %q", key)
@@ -143,7 +140,7 @@ format_config_parse :: proc(cache: ^Format_Config_Cache, path: string) {
     // json.Float — only a literal decimal point or exponent produces a
     // Float. Checking Float alone silently ignores every ordinarily-written
     // integer setting in the file.
-    read_int :: proc(obj: json.Object, key: string, dst: ^int) {
+    read_int  :: proc(obj: json.Object, key: string, dst: ^int) {
         if n, ok := obj[key].(json.Integer); ok {
             dst^ = int(n)
             return
@@ -186,10 +183,14 @@ format_config_parse :: proc(cache: ^Format_Config_Cache, path: string) {
 
     if s, ok := obj["brace_style"].(json.String); ok {
         switch s {
-        case "_1TBS":      cache.opts.brace_style = ._1TBS
-        case "Allman":     cache.opts.brace_style = .Allman
-        case "Stroustrup": cache.opts.brace_style = .Stroustrup
-        case "K_And_R":    cache.opts.brace_style = .K_And_R
+        case "_1TBS":
+            cache.opts.brace_style = ._1TBS
+        case "Allman":
+            cache.opts.brace_style = .Allman
+        case "Stroustrup":
+            cache.opts.brace_style = .Stroustrup
+        case "K_And_R":
+            cache.opts.brace_style = .K_And_R
         case:
             log.warnf("odin-formatter.lua: brace_style %q is not _1TBS, Allman, Stroustrup or K_And_R", s)
         }
@@ -218,12 +219,23 @@ FORMAT_INT_KEYS := []string{"character_width", "spaces", "newline_limit", "tabs_
 @(private)
 FORMAT_STRING_KEYS := []string{"brace_style", "newline_style"}
 @(private)
-FORMAT_BOOL_KEYS := []string {
-    "tabs", "convert_do", "exp_multiline_composite_literals", "indent_cases",
-    "inline_single_stmt_case", "spaces_around_colons", "sort_imports",
-    "space_single_line_blocks", "align_struct_fields", "align_struct_values",
-    "align_struct_declarations", "align_constant_definitions", "align_variable_declarations", "align_comments",
-    "align_case_comments", "align_field_defaults",
+FORMAT_BOOL_KEYS := []string{
+    "tabs",
+    "convert_do",
+    "exp_multiline_composite_literals",
+    "indent_cases",
+    "inline_single_stmt_case",
+    "spaces_around_colons",
+    "sort_imports",
+    "space_single_line_blocks",
+    "align_struct_fields",
+    "align_struct_values",
+    "align_struct_declarations",
+    "align_constant_definitions",
+    "align_variable_declarations",
+    "align_comments",
+    "align_case_comments",
+    "align_field_defaults",
 }
 
 @(private)
@@ -264,9 +276,9 @@ format_document :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result, lo, h
     cache := &e.format_config
     sync.lock(&cache.mutex)
     format_config_ensure(cache, req.workspace)
-    opts := cache.opts
+    opts            := cache.opts
     newline_present := cache.newline_present
-    indent_present := cache.indent_present
+    indent_present  := cache.indent_present
     sync.unlock(&cache.mutex)
 
     if !indent_present && req.tab_size > 0 {
@@ -312,21 +324,26 @@ format_document :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result, lo, h
         if span.start < lo || span.end > window_end {
             continue
         }
-        append(&res.edits, lang.Text_Edit{
-            path     = strings.clone(req.path, out_alloc),
-            start    = span.start,
-            end      = span.end,
-            old_text = strings.clone(req.source[span.start:span.end], out_alloc),
-            new_text = strings.clone(span.text, out_alloc),
-        })
+        append(
+            &res.edits,
+            lang.Text_Edit{
+                path = strings.clone(req.path, out_alloc),
+                start = span.start,
+                end = span.end,
+                old_text = strings.clone(req.source[span.start:span.end], out_alloc),
+                new_text = strings.clone(span.text, out_alloc),
+            },
+        )
     }
 
     // Only a whole-document format may change the file's line endings: a
     // selection format must never rewrite the lines it was not given.
     if newline_present && req.kind == .Format {
         switch opts.newline_style {
-        case .LF:          res.newline = .LF
-        case .CRLF:         res.newline = .CRLF
+        case .LF:
+            res.newline = .LF
+        case .CRLF:
+            res.newline = .CRLF
         case .Unspecified:
         }
     }

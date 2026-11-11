@@ -23,13 +23,20 @@ write_source :: proc(sb: ^strings.Builder, c: ^Checker, file: File_Id, id: Type_
         strings.write_string(sb, BASIC_NAMES[v.kind])
     case Untyped_Type:
         switch v.kind {
-        case .Int:        strings.write_string(sb, "int")
-        case .Float:      strings.write_string(sb, "f64")
-        case .Complex:    strings.write_string(sb, "complex128")
-        case .Quaternion: strings.write_string(sb, "quaternion256")
-        case .Rune:       strings.write_string(sb, "rune")
-        case .String:     strings.write_string(sb, "string")
-        case .Bool:       strings.write_string(sb, "bool")
+        case .Int:
+            strings.write_string(sb, "int")
+        case .Float:
+            strings.write_string(sb, "f64")
+        case .Complex:
+            strings.write_string(sb, "complex128")
+        case .Quaternion:
+            strings.write_string(sb, "quaternion256")
+        case .Rune:
+            strings.write_string(sb, "rune")
+        case .String:
+            strings.write_string(sb, "string")
+        case .Bool:
+            strings.write_string(sb, "bool")
         case .Nil, .Uninit:
             return false
         }
@@ -219,10 +226,14 @@ zero_value :: proc(c: ^Checker, file: File_Id, id: Type_Id, allocator := context
         return "0", true
     case Untyped_Type:
         #partial switch v.kind {
-        case .Bool:   return "false", true
-        case .String: return "\"\"", true
-        case .Nil:    return "nil", true
-        case .Uninit: return "", false
+        case .Bool:
+            return "false", true
+        case .String:
+            return "\"\"", true
+        case .Nil:
+            return "nil", true
+        case .Uninit:
+            return "", false
         }
         return "0", true
     case Pointer_Type, Multi_Pointer_Type, Slice_Type, Dynamic_Array_Type, Map_Type, Proc_Type, Soa_Type:

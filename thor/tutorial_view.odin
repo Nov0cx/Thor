@@ -86,13 +86,8 @@ thor_tutorial_target :: proc(thor: ^Thor) -> (ui.Rect, bool) {
 // them stays usable.
 @(private = "file")
 thor_tutorial_spotlight :: proc(thor: ^Thor, r: ui.Rect) {
-    v := ui.viewport()
-    parts := [4]ui.Rect {
-        {0, 0, v.x, r.y},
-        {0, r.y + r.h, v.x, v.y - r.y - r.h},
-        {0, r.y, r.x, r.h},
-        {r.x + r.w, r.y, v.x - r.x - r.w, r.h},
-    }
+    v     := ui.viewport()
+    parts := [4]ui.Rect{{0, 0, v.x, r.y}, {0, r.y + r.h, v.x, v.y - r.y - r.h}, {0, r.y, r.x, r.h}, {r.x + r.w, r.y, v.x - r.x - r.w, r.h}}
     for p, i in parts {
         if p.w <= 0 || p.h <= 0 {
             continue
@@ -133,12 +128,12 @@ thor_tutorial_card_pos :: proc(target: ui.Rect, has_target: bool, w, h: f32) -> 
     if !has_target {
         return
     }
-    r := target
+    r     := target
     right := v.x - (r.x + r.w)
-    left := r.x
+    left  := r.x
     below := v.y - (r.y + r.h)
     above := r.y
-    best := f32(-1)
+    best  := f32(-1)
     if right >= w + CARD_GAP * 2 && right > best {
         best = right
         x, y = r.x + r.w + CARD_GAP, r.y
@@ -171,11 +166,7 @@ thor_tutorial_card_text :: proc(thor: ^Thor, step: Tutorial_Step, has_step: bool
     if !has_step {
         chapter := TUTORIAL_CHAPTERS[t.chapter]
         if t.chapter + 1 < len(TUTORIAL_CHAPTERS) {
-            return fmt.tprintf(
-                "You finished **%s**. The next chapter is **%s**.",
-                chapter.title,
-                TUTORIAL_CHAPTERS[t.chapter + 1].title,
-            )
+            return fmt.tprintf("You finished **%s**. The next chapter is **%s**.", chapter.title, TUTORIAL_CHAPTERS[t.chapter + 1].title)
         }
         return fmt.tprintf("You finished **%s**, the last chapter. Every key is in **All shortcuts**.", chapter.title)
     }
@@ -201,11 +192,11 @@ thor_tutorial_card_text :: proc(thor: ^Thor, step: Tutorial_Step, has_step: bool
 
 @(private = "file")
 thor_tutorial_card :: proc(thor: ^Thor, target: ui.Rect, has_target: bool) {
-    t := &thor.tutorial
-    chapter := TUTORIAL_CHAPTERS[t.chapter]
+    t              := &thor.tutorial
+    chapter        := TUTORIAL_CHAPTERS[t.chapter]
     step, has_step := thor_tutorial_current(thor)
-    h := t.card_h > 0 ? t.card_h : 220
-    x, y := thor_tutorial_card_pos(target, has_target, CARD_W, h)
+    h              := t.card_h > 0 ? t.card_h : 220
+    x, y           := thor_tutorial_card_pos(target, has_target, CARD_W, h)
 
     card := ui.scope(
         {
@@ -232,15 +223,9 @@ thor_tutorial_card :: proc(thor: ^Thor, target: ui.Rect, has_target: bool) {
     {
         ui.scope({key = "head", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {8, 0}}})
         thor_icon_label(thor, "school", thor.theme.accent_color)
-        ui.label(
-            chapter.title,
-            {key = "chapter", props = {w = ui.Grow(1), color = thor.theme.muted_color, text_wrap = .Ellipsis}},
-        )
+        ui.label(chapter.title, {key = "chapter", props = {w = ui.Grow(1), color = thor.theme.muted_color, text_wrap = .Ellipsis}})
         if has_step {
-            ui.label(
-                fmt.tprintf("%d / %d", t.step + 1, len(chapter.steps)),
-                {key = "pos", props = {color = thor.theme.disabled, text_wrap = .None}},
-            )
+            ui.label(fmt.tprintf("%d / %d", t.step + 1, len(chapter.steps)), {key = "pos", props = {color = thor.theme.disabled, text_wrap = .None}})
         }
         close := ui.scope(
             {
@@ -303,7 +288,7 @@ thor_tutorial_card_body :: proc(thor: ^Thor, text: string) {
     thor_markdown_set_source(view, text, 0, nil)
     avail := CARD_W - 2 * CARD_PAD
     thor_markdown_ensure(thor, view, avail, thor_markdown_base(thor))
-    h := max(view.page.content_height - markdown.PAD_TOP - markdown.PAD_BOTTOM, 0)
+    h    := max(view.page.content_height - markdown.PAD_TOP - markdown.PAD_BOTTOM, 0)
     body := ui.scope({key = "body", props = {position = .Relative, w = ui.Px(avail), h = ui.Px(h)}})
     view.hovered = -1
     thor_markdown_draw(thor, view, {body.rect.x, body.rect.y, body.rect.w, body.rect.h}, 0, -markdown.PAD_TOP, false)
@@ -418,9 +403,9 @@ thor_tutorial_chooser :: proc(thor: ^Thor) {
 // One row of the chapter list. True when it was clicked.
 @(private = "file")
 tutorial_chapter_row :: proc(thor: ^Thor, i: int) -> bool {
-    c := TUTORIAL_CHAPTERS[i]
+    c    := TUTORIAL_CHAPTERS[i]
     mark := thor.tutorial.marks[i]
-    row := ui.scope(
+    row  := ui.scope(
         {
             key = "chapter",
             flags = {.Clickable},
@@ -435,10 +420,7 @@ tutorial_chapter_row :: proc(thor: ^Thor, i: int) -> bool {
         icon, color = "circle-half-2", thor.theme.accent_color
     }
     thor_icon_label(thor, icon, color, 14)
-    ui.label(
-        fmt.tprintf("%d. %s", i + 1, c.title),
-        {key = "name", props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .Ellipsis}},
-    )
+    ui.label(fmt.tprintf("%d. %s", i + 1, c.title), {key = "name", props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .Ellipsis}})
     state := ""
     if mark.done {
         state = "done"

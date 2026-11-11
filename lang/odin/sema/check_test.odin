@@ -115,7 +115,9 @@ test_check_records :: proc(t: ^testing.T) {
     src := `package p
 Point :: struct {
     x, y: f32,
-    tag:  string ` + "`json:\"tag\"`" + `,
+    tag:  string ` +
+        "`json:\"tag\"`" +
+        `,
 }
 Node :: struct {
     next:  ^Node,
@@ -141,25 +143,29 @@ Packed :: bit_field u32 {
 }
 Raw :: struct #raw_union {i: i32, f: f32}
 `
-    expect_decls(t, src, {
-        {"Point", "Point", false},
-        {"Point", "struct {x: f32, y: f32, tag: string}", true},
-        {"Point.y", "f32", false},
-        {"Node", "struct {next: ^Node, value: int}", true},
-        {"Node.next", "^Node", false},
-        {"Child", "struct #packed {using base: Base, kids: [dynamic]^Child}", true},
-        {"List", "struct($T: typeid, $N: int) #align(8) {items: [?]$T}", true},
-        {"Shape", "union #no_nil {Point, Node}", true},
-        {"Maybe_Int", "union {int}", true},
-        {"Flags", "bit_set[Color; u8]", true},
-        {"Letters", "bit_set['a'..='z']", true},
-        {"Small", "bit_set[0..=7]", true},
-        {"Color", "enum u8 {Red, Green, Blue}", true},
-        {"Color.Blue", "Color", false},
-        {"Packed", "bit_field u32 {lo: u8 | 4, hi: u8 | 4}", true},
-        {"Packed.hi", "u8", false},
-        {"Raw", "struct #raw_union {i: i32, f: f32}", true},
-    })
+    expect_decls(
+        t,
+        src,
+        {
+            {"Point", "Point", false},
+            {"Point", "struct {x: f32, y: f32, tag: string}", true},
+            {"Point.y", "f32", false},
+            {"Node", "struct {next: ^Node, value: int}", true},
+            {"Node.next", "^Node", false},
+            {"Child", "struct #packed {using base: Base, kids: [dynamic]^Child}", true},
+            {"List", "struct($T: typeid, $N: int) #align(8) {items: [?]$T}", true},
+            {"Shape", "union #no_nil {Point, Node}", true},
+            {"Maybe_Int", "union {int}", true},
+            {"Flags", "bit_set[Color; u8]", true},
+            {"Letters", "bit_set['a'..='z']", true},
+            {"Small", "bit_set[0..=7]", true},
+            {"Color", "enum u8 {Red, Green, Blue}", true},
+            {"Color.Blue", "Color", false},
+            {"Packed", "bit_field u32 {lo: u8 | 4, hi: u8 | 4}", true},
+            {"Packed.hi", "u8", false},
+            {"Raw", "struct #raw_union {i: i32, f: f32}", true},
+        },
+    )
 }
 
 @(test)
@@ -182,24 +188,28 @@ Grid :: [Color][2]int
 Color :: enum {Red, Green}
 Any_Id :: typeid
 `
-    expect_decls(t, src, {
-        {"My_Int", "int", false},
-        {"Id", "Id", false},
-        {"Id", "distinct int", true},
-        {"Handle", "distinct Id", true},
-        {"Ptr", "^Point", true},
-        {"Same", "Point", false},
-        {"Vec", "Vec", false},
-        {"Vec", "[3]f32", true},
-        {"Mat", "#row_major matrix[2, 3]f32", true},
-        {"Wide", "#simd[4]f32", true},
-        {"Soa", "#soa[]Point", true},
-        {"Callback", "proc(x: int) -> bool", true},
-        {"Lookup", "map[string][]Point", true},
-        {"Many", "[^]u8", true},
-        {"Grid", "[Color][2]int", true},
-        {"Any_Id", "typeid", false},
-    })
+    expect_decls(
+        t,
+        src,
+        {
+            {"My_Int", "int", false},
+            {"Id", "Id", false},
+            {"Id", "distinct int", true},
+            {"Handle", "distinct Id", true},
+            {"Ptr", "^Point", true},
+            {"Same", "Point", false},
+            {"Vec", "Vec", false},
+            {"Vec", "[3]f32", true},
+            {"Mat", "#row_major matrix[2, 3]f32", true},
+            {"Wide", "#simd[4]f32", true},
+            {"Soa", "#soa[]Point", true},
+            {"Callback", "proc(x: int) -> bool", true},
+            {"Lookup", "map[string][]Point", true},
+            {"Many", "[^]u8", true},
+            {"Grid", "[Color][2]int", true},
+            {"Any_Id", "typeid", false},
+        },
+    )
 }
 
 @(test)
@@ -214,15 +224,19 @@ fast :: #force_inline proc(x: f32) -> f32 { return x }
 group :: proc{add, fast}
 Point :: struct { x: int }
 `
-    expect_decls(t, src, {
-        {"add", "proc(a: int, b: int) -> int", false},
-        {"opts", "proc \"c\" (x: int, y := 2, z: f32 = 1.5, args: ..int) -> (r: int, ok: bool)", false},
-        {"flags", "proc(#any_int n: int, #c_vararg rest: ..any, #by_ptr p: Point, #no_alias q: ^int, using pt: Point)", false},
-        {"stop", "proc() -> !", false},
-        {"poly", "proc($T: typeid, x: $E/[]$F) -> $T", false},
-        {"fast", "proc(x: f32) -> f32", false},
-        {"group", "proc{proc(a: int, b: int) -> int, proc(x: f32) -> f32}", false},
-    })
+    expect_decls(
+        t,
+        src,
+        {
+            {"add", "proc(a: int, b: int) -> int", false},
+            {"opts", "proc \"c\" (x: int, y := 2, z: f32 = 1.5, args: ..int) -> (r: int, ok: bool)", false},
+            {"flags", "proc(#any_int n: int, #c_vararg rest: ..any, #by_ptr p: Point, #no_alias q: ^int, using pt: Point)", false},
+            {"stop", "proc() -> !", false},
+            {"poly", "proc($T: typeid, x: $E/[]$F) -> $T", false},
+            {"fast", "proc(x: f32) -> f32", false},
+            {"group", "proc{proc(a: int, b: int) -> int, proc(x: f32) -> f32}", false},
+        },
+    )
 }
 
 @(test)
@@ -251,27 +265,31 @@ Color :: enum {Red, Green}
 add :: proc(a, b: int) -> int { return a + b }
 pair :: proc() -> (int, string) { return 0, "" }
 `
-    expect_decls(t, src, {
-        {"N", "untyped int", false},
-        {"M", "int", false},
-        {"Arr", "[8]int", true},
-        {"Typed", "[6]u8", true},
-        {"pi", "untyped float", false},
-        {"name", "untyped string", false},
-        {"yes", "untyped bool", false},
-        {"a", "int", false},
-        {"b", "f32", false},
-        {"c", "Point", false},
-        {"d", "^Point", false},
-        {"e", "u8", false},
-        {"f", "u16", false},
-        {"g", "int", false},
-        {"h", "int", false},
-        {"i", "int", false},
-        {"j", "string", false},
-        {"k", "Color", false},
-        {"size", "untyped int", false},
-    })
+    expect_decls(
+        t,
+        src,
+        {
+            {"N", "untyped int", false},
+            {"M", "int", false},
+            {"Arr", "[8]int", true},
+            {"Typed", "[6]u8", true},
+            {"pi", "untyped float", false},
+            {"name", "untyped string", false},
+            {"yes", "untyped bool", false},
+            {"a", "int", false},
+            {"b", "f32", false},
+            {"c", "Point", false},
+            {"d", "^Point", false},
+            {"e", "u8", false},
+            {"f", "u16", false},
+            {"g", "int", false},
+            {"h", "int", false},
+            {"i", "int", false},
+            {"j", "string", false},
+            {"k", "Color", false},
+            {"size", "untyped int", false},
+        },
+    )
 }
 
 @(test)
@@ -284,12 +302,7 @@ Y :: len(X)
 self :: self
 Loop :: struct { inner: Loop }
 `
-    expect_decls(t, src, {
-        {"A", "invalid", false},
-        {"B", "invalid", false},
-        {"self", "invalid", false},
-        {"Loop", "struct {inner: Loop}", true},
-    })
+    expect_decls(t, src, {{"A", "invalid", false}, {"B", "invalid", false}, {"self", "invalid", false}, {"Loop", "struct {inner: Loop}", true}})
     env: Check_Env
     if !check_begin(t, &env, Snapshot_Input{has_live = true, live_text = src}) {
         return
@@ -396,7 +409,7 @@ Color :: enum {Red, Green, Blue}
         return
     }
     defer check_end(&env)
-    cases := [?]Const_Case {
+    cases := [?]Const_Case{
         {"I1", i64(7)},
         {"I2", i64(9)},
         {"I3", i64(3)},
@@ -446,8 +459,8 @@ Color :: enum {Red, Green, Blue}
     // A local constant, through the operand of its use.
     if sym, ok := find_symbol(&env.c, ANON_FILE, "LOCAL"); testing.expect(t, ok) {
         item := checker_item(&env.c, sym)
-        at := strings.index(src, "return K") + len("return ")
-        r := lookup_name(&env.c, ANON_FILE, "K", at)
+        at   := strings.index(src, "return K") + len("return ")
+        r    := lookup_name(&env.c, ANON_FILE, "K", at)
         testing.expect_value(t, r.kind, Resolved_Kind.Local)
         testing.expect(t, item != nil && at > item.start)
         if n, nok := node_at(&env.c, ANON_FILE, at); testing.expect(t, nok) {
@@ -478,7 +491,7 @@ LEAST :: min(3, 1, 2)
     if sym, ok := find_symbol(&env.c, ANON_FILE, "WORD"); testing.expect(t, ok) {
         testing.expect_value(t, item_operand(&env.c, sym).value, Const_Value(i64(64)))
     }
-    cases := [?]Const_Case {
+    cases := [?]Const_Case{
         {"DEBUG", true},
         {"IS_WINDOWS", true},
         {"RETRIES", i64(10)},
@@ -520,7 +533,7 @@ f :: proc($T: typeid, n: int, s := "x") {
         at:   string, // the text whose first occurrence starts the name
         want: string,
     }
-    cases := [?]Local_Case {
+    cases := [?]Local_Case{
         {"T", "T }", "$T"},
         {"n", "n\n", "int"},
         {"s", "s :=", "string"},
@@ -575,7 +588,11 @@ test_check_packages :: proc(t: ^testing.T) {
         return
     }
     defer os.remove_all(dir)
-    main_a := put_file(t, dir, "app/a.odin", `package app
+    main_a := put_file(
+        t,
+        dir,
+        "app/a.odin",
+        `package app
 
 import shapes "../geom"
 
@@ -586,12 +603,17 @@ Scene :: struct {
 }
 first := shapes.make_shape()
 kind := shapes.Kind.Circle
-`)
+`,
+    )
     put_file(t, dir, "app/b.odin", `package app
 
 Local :: struct { scene: ^Scene }
 `)
-    put_file(t, dir, "geom/geom.odin", `package geom
+    put_file(
+        t,
+        dir,
+        "geom/geom.odin",
+        `package geom
 
 MAX :: 2 + 1
 
@@ -606,7 +628,8 @@ make_shape :: proc() -> Shape { return {} }
 
 @(private)
 hidden :: 1
-`)
+`,
+    )
     put_file(t, dir, "geom/node.odin", `package geom
 
 Node :: struct { shape: Shape }
@@ -618,7 +641,7 @@ Node :: struct { shape: Shape }
     defer check_end(&env)
     a := db_file_id(&env.snap, main_a)
     env.c.home_key = file_cache(&env.c, a).dir_key
-    cases := [?]Decl_Case {
+    cases := [?]Decl_Case{
         {"Scene", "struct {items: [dynamic]geom.Shape, root: ^geom.Node, count: [3]Local}", true},
         {"Scene.root", "^geom.Node", false},
         {"first", "geom.Shape", false},
@@ -628,7 +651,7 @@ Node :: struct { shape: Shape }
         expect_decl(t, &env.c, a, k)
     }
     if sym, sok := find_symbol(&env.c, a, "Scene.count"); testing.expect(t, sok) {
-        local := type_get(&env.c.table, decl_type(&env.c, sym)).(Array_Type)
+        local        := type_get(&env.c.table, decl_type(&env.c, sym)).(Array_Type)
         local_struct := type_get(&env.c.table, type_underlying(&env.c.table, local.elem)).(Struct_Type)
         testing.expect_value(t, len(local_struct.fields), 1)
         if len(local_struct.fields) == 1 {
@@ -657,7 +680,11 @@ i32  :: i32
 byte :: u8
 len  :: proc(v: $T) -> int ---
 `)
-    put_file(t, dir, "runtime/core.odin", `package runtime
+    put_file(
+        t,
+        dir,
+        "runtime/core.odin",
+        `package runtime
 
 Allocator :: struct { data: rawptr }
 Context :: struct { allocator: Allocator }
@@ -667,8 +694,13 @@ Source_Code_Location :: struct { line: i32 }
 make_it :: proc() -> int { return 0 }
 
 hidden_rt :: proc() {}
-`)
-    app := put_file(t, dir, "app/app.odin", `package app
+`,
+    )
+    app      := put_file(
+        t,
+        dir,
+        "app/app.odin",
+        `package app
 
 import b "../builtin"
 
@@ -676,7 +708,8 @@ W :: b.i32
 f :: proc(a := context.allocator, loc := #caller_location) {}
 n := make_it()
 L :: len("abc")
-`)
+`,
+    )
     universe := [?]Universe_Package{{fmt.tprintf("%s/builtin", dir), true}, {fmt.tprintf("%s/runtime", dir), false}}
     env: Check_Env
     if !check_begin(t, &env, Snapshot_Input{}, universe[:]) {
@@ -711,11 +744,11 @@ test_check_repository_sweep :: proc(t: ^testing.T) {
     if !testing.expectf(t, len(dirs) > 10, "only %d package directories", len(dirs)) {
         return
     }
-    root := ODIN_ROOT
+    root           := ODIN_ROOT
     builtin_dir, _ := filepath.join({root, "base", "builtin"}, context.temp_allocator)
     runtime_dir, _ := filepath.join({root, "base", "runtime"}, context.temp_allocator)
-    universe := [?]Universe_Package{{builtin_dir, true}, {runtime_dir, false}}
-    collections := Collections{odin_root = root}
+    universe       := [?]Universe_Package{{builtin_dir, true}, {runtime_dir, false}}
+    collections    := Collections{odin_root = root}
     env: Check_Env
     if !check_begin(t, &env, Snapshot_Input{collections = &collections}, universe[:]) {
         return
@@ -725,7 +758,7 @@ test_check_repository_sweep :: proc(t: ^testing.T) {
     total, typed, whole := 0, 0, 0
     seen := make(map[Type_Id]bool, context.temp_allocator)
     for dir in dirs {
-        pkg := db_package_id(&env.snap, dir)
+        pkg  := db_package_id(&env.snap, dir)
         view := db_package(&env.snap, pkg)
         if view == nil {
             continue
@@ -740,7 +773,7 @@ test_check_repository_sweep :: proc(t: ^testing.T) {
                     continue
                 }
                 total += 1
-                sym := Symbol{id, i32(ii), -1}
+                sym  := Symbol{id, i32(ii), -1}
                 type := decl_type(&env.c, sym)
                 if type == INVALID_TYPE {
                     continue
@@ -757,10 +790,17 @@ test_check_repository_sweep :: proc(t: ^testing.T) {
     }
     testing.expect(t, total > 1000, "the sweep must reach the repository's declarations")
     testing.expect_value(t, env.c.err, nil)
-    share := total > 0 ? 100 * f64(typed) / f64(total) : 0
+    share       := total > 0 ? 100 * f64(typed) / f64(total) : 0
     whole_share := total > 0 ? 100 * f64(whole) / f64(total) : 0
-    log.infof("decl_type sweep: %d of %d declarations typed (%.1f%%), %d with no invalid part (%.1f%%), in %v",
-        typed, total, share, whole, whole_share, time.tick_since(start))
+    log.infof(
+        "decl_type sweep: %d of %d declarations typed (%.1f%%), %d with no invalid part (%.1f%%), in %v",
+        typed,
+        total,
+        share,
+        whole,
+        whole_share,
+        time.tick_since(start),
+    )
 }
 
 // True when a type has an invalid part. A named type counts as whole when it has an underlying
@@ -787,19 +827,32 @@ has_invalid :: proc(t: ^Type_Table, id: Type_Id, seen: ^map[Type_Id]bool) -> boo
     case nil:
         bad = true
     case Basic_Type, Untyped_Type:
-    case Pointer_Type:          bad = has_invalid(t, v.elem, seen)
-    case Multi_Pointer_Type:    bad = has_invalid(t, v.elem, seen)
-    case Slice_Type:            bad = has_invalid(t, v.elem, seen)
-    case Array_Type:            bad = has_invalid(t, v.elem, seen)
-    case Enumerated_Array_Type: bad = has_invalid(t, v.index, seen) || has_invalid(t, v.elem, seen)
-    case Dynamic_Array_Type:    bad = has_invalid(t, v.elem, seen)
-    case Map_Type:              bad = has_invalid(t, v.key, seen) || has_invalid(t, v.value, seen)
-    case Bit_Set_Type:          bad = has_invalid(t, v.elem, seen)
-    case Matrix_Type:           bad = has_invalid(t, v.elem, seen)
-    case Simd_Type:             bad = has_invalid(t, v.elem, seen)
-    case Soa_Type:              bad = has_invalid(t, v.elem, seen)
-    case Named_Type:            bad = v.underlying == INVALID_TYPE
-    case Distinct_Type:         bad = has_invalid(t, v.base, seen)
+    case Pointer_Type:
+        bad = has_invalid(t, v.elem, seen)
+    case Multi_Pointer_Type:
+        bad = has_invalid(t, v.elem, seen)
+    case Slice_Type:
+        bad = has_invalid(t, v.elem, seen)
+    case Array_Type:
+        bad = has_invalid(t, v.elem, seen)
+    case Enumerated_Array_Type:
+        bad = has_invalid(t, v.index, seen) || has_invalid(t, v.elem, seen)
+    case Dynamic_Array_Type:
+        bad = has_invalid(t, v.elem, seen)
+    case Map_Type:
+        bad = has_invalid(t, v.key, seen) || has_invalid(t, v.value, seen)
+    case Bit_Set_Type:
+        bad = has_invalid(t, v.elem, seen)
+    case Matrix_Type:
+        bad = has_invalid(t, v.elem, seen)
+    case Simd_Type:
+        bad = has_invalid(t, v.elem, seen)
+    case Soa_Type:
+        bad = has_invalid(t, v.elem, seen)
+    case Named_Type:
+        bad = v.underlying == INVALID_TYPE
+    case Distinct_Type:
+        bad = has_invalid(t, v.base, seen)
     case Poly_Param_Type, Enum_Type:
     case Bit_Field_Type:
         for f in v.fields {

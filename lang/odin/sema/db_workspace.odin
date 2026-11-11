@@ -33,7 +33,7 @@ db_workspace :: proc(snap: ^Snapshot, root: string) -> []File_Id {
 // Walks `root` and replaces the file list. False when cancelled or out of memory. The caller holds the slot.
 @(private = "file")
 workspace_walk :: proc(snap: ^Snapshot, ws: ^Workspace_Slot, root, key: string) -> bool {
-    db := snap.db
+    db    := snap.db
     paths := make([dynamic]string, db.allocator)
     defer {
         for p in paths {

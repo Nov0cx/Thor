@@ -8,7 +8,7 @@ return {
     align_struct_fields = true,
     align_struct_values = true,
     brace_style = "_1TBS",
-    character_width = 1000,
+    character_width = 160,
     convert_do = false,
     exp_multiline_composite_literals = false,
     indent_cases = false,

@@ -30,20 +30,16 @@ test_git_parse_remote_url_forms :: proc(t: ^testing.T) {
 
 @(test)
 test_git_host_urls :: proc(t: ^testing.T) {
-    github := Git_Host_Info {kind = .GitHub, host = "github.com", path = "owner/repo"}
+    github := Git_Host_Info{kind = .GitHub, host = "github.com", path = "owner/repo"}
     testing.expect_value(t, git_host_repo_url(github), "https://github.com/owner/repo")
     testing.expect_value(t, git_host_commit_url(github, "abc123"), "https://github.com/owner/repo/commit/abc123")
     testing.expect_value(t, git_host_file_url(github, "main", "docs/a file.md"), "https://github.com/owner/repo/blob/main/docs/a%20file.md")
     testing.expect_value(t, git_host_compare_url(github, "feat/x"), "https://github.com/owner/repo/compare/feat/x?expand=1")
 
-    gitlab := Git_Host_Info {kind = .GitLab, host = "gitlab.com", path = "g/s/repo"}
+    gitlab := Git_Host_Info{kind = .GitLab, host = "gitlab.com", path = "g/s/repo"}
     testing.expect_value(t, git_host_commit_url(gitlab, "abc"), "https://gitlab.com/g/s/repo/-/commit/abc")
     testing.expect_value(t, git_host_file_url(gitlab, "main", "x.odin"), "https://gitlab.com/g/s/repo/-/blob/main/x.odin")
-    testing.expect_value(
-        t,
-        git_host_compare_url(gitlab, "feat"),
-        "https://gitlab.com/g/s/repo/-/merge_requests/new?merge_request%5Bsource_branch%5D=feat",
-    )
+    testing.expect_value(t, git_host_compare_url(gitlab, "feat"), "https://gitlab.com/g/s/repo/-/merge_requests/new?merge_request%5Bsource_branch%5D=feat")
 }
 
 // One decoder covers both CLIs: gh names the fields number/headRefName/url,

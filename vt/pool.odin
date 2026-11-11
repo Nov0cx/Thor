@@ -48,7 +48,7 @@ pool_of :: proc(t: ^Term, which: Pool) -> (^[dynamic]string, ^map[string]u32, in
 @(private)
 pool_compact :: proc(t: ^Term, which: Pool) {
     strs, ids, _ := pool_of(t, which)
-    remap, err := make([]u32, len(strs), t.allocator)
+    remap, err   := make([]u32, len(strs), t.allocator)
     if err != nil {
         return
     }

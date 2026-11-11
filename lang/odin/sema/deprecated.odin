@@ -13,7 +13,7 @@ deprecated_use :: proc(c: ^Checker, file: File_Id, expr: odinsyntax.Syntax_Node)
         ident = expr
     case .Selector_Expr:
         sel, _ := odinsyntax.as_selector_expr(expr)
-        field := odinsyntax.selector_expr_field(&sel) or_return
+        field  := odinsyntax.selector_expr_field(&sel) or_return
         ident = odinsyntax.Syntax_Node(field)
     case:
         return
@@ -38,14 +38,14 @@ deprecated_use :: proc(c: ^Checker, file: File_Id, expr: odinsyntax.Syntax_Node)
 // picks and the name of the group, when that member has a `deprecated` attribute, and the message of
 // the attribute. False when the member is not known or more than one member has its type.
 group_member_deprecated :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) -> (offset: int, member, group, message: string, ok: bool) {
-    ce := odinsyntax.as_call_expr(call) or_return
+    ce     := odinsyntax.as_call_expr(call) or_return
     callee := odinsyntax.call_expr_callee(&ce) or_return
-    ident := callee
+    ident  := callee
     #partial switch callee.green.kind {
     case .Ident:
     case .Selector_Expr:
         sel, _ := odinsyntax.as_selector_expr(callee)
-        field := odinsyntax.selector_expr_field(&sel) or_return
+        field  := odinsyntax.selector_expr_field(&sel) or_return
         ident = odinsyntax.Syntax_Node(field)
     case:
         return
@@ -63,11 +63,11 @@ group_member_deprecated :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syn
         return
     }
     group_file := fn.symbol.file
-    node := node_of_kind(c, group_file, item.value_offset, .Proc_Group) or_return
-    g, _ := odinsyntax.as_proc_group(node)
+    node       := node_of_kind(c, group_file, item.value_offset, .Proc_Group) or_return
+    g, _       := odinsyntax.as_proc_group(node)
     found: Symbol
     count := 0
-    it := odinsyntax.proc_group_members(&g)
+    it    := odinsyntax.proc_group_members(&g)
     for m in odinsyntax.child_iter_next(&it) {
         op := expr_type(c, group_file, m)
         if op.has_symbol && op.type == chosen {
@@ -102,11 +102,11 @@ type_children :: proc(n: odinsyntax.Syntax_Node) -> (out: [2]odinsyntax.Syntax_N
     }
     #partial switch n.green.kind {
     case .Field:
-        f, _ := odinsyntax.as_field(n)
+        f, _  := odinsyntax.as_field(n)
         t, ok := odinsyntax.field_type(&f)
         add(&out, &count, t, ok)
     case .Value_Decl:
-        v, _ := odinsyntax.as_value_decl(n)
+        v, _  := odinsyntax.as_value_decl(n)
         t, ok := odinsyntax.value_decl_type(&v)
         add(&out, &count, t, ok)
     case .Comp_Lit:
@@ -114,31 +114,31 @@ type_children :: proc(n: odinsyntax.Syntax_Node) -> (out: [2]odinsyntax.Syntax_N
         t, ok := odinsyntax.comp_lit_type(&cl)
         add(&out, &count, t, ok)
     case .Pointer_Type:
-        p, _ := odinsyntax.as_pointer_type(n)
+        p, _  := odinsyntax.as_pointer_type(n)
         t, ok := odinsyntax.pointer_type_elem(&p)
         add(&out, &count, t, ok)
     case .Multi_Pointer_Type:
-        p, _ := odinsyntax.as_multi_pointer_type(n)
+        p, _  := odinsyntax.as_multi_pointer_type(n)
         t, ok := odinsyntax.multi_pointer_type_elem(&p)
         add(&out, &count, t, ok)
     case .Array_Type:
-        a, _ := odinsyntax.as_array_type(n)
+        a, _  := odinsyntax.as_array_type(n)
         t, ok := odinsyntax.array_type_elem(&a)
         add(&out, &count, t, ok)
     case .Dynamic_Array_Type:
-        a, _ := odinsyntax.as_dynamic_array_type(n)
+        a, _  := odinsyntax.as_dynamic_array_type(n)
         t, ok := odinsyntax.dynamic_array_type_elem(&a)
         add(&out, &count, t, ok)
     case .Ellipsis_Type:
-        e, _ := odinsyntax.as_ellipsis_type(n)
+        e, _  := odinsyntax.as_ellipsis_type(n)
         t, ok := odinsyntax.ellipsis_type_elem(&e)
         add(&out, &count, t, ok)
     case .Distinct_Type:
-        d, _ := odinsyntax.as_distinct_type(n)
+        d, _  := odinsyntax.as_distinct_type(n)
         t, ok := odinsyntax.distinct_type_type(&d)
         add(&out, &count, t, ok)
     case .Map_Type:
-        m, _ := odinsyntax.as_map_type(n)
+        m, _   := odinsyntax.as_map_type(n)
         k, kok := odinsyntax.map_type_key(&m)
         add(&out, &count, k, kok)
         v, vok := odinsyntax.map_type_value(&m)

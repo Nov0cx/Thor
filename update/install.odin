@@ -11,10 +11,12 @@ import "core:log"
 import "core:os"
 import "core:path/filepath"
 // Used on some platforms only.
-@(require) import "core:strings"
+@(require)
+import "core:strings"
 import "core:sync"
 
-@(require) import "../shell"
+@(require)
+import "../shell"
 
 // The binary and the library it loads. Locked exactly alike, so the swap moves
 // them as one group and a failure there is the only one that needs a rollback.
@@ -86,7 +88,7 @@ in_dev_tree :: proc() -> bool {
     if err != nil {
         return false
     }
-    dir := os.dir(exe)
+    dir  := os.dir(exe)
     name := filepath.base(dir)
     if name != "debug" && name != "release" && name != "test" {
         return false
@@ -241,7 +243,7 @@ install_apply :: proc(plan: Install_Plan, agent: string, cancel: ^bool, phase: ^
     when ODIN_OS == .Darwin {
         // curl does not set the quarantine attribute, but a future transport
         // could, and the release notes tell the user to clear it by hand.
-        command := strings.concatenate({"xattr -dr com.apple.quarantine \"", root, "\""}, context.temp_allocator)
+        command           := strings.concatenate({"xattr -dr com.apple.quarantine \"", root, "\""}, context.temp_allocator)
         output, code, ran := shell.run_status(command, "", XATTR_TIMEOUT)
         if !ran || code != 0 {
             log.warnf("Could not clear the quarantine mark on %q (exit %d): %s", root, code, strings.trim_space(output))
@@ -252,7 +254,7 @@ install_apply :: proc(plan: Install_Plan, agent: string, cancel: ^bool, phase: ^
         // curl marks nothing, but the PowerShell transport can, and the mark
         // would stop the binary this update relaunches. A failure here costs
         // only the warning, so it is not one the install reports.
-        command := unblock_command(root, context.temp_allocator)
+        command           := unblock_command(root, context.temp_allocator)
         output, code, ran := shell.run_status(command, "", UNBLOCK_TIMEOUT)
         if !ran || code != 0 {
             log.warnf("Could not clear the download mark on %q (exit %d): %s", root, code, strings.trim_space(output))

@@ -25,7 +25,7 @@ table_at :: proc(lines: []string, at: int) -> bool {
 @(private)
 emit_table :: proc(b: ^Build, lines: []string, x, w: f32) {
     aligns, _ := table_delimiter(lines[1])
-    cols := len(aligns)
+    cols      := len(aligns)
 
     rows := make([dynamic][]string, context.temp_allocator)
     append(&rows, table_cells(lines[0])[:])
@@ -35,9 +35,9 @@ emit_table :: proc(b: ^Build, lines: []string, x, w: f32) {
 
     // The tokens of each cell, row by row. A short row has empty cells. A
     // column is never narrower than the widest thing in it that cannot break.
-    cells := make([][]Token, len(rows) * cols, context.temp_allocator)
+    cells   := make([][]Token, len(rows) * cols, context.temp_allocator)
     natural := make([]f32, cols, context.temp_allocator)
-    least := make([]f32, cols, context.temp_allocator)
+    least   := make([]f32, cols, context.temp_allocator)
     for row, r in rows {
         for c in 0 ..< min(cols, len(row)) {
             tokens := r == 0 ? inline(b, row[c], b.pal.strong, {.Bold}) : inline(b, row[c], b.pal.text)
@@ -59,7 +59,7 @@ emit_table :: proc(b: ^Build, lines: []string, x, w: f32) {
     room := w - f32(cols) * CELL_PAD_X * 2
     if total > room {
         spare := max(0, room - floor)
-        want := total - floor
+        want  := total - floor
         for &cw, c in widths {
             cw = least[c] + (want > 0 ? (cw - least[c]) * spare / want : 0)
         }
@@ -69,8 +69,8 @@ emit_table :: proc(b: ^Build, lines: []string, x, w: f32) {
         table_w += cw + CELL_PAD_X * 2
     }
 
-    top := b.y
-    y := b.y
+    top   := b.y
+    y     := b.y
     zebra := b.pal.code_bg
     zebra[3] /= 2
     for r in 0 ..< len(rows) {
@@ -80,10 +80,7 @@ emit_table :: proc(b: ^Build, lines: []string, x, w: f32) {
         }
         // The header and every second body row are shaded.
         if r == 0 || r % 2 == 0 {
-            append(
-                &b.page.items,
-                Item{kind = .Rect, x = x, y = y, w = table_w, h = height + CELL_PAD_Y * 2, color = r == 0 ? b.pal.code_bg : zebra, src = -1},
-            )
+            append(&b.page.items, Item{kind = .Rect, x = x, y = y, w = table_w, h = height + CELL_PAD_Y * 2, color = r == 0 ? b.pal.code_bg : zebra, src = -1})
         }
         cx := x
         for c in 0 ..< cols {
@@ -126,7 +123,7 @@ run_width :: proc(b: ^Build, tokens: []Token) -> (whole, unit: f32) {
 @(private = "file")
 table_cells :: proc(line: string) -> [dynamic]string {
     cells := make([dynamic]string, context.temp_allocator)
-    s := strings.trim_space(line)
+    s     := strings.trim_space(line)
     if strings.has_prefix(s, "|") {
         s = s[1:]
     }
@@ -134,7 +131,7 @@ table_cells :: proc(line: string) -> [dynamic]string {
         s = s[:len(s) - 1]
     }
     start := 0
-    code := false
+    code  := false
     for i := 0; i < len(s); i += 1 {
         switch s[i] {
         case '\\':
@@ -161,8 +158,8 @@ table_delimiter :: proc(line: string) -> (aligns: [dynamic]Align, ok: bool) {
     }
     aligns = make([dynamic]Align, context.temp_allocator)
     for cell in table_cells(line) {
-        left := strings.has_prefix(cell, ":")
-        right := strings.has_suffix(cell, ":") && len(cell) > 1
+        left   := strings.has_prefix(cell, ":")
+        right  := strings.has_suffix(cell, ":") && len(cell) > 1
         dashes := cell[left ? 1 : 0:len(cell) - (right ? 1 : 0)]
         if len(dashes) == 0 {
             return nil, false

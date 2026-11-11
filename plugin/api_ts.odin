@@ -105,10 +105,7 @@ ts_query_for :: proc(m: ^Manager, lang_id, source: string) -> (query: ts.Query, 
     if len(m.ts_state.queries) >= TS_QUERY_MAX {
         ts_queries_clear(m)
     }
-    key := Ts_Query_Key {
-        lang_id = strings.clone(lang_id, m.allocator),
-        source  = strings.clone(source, m.allocator),
-    }
+    key := Ts_Query_Key{lang_id = strings.clone(lang_id, m.allocator), source = strings.clone(source, m.allocator)}
     m.ts_state.queries[key] = query
     return query, 0, .None
 }
@@ -142,7 +139,7 @@ push_ts_table :: proc(m: ^Manager, index: int, perms: Permissions) {
 
 // thor.ts.supports(grammar): whether the grammar is compiled into this build.
 @(private)
-api_ts_supports :: proc "c" (L: ^lua.State) -> c.int {
+api_ts_supports :: proc "c"(L: ^lua.State) -> c.int {
     context = runtime.default_context()
     m, _ := caller(L)
     if m == nil || lua.type(L, 1) != .STRING {
@@ -158,7 +155,7 @@ api_ts_supports :: proc "c" (L: ^lua.State) -> c.int {
 // Makefile). "" when no plugin claims the file or the language has no grammar.
 @(private)
 buffer_grammar :: proc(m: ^Manager, path: string) -> string {
-    dot := strings.last_index_byte(path, '.')
+    dot     := strings.last_index_byte(path, '.')
     idx, ok := m.by_ext[dot < 0 ? "" : path[dot:]]
     if !ok {
         slash := max(strings.last_index_byte(path, '/'), strings.last_index_byte(path, '\\'))
@@ -182,7 +179,7 @@ plugin_tree_key :: proc(index: int, lang_id: string) -> string {
 // the last tree it parsed under this grammar seeds the next parse. Returns nil
 // plus a message when the grammar is unknown or the parse fails.
 @(private)
-api_ts_parse :: proc "c" (L: ^lua.State) -> c.int {
+api_ts_parse :: proc "c"(L: ^lua.State) -> c.int {
     context = runtime.default_context()
     m, index := caller(L)
     if m == nil || lua.type(L, 1) != .STRING || lua.type(L, 2) != .STRING {
@@ -192,16 +189,13 @@ api_ts_parse :: proc "c" (L: ^lua.State) -> c.int {
     }
     context.allocator = m.allocator
 
-    source := string(lua.tostring(L, 1))
+    source  := string(lua.tostring(L, 1))
     lang_id := string(lua.tostring(L, 2))
 
     lang, known := syntax.language(&m.highlighter, lang_id)
     if !known {
         lua.pushnil(L)
-        lua.pushstring(L, strings.clone_to_cstring(
-            strings.concatenate({"unknown grammar: ", lang_id}, context.temp_allocator),
-            context.temp_allocator,
-        ))
+        lua.pushstring(L, strings.clone_to_cstring(strings.concatenate({"unknown grammar: ", lang_id}, context.temp_allocator), context.temp_allocator))
         return 2
     }
 
@@ -209,27 +203,15 @@ api_ts_parse :: proc "c" (L: ^lua.State) -> c.int {
         ts.parser_set_language(m.ts_state.parser, lang)
         m.ts_state.lang_id = lang_id
     }
-    tree := treecache.for_source(
-        &m.ts_state.trees,
-        m.ts_state.parser,
-        plugin_tree_key(index, lang_id),
-        lang_id,
-        source,
-    )
+    tree := treecache.for_source(&m.ts_state.trees, m.ts_state.parser, plugin_tree_key(index, lang_id), lang_id, source)
     if tree == nil {
         lua.pushnil(L)
         lua.pushstring(L, "parse failed")
         return 2
     }
 
-    ud := cast(^Ts_Tree) lua.newuserdatauv(L, size_of(Ts_Tree), 0)
-    ud^ = Ts_Tree {
-        tree    = tree,
-        source  = strings.clone(source),
-        lang_id = strings.clone(lang_id),
-        owner   = index,
-        m       = m,
-    }
+    ud := cast(^Ts_Tree)lua.newuserdatauv(L, size_of(Ts_Tree), 0)
+    ud^ = Ts_Tree{tree = tree, source = strings.clone(source), lang_id = strings.clone(lang_id), owner = index, m = m}
     lua.L_setmetatable(L, TREE_MT)
     return 1
 }
@@ -240,7 +222,7 @@ api_ts_parse :: proc "c" (L: ^lua.State) -> c.int {
 // poison that cache. Needs the read permission, since it reads buffer content
 // like thor.read does.
 @(private)
-api_ts_parse_active :: proc "c" (L: ^lua.State) -> c.int {
+api_ts_parse_active :: proc "c"(L: ^lua.State) -> c.int {
     context = runtime.default_context()
     m, index := caller(L)
     if m == nil || lua.type(L, 1) != .STRING {
@@ -266,10 +248,7 @@ api_ts_parse_active :: proc "c" (L: ^lua.State) -> c.int {
     lang, known := syntax.language(&m.highlighter, lang_id)
     if !known {
         lua.pushnil(L)
-        lua.pushstring(L, strings.clone_to_cstring(
-            strings.concatenate({"unknown grammar: ", lang_id}, context.temp_allocator),
-            context.temp_allocator,
-        ))
+        lua.pushstring(L, strings.clone_to_cstring(strings.concatenate({"unknown grammar: ", lang_id}, context.temp_allocator), context.temp_allocator))
         return 2
     }
     if m.ts_state.lang_id != lang_id {
@@ -281,8 +260,8 @@ api_ts_parse_active :: proc "c" (L: ^lua.State) -> c.int {
     // The highlighter's entry for this path holds a tree of the buffer's own
     // grammar. Asking it for another grammar makes the two re-parse the file
     // whole in turn, every keystroke, so a mismatch goes to the plugin cache.
-    cache := &m.ts_state.trees
-    key := plugin_tree_key(index, lang_id)
+    cache     := &m.ts_state.trees
+    key       := plugin_tree_key(index, lang_id)
     if buffer_grammar(m, path) == lang_id {
         cache, key = &m.highlighter.trees, path
     }
@@ -294,14 +273,8 @@ api_ts_parse_active :: proc "c" (L: ^lua.State) -> c.int {
         return 2
     }
 
-    ud := cast(^Ts_Tree) lua.newuserdatauv(L, size_of(Ts_Tree), 0)
-    ud^ = Ts_Tree {
-        tree    = tree,
-        source  = source,
-        lang_id = strings.clone(lang_id),
-        owner   = index,
-        m       = m,
-    }
+    ud := cast(^Ts_Tree)lua.newuserdatauv(L, size_of(Ts_Tree), 0)
+    ud^ = Ts_Tree{tree = tree, source = source, lang_id = strings.clone(lang_id), owner = index, m = m}
     lua.L_setmetatable(L, TREE_MT)
     return 1
 }
@@ -338,9 +311,9 @@ set_method :: proc(L: ^lua.State, name: cstring, fn: lua.CFunction) {
 }
 
 @(private)
-tree_gc :: proc "c" (L: ^lua.State) -> c.int {
+tree_gc :: proc "c"(L: ^lua.State) -> c.int {
     context = runtime.default_context()
-    ud := cast(^Ts_Tree) lua.L_checkudata(L, 1, TREE_MT)
+    ud := cast(^Ts_Tree)lua.L_checkudata(L, 1, TREE_MT)
     if ud == nil || ud.tree == nil {
         return 0
     }
@@ -354,9 +327,9 @@ tree_gc :: proc "c" (L: ^lua.State) -> c.int {
 
 // tree:root(): the root node.
 @(private)
-tree_root :: proc "c" (L: ^lua.State) -> c.int {
+tree_root :: proc "c"(L: ^lua.State) -> c.int {
     context = runtime.default_context()
-    ud := cast(^Ts_Tree) lua.L_checkudata(L, 1, TREE_MT)
+    ud := cast(^Ts_Tree)lua.L_checkudata(L, 1, TREE_MT)
     if ud == nil || ud.tree == nil {
         lua.pushnil(L)
         return 1
@@ -367,9 +340,9 @@ tree_root :: proc "c" (L: ^lua.State) -> c.int {
 
 // tree:language(): the grammar id it was parsed with.
 @(private)
-tree_language :: proc "c" (L: ^lua.State) -> c.int {
+tree_language :: proc "c"(L: ^lua.State) -> c.int {
     context = runtime.default_context()
-    ud := cast(^Ts_Tree) lua.L_checkudata(L, 1, TREE_MT)
+    ud := cast(^Ts_Tree)lua.L_checkudata(L, 1, TREE_MT)
     if ud == nil || ud.tree == nil {
         lua.pushnil(L)
         return 1
@@ -380,9 +353,9 @@ tree_language :: proc "c" (L: ^lua.State) -> c.int {
 
 // tree:source(): the text the tree was built from.
 @(private)
-tree_source :: proc "c" (L: ^lua.State) -> c.int {
+tree_source :: proc "c"(L: ^lua.State) -> c.int {
     context = runtime.default_context()
-    ud := cast(^Ts_Tree) lua.L_checkudata(L, 1, TREE_MT)
+    ud := cast(^Ts_Tree)lua.L_checkudata(L, 1, TREE_MT)
     if ud == nil || ud.tree == nil {
         lua.pushnil(L)
         return 1
@@ -396,9 +369,9 @@ tree_source :: proc "c" (L: ^lua.State) -> c.int {
 // matches, each a table of capture name -> node plus a `pattern` index; nil and
 // a message when the query does not compile.
 @(private)
-tree_query :: proc "c" (L: ^lua.State) -> c.int {
+tree_query :: proc "c"(L: ^lua.State) -> c.int {
     context = runtime.default_context()
-    ud := cast(^Ts_Tree) lua.L_checkudata(L, 1, TREE_MT)
+    ud := cast(^Ts_Tree)lua.L_checkudata(L, 1, TREE_MT)
     if ud == nil || ud.tree == nil || lua.type(L, 2) != .STRING {
         lua.pushnil(L)
         lua.pushstring(L, "tree:query expects a query string or a .scm file name")
@@ -407,7 +380,7 @@ tree_query :: proc "c" (L: ^lua.State) -> c.int {
     m := ud.m
     context.allocator = m.allocator
 
-    arg := string(lua.tostring(L, 2))
+    arg           := string(lua.tostring(L, 2))
     source, found := query_source(m, ud.owner, arg)
     if !found {
         lua.pushnil(L)
@@ -443,7 +416,7 @@ tree_query :: proc "c" (L: ^lua.State) -> c.int {
         nodes := lua.gettop(L)
         for i in 0 ..< int(match.capture_count) {
             capture := match.captures[i]
-            name := strings.clone_to_cstring(ts.query_capture_name_for_id(query, capture.index), context.temp_allocator)
+            name    := strings.clone_to_cstring(ts.query_capture_name_for_id(query, capture.index), context.temp_allocator)
             if lua.Type(lua.getfield(L, nodes, name)) == .NIL {
                 lua.pop(L, 1)
                 lua.createtable(L, 1, 0)
@@ -472,8 +445,8 @@ push_node :: proc(L: ^lua.State, m: ^Manager, tree_index: c.int, node: ts.Node) 
         return
     }
     absolute := lua.absindex(L, tree_index)
-    ud := cast(^Ts_Node) lua.newuserdatauv(L, size_of(Ts_Node), 1)
-    ud^ = Ts_Node {node = node, m = m}
+    ud       := cast(^Ts_Node)lua.newuserdatauv(L, size_of(Ts_Node), 1)
+    ud^ = Ts_Node{node = node, m = m}
     lua.L_setmetatable(L, NODE_MT)
     lua.pushvalue(L, absolute)
     lua.setiuservalue(L, -2, 1)
@@ -490,12 +463,12 @@ node_args :: proc(L: ^lua.State) -> (^Ts_Node, ^Ts_Tree, bool) {
 // the tree is freed: a ts.Node points into its tree.
 @(private)
 node_at :: proc(L: ^lua.State, idx: c.int) -> (^Ts_Node, ^Ts_Tree, bool) {
-    node := cast(^Ts_Node) lua.L_testudata(L, idx, NODE_MT)
+    node := cast(^Ts_Node)lua.L_testudata(L, idx, NODE_MT)
     if node == nil {
         return nil, nil, false
     }
     lua.getiuservalue(L, idx, 1)
-    tree := cast(^Ts_Tree) lua.L_testudata(L, -1, TREE_MT)
+    tree := cast(^Ts_Tree)lua.L_testudata(L, -1, TREE_MT)
     lua.pop(L, 1)
     if tree == nil || tree.tree == nil {
         return nil, nil, false
@@ -552,7 +525,7 @@ install_node_metatable :: proc(L: ^lua.State) {
 // Node `__index`: the byte and point offsets read as fields, everything else
 // comes from the method table held as upvalue 1.
 @(private)
-node_index :: proc "c" (L: ^lua.State) -> c.int {
+node_index :: proc "c"(L: ^lua.State) -> c.int {
     context = runtime.default_context()
     if lua.L_testudata(L, 1, NODE_MT) == nil || lua.type(L, 2) != .STRING {
         lua.pushnil(L)
@@ -608,7 +581,7 @@ node_index :: proc "c" (L: ^lua.State) -> c.int {
 
 // node:type(): the grammar's name for this node ("procedure_declaration", "{").
 @(private)
-node_type :: proc "c" (L: ^lua.State) -> c.int {
+node_type :: proc "c"(L: ^lua.State) -> c.int {
     context = runtime.default_context()
     node, _, ok := node_args(L)
     if !ok {
@@ -621,7 +594,7 @@ node_type :: proc "c" (L: ^lua.State) -> c.int {
 
 // node:text(): the source the node spans.
 @(private)
-node_text :: proc "c" (L: ^lua.State) -> c.int {
+node_text :: proc "c"(L: ^lua.State) -> c.int {
     context = runtime.default_context()
     node, tree, ok := node_args(L)
     if !ok {
@@ -635,7 +608,7 @@ node_text :: proc "c" (L: ^lua.State) -> c.int {
 
 // node:child(i) / node:named_child(i): the i-th child, 0-based, nil past the end.
 @(private)
-node_child :: proc "c" (L: ^lua.State) -> c.int {
+node_child :: proc "c"(L: ^lua.State) -> c.int {
     context = runtime.default_context()
     node, _, ok := node_args(L)
     if !ok {
@@ -651,7 +624,7 @@ node_child :: proc "c" (L: ^lua.State) -> c.int {
 }
 
 @(private)
-node_named_child :: proc "c" (L: ^lua.State) -> c.int {
+node_named_child :: proc "c"(L: ^lua.State) -> c.int {
     context = runtime.default_context()
     node, _, ok := node_args(L)
     if !ok {
@@ -667,7 +640,7 @@ node_named_child :: proc "c" (L: ^lua.State) -> c.int {
 }
 
 @(private)
-node_child_count :: proc "c" (L: ^lua.State) -> c.int {
+node_child_count :: proc "c"(L: ^lua.State) -> c.int {
     context = runtime.default_context()
     node, _, ok := node_args(L)
     if !ok {
@@ -679,7 +652,7 @@ node_child_count :: proc "c" (L: ^lua.State) -> c.int {
 }
 
 @(private)
-node_named_child_count :: proc "c" (L: ^lua.State) -> c.int {
+node_named_child_count :: proc "c"(L: ^lua.State) -> c.int {
     context = runtime.default_context()
     node, _, ok := node_args(L)
     if !ok {
@@ -692,17 +665,17 @@ node_named_child_count :: proc "c" (L: ^lua.State) -> c.int {
 
 // node:children() / node:named_children(): a 1-based array, for `ipairs`.
 @(private)
-node_children :: proc "c" (L: ^lua.State) -> c.int {
+node_children :: proc "c"(L: ^lua.State) -> c.int {
     return push_child_array(L, false)
 }
 
 @(private)
-node_named_children :: proc "c" (L: ^lua.State) -> c.int {
+node_named_children :: proc "c"(L: ^lua.State) -> c.int {
     return push_child_array(L, true)
 }
 
 @(private)
-push_child_array :: proc "c" (L: ^lua.State, named: bool) -> c.int {
+push_child_array :: proc "c"(L: ^lua.State, named: bool) -> c.int {
     context = runtime.default_context()
     node, _, ok := node_args(L)
     if !ok {
@@ -725,7 +698,7 @@ push_child_array :: proc "c" (L: ^lua.State, named: bool) -> c.int {
 
 // node:field(name): the child under a grammar field ("body", "name"), or nil.
 @(private)
-node_field :: proc "c" (L: ^lua.State) -> c.int {
+node_field :: proc "c"(L: ^lua.State) -> c.int {
     context = runtime.default_context()
     node, _, ok := node_args(L)
     if !ok || lua.type(L, 2) != .STRING {
@@ -736,7 +709,7 @@ node_field :: proc "c" (L: ^lua.State) -> c.int {
 }
 
 @(private)
-node_parent :: proc "c" (L: ^lua.State) -> c.int {
+node_parent :: proc "c"(L: ^lua.State) -> c.int {
     context = runtime.default_context()
     node, _, ok := node_args(L)
     if !ok {
@@ -748,7 +721,7 @@ node_parent :: proc "c" (L: ^lua.State) -> c.int {
 
 // node:next([named]) / node:prev([named]): the sibling beside this node.
 @(private)
-node_next :: proc "c" (L: ^lua.State) -> c.int {
+node_next :: proc "c"(L: ^lua.State) -> c.int {
     context = runtime.default_context()
     node, _, ok := node_args(L)
     if !ok {
@@ -762,7 +735,7 @@ node_next :: proc "c" (L: ^lua.State) -> c.int {
 }
 
 @(private)
-node_prev :: proc "c" (L: ^lua.State) -> c.int {
+node_prev :: proc "c"(L: ^lua.State) -> c.int {
     context = runtime.default_context()
     node, _, ok := node_args(L)
     if !ok {
@@ -777,7 +750,7 @@ node_prev :: proc "c" (L: ^lua.State) -> c.int {
 
 // node:descendant_at(byte): the smallest named node covering `byte`.
 @(private)
-node_descendant_at :: proc "c" (L: ^lua.State) -> c.int {
+node_descendant_at :: proc "c"(L: ^lua.State) -> c.int {
     context = runtime.default_context()
     node, _, ok := node_args(L)
     if !ok {
@@ -789,23 +762,23 @@ node_descendant_at :: proc "c" (L: ^lua.State) -> c.int {
 }
 
 @(private)
-node_tostring :: proc "c" (L: ^lua.State) -> c.int {
+node_tostring :: proc "c"(L: ^lua.State) -> c.int {
     context = runtime.default_context()
     node, _, ok := node_args(L)
     if !ok {
         lua.pushstring(L, "<node>")
         return 1
     }
-    text := strings.concatenate({
-        "<", string(ts.node_type(node.node)), " ",
-        u32_text(ts.node_start_byte(node.node)), "..", u32_text(ts.node_end_byte(node.node)), ">",
-    }, context.temp_allocator)
+    text := strings.concatenate(
+        {"<", string(ts.node_type(node.node)), " ", u32_text(ts.node_start_byte(node.node)), "..", u32_text(ts.node_end_byte(node.node)), ">"},
+        context.temp_allocator,
+    )
     lua.pushstring(L, strings.clone_to_cstring(text, context.temp_allocator))
     return 1
 }
 
 @(private)
-node_eq :: proc "c" (L: ^lua.State) -> c.int {
+node_eq :: proc "c"(L: ^lua.State) -> c.int {
     context = runtime.default_context()
     a, _, a_ok := node_at(L, 1)
     b, _, b_ok := node_at(L, 2)
@@ -825,7 +798,7 @@ itoa_u32 :: proc(buffer: []byte, value: u32) -> string {
         buffer[0] = '0'
         return string(buffer[:1])
     }
-    n := value
+    n   := value
     end := len(buffer)
     for n > 0 {
         end -= 1

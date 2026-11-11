@@ -155,7 +155,15 @@ symbol_less :: proc(a, b: lang.Symbol) -> bool {
 // Appends the items of `tree` whose name matches `query`: to `res`, or to `inactive` with
 // " (inactive)" after the signature when a known-false guard drops the item for `target`.
 @(private = "file")
-append_matches :: proc(res: ^lang.Result, inactive: ^[dynamic]lang.Symbol, query: string, tree: ^odinsema.Item_Tree, path: string, lines: []int, target: odinsema.Target) {
+append_matches :: proc(
+    res: ^lang.Result,
+    inactive: ^[dynamic]lang.Symbol,
+    query: string,
+    tree: ^odinsema.Item_Tree,
+    path: string,
+    lines: []int,
+    target: odinsema.Target,
+) {
     for &item in tree.items {
         if symbol_kind(item.kind) == "" || !lang.symbol_matches(query, item.name) {
             continue
@@ -178,12 +186,15 @@ append_symbol :: proc(res: ^lang.Result, item: ^odinsema.Item, path: string, lin
 @(private = "file")
 append_symbol_to :: proc(out: ^[dynamic]lang.Symbol, item: ^odinsema.Item, path: string, lines: []int, signature: string, kind := "") {
     line, _ := offset_line_col(lines, item.name_offset)
-    append(out, lang.Symbol {
-        name      = strings.clone(item.name),
-        kind      = strings.clone(kind != "" ? kind : symbol_kind(item.kind)),
-        signature = strings.clone(signature),
-        path      = strings.clone(path),
-        line      = line,
-        offset    = item.name_offset,
-    })
+    append(
+        out,
+        lang.Symbol{
+            name = strings.clone(item.name),
+            kind = strings.clone(kind != "" ? kind : symbol_kind(item.kind)),
+            signature = strings.clone(signature),
+            path = strings.clone(path),
+            line = line,
+            offset = item.name_offset,
+        },
+    )
 }

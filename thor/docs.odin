@@ -33,7 +33,7 @@ thor_docs_path :: proc(name: string, allocator := context.temp_allocator) -> str
 
 // Opens the documentation index in the rendered Markdown preview.
 thor_cmd_docs :: proc(data: rawptr) {
-    thor_open_docs_page(cast(^Thor) data, DOCS_INDEX)
+    thor_open_docs_page(cast(^Thor)data, DOCS_INDEX)
 }
 
 // Opens one page of the manual, turning the Markdown preview on so the page
@@ -83,7 +83,7 @@ thor_docs_pages :: proc() -> []string {
 
 // Picks a page of the manual by name and opens it in the preview.
 thor_cmd_docs_page :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor  := cast(^Thor)data
     pages := thor_docs_pages()
     if len(pages) == 0 {
         thor_flash_status(thor, "No documentation is installed beside Thor", true)
@@ -94,11 +94,11 @@ thor_cmd_docs_page :: proc(data: rawptr) {
 
 @(private = "file")
 thor_pick_docs_page :: proc(data: rawptr, name: string) {
-    thor_open_docs_page(cast(^Thor) data, name)
+    thor_open_docs_page(cast(^Thor)data, name)
 }
 
 // URL schemes a link may carry that the system browser handles.
-LINK_SCHEMES :: []string {"http://", "https://", "mailto:", "ftp://"}
+LINK_SCHEMES :: []string{"http://", "https://", "mailto:", "ftp://"}
 
 // Whether url starts with a scheme in LINK_SCHEMES, ignoring case.
 thor_link_scheme_allowed :: proc(url: string) -> bool {
@@ -115,7 +115,7 @@ thor_link_scheme_allowed :: proc(url: string) -> bool {
 // manual links its own pages -- a browser would show their source or nothing.
 // An in-page anchor names no target to open.
 thor_markdown_open_link :: proc(data: rawptr, url: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if url == "" || url[0] == '#' {
         return
     }
@@ -139,9 +139,7 @@ thor_markdown_open_link :: proc(data: rawptr, url: string) {
     if rel == "" {
         return
     }
-    target, join_err := filepath.join(
-        {filepath.dir(file.path), rel}, context.temp_allocator,
-    )
+    target, join_err := filepath.join({filepath.dir(file.path), rel}, context.temp_allocator)
     if join_err != nil || !os.exists(target) {
         thor_flash_status(thor, "Link target not found", true)
         return
@@ -154,7 +152,7 @@ thor_markdown_open_link :: proc(data: rawptr, url: string) {
 // path is made absolute because the browser does not inherit our working
 // directory.
 thor_cmd_docs_browser :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor  := cast(^Thor)data
     local := thor_docs_path(DOCS_HTML_INDEX)
     if os.exists(local) {
         if abs, err := filepath.abs(local, context.temp_allocator); err == nil {

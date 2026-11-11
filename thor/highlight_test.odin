@@ -2,9 +2,9 @@ package thor
 
 import "core:testing"
 
-import ui "../vendor/loom/loom"
 import "../editview"
 import "../lang"
+import ui "../vendor/loom/loom"
 @(private = "file")
 GRAMMAR := ui.Color{1, 0, 0, 255}
 @(private = "file")
@@ -53,11 +53,7 @@ test_overlay_spanning_several_base_spans :: proc(t: ^testing.T) {
 
     // A token reaching across three base spans swallows the one it covers whole
     // and trims the two it only reaches into.
-    base := []editview.Highlight_Span {
-        span(0, 10, GRAMMAR),
-        span(10, 20, GRAMMAR),
-        span(20, 30, GRAMMAR),
-    }
+    base := []editview.Highlight_Span{span(0, 10, GRAMMAR), span(10, 20, GRAMMAR), span(20, 30, GRAMMAR)}
     over := []editview.Highlight_Span{span(5, 25, ANALYZER)}
     thor_overlay_spans(&out, base, over)
 
@@ -116,11 +112,7 @@ test_overlay_exact_and_adjacent :: proc(t: ^testing.T) {
     // The common case by far: the grammar colored the identifier as a plain
     // variable and the analyzer names it exactly, span for span. Neighbours that
     // merely touch the token must survive whole.
-    base := []editview.Highlight_Span {
-        span(0, 5, GRAMMAR),
-        span(5, 9, GRAMMAR),
-        span(9, 14, GRAMMAR),
-    }
+    base := []editview.Highlight_Span{span(0, 5, GRAMMAR), span(5, 9, GRAMMAR), span(9, 14, GRAMMAR)}
     over := []editview.Highlight_Span{span(5, 9, ANALYZER)}
     thor_overlay_spans(&out, base, over)
 
@@ -146,11 +138,11 @@ test_rebase_moves_tokens_an_edit_displaced :: proc(t: ^testing.T) {
 
     old_text := "aa bbbb cccc\n"
     new_text := "aa XY bbbb cccc\n" // three bytes inserted after "aa "
-    tokens := []lang.Semantic_Token{token(0, 2), token(3, 7), token(8, 12)}
+    tokens   := []lang.Semantic_Token{token(0, 2), token(3, 7), token(8, 12)}
     thor_rebase_semantic(&out, tokens, old_text, new_text)
 
     testing.expect_value(t, len(out), 3)
-    testing.expect_value(t, out[0], token(0, 2))  // below the edit: unmoved
+    testing.expect_value(t, out[0], token(0, 2)) // below the edit: unmoved
     testing.expect_value(t, out[1], token(6, 10)) // above it: moved by +3
     testing.expect_value(t, out[2], token(11, 15))
     testing.expect_value(t, new_text[out[1].start:out[1].end], "bbbb")
@@ -197,7 +189,7 @@ test_rebase_is_identity_on_an_unchanged_buffer :: proc(t: ^testing.T) {
     out := make([dynamic]lang.Semantic_Token)
     defer delete(out)
 
-    src := "alpha beta gamma\n"
+    src    := "alpha beta gamma\n"
     tokens := []lang.Semantic_Token{token(0, 5), token(6, 10), token(11, 16)}
     thor_rebase_semantic(&out, tokens, src, src)
 
@@ -286,7 +278,7 @@ test_semantic_spans_modifier_color :: proc(t: ^testing.T) {
     dead.modifiers = {.Deprecated}
     value := token(8, 12, .Local)
     value.modifiers = {.Constant}
-    plain := token(14, 18, .Local)
+    plain  := token(14, 18, .Local)
     tokens := []lang.Semantic_Token{dead, value, plain}
     thor_semantic_spans(&out, tokens, colors, {.Procedure}, 0, 100, mod_colors, {.Deprecated, .Constant})
 

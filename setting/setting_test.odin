@@ -205,7 +205,7 @@ test_persist_keeps_a_malformed_file :: proc(t: ^testing.T) {
     defer os.remove(path)
     BROKEN :: `return { theme = `
 
-    testing.expect_value(t, os.write_entire_file(path, transmute([]byte) string(BROKEN)), nil)
+    testing.expect_value(t, os.write_entire_file(path, transmute([]byte)string(BROKEN)), nil)
     testing.expect(t, persist_string(path, "theme", "dark") != .None, "a persist onto a malformed file must fail")
     testing.expect(t, persist_keybind(path, "save", "ctrl+s") != .None, "a keybind persist onto a malformed file must fail")
     data, err := os.read_entire_file(path, context.temp_allocator)
@@ -337,8 +337,8 @@ test_backend_state_bare_bool_form :: proc(t: ^testing.T) {
 // what the one before it put there.
 @(test)
 test_load_overlay_layers_in_order :: proc(t: ^testing.T) {
-    global := "thor_layer_global.tmp"
-    user := "thor_layer_user.tmp"
+    global    := "thor_layer_global.tmp"
+    user      := "thor_layer_user.tmp"
     workspace := "thor_layer_workspace.tmp"
     defer for dir in ([]string{global, user, workspace}) {
         _ = os.remove(concat_for_test(dir, "/settings.lua"))
@@ -363,7 +363,7 @@ test_load_overlay_layers_in_order :: proc(t: ^testing.T) {
 // An integer outside its range loads as the nearest bound; one inside is kept.
 @(test)
 test_load_clamps_integers :: proc(t: ^testing.T) {
-    dir := "thor_clamp.tmp"
+    dir  := "thor_clamp.tmp"
     path := concat_for_test(dir, "/settings.lua")
     defer {
         os.remove(path)
@@ -399,7 +399,20 @@ concat_for_test :: proc(a, b: string) -> string {
 // written back reads the same the next time.
 @(test)
 test_keybind_spec_round_trips :: proc(t: ^testing.T) {
-    for spec in ([?]string {"ctrl+s", "ctrl+shift+alt+cmd+k", "shift+cmd+p", "alt+page_up", "f5", "ctrl+minus", "ctrl+equal", "ctrl+slash", "ctrl+grave", "insert", "ctrl+kp_7", "shift+left_bracket"}) {
+    for spec in ([?]string{
+        "ctrl+s",
+        "ctrl+shift+alt+cmd+k",
+        "shift+cmd+p",
+        "alt+page_up",
+        "f5",
+        "ctrl+minus",
+        "ctrl+equal",
+        "ctrl+slash",
+        "ctrl+grave",
+        "insert",
+        "ctrl+kp_7",
+        "shift+left_bracket",
+    }) {
         kb, ok := parse_keybind(spec)
         testing.expectf(t, ok, "%q did not parse", spec)
         testing.expect_value(t, keybind_spec(kb, context.temp_allocator), spec)
@@ -410,8 +423,8 @@ test_keybind_spec_round_trips :: proc(t: ^testing.T) {
 // a user may reach for.
 @(test)
 test_parse_keybind_reads_cmd :: proc(t: ^testing.T) {
-    want := Keybind {key = .P, mods = {.Super, .Shift}}
-    for spec in ([?]string {"cmd+shift+p", "shift+cmd+p", "super+shift+p", "meta+shift+p", "win+shift+p"}) {
+    want := Keybind{key = .P, mods = {.Super, .Shift}}
+    for spec in ([?]string{"cmd+shift+p", "shift+cmd+p", "super+shift+p", "meta+shift+p", "win+shift+p"}) {
         kb, ok := parse_keybind(spec)
         testing.expectf(t, ok, "%q did not parse", spec)
         testing.expectf(t, kb == want, "%q parsed as %v", spec, kb)
@@ -423,7 +436,7 @@ test_parse_keybind_reads_cmd :: proc(t: ^testing.T) {
 @(test)
 test_keybind_matches_separates_cmd_from_ctrl :: proc(t: ^testing.T) {
     ctrl_k, _ := parse_keybind("ctrl+k")
-    cmd_k, _ := parse_keybind("cmd+k")
+    cmd_k, _  := parse_keybind("cmd+k")
 
     testing.expect(t, keybind_matches(ctrl_k, .K, {.Ctrl}))
     testing.expect(t, !keybind_matches(ctrl_k, .K, {.Super}))
@@ -488,14 +501,18 @@ test_tips_skip_incomplete_entries :: proc(t: ^testing.T) {
     s.tips = make([dynamic]Tip)
     defer destroy(&s)
 
-    apply_tips_json(t, &s, `return { tips = {
+    apply_tips_json(
+        t,
+        &s,
+        `return { tips = {
         { title = "No body" },
         { body = "No title" },
         { title = "", body = "Empty title" },
         { title = "Empty body", body = "" },
         "not an object",
         { title = "Good", body = "Kept" },
-    } }`)
+    } }`,
+    )
     testing.expect_value(t, len(s.tips), 1)
     if len(s.tips) == 1 {
         testing.expect_value(t, s.tips[0].title, "Good")
@@ -535,7 +552,7 @@ test_every_key_has_a_token :: proc(t: ^testing.T) {
         case .None, .Left_Shift, .Right_Shift, .Left_Ctrl, .Right_Ctrl, .Left_Alt, .Right_Alt, .Left_Super, .Right_Super:
             continue
         }
-        spec := keybind_spec(Keybind{key = key, mods = {.Ctrl}}, context.temp_allocator)
+        spec     := keybind_spec(Keybind{key = key, mods = {.Ctrl}}, context.temp_allocator)
         back, ok := parse_keybind(spec)
         testing.expectf(t, ok && back.key == key, "%v wrote %q", key, spec)
     }
@@ -555,14 +572,14 @@ parse_test_lua :: proc(body: string) -> (json.Value, json.Error) {
 // glob with no `/` matches the base name, and "" turns detection back on.
 @(test)
 test_file_language_lookup :: proc(t: ^testing.T) {
-    user := "thor_file_lang_user.tmp"
+    user      := "thor_file_lang_user.tmp"
     workspace := "thor_file_lang_ws.tmp"
     defer for dir in ([]string{user, workspace}) {
         _ = os.remove(concat_for_test(dir, "/settings.lua"))
         _ = os.remove(dir)
     }
     user_file := concat_for_test(user, "/settings.lua")
-    ws_file := concat_for_test(workspace, "/settings.lua")
+    ws_file   := concat_for_test(workspace, "/settings.lua")
 
     testing.expect_value(t, persist_file_language(user_file, "*.inc", "FASM"), luaconf.Patch_Error.None)
     testing.expect_value(t, persist_file_language(user_file, "src/*.inc", "Pascal"), luaconf.Patch_Error.None)
@@ -594,14 +611,14 @@ test_file_language_lookup :: proc(t: ^testing.T) {
 // file_targets: matched as file_languages, kept apart from them, and "" takes the workspace default.
 @(test)
 test_file_target_lookup :: proc(t: ^testing.T) {
-    user := "thor_file_target_user.tmp"
+    user      := "thor_file_target_user.tmp"
     workspace := "thor_file_target_ws.tmp"
     defer for dir in ([]string{user, workspace}) {
         _ = os.remove(concat_for_test(dir, "/settings.lua"))
         _ = os.remove(dir)
     }
     user_file := concat_for_test(user, "/settings.lua")
-    ws_file := concat_for_test(workspace, "/settings.lua")
+    ws_file   := concat_for_test(workspace, "/settings.lua")
 
     testing.expect_value(t, persist_file_target(user_file, "*_linux.odin", "linux_amd64"), luaconf.Patch_Error.None)
     testing.expect_value(t, persist_file_target(ws_file, "src/x_linux.odin", "linux_arm64"), luaconf.Patch_Error.None)

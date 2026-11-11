@@ -18,10 +18,7 @@ temp_dir :: proc(name: string) -> string {
     if base == "" {
         base = "/tmp"
     }
-    path, err := filepath.join(
-        {strings.trim_right(base, "/"), fmt.tprintf("%s_%d", name, os.get_pid())},
-        context.temp_allocator,
-    )
+    path, err := filepath.join({strings.trim_right(base, "/"), fmt.tprintf("%s_%d", name, os.get_pid())}, context.temp_allocator)
     if err != nil {
         return ""
     }

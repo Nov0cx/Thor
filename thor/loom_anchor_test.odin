@@ -11,7 +11,7 @@ import ui "../vendor/loom/loom"
 loom_anchor: ui.Context
 
 @(init)
-loom_anchor_init :: proc "contextless" () {
+loom_anchor_init :: proc "contextless"() {
     context = runtime.default_context()
     ui.init(&loom_anchor, ui.Config{backend = ui.noop_backend()})
 }

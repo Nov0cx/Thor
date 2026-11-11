@@ -14,33 +14,33 @@ import "core:strings"
 // were sent, which is what turns a server's (line, character) into a byte offset
 // without reading the file again.
 Document :: struct {
-    uri:       string,     // owned
-    path:      string,     // owned
-    text:      string,     // owned; LF-collapsed, exactly as sent
-    lines:     Line_Index, // owned; indexes `text`
-    version:   i64,
+    uri:                string,     // owned
+    path:               string,     // owned
+    text:               string,     // owned; LF-collapsed, exactly as sent
+    lines:              Line_Index, // owned; indexes `text`
+    version:            i64,
     // The editor revision `text` came from. Monotonic per file, so a document
     // event that carries an older one is already in the server's copy.
-    revision:  u64,
-    open:      bool, // didOpen was sent and didClose was not
+    revision:           u64,
+    open:               bool,                       // didOpen was sent and didClose was not
     // The last full semanticTokens reply, kept so the next request can ask for
     // a delta instead of the whole list; nil/"" until the first fetch, or after
     // a delta the cache disagreed with (see server_clear_semantic).
-    semantic_data:      []i64, // owned; the flat, delta-encoded token array
-    semantic_result_id: string, // owned
+    semantic_data:      []i64,                      // owned; the flat, delta-encoded token array
+    semantic_result_id: string,                     // owned
     // The last publish/pull diagnostics for this document, kept verbatim so a
     // codeAction request can replay the ones overlapping its range back to the
     // server — a server (basedpyright, notably) that gates a fix like "add missing
     // import" on seeing its own diagnostic in the request otherwise never
     // offers it.
-    diagnostics: [dynamic]Cached_Diagnostic, // owned
-    allocator: runtime.Allocator,
+    diagnostics:        [dynamic]Cached_Diagnostic, // owned
+    allocator:          runtime.Allocator,
 }
 
 // One diagnostic as last reported for this document.
 Cached_Diagnostic :: struct {
     start_line, start_char, end_line, end_char: int,
-    json: string, // owned; the diagnostic object exactly as the server sent it
+    json:                                       string, // owned; the diagnostic object exactly as the server sent it
 }
 
 // A document at version 1, not yet sent.
@@ -111,12 +111,7 @@ did_change_params :: proc(doc: ^Document, allocator := context.allocator) -> str
 // caller against the document's *previous* Line_Index (server_publish's, since
 // document_set_text has not run yet when the range is computed). `text` is the
 // replacement for that range alone, not the whole buffer.
-did_change_incremental_params :: proc(
-    doc: ^Document,
-    start_line, start_char, end_line, end_char: int,
-    text: string,
-    allocator := context.allocator,
-) -> string {
+did_change_incremental_params :: proc(doc: ^Document, start_line, start_char, end_line, end_char: int, text: string, allocator := context.allocator) -> string {
     out := make([dynamic]u8, allocator)
     append(&out, `{"textDocument":{"uri":`)
     write_quoted(&out, doc.uri)
@@ -197,7 +192,7 @@ uri_to_path :: proc(uri: string, allocator := context.allocator) -> (string, boo
     for index := 0; index < len(rest); {
         if index + 2 < len(rest) && rest[index] == '%' {
             high, hok := hex_value(rest[index + 1])
-            low, lok := hex_value(rest[index + 2])
+            low, lok  := hex_value(rest[index + 2])
             if hok && lok {
                 append(&out, high << 4 | low)
                 index += 3

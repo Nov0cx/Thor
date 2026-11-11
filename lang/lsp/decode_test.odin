@@ -71,39 +71,32 @@ request_for :: proc(kind: lang.Request_Kind, source: string, offset := 0) -> lan
 // The Ask a worker builds for `req`, for the paths that read it directly.
 @(private = "file")
 ask_for :: proc(s: ^Server, req: ^lang.Request) -> Ask {
-    return Ask {
+    return Ask{
         server = s,
-        req    = req,
-        uri    = uri_from_path(req.path, context.temp_allocator),
-        lines  = line_index_build(req.source, s.caps.encoding, context.temp_allocator),
-        texts  = make(map[string]string, allocator = context.temp_allocator),
-        raws   = make(map[string]^Line_Index, allocator = context.temp_allocator),
+        req = req,
+        uri = uri_from_path(req.path, context.temp_allocator),
+        lines = line_index_build(req.source, s.caps.encoding, context.temp_allocator),
+        texts = make(map[string]string, allocator = context.temp_allocator),
+        raws = make(map[string]^Line_Index, allocator = context.temp_allocator),
     }
 }
 
 // Runs one reply through the real decoder, on the real Ask a worker builds.
 @(private = "file")
 decode_reply :: proc(s: ^Server, req: ^lang.Request, body: string) -> lang.Result {
-    value, err := json.parse(
-        transmute([]u8)body,
-        spec = .JSON,
-        parse_integers = true,
-        allocator = context.temp_allocator,
-    )
+    value, err := json.parse(transmute([]u8)body, spec = .JSON, parse_integers = true, allocator = context.temp_allocator)
     if err != .None {
         return {}
     }
-    ask := Ask {
+    ask := Ask{
         server = s,
-        req    = req,
-        uri    = uri_from_path(req.path, context.temp_allocator),
-        lines  = line_index_build(req.source, s.caps.encoding, context.temp_allocator),
-        texts  = make(map[string]string, allocator = context.temp_allocator),
-        raws   = make(map[string]^Line_Index, allocator = context.temp_allocator),
+        req = req,
+        uri = uri_from_path(req.path, context.temp_allocator),
+        lines = line_index_build(req.source, s.caps.encoding, context.temp_allocator),
+        texts = make(map[string]string, allocator = context.temp_allocator),
+        raws = make(map[string]^Line_Index, allocator = context.temp_allocator),
     }
-    res := lang.Result {
-        kind = req.kind,
-    }
+    res := lang.Result{kind = req.kind}
     request_decode(&ask, value, &res)
     return res
 }
@@ -204,12 +197,7 @@ held_document :: proc(s: ^Server, path, text: string, revision: u64) -> ^Documen
 // Runs one pushed notification through the real decoder.
 @(private = "file")
 decode_push :: proc(s: ^Server, body: string) -> (lang.Result, bool) {
-    value, err := json.parse(
-        transmute([]u8)body,
-        spec = .JSON,
-        parse_integers = true,
-        allocator = context.temp_allocator,
-    )
+    value, err := json.parse(transmute([]u8)body, spec = .JSON, parse_integers = true, allocator = context.temp_allocator)
     if err != .None {
         return {}, false
     }
@@ -226,11 +214,7 @@ test_decode_definition_location :: proc(t: ^testing.T) {
     defer held_destroy(s)
     req := request_for(.Definition, SOURCE, 0)
 
-    res := decode_reply(
-        s,
-        &req,
-        `{"uri":"` + FILE_URI + `","range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}}}`,
-    )
+    res := decode_reply(s, &req, `{"uri":"` + FILE_URI + `","range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}}}`)
     defer result_release(&res)
 
     testing.expect(t, res.ok, "a single location should resolve")
@@ -251,10 +235,10 @@ test_decode_definition_location_link :: proc(t: ^testing.T) {
         s,
         &req,
         `[{"targetUri":"` +
-        FILE_URI +
-        `",` +
-        `"targetRange":{"start":{"line":1,"character":0},"end":{"line":1,"character":11}},` +
-        `"targetSelectionRange":{"start":{"line":1,"character":6},"end":{"line":1,"character":11}}}]`,
+            FILE_URI +
+            `",` +
+            `"targetRange":{"start":{"line":1,"character":0},"end":{"line":1,"character":11}},` +
+            `"targetSelectionRange":{"start":{"line":1,"character":6},"end":{"line":1,"character":11}}}]`,
     )
     defer result_release(&res)
 
@@ -274,11 +258,11 @@ test_decode_definition_candidates :: proc(t: ^testing.T) {
         s,
         &req,
         `[{"uri":"` +
-        FILE_URI +
-        `","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}}},` +
-        `{"uri":"` +
-        FILE_URI +
-        `","range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}}}]`,
+            FILE_URI +
+            `","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}}},` +
+            `{"uri":"` +
+            FILE_URI +
+            `","range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}}}]`,
     )
     defer result_release(&res)
 
@@ -302,11 +286,7 @@ test_decode_type_definition_location_array :: proc(t: ^testing.T) {
     defer held_destroy(s)
     req := request_for(.Type_Definition, SOURCE, 0)
 
-    res := decode_reply(
-        s,
-        &req,
-        `[{"uri":"` + FILE_URI + `","range":{"start":{"line":1,"character":6},"end":{"line":1,"character":11}}}]`,
-    )
+    res := decode_reply(s, &req, `[{"uri":"` + FILE_URI + `","range":{"start":{"line":1,"character":6},"end":{"line":1,"character":11}}}]`)
     defer result_release(&res)
 
     testing.expect(t, res.ok, "one location should resolve")
@@ -323,11 +303,7 @@ test_decode_definition_refuses_a_foreign_uri :: proc(t: ^testing.T) {
     defer held_destroy(s)
     req := request_for(.Definition, SOURCE, 0)
 
-    res := decode_reply(
-        s,
-        &req,
-        `{"uri":"jdt://contents/rt.jar","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}}}`,
-    )
+    res := decode_reply(s, &req, `{"uri":"jdt://contents/rt.jar","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}}}`)
     defer result_release(&res)
     testing.expect(t, !res.ok, "a URI that is not a file should find nothing")
 }
@@ -343,9 +319,9 @@ test_decode_hover_markup :: proc(t: ^testing.T) {
         s,
         &req,
         `{"contents":{"kind":"markdown","value":"` +
-        "```c\\nint alpha(void)\\n```\\nThe `alpha` count." +
-        `"},` +
-        `"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}}}`,
+            "```c\\nint alpha(void)\\n```\\nThe `alpha` count." +
+            `"},` +
+            `"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}}}`,
     )
     defer result_release(&res)
 
@@ -394,13 +370,7 @@ test_decode_package_doc_keeps_markdown :: proc(t: ^testing.T) {
     defer held_destroy(s)
     req := request_for(.Package_Doc, SOURCE, 0) // caret on "alpha"
 
-    res := decode_reply(
-        s,
-        &req,
-        `{"contents":{"kind":"markdown","value":"` +
-        "# package fmt\\n\\n```odin\\nprintln :: proc(args: ..any)\\n```" +
-        `"}}`,
-    )
+    res := decode_reply(s, &req, `{"contents":{"kind":"markdown","value":"` + "# package fmt\\n\\n```odin\\nprintln :: proc(args: ..any)\\n```" + `"}}`)
     defer result_release(&res)
 
     testing.expect(t, res.ok)
@@ -450,11 +420,11 @@ test_decode_document_symbols_tree :: proc(t: ^testing.T) {
         s,
         &req,
         `[{"name":"Outer","kind":23,"detail":"struct Outer",` +
-        `"range":{"start":{"line":0,"character":0},"end":{"line":1,"character":11}},` +
-        `"selectionRange":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},` +
-        `"children":[{"name":"inner","kind":8,` +
-        `"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":11}},` +
-        `"selectionRange":{"start":{"line":1,"character":6},"end":{"line":1,"character":11}}}]}]`,
+            `"range":{"start":{"line":0,"character":0},"end":{"line":1,"character":11}},` +
+            `"selectionRange":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},` +
+            `"children":[{"name":"inner","kind":8,` +
+            `"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":11}},` +
+            `"selectionRange":{"start":{"line":1,"character":6},"end":{"line":1,"character":11}}}]}]`,
     )
     defer result_release(&res)
 
@@ -486,10 +456,7 @@ test_decode_document_symbols_flat :: proc(t: ^testing.T) {
     res := decode_reply(
         s,
         &req,
-        `[{"name":"alpha","kind":12,"location":{"uri":"` +
-        FILE_URI +
-        `",` +
-        `"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}}}}]`,
+        `[{"name":"alpha","kind":12,"location":{"uri":"` + FILE_URI + `",` + `"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}}}}]`,
     )
     defer result_release(&res)
 
@@ -516,11 +483,11 @@ test_decode_references_two_files :: proc(t: ^testing.T) {
         s,
         &req,
         `[{"uri":"` +
-        OTHER_URI +
-        `","range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}}},` +
-        `{"uri":"` +
-        FILE_URI +
-        `","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}}}]`,
+            OTHER_URI +
+            `","range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}}},` +
+            `{"uri":"` +
+            FILE_URI +
+            `","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}}}]`,
     )
     defer result_release(&res)
 
@@ -556,8 +523,7 @@ test_decode_signature_help_substring :: proc(t: ^testing.T) {
     res := decode_reply(
         s,
         &req,
-        `{"signatures":[{"label":"add(int a, int b)","parameters":[{"label":"int a"},{"label":"int b"}]}],` +
-        `"activeSignature":0,"activeParameter":1}`,
+        `{"signatures":[{"label":"add(int a, int b)","parameters":[{"label":"int a"},{"label":"int b"}]}],` + `"activeSignature":0,"activeParameter":1}`,
     )
     defer result_release(&res)
 
@@ -586,8 +552,7 @@ test_decode_signature_help_label_offsets :: proc(t: ^testing.T) {
     res := decode_reply(
         s,
         &req,
-        `{"signatures":[{"label":"add :: proc(\ud835\udd1e: int, b: int)",` +
-        `"parameters":[{"label":[12,19]},{"label":[21,27]}],"activeParameter":0}]}`,
+        `{"signatures":[{"label":"add :: proc(\ud835\udd1e: int, b: int)",` + `"parameters":[{"label":[12,19]},{"label":[21,27]}],"activeParameter":0}]}`,
     )
     defer result_release(&res)
 
@@ -612,9 +577,9 @@ test_decode_signature_help_overloads :: proc(t: ^testing.T) {
         s,
         &req,
         `{"signatures":[` +
-        `{"label":"add(int a)","parameters":[{"label":"int a"}]},` +
-        `{"label":"add(int a, int b)","parameters":[{"label":"int a"},{"label":"int b"}],"activeParameter":1}` +
-        `],"activeSignature":1,"activeParameter":0}`,
+            `{"label":"add(int a)","parameters":[{"label":"int a"}]},` +
+            `{"label":"add(int a, int b)","parameters":[{"label":"int a"},{"label":"int b"}],"activeParameter":1}` +
+            `],"activeSignature":1,"activeParameter":0}`,
     )
     defer result_release(&res)
 
@@ -640,10 +605,10 @@ test_decode_completion_list :: proc(t: ^testing.T) {
         s,
         &req,
         `{"isIncomplete":true,"items":[` +
-        `{"label":" alpha","kind":3,"detail":"int alpha(void)","sortText":"0"},` +
-        `{"label":"beta","kind":6,"insertText":"beta_impl","sortText":"1"},` +
-        `{"label":"gamma","kind":3,"insertText":"gamma($1)","insertTextFormat":2,"sortText":"2"},` +
-        `{"label":"Delta","kind":7,"sortText":"3"}]}`,
+            `{"label":" alpha","kind":3,"detail":"int alpha(void)","sortText":"0"},` +
+            `{"label":"beta","kind":6,"insertText":"beta_impl","sortText":"1"},` +
+            `{"label":"gamma","kind":3,"insertText":"gamma($1)","insertTextFormat":2,"sortText":"2"},` +
+            `{"label":"Delta","kind":7,"sortText":"3"}]}`,
     )
     defer result_release(&res)
 
@@ -696,13 +661,7 @@ test_decode_completion_sorts_by_sort_text :: proc(t: ^testing.T) {
     defer held_destroy(s)
     req := request_for(.Completion, SOURCE, 0)
 
-    res := decode_reply(
-        s,
-        &req,
-        `[{"label":"zeta","sortText":"0001"},` +
-        `{"label":"alpha","sortText":"0002"},` +
-        `{"label":"beta","sortText":"0003"}]`,
-    )
+    res := decode_reply(s, &req, `[{"label":"zeta","sortText":"0001"},` + `{"label":"alpha","sortText":"0002"},` + `{"label":"beta","sortText":"0003"}]`)
     defer result_release(&res)
 
     testing.expect_value(t, len(res.completions), 3)
@@ -726,8 +685,8 @@ test_decode_completion_text_edit :: proc(t: ^testing.T) {
         s,
         &req,
         `[{"label":"alphabet","filterText":"alpha",` +
-        `"textEdit":{"newText":"alphabet",` +
-        `"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}}}}]`,
+            `"textEdit":{"newText":"alphabet",` +
+            `"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}}}}]`,
     )
     defer result_release(&res)
 
@@ -753,8 +712,8 @@ test_decode_completion_item_defaults :: proc(t: ^testing.T) {
         s,
         &req,
         `{"isIncomplete":false,"itemDefaults":{"insertTextFormat":2,` +
-        `"editRange":{"start":{"line":0,"character":0},"end":{"line":0,"character":3}}},` +
-        `"items":[{"label":"alpha"},{"label":"beta","textEditText":"beta($1)"}]}`,
+            `"editRange":{"start":{"line":0,"character":0},"end":{"line":0,"character":3}}},` +
+            `"items":[{"label":"alpha"},{"label":"beta","textEditText":"beta($1)"}]}`,
     )
     defer result_release(&res)
 
@@ -779,8 +738,7 @@ test_decode_completion_label_details :: proc(t: ^testing.T) {
     res := decode_reply(
         s,
         &req,
-        `[{"label":"push","labelDetails":{"detail":"(x: int)","description":"core:slice"}},` +
-        `{"label":"pop","labelDetails":{"description":"core:slice"}}]`,
+        `[{"label":"push","labelDetails":{"detail":"(x: int)","description":"core:slice"}},` + `{"label":"pop","labelDetails":{"description":"core:slice"}}]`,
     )
     defer result_release(&res)
 
@@ -804,8 +762,8 @@ test_decode_completion_insert_replace_edit :: proc(t: ^testing.T) {
         s,
         &req,
         `[{"label":"alphabet","textEdit":{"newText":"alphabet",` +
-        `"insert":{"start":{"line":0,"character":0},"end":{"line":0,"character":3}},` +
-        `"replace":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}}}}]`,
+            `"insert":{"start":{"line":0,"character":0},"end":{"line":0,"character":3}},` +
+            `"replace":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}}}}]`,
     )
     defer result_release(&res)
 
@@ -827,8 +785,8 @@ test_decode_completion_refuses_a_bad_text_edit :: proc(t: ^testing.T) {
         s,
         &req,
         `[{"label":"alpha","insertText":"alpha_impl",` +
-        `"textEdit":{"newText":"alphabet",` +
-        `"range":{"start":{"line":0,"character":5},"end":{"line":0,"character":0}}}}]`,
+            `"textEdit":{"newText":"alphabet",` +
+            `"range":{"start":{"line":0,"character":5},"end":{"line":0,"character":0}}}}]`,
     )
     defer result_release(&res)
 
@@ -853,8 +811,8 @@ test_decode_completion_additional_edits_and_command :: proc(t: ^testing.T) {
         s,
         &req,
         `[{"label":"alpha","additionalTextEdits":[` +
-        `{"newText":"import x\n","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}}}],` +
-        `"command":{"command":"editor.action.triggerSuggest","arguments":[1,"two"]}}]`,
+            `{"newText":"import x\n","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}}}],` +
+            `"command":{"command":"editor.action.triggerSuggest","arguments":[1,"two"]}}]`,
     )
     defer result_release(&res)
 
@@ -911,7 +869,7 @@ test_decode_resolve_completion :: proc(t: ^testing.T) {
         s,
         &req,
         `{"label":"alpha","detail":"int alpha(void)","additionalTextEdits":[` +
-        `{"newText":"import x\n","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}}}]}`,
+            `{"newText":"import x\n","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}}}]}`,
     )
     defer result_release(&res)
 
@@ -945,12 +903,7 @@ test_decode_resolve_completion_docs :: proc(t: ^testing.T) {
     defer held_destroy(s)
     req := request_for(.Resolve_Completion, SOURCE, 0)
 
-    res := decode_reply(
-        s,
-        &req,
-        `{"label":"alpha","detail":"int alpha(void)",` +
-        `"documentation":{"kind":"markdown","value":"  Returns alpha.  "}}`,
-    )
+    res := decode_reply(s, &req, `{"label":"alpha","detail":"int alpha(void)",` + `"documentation":{"kind":"markdown","value":"  Returns alpha.  "}}`)
     defer result_release(&res)
 
     testing.expect(t, res.ok)
@@ -972,8 +925,8 @@ test_decode_completion_inline_documentation :: proc(t: ^testing.T) {
         s,
         &req,
         `[{"label":"alpha","documentation":"first"},` +
-        `{"label":"beta","documentation":{"kind":"plaintext","value":"a_b *c*."}},` +
-        `{"label":"gamma","documentation":{"kind":"markdown","value":"a_b *c*."}}]`,
+            `{"label":"beta","documentation":{"kind":"plaintext","value":"a_b *c*."}},` +
+            `{"label":"gamma","documentation":{"kind":"markdown","value":"a_b *c*."}}]`,
     )
     defer result_release(&res)
 
@@ -1100,7 +1053,7 @@ test_decode_refuses_a_bad_reply :: proc(t: ^testing.T) {
         kind: lang.Request_Kind,
         body: string,
     }
-    cases := []Case {
+    cases := []Case{
         {.Definition, "null"},
         {.Definition, "[]"},
         {.Definition, `{"uri":"` + FILE_URI + `"}`},
@@ -1148,10 +1101,10 @@ test_decode_publish_diagnostics :: proc(t: ^testing.T) {
     res, decoded := decode_push(
         s,
         `{"uri":"` +
-        FILE_URI +
-        `","diagnostics":[` +
-        `{"range":{"start":{"line":0,"character":6},"end":{"line":0,"character":10}},"severity":1,"message":"undefined"},` +
-        `{"range":{"start":{"line":1,"character":6},"end":{"line":1,"character":11}},"severity":2,"message":"unused"}]}`,
+            FILE_URI +
+            `","diagnostics":[` +
+            `{"range":{"start":{"line":0,"character":6},"end":{"line":0,"character":10}},"severity":1,"message":"undefined"},` +
+            `{"range":{"start":{"line":1,"character":6},"end":{"line":1,"character":11}},"severity":2,"message":"unused"}]}`,
     )
     defer result_release(&res)
 
@@ -1186,9 +1139,9 @@ test_decode_publish_diagnostics_caches_verbatim :: proc(t: ^testing.T) {
     res, decoded := decode_push(
         s,
         `{"uri":"` +
-        FILE_URI +
-        `","diagnostics":[` +
-        `{"range":{"start":{"line":0,"character":6},"end":{"line":0,"character":10}},"severity":1,"code":"reportMissingImports","message":"undefined"}]}`,
+            FILE_URI +
+            `","diagnostics":[` +
+            `{"range":{"start":{"line":0,"character":6},"end":{"line":0,"character":10}},"severity":1,"code":"reportMissingImports","message":"undefined"}]}`,
     )
     defer result_release(&res)
 
@@ -1223,18 +1176,18 @@ test_decode_diagnostic_severities :: proc(t: ^testing.T) {
     res, decoded := decode_push(
         s,
         `{"uri":"` +
-        FILE_URI +
-        `","diagnostics":[` +
-        span +
-        `,"severity":1,"message":"a"},` +
-        span +
-        `,"severity":2,"message":"b"},` +
-        span +
-        `,"severity":3,"message":"c"},` +
-        span +
-        `,"severity":4,"message":"d"},` +
-        span +
-        `,"message":"e"}]}`,
+            FILE_URI +
+            `","diagnostics":[` +
+            span +
+            `,"severity":1,"message":"a"},` +
+            span +
+            `,"severity":2,"message":"b"},` +
+            span +
+            `,"severity":3,"message":"c"},` +
+            span +
+            `,"severity":4,"message":"d"},` +
+            span +
+            `,"message":"e"}]}`,
     )
     defer result_release(&res)
 
@@ -1260,12 +1213,12 @@ test_decode_diagnostic_drops_malformed_items :: proc(t: ^testing.T) {
     res, decoded := decode_push(
         s,
         `{"uri":"` +
-        FILE_URI +
-        `","diagnostics":[` +
-        `{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}}},` +
-        `{"message":"no range"},` +
-        `42,` +
-        `{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"message":"kept"}]}`,
+            FILE_URI +
+            `","diagnostics":[` +
+            `{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}}},` +
+            `{"message":"no range"},` +
+            `42,` +
+            `{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"message":"kept"}]}`,
     )
     defer result_release(&res)
 
@@ -1304,7 +1257,7 @@ test_decode_publish_diagnostics_dropped :: proc(t: ^testing.T) {
     doc.version = 4
 
     item :: `,"diagnostics":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"message":"x"}]}`
-    bodies := []string {
+    bodies := []string{
         `{"uri":"` + OTHER_URI + `"` + item,
         `{"uri":"http://example.com/main.fake"` + item,
         `{"uri":"` + FILE_URI + `","version":3` + item,
@@ -1334,8 +1287,7 @@ test_decode_pull_diagnostics :: proc(t: ^testing.T) {
     res := decode_reply(
         s,
         &req,
-        `{"kind":"full","items":[` +
-        `{"range":{"start":{"line":1,"character":6},"end":{"line":1,"character":11}},"severity":2,"message":"unused"}]}`,
+        `{"kind":"full","items":[` + `{"range":{"start":{"line":1,"character":6},"end":{"line":1,"character":11}},"severity":2,"message":"unused"}]}`,
     )
     defer result_release(&res)
 
@@ -1370,7 +1322,7 @@ test_decode_pull_diagnostics_caches_verbatim :: proc(t: ^testing.T) {
         s,
         &req,
         `{"kind":"full","items":[` +
-        `{"range":{"start":{"line":1,"character":6},"end":{"line":1,"character":11}},"severity":2,"code":"unused-import","message":"unused"}]}`,
+            `{"range":{"start":{"line":1,"character":6},"end":{"line":1,"character":11}},"severity":2,"code":"unused-import","message":"unused"}]}`,
     )
     defer result_release(&res)
 
@@ -1407,12 +1359,12 @@ test_decode_workspace_symbols :: proc(t: ^testing.T) {
         s,
         &req,
         `[{"name":"alpha","kind":12,"location":{"uri":"` +
-        FILE_URI +
-        `","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}}}},` +
-        `{"name":"two","kind":10,"detail":"an enum","location":{"uri":"` +
-        OTHER_URI +
-        `","range":{"start":{"line":1,"character":0},"end":{"line":1,"character":3}}}},` +
-        `{"name":"lazy","kind":12}]`,
+            FILE_URI +
+            `","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}}}},` +
+            `{"name":"two","kind":10,"detail":"an enum","location":{"uri":"` +
+            OTHER_URI +
+            `","range":{"start":{"line":1,"character":0},"end":{"line":1,"character":3}}}},` +
+            `{"name":"lazy","kind":12}]`,
     )
     defer result_release(&res)
 
@@ -1446,10 +1398,10 @@ test_decode_rename_changes_map :: proc(t: ^testing.T) {
         s,
         &req,
         `{"changes":{"` +
-        FILE_URI +
-        `":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":"renamed"}],"` +
-        OTHER_URI +
-        `":[{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}},"newText":"renamed"}]}}`,
+            FILE_URI +
+            `":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":"renamed"}],"` +
+            OTHER_URI +
+            `":[{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}},"newText":"renamed"}]}}`,
     )
     defer result_release(&res)
 
@@ -1479,8 +1431,8 @@ test_decode_rename_document_changes :: proc(t: ^testing.T) {
         s,
         &req,
         `{"documentChanges":[{"textDocument":{"uri":"` +
-        FILE_URI +
-        `","version":1},"edits":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":"renamed"}]}]}`,
+            FILE_URI +
+            `","version":1},"edits":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":"renamed"}]}]}`,
     )
     defer result_release(&res)
 
@@ -1502,10 +1454,7 @@ test_decode_rename_keeps_resource_operation :: proc(t: ^testing.T) {
     defer held_destroy(s)
     req := request_for(.Rename, SOURCE, 0)
 
-    res := decode_reply(
-        s, &req,
-        `{"documentChanges":[{"kind":"rename","oldUri":"` + FILE_URI + `","newUri":"` + OTHER_URI + `"}]}`,
-    )
+    res := decode_reply(s, &req, `{"documentChanges":[{"kind":"rename","oldUri":"` + FILE_URI + `","newUri":"` + OTHER_URI + `"}]}`)
     defer result_release(&res)
 
     testing.expect(t, res.ok, "a resource operation alone must be a valid rename")
@@ -1528,11 +1477,16 @@ test_decode_rename_mixed_create_and_edit :: proc(t: ^testing.T) {
     req := request_for(.Rename, SOURCE, 0)
 
     res := decode_reply(
-        s, &req,
+        s,
+        &req,
         `{"documentChanges":[` +
-        `{"kind":"create","uri":"` + OTHER_URI + `"},` +
-        `{"textDocument":{"uri":"` + OTHER_URI + `","version":null},` +
-        `"edits":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"newText":"x"}]}]}`,
+            `{"kind":"create","uri":"` +
+            OTHER_URI +
+            `"},` +
+            `{"textDocument":{"uri":"` +
+            OTHER_URI +
+            `","version":null},` +
+            `"edits":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"newText":"x"}]}]}`,
     )
     defer result_release(&res)
 
@@ -1589,9 +1543,7 @@ test_decode_rename_refuses_unreadable_file :: proc(t: ^testing.T) {
     res := decode_reply(
         s,
         &req,
-        `{"changes":{"` +
-        OTHER_URI +
-        `":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":3}},"newText":"x"}]}}`,
+        `{"changes":{"` + OTHER_URI + `":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":3}},"newText":"x"}]}}`,
     )
     defer result_release(&res)
 
@@ -1610,8 +1562,8 @@ test_decode_code_actions_inline_edit_kept :: proc(t: ^testing.T) {
         s,
         &req,
         `[{"title":"Add import","kind":"quickfix","edit":{"changes":{"` +
-        FILE_URI +
-        `":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"newText":"// x\n"}]}}}]`,
+            FILE_URI +
+            `":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"newText":"// x\n"}]}}}]`,
     )
     defer result_release(&res)
 
@@ -1643,9 +1595,9 @@ test_decode_code_actions_keeps_command_drops_disabled :: proc(t: ^testing.T) {
         s,
         &req,
         `[{"title":"Do thing","command":{"command":"foo","title":"Do thing","arguments":[1,"two"]}},` +
-        `{"title":"Disabled fix","disabled":{"reason":"nope"},"edit":{"changes":{"` +
-        FILE_URI +
-        `":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":"x"}]}}}]`,
+            `{"title":"Disabled fix","disabled":{"reason":"nope"},"edit":{"changes":{"` +
+            FILE_URI +
+            `":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":"x"}]}}}]`,
     )
     defer result_release(&res)
 
@@ -1670,7 +1622,7 @@ test_execute_command_params :: proc(t: ^testing.T) {
     req.command = "foo"
     req.command_args = `[1,"two"]`
 
-    ask := ask_for(s, &req)
+    ask    := ask_for(s, &req)
     params := request_params(&ask)
     testing.expect_value(t, params, `{"command":"foo","arguments":[1,"two"]}`)
 }
@@ -1683,7 +1635,7 @@ test_execute_command_params_without_arguments :: proc(t: ^testing.T) {
     req := request_for(.Execute_Command, SOURCE, 0)
     req.command = "foo"
 
-    ask := ask_for(s, &req)
+    ask    := ask_for(s, &req)
     params := request_params(&ask)
     testing.expect_value(t, params, `{"command":"foo"}`)
 }
@@ -1696,12 +1648,7 @@ test_decode_code_actions_keeps_create :: proc(t: ^testing.T) {
     defer held_destroy(s)
     req := request_for(.Code_Actions, SOURCE, 0)
 
-    res := decode_reply(
-        s,
-        &req,
-        `[{"title":"New file","kind":"refactor","edit":{"documentChanges":[` +
-        `{"kind":"create","uri":"` + OTHER_URI + `"}]}}]`,
-    )
+    res := decode_reply(s, &req, `[{"title":"New file","kind":"refactor","edit":{"documentChanges":[` + `{"kind":"create","uri":"` + OTHER_URI + `"}]}}]`)
     defer result_release(&res)
 
     testing.expect(t, res.ok)
@@ -1746,11 +1693,11 @@ test_decode_code_actions_preferred_first :: proc(t: ^testing.T) {
         s,
         &req,
         `[{"title":"B","kind":"quickfix","edit":{"changes":{"` +
-        FILE_URI +
-        `":[{"range":{"start":{"line":0,"character":6},"end":{"line":0,"character":10}},"newText":"x"}]}}},` +
-        `{"title":"A","kind":"quickfix","isPreferred":true,"edit":{"changes":{"` +
-        FILE_URI +
-        `":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":"y"}]}}}]`,
+            FILE_URI +
+            `":[{"range":{"start":{"line":0,"character":6},"end":{"line":0,"character":10}},"newText":"x"}]}}},` +
+            `{"title":"A","kind":"quickfix","isPreferred":true,"edit":{"changes":{"` +
+            FILE_URI +
+            `":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":"y"}]}}}]`,
     )
     defer result_release(&res)
 
@@ -1773,12 +1720,7 @@ test_decode_format_whole_file_edit_reduced_to_minimal_span :: proc(t: ^testing.T
     defer held_destroy(s)
     req := request_for(.Format, SOURCE, 0)
 
-    res := decode_reply(
-        s,
-        &req,
-        `[{"range":{"start":{"line":0,"character":0},"end":{"line":2,"character":0}},` +
-        `"newText":"alpha beta\nGAMMA delta\n"}]`,
-    )
+    res := decode_reply(s, &req, `[{"range":{"start":{"line":0,"character":0},"end":{"line":2,"character":0}},` + `"newText":"alpha beta\nGAMMA delta\n"}]`)
     defer result_release(&res)
 
     testing.expect(t, res.ok)
@@ -1802,13 +1744,13 @@ test_decode_format_multiple_edits :: proc(t: ^testing.T) {
     s := held_server()
     defer held_destroy(s)
     source := "one\ntwo\nthree\nfour\nfive\n"
-    req := request_for(.Format_Range, source, 0)
+    req    := request_for(.Format_Range, source, 0)
 
     res := decode_reply(
         s,
         &req,
         `[{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":3}},"newText":"TWO"},` +
-        `{"range":{"start":{"line":3,"character":0},"end":{"line":3,"character":4}},"newText":"FOUR"}]`,
+            `{"range":{"start":{"line":3,"character":0},"end":{"line":3,"character":4}},"newText":"FOUR"}]`,
     )
     defer result_release(&res)
 
@@ -1831,7 +1773,7 @@ test_decode_format_empty_and_null_are_ok :: proc(t: ^testing.T) {
     defer held_destroy(s)
 
     empty_req := request_for(.Format, SOURCE, 0)
-    empty := decode_reply(s, &empty_req, `[]`)
+    empty     := decode_reply(s, &empty_req, `[]`)
     defer result_release(&empty)
     testing.expect(t, empty.ok)
     testing.expect_value(t, len(empty.edits), 0)
@@ -1880,13 +1822,13 @@ test_decode_format_overlapping_edits_refused :: proc(t: ^testing.T) {
     s := held_server()
     defer held_destroy(s)
     source := "one\ntwo\nthree\n"
-    req := request_for(.Format, source, 0)
+    req    := request_for(.Format, source, 0)
 
     res := decode_reply(
         s,
         &req,
         `[{"range":{"start":{"line":0,"character":0},"end":{"line":1,"character":3}},"newText":"X"},` +
-        `{"range":{"start":{"line":0,"character":2},"end":{"line":2,"character":0}},"newText":"Y"}]`,
+            `{"range":{"start":{"line":0,"character":2},"end":{"line":2,"character":0}},"newText":"Y"}]`,
     )
     defer result_release(&res)
 
@@ -1902,11 +1844,15 @@ test_decode_inlay_hints :: proc(t: ^testing.T) {
     defer held_destroy(s)
     req := request_for(.Inlay_Hints, SOURCE)
 
-    res := decode_reply(s, &req, `[
+    res := decode_reply(
+        s,
+        &req,
+        `[
         {"position":{"line":1,"character":6},"label":[{"value":"name"},{"value":":"}],"kind":2,"paddingRight":true},
         {"position":{"line":0,"character":5},"label":": int","paddingLeft":false},
         {"position":{"line":0,"character":1},"label":""}
-    ]`)
+    ]`,
+    )
     defer result_release(&res)
 
     testing.expect(t, res.ok)
@@ -1930,12 +1876,16 @@ test_decode_document_highlights :: proc(t: ^testing.T) {
     defer held_destroy(s)
     req := request_for(.Document_Highlight, SOURCE)
 
-    res := decode_reply(s, &req, `[
+    res := decode_reply(
+        s,
+        &req,
+        `[
         {"range":{"start":{"line":1,"character":6},"end":{"line":1,"character":11}},"kind":3},
         {"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"kind":2},
         {"range":{"start":{"line":0,"character":6},"end":{"line":0,"character":10}}},
         {"kind":2}
-    ]`)
+    ]`,
+    )
     defer result_release(&res)
 
     testing.expect(t, res.ok)
@@ -1969,13 +1919,9 @@ test_document_highlight_params :: proc(t: ^testing.T) {
     defer held_destroy(s)
     req := request_for(.Document_Highlight, SOURCE, 12)
 
-    ask := ask_for(s, &req)
+    ask    := ask_for(s, &req)
     params := request_params(&ask)
-    testing.expect_value(
-        t,
-        params,
-        `{"textDocument":{"uri":"` + FILE_URI + `"},"position":{"line":1,"character":1}}`,
-    )
+    testing.expect_value(t, params, `{"textDocument":{"uri":"` + FILE_URI + `"},"position":{"line":1,"character":1}}`)
 }
 
 // The hint request names the window as a range.
@@ -1986,11 +1932,7 @@ test_inlay_hints_params :: proc(t: ^testing.T) {
     req := request_for(.Inlay_Hints, SOURCE, 0)
     req.end = 16
 
-    ask := ask_for(s, &req)
+    ask    := ask_for(s, &req)
     params := request_params(&ask)
-    testing.expect_value(
-        t,
-        params,
-        `{"textDocument":{"uri":"` + FILE_URI + `"},"range":{"start":{"line":0,"character":0},"end":{"line":1,"character":5}}}`,
-    )
+    testing.expect_value(t, params, `{"textDocument":{"uri":"` + FILE_URI + `"},"range":{"start":{"line":0,"character":0},"end":{"line":1,"character":5}}}`)
 }

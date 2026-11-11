@@ -9,7 +9,7 @@ import ui "../vendor/loom/loom"
 
 // Super is Command on macOS and the Windows key elsewhere. It is spelled "Cmd"
 // on the way out, and every one of its aliases is read on the way in.
-Modifier :: ui.Mod
+Modifier  :: ui.Mod
 Modifiers :: ui.Mod_Set
 
 // The modifier a spec token names, e.g. "ctrl" or "super". The token must be

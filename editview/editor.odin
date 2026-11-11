@@ -9,9 +9,9 @@ import "core:time"
 import "core:time/timezone"
 import "core:unicode/utf8"
 
-import "../textedit"
 import "../font"
 import "../snippet"
+import "../textedit"
 import ui "../vendor/loom/loom"
 Editor_Save_Proc :: #type proc(data: rawptr)
 
@@ -49,8 +49,8 @@ Completion_Item :: struct {
     owner_id: int,
     insert:   string,
     filter:   string,
-    start:    int, // byte offset the insert replaces; negative replaces the typed word
-    end:      int, // one past it
+    start:    int,  // byte offset the insert replaces; negative replaces the typed word
+    end:      int,  // one past it
     snippet:  bool, // `insert` is a snippet template (see snippet.odin)
     color:    ui.Color,
     note:     string, // muted text after the label; "" when none
@@ -59,12 +59,12 @@ Completion_Item :: struct {
 // One on-screen row. A wrapped logical line spans several; `first` carries the
 // line number. Rebuilt each layout.
 Visual_Row :: struct {
-    start: int, // byte offset of the row's first character
-    end:   int, // byte offset one past its last character (before any newline)
-    line:  int, // logical line index the row belongs to
-    first: bool, // true for the first visual row of the logical line
+    start:  int,  // byte offset of the row's first character
+    end:    int,  // byte offset one past its last character (before any newline)
+    line:   int,  // logical line index the row belongs to
+    first:  bool, // true for the first visual row of the logical line
     spacer: bool, // an empty row of the zone below `line`, or a lens row above it
-    lens: bool, // a spacer above `line` that carries its lens; start == end == the line's start
+    lens:   bool, // a spacer above `line` that carries its lens; start == end == the line's start
 }
 
 // A colored byte range for syntax highlighting; ascending and non-overlapping.
@@ -122,68 +122,68 @@ key_is_modifier :: proc(k: ui.Key) -> bool {
 
 Editor :: struct {
     // The content box and keyboard focus, written by the view once a frame.
-    view:               ui.Rect,
-    focused:            bool,
+    view:                   ui.Rect,
+    focused:                bool,
     // Borrowed from the open file; nil when none is open.
-    state:              ^textedit.State,
-    on_save:            Editor_Save_Proc,
-    save_data:          rawptr,
-    placeholder:        string,
+    state:                  ^textedit.State,
+    on_save:                Editor_Save_Proc,
+    save_data:              rawptr,
+    placeholder:            string,
     // Line and block comment markers of the language; empty when it has none. Borrowed.
-    comment_prefix:     string,
-    comment_block:      [2]string,
-    font_size:          i32,
-    gutter_width:       f32,
-    scroll_y:           f32,
+    comment_prefix:         string,
+    comment_block:          [2]string,
+    font_size:              i32,
+    gutter_width:           f32,
+    scroll_y:               f32,
     // Byte offset the view scrolls to once laid out; see editor_set_top.
-    top_offset:         int,
-    top_pending:        bool,
+    top_offset:             int,
+    top_pending:            bool,
     // Sideways scroll in pixels. Always 0 with wrap on.
-    scroll_x:           f32,
-    background_color:   ui.Color,
-    gutter_color:       ui.Color,
-    border_color:       ui.Color,
-    focus_border_color: ui.Color,
-    text_color:         ui.Color,
-    line_number_color:  ui.Color,
-    caret_color:        ui.Color,
-    selection_color:    ui.Color,
+    scroll_x:               f32,
+    background_color:       ui.Color,
+    gutter_color:           ui.Color,
+    border_color:           ui.Color,
+    focus_border_color:     ui.Color,
+    text_color:             ui.Color,
+    line_number_color:      ui.Color,
+    caret_color:            ui.Color,
+    selection_color:        ui.Color,
     // Soft-wrap: overflowing lines continue on the next visual row.
-    wrap:               bool,
+    wrap:                   bool,
     // Draw a dot per leading space and an arrow per leading tab.
-    show_whitespace:    bool,
+    show_whitespace:        bool,
     // Draw a vertical guide at every indentation stop inside a line's indent.
-    indent_guides:      bool,
+    indent_guides:          bool,
     // Number the gutter by distance from the caret line instead of from 1.
-    relative_lines:     bool,
-    visual_rows:        [dynamic]Visual_Row,
+    relative_lines:         bool,
+    visual_rows:            [dynamic]Visual_Row,
     // The inputs visual_rows was built from; editor_ensure_visual_rows rebuilds when one moves.
-    rows_revision:      u64,
-    rows_wrap:          bool,
-    rows_font_size:     i32,
-    rows_width:         f32,
-    rows_tab_width:     int,
+    rows_revision:          u64,
+    rows_wrap:              bool,
+    rows_font_size:         i32,
+    rows_width:             f32,
+    rows_tab_width:         int,
     // Display columns of the longest line, for the sideways scroll range.
-    rows_max_cols:      int,
-    rows_max_line:      int, // the line rows_max_cols was measured on
+    rows_max_cols:          int,
+    rows_max_line:          int, // the line rows_max_cols was measured on
     // Set by a change the stamps above cannot see (the fold set).
-    rows_stale:         bool,
+    rows_stale:             bool,
     // editor_cursor_signature after the last vertical move; while it matches, preferred_column holds.
-    move_signature:     u64,
+    move_signature:         u64,
     // Syntax highlight spans for the current buffer; borrowed from the owner.
-    highlights:         []Highlight_Span,
+    highlights:             []Highlight_Span,
     // Inlay hints for the current buffer, ascending by offset. Borrowed.
-    inlays:             []Inlay,
+    inlays:                 []Inlay,
     // The uses of the symbol at the caret, ascending by start. Borrowed.
-    occurrences:        []Occurrence,
+    occurrences:            []Occurrence,
     // The zone: `zone_rows` empty rows below the line that holds `zone_offset` at
     // `zone_revision`. No zone when zone_rows is 0.
-    zone_offset:        int,
-    zone_rows:          int,
-    zone_revision:      u64,
+    zone_offset:            int,
+    zone_rows:              int,
+    zone_revision:          u64,
     // Lens rows: one row above each line that holds a lens offset. Ascending by offset. Borrowed.
-    lenses:             []Inlay,
-    lens_offsets:       [dynamic]int, // owned; the offsets the rows were built from
+    lenses:                 []Inlay,
+    lens_offsets:           [dynamic]int, // owned; the offsets the rows were built from
     // Diagnostics for the current buffer, drawn as squiggles and gutter markers. Borrowed.
     diagnostics:            []Diagnostic,
     diagnostic_error_color: ui.Color,
@@ -191,95 +191,95 @@ Editor :: struct {
     diagnostic_hint_color:  ui.Color,
     // Git status per line against HEAD, borrowed from the open file. Deleted marks
     // the line after the removal.
-    diff_lines:          []Diff_Line_Kind,
+    diff_lines:             []Diff_Line_Kind,
     // Folds: `foldable` maps a start line to its end line; `folded` maps each
     // collapsed start line to its offset at `folds_revision`. A fold hides start+1..end.
-    foldable:           map[int]int,
-    folded:             map[int]int,
-    folds_revision:     u64,
+    foldable:               map[int]int,
+    folded:                 map[int]int,
+    folds_revision:         u64,
     // Drag after a double-click: the selection grows by whole words from word_lo..word_hi.
-    select_by_word:     bool,
-    word_lo:            int,
-    word_hi:            int,
+    select_by_word:         bool,
+    word_lo:                int,
+    word_hi:                int,
     // The press did something other than place the caret, so its drag selects nothing.
-    suppress_drag:      bool,
+    suppress_drag:          bool,
     // Right-click opens a context menu supplied by the owner.
-    on_context_menu:    Context_Menu_Proc,
-    context_menu_data:  rawptr,
+    on_context_menu:        Context_Menu_Proc,
+    context_menu_data:      rawptr,
     // Ctrl+Click resolves the symbol under the cursor via the owner.
-    on_goto_definition:   Goto_Definition_Proc,
-    goto_definition_data: rawptr,
+    on_goto_definition:     Goto_Definition_Proc,
+    goto_definition_data:   rawptr,
     // Hover: a mouse-dwell request to the owner and the popup its result fills.
-    on_hover:            Hover_Proc,
-    hover_data:          rawptr,
+    on_hover:               Hover_Proc,
+    hover_data:             rawptr,
     // Signature help: requested on `(` and `,` and while the popup is up.
-    on_signature:        Signature_Proc,
-    signature_data:      rawptr,
+    on_signature:           Signature_Proc,
+    signature_data:         rawptr,
     // Backend completion; when set it replaces the buffer-word list.
-    on_completion:       Completion_Proc,
-    completion_data:     rawptr,
-    completion_semantic: bool,
+    on_completion:          Completion_Proc,
+    completion_data:        rawptr,
+    completion_semantic:    bool,
     // Called after an owner row is accepted.
     on_completion_accept:   Completion_Accept_Proc,
     completion_accept_data: rawptr,
     // On-type formatting: called on every typed character while enabled.
-    on_type:             On_Type_Proc,
-    on_type_data:        rawptr,
-    on_type_enabled:     bool,
-    on_clipboard:        Clipboard_Proc,
-    clipboard_data:      rawptr,
-    on_action:           Action_Proc,
-    action_data:         rawptr,
+    on_type:                On_Type_Proc,
+    on_type_data:           rawptr,
+    on_type_enabled:        bool,
+    on_clipboard:           Clipboard_Proc,
+    clipboard_data:         rawptr,
+    on_action:              Action_Proc,
+    action_data:            rawptr,
     // Hover dwell: where and when the cursor settled, the offset last asked
     // about (-1 = none) and last frame's modifier state.
-    hover_probe_pos:     ui.Vec2,
-    hover_probe_time:    f64,
-    hover_probe_offset:  int,
-    hover_mod_down:      bool,
+    hover_probe_pos:        ui.Vec2,
+    hover_probe_time:       f64,
+    hover_probe_offset:     int,
+    hover_mod_down:         bool,
     // The hover popup, set by editor_show_hover. hover_text is owned; a zero
     // hover_accent keeps the default border.
-    hover_active:        bool,
-    hover_text:          string,
-    hover_start:         int,
-    hover_end:           int,
-    hover_accent:        ui.Color,
-    hover_revision:      u64,
+    hover_active:           bool,
+    hover_text:             string,
+    hover_start:            int,
+    hover_end:              int,
+    hover_accent:           ui.Color,
+    hover_revision:         u64,
     // The signature popup above the caret. Escape, a caret jump or a focus loss
     // closes it. signature_text is owned.
-    signature_active:    bool,
-    signature_text:      string,
-    signature_anchor:    int,
-    signature_revision:  u64,
+    signature_active:       bool,
+    signature_text:         string,
+    signature_anchor:       int,
+    signature_revision:     u64,
     // Recenter cycle (center, top, bottom); it starts again when the caret moves.
-    recenter_phase:     int,
-    recenter_caret:     int,
+    recenter_phase:         int,
+    recenter_caret:         int,
     // Relative-line jump: the digits typed while alt is held, run on alt release.
-    jump_active:        bool,
-    jump_count:         int,
-    jump_up:            bool,
+    jump_active:            bool,
+    jump_count:             int,
+    jump_up:                bool,
     // The completion popup. Row strings are owned.
-    completion_active:   bool,
-    completion_rows:     [dynamic]Completion_Item,
-    completion_selected: int,
-    completion_prefix:   int, // byte length of the already-typed prefix
+    completion_active:      bool,
+    completion_rows:        [dynamic]Completion_Item,
+    completion_selected:    int,
+    completion_prefix:      int, // byte length of the already-typed prefix
     // What the list was built from, so one more typed character narrows it.
     // `full`: the list holds every match, not the first COMPLETION_MAX_ITEMS.
-    completion_full:     bool,
-    completion_word:     string, // owned, the prefix the list was built for
-    completion_start:    int,    // byte offset of that word
-    completion_rev:      u64,    // state revision it was built at
-    completion_size:     int,    // document length at that revision
-    completion_choice:   bool,   // the rows are the choices of the active snippet stop
+    completion_full:        bool,
+    completion_word:        string, // owned, the prefix the list was built for
+    completion_start:       int,    // byte offset of that word
+    completion_rev:         u64,    // state revision it was built at
+    completion_size:        int,    // document length at that revision
+    completion_choice:      bool,   // the rows are the choices of the active snippet stop
     // Live snippet session. Stops are byte offsets moved by typing; any other edit
     // ends the session (editor_snippet_sync).
-    snippet_active: bool,
-    snippet_stops:  [dynamic]snippet.Stop, // owned
-    snippet_snip:   snippet.Snippet,       // owned; the transforms and choices of the session
-    snippet_at:     int, // index of the active stop
-    snippet_rev:    u64, // state revision the offsets are valid at
-    snippet_lo:     int, // the snippet's own span, so a caret that leaves it ends the session
-    snippet_hi:     int,
-    snippet_vars:   snippet.Vars, // owned strings; what $TM_FILENAME and friends resolve to
+    snippet_active:         bool,
+    snippet_stops:          [dynamic]snippet.Stop, // owned
+    snippet_snip:           snippet.Snippet,       // owned; the transforms and choices of the session
+    snippet_at:             int,                   // index of the active stop
+    snippet_rev:            u64,                   // state revision the offsets are valid at
+    snippet_lo:             int,                   // the snippet's own span, so a caret that leaves it ends the session
+    snippet_hi:             int,
+    snippet_vars:           snippet.Vars, // owned strings; what $TM_FILENAME and friends resolve to
 }
 
 editor_set_on_context_menu :: proc(editor: ^Editor, on_context_menu: Context_Menu_Proc, data: rawptr) {
@@ -410,10 +410,10 @@ editor_request_completion :: proc(editor: ^Editor) -> bool {
         editor_dismiss_completion(editor)
         return true
     }
-    txt := textedit.text(editor.state)
-    caret := textedit.primary_cursor(editor.state).caret
+    txt           := textedit.text(editor.state)
+    caret         := textedit.primary_cursor(editor.state).caret
     start, member := editor_completion_word(txt, caret)
-    min_prefix := member ? 0 : COMPLETION_MIN_PREFIX
+    min_prefix    := member ? 0 : COMPLETION_MIN_PREFIX
     // Only complete at the end of a word, once enough has been typed.
     if caret - start < min_prefix || (caret < len(txt) && editor_is_word_byte(txt[caret])) {
         editor_dismiss_completion(editor)
@@ -436,11 +436,11 @@ editor_set_completions :: proc(editor: ^Editor, items: []Completion_Item, comple
     if len(editor.state.cursors) != 1 || textedit.has_any_selection(editor.state) {
         return
     }
-    txt := textedit.text(editor.state)
-    caret := textedit.primary_cursor(editor.state).caret
+    txt           := textedit.text(editor.state)
+    caret         := textedit.primary_cursor(editor.state).caret
     start, member := editor_completion_word(txt, caret)
-    prefix := txt[start:caret]
-    min_prefix := member ? 0 : COMPLETION_MIN_PREFIX
+    prefix        := txt[start:caret]
+    min_prefix    := member ? 0 : COMPLETION_MIN_PREFIX
     if len(prefix) < min_prefix || (caret < len(txt) && editor_is_word_byte(txt[caret])) {
         return
     }
@@ -637,8 +637,8 @@ editor_top_offset :: proc(editor: ^Editor) -> int {
     if len(editor.visual_rows) == 0 {
         return 0
     }
-    line_height := cast(f32) font.line_height(editor.font_size)
-    index := clamp(cast(int) (editor.scroll_y / line_height), 0, len(editor.visual_rows) - 1)
+    line_height := cast(f32)font.line_height(editor.font_size)
+    index       := clamp(cast(int)(editor.scroll_y / line_height), 0, len(editor.visual_rows) - 1)
     return editor.visual_rows[index].start
 }
 
@@ -659,7 +659,7 @@ editor_apply_top :: proc(editor: ^Editor) {
     }
     editor.top_pending = false
     index := editor_visual_row_index(editor, min(editor.top_offset, len(textedit.text(editor.state))))
-    editor.scroll_y = cast(f32) index * cast(f32) font.line_height(editor.font_size)
+    editor.scroll_y = cast(f32)index * cast(f32)font.line_height(editor.font_size)
     editor_clamp_scroll(editor)
 }
 
@@ -669,7 +669,7 @@ editor_scroll_lines :: proc(editor: ^Editor, lines: int) {
     if lines == 0 {
         return
     }
-    editor.scroll_y = max(editor.scroll_y + cast(f32) lines * cast(f32) font.line_height(editor.font_size), 0)
+    editor.scroll_y = max(editor.scroll_y + cast(f32)lines * cast(f32)font.line_height(editor.font_size), 0)
 }
 
 // First and last visible row index, widened by `margin_rows` on each side and
@@ -679,14 +679,14 @@ editor_visible_rows :: proc(editor: ^Editor, margin_rows: int) -> (first, last: 
     if len(editor.visual_rows) == 0 {
         return 0, 0, false
     }
-    line_height := cast(f32) font.line_height(editor.font_size)
+    line_height := cast(f32)font.line_height(editor.font_size)
     if line_height <= 0 {
         return 0, 0, false
     }
     view_height := editor.view.h
-    top := cast(int) (editor.scroll_y / line_height) - margin_rows
-    bottom := cast(int) ((editor.scroll_y + max(view_height, 0)) / line_height) + margin_rows
-    high := len(editor.visual_rows) - 1
+    top         := cast(int)(editor.scroll_y / line_height) - margin_rows
+    bottom      := cast(int)((editor.scroll_y + max(view_height, 0)) / line_height) + margin_rows
+    high        := len(editor.visual_rows) - 1
     return clamp(top, 0, high), clamp(bottom, 0, high), true
 }
 
@@ -851,7 +851,7 @@ editor_remap_folds :: proc(editor: ^Editor) {
         }
         delta := change.new_hi - change.old_hi
         for i := len(offsets) - 1; i >= 0; i -= 1 {
-            switch offset := offsets[i]; {
+            switch offset := offsets[i];  {
             case offset > change.lo && offset < change.old_hi:
                 unordered_remove(&offsets, i)
             case (offset >= change.old_hi && offset > change.lo) || (change.lo == change.old_hi && offset == change.lo):
@@ -896,7 +896,7 @@ editor_folded_end :: proc(editor: ^Editor, line: int) -> int {
 // always visible — a smaller-starting fold would cover it too and win here).
 @(private = "file")
 editor_visible_line :: proc(editor: ^Editor, line: int) -> int {
-    best := line
+    best    := line
     covered := false
     for start in editor.folded {
         if end, ok := editor.foldable[start]; ok && line > start && line <= end {
@@ -916,7 +916,7 @@ editor_carets_out_of_folds :: proc(editor: ^Editor) {
     moved := false
     for &cursor in editor.state.cursors {
         line := textedit.state_line_index(editor.state, cursor.caret)
-        vis := editor_visible_line(editor, line)
+        vis  := editor_visible_line(editor, line)
         if vis != line {
             cursor.caret = textedit.state_line_start(editor.state, vis)
             cursor.anchor = cursor.caret
@@ -936,7 +936,7 @@ editor_toggle_fold :: proc(editor: ^Editor) {
     }
     editor_remap_folds(editor)
     caret_line := textedit.state_line_index(editor.state, textedit.primary_cursor(editor.state).caret)
-    best := -1
+    best       := -1
     for start, end in editor.foldable {
         if start <= caret_line && caret_line <= end && start > best {
             best = start
@@ -999,7 +999,7 @@ editor_toggle_fold_line :: proc(editor: ^Editor, line: int) {
 
 // Space between the pane border and the line numbers, and between the numbers
 // and the text column. Kept apart so the numbers clear the border on the left.
-GUTTER_PAD_LEFT :: 24
+GUTTER_PAD_LEFT  :: 24
 GUTTER_PAD_RIGHT :: 12
 
 // Space between the gutter and the first character of a line. Outside the
@@ -1029,12 +1029,12 @@ editor_update_gutter :: proc(editor: ^Editor) {
         return
     }
     line_count := textedit.state_line_count(editor.state)
-    digits := 1
+    digits     := 1
     for n := line_count; n >= 10; n /= 10 {
         digits += 1
     }
-    char_width := cast(f32) font.measure("0", editor.font_size)
-    editor.gutter_width = GUTTER_PAD_LEFT + char_width * cast(f32) max(digits, GUTTER_MIN_DIGITS) + GUTTER_PAD_RIGHT
+    char_width := cast(f32)font.measure("0", editor.font_size)
+    editor.gutter_width = GUTTER_PAD_LEFT + char_width * cast(f32)max(digits, GUTTER_MIN_DIGITS) + GUTTER_PAD_RIGHT
 }
 
 // How far a blank line looks for the block it sits in. A longer gap of empty
@@ -1048,8 +1048,8 @@ editor_line_indent :: proc(editor: ^Editor, text: string, line: int) -> (col: in
         return 0, false
     }
     start := textedit.state_line_start(editor.state, line)
-    end := textedit.line_end(text, start)
-    at := start
+    end   := textedit.line_end(text, start)
+    at    := start
     for at < end && (text[at] == ' ' || text[at] == '	') {
         at += 1
     }
@@ -1101,7 +1101,7 @@ editor_content_width :: proc(editor: ^Editor) -> f32 {
     if editor.wrap {
         return 0
     }
-    return cast(f32) editor.rows_max_cols * cast(f32) font.measure("0", editor.font_size)
+    return cast(f32)editor.rows_max_cols * cast(f32)font.measure("0", editor.font_size)
 }
 
 // Largest scroll_x that still shows text; 0 when every line fits the pane.
@@ -1110,17 +1110,17 @@ editor_max_scroll_x :: proc(editor: ^Editor) -> f32 {
         return 0
     }
     // Room for the caret past the end of the longest line.
-    slack := cast(f32) font.measure("0", editor.font_size) * 4
+    slack := cast(f32)font.measure("0", editor.font_size) * 4
     return max(editor_content_width(editor) + slack - editor_text_width(editor), 0)
 }
 
 // Rows a page key moves: the rows in view less one, so one row carries over.
 editor_page_rows :: proc(editor: ^Editor) -> int {
-    line_height := cast(f32) font.line_height(editor.font_size)
+    line_height := cast(f32)font.line_height(editor.font_size)
     if line_height <= 0 {
         return 1
     }
-    return max(cast(int) (editor.view.h / line_height) - 1, 1)
+    return max(cast(int)(editor.view.h / line_height) - 1, 1)
 }
 
 // Moves the cursors and the view by one page; `direction` is -1 or 1.
@@ -1128,7 +1128,7 @@ editor_page_rows :: proc(editor: ^Editor) -> int {
 editor_page :: proc(editor: ^Editor, direction: int, extend: bool) {
     rows := editor_page_rows(editor) * direction
     editor_move_visual(editor, rows, extend)
-    editor.scroll_y += cast(f32) rows * cast(f32) font.line_height(editor.font_size)
+    editor.scroll_y += cast(f32)rows * cast(f32)font.line_height(editor.font_size)
     editor_clamp_scroll(editor)
     editor_scroll_to_caret(editor)
 }
@@ -1143,7 +1143,7 @@ editor_wrap_cols :: proc(editor: ^Editor) -> int {
     if char_width <= 0 {
         return max(int)
     }
-    return max(1, cast(int) (editor_text_width(editor) / cast(f32) char_width))
+    return max(1, cast(int)(editor_text_width(editor) / cast(f32)char_width))
 }
 
 // Rebuilds the rows only when the buffer, the wrap width or the fold set moved
@@ -1184,9 +1184,9 @@ editor_rows_fresh :: proc(editor: ^Editor) -> bool {
         return false
     }
     if editor.wrap &&
-       (editor.rows_font_size != editor.font_size ||
-               editor.rows_width != editor_text_width(editor) ||
-               editor.rows_tab_width != textedit.tab_width(editor.state)) {
+        (editor.rows_font_size != editor.font_size ||
+            editor.rows_width != editor_text_width(editor) ||
+            editor.rows_tab_width != textedit.tab_width(editor.state)) {
         return false
     }
     return true
@@ -1209,17 +1209,17 @@ editor_rebuild_visual_rows :: proc(editor: ^Editor) {
     editor.rows_tab_width = textedit.tab_width(editor.state)
     editor.rows_stale = false
 
-    text := textedit.text(editor.state)
-    cols := editor_wrap_cols(editor)
+    text      := textedit.text(editor.state)
+    cols      := editor_wrap_cols(editor)
     tab_width := editor.rows_tab_width
     editor.rows_max_cols = 0
     editor.rows_max_line = 0
 
-    line_start := 0
-    line_index := 0
+    line_start   := 0
+    line_index   := 0
     hidden_until := -1 // lines <= this are collapsed under a fold above; skip them
-    zone_line := editor.zone_rows > 0 ? textedit.state_line_index(editor.state, editor.zone_offset) : -1
-    lens_at := 0
+    zone_line    := editor.zone_rows > 0 ? textedit.state_line_index(editor.state, editor.zone_offset) : -1
+    lens_at      := 0
     for {
         line_end := textedit.line_end(text, line_start)
         has_lens := false
@@ -1275,11 +1275,11 @@ editor_patch_visual_rows :: proc(editor: ^Editor) -> bool {
         return false
     }
 
-    rows := &editor.visual_rows
-    text := textedit.text(state)
-    tab_width := editor.rows_tab_width
+    rows       := &editor.visual_rows
+    text       := textedit.text(state)
+    tab_width  := editor.rows_tab_width
     first_line := textedit.state_line_index(state, change.lo)
-    new_last := textedit.state_line_index(state, change.new_hi)
+    new_last   := textedit.state_line_index(state, change.new_hi)
 
     // The rows of the old lines first_line .. old_last, in old offsets.
     first_row := editor_first_row_of_line(rows[:], first_line)
@@ -1296,11 +1296,11 @@ editor_patch_visual_rows :: proc(editor: ^Editor) -> bool {
         }
     }
     old_last := rows[editor_last_row_from(rows[:], change.old_hi)].line
-    end_row := editor_first_row_of_line(rows[:], old_last + 1)
+    end_row  := editor_first_row_of_line(rows[:], old_last + 1)
 
-    fresh := make([dynamic]Visual_Row, 0, 8, context.temp_allocator)
-    cols := editor_wrap_cols(editor)
-    remeasure := !editor.wrap && editor.rows_max_line >= first_line && editor.rows_max_line <= old_last
+    fresh      := make([dynamic]Visual_Row, 0, 8, context.temp_allocator)
+    cols       := editor_wrap_cols(editor)
+    remeasure  := !editor.wrap && editor.rows_max_line >= first_line && editor.rows_max_line <= old_last
     line_start := textedit.state_line_start(state, first_line)
     for line in first_line ..= new_last {
         line_end := textedit.line_end(text, line_start)
@@ -1308,7 +1308,7 @@ editor_patch_visual_rows :: proc(editor: ^Editor) -> bool {
         line_start = line_end + 1
     }
 
-    delta := change.new_hi - change.old_hi
+    delta      := change.new_hi - change.old_hi
     line_delta := new_last - old_last
     for &row in rows[end_row:] {
         row.start += delta
@@ -1448,21 +1448,21 @@ editor_wrap_line :: proc(rows: ^[dynamic]Visual_Row, text: string, line_start, l
     // With wrapping off cols is max(int), so the walk below can never break the
     // line — skip it rather than decoding every rune in the buffer per rebuild.
     if line_start == line_end || cols == max(int) {
-        append(rows, Visual_Row {line_start, line_end, line_index, true, false, false})
+        append(rows, Visual_Row{line_start, line_end, line_index, true, false, false})
         return
     }
 
-    seg_start := line_start
-    col := 0
+    seg_start  := line_start
+    col        := 0
     last_break := -1 // byte offset just after the most recent space in this segment
-    first := true
-    i := line_start
+    first      := true
+    i          := line_start
     for i < line_end {
         cells, next := editor_cluster_cells(text[:line_end], i, col, tab_width)
         // One cluster always fits an empty row, or a 1-column pane would loop.
         if col + cells > cols && i > seg_start {
             brk := last_break > seg_start ? last_break : i
-            append(rows, Visual_Row {seg_start, brk, line_index, first, false, false})
+            append(rows, Visual_Row{seg_start, brk, line_index, first, false, false})
             first = false
             seg_start = brk
             col = 0
@@ -1476,7 +1476,7 @@ editor_wrap_line :: proc(rows: ^[dynamic]Visual_Row, text: string, line_start, l
         }
         i = next
     }
-    append(rows, Visual_Row {seg_start, line_end, line_index, first, false, false})
+    append(rows, Visual_Row{seg_start, line_end, line_index, first, false, false})
 }
 
 // Index of the earliest visual row that owns byte offset `pos`; the last row
@@ -1577,7 +1577,7 @@ editor_has_popup :: proc(editor: ^Editor) -> bool {
 }
 
 editor_handle_key :: proc(editor: ^Editor, event: ui.Key_Event) -> bool {
-    state := editor.state
+    state    := editor.state
     alt_only := (.Alt in event.mods) && !(.Ctrl in event.mods)
 
     // A caret jump or Escape dismisses the signature popup; typing arguments
@@ -1591,8 +1591,7 @@ editor_handle_key :: proc(editor: ^Editor, event: ui.Key_Event) -> bool {
 
     // A live snippet session owns Tab and Escape, but only while no popup is up:
     // the popup keeps them, and accepting from it starts a new session anyway.
-    if editor.snippet_active && !editor.completion_active &&
-       !(.Ctrl in event.mods) && !(.Alt in event.mods) {
+    if editor.snippet_active && !editor.completion_active && !(.Ctrl in event.mods) && !(.Alt in event.mods) {
         #partial switch event.key {
         case .Tab:
             editor_snippet_advance(editor, .Shift in event.mods ? -1 : 1)
@@ -1638,7 +1637,7 @@ editor_handle_key :: proc(editor: ^Editor, event: ui.Key_Event) -> bool {
             case .Left, .Right, .Home, .End, .Page_Up, .Page_Down:
                 editor_dismiss_completion(editor) // then handled below
             case .Backspace, .Delete:
-                // refreshed after the edit in the cases below
+            // refreshed after the edit in the cases below
             case:
             }
         }
@@ -1778,9 +1777,9 @@ editor_paste :: proc(editor: ^Editor) {
 // Needs the visual row map to be current.
 @(private = "file")
 editor_caret_metrics :: proc(editor: ^Editor, caret: int) -> (line_height, view_height, caret_top: f32) {
-    line_height = cast(f32) font.line_height(editor.font_size)
+    line_height = cast(f32)font.line_height(editor.font_size)
     view_height = editor.view.h
-    caret_top = cast(f32) editor_visual_row_index(editor, caret) * line_height
+    caret_top = cast(f32)editor_visual_row_index(editor, caret) * line_height
     return
 }
 
@@ -1801,9 +1800,12 @@ editor_recenter :: proc(editor: ^Editor) {
 
     line_height, view_height, caret_top := editor_caret_metrics(editor, caret)
     switch editor.recenter_phase {
-    case 0: editor.scroll_y = caret_top - (view_height - line_height) * 0.5
-    case 1: editor.scroll_y = caret_top
-    case 2: editor.scroll_y = caret_top - (view_height - line_height)
+    case 0:
+        editor.scroll_y = caret_top - (view_height - line_height) * 0.5
+    case 1:
+        editor.scroll_y = caret_top
+    case 2:
+        editor.scroll_y = caret_top - (view_height - line_height)
     }
     editor_clamp_scroll(editor)
 }
@@ -1815,7 +1817,7 @@ editor_center_on_caret :: proc(editor: ^Editor) {
         return
     }
     editor_ensure_visual_rows(editor)
-    caret := textedit.primary_cursor(editor.state).caret
+    caret                               := textedit.primary_cursor(editor.state).caret
     line_height, view_height, caret_top := editor_caret_metrics(editor, caret)
     editor.scroll_y = caret_top - (view_height - line_height) * 0.5
     editor.recenter_phase = 0
@@ -1824,8 +1826,8 @@ editor_center_on_caret :: proc(editor: ^Editor) {
 }
 
 COMPLETION_MIN_PREFIX :: 1
-COMPLETION_MAX_ITEMS :: 50
-COMPLETION_MAX_ROWS :: 8
+COMPLETION_MAX_ITEMS  :: 50
+COMPLETION_MAX_ROWS   :: 8
 
 @(private = "file")
 editor_is_word_byte :: proc(b: u8) -> bool {
@@ -1872,7 +1874,7 @@ editor_update_completion :: proc(editor: ^Editor) {
         return
     }
 
-    txt := textedit.text(editor.state)
+    txt   := textedit.text(editor.state)
     caret := textedit.primary_cursor(editor.state).caret
     start := caret
     for start > 0 && editor_is_word_byte(txt[start - 1]) {
@@ -1900,9 +1902,9 @@ editor_update_completion :: proc(editor: ^Editor) {
     }
     clear(&editor.completion_rows)
 
-    seen := make(map[string]bool, 0, context.temp_allocator) // keys borrow txt
+    seen   := make(map[string]bool, 0, context.temp_allocator) // keys borrow txt
     capped := false
-    i := 0
+    i      := 0
     for i < len(txt) {
         if !editor_is_word_byte(txt[i]) {
             i += 1
@@ -1923,7 +1925,7 @@ editor_update_completion :: proc(editor: ^Editor) {
             continue
         }
         seen[word] = true
-        append(&editor.completion_rows, Completion_Item {text = strings.clone(word)})
+        append(&editor.completion_rows, Completion_Item{text = strings.clone(word)})
         if len(editor.completion_rows) >= COMPLETION_MAX_ITEMS {
             capped = true
             break
@@ -2010,14 +2012,14 @@ editor_accept_completion :: proc(editor: ^Editor) {
         editor_accept_choice(editor)
         return
     }
-    row := editor.completion_rows[editor.completion_selected]
-    txt := textedit.text(editor.state)
-    caret := textedit.primary_cursor(editor.state).caret
+    row              := editor.completion_rows[editor.completion_selected]
+    txt              := textedit.text(editor.state)
+    caret            := textedit.primary_cursor(editor.state).caret
     text, start, end := editor_completion_target(editor, row, txt, caret)
     // The row is freed with the list below, so its strings must not outlive it.
     text = strings.clone(text, context.temp_allocator)
     owner_id := row.owner_id
-    snippet := row.snippet
+    snippet  := row.snippet
     editor_dismiss_completion(editor)
 
     delta := 0
@@ -2042,7 +2044,7 @@ editor_accept_completion :: proc(editor: ^Editor) {
 @(private = "file")
 editor_insert_snippet :: proc(editor: ^Editor, template: string, start, end: int) -> int {
     editor_end_snippet(editor)
-    txt := textedit.text(editor.state)
+    txt  := textedit.text(editor.state)
     vars := editor.snippet_vars
     vars.line = 1
     line_start := 0
@@ -2104,8 +2106,8 @@ editor_insert_snippet :: proc(editor: ^Editor, template: string, start, end: int
 // machine cannot be read.
 @(private = "file")
 editor_snippet_clock :: proc(vars: ^snippet.Vars) {
-    now := time.now()
-    unix := time.time_to_unix(now)
+    now    := time.now()
+    unix   := time.time_to_unix(now)
     offset := i64(0)
     if region, ok := timezone.region_load("local", context.temp_allocator); ok && region != nil {
         // The zone-local reading, taken as UTC, is the clock moved by the offset.
@@ -2118,8 +2120,8 @@ editor_snippet_clock :: proc(vars: ^snippet.Vars) {
             }
         }
     }
-    local := time.unix(unix + offset, 0)
-    year, month, day := time.date(local)
+    local                := time.unix(unix + offset, 0)
+    year, month, day     := time.date(local)
     hour, minute, second := time.clock(local)
     vars.has_time = true
     vars.year = year
@@ -2163,7 +2165,7 @@ editor_snippet_select :: proc(editor: ^Editor, stop: snippet.Stop) {
 editor_show_choices :: proc(editor: ^Editor, stop: snippet.Stop) {
     editor_dismiss_completion(editor)
     choices := editor.snippet_snip.choices[:]
-    last := stop.choice_first + stop.choice_count
+    last    := stop.choice_first + stop.choice_count
     if stop.choice_first < 0 || last > len(choices) {
         return
     }
@@ -2220,7 +2222,7 @@ editor_snippet_advance :: proc(editor: ^Editor, step: int) {
     }
     stops := editor.snippet_stops[:]
     index := stops[editor.snippet_at].index
-    next := editor.snippet_at + step
+    next  := editor.snippet_at + step
     for next >= 0 && next < len(stops) && stops[next].index == index {
         next += step
     }
@@ -2265,15 +2267,8 @@ editor_snippet_sync :: proc(editor: ^Editor) {
         typed ||= change.lo >= active.start && change.old_hi <= active.end
         for &stop, i in editor.snippet_stops {
             // The active stop and the placeholders around it take what is typed at their edges.
-            holds :=
-                i == editor.snippet_at ||
-                (stop.depth < active.depth && stop.start <= active.start && active.end <= stop.end)
-            replaced :=
-                change.old_hi > change.lo &&
-                stop.start >= change.lo &&
-                stop.end <= change.old_hi &&
-                stop.end > change.lo &&
-                stop.start < change.old_hi
+            holds    := i == editor.snippet_at || (stop.depth < active.depth && stop.start <= active.start && active.end <= stop.end)
+            replaced := change.old_hi > change.lo && stop.start >= change.lo && stop.end <= change.old_hi && stop.end > change.lo && stop.start < change.old_hi
             if !holds && replaced {
                 stop.start, stop.end = change.new_hi, change.new_hi
                 continue
@@ -2316,10 +2311,10 @@ editor_snippet_map :: proc(change: textedit.Change, pos: int, is_end, grows: boo
 // False when the buffer no longer holds the stops where the session has them.
 @(private = "file")
 editor_snippet_mirror :: proc(editor: ^Editor) -> bool {
-    state := editor.state
-    stops := editor.snippet_stops[:]
+    state  := editor.state
+    stops  := editor.snippet_stops[:]
     active := stops[editor.snippet_at]
-    txt := textedit.text(state)
+    txt    := textedit.text(state)
     if active.start < 0 || active.end > len(txt) {
         return false
     }
@@ -2331,7 +2326,7 @@ editor_snippet_mirror :: proc(editor: ^Editor) -> bool {
         edit: textedit.Replace,
     }
     mirrors := make([dynamic]Mirror, context.temp_allocator)
-    edits := make([dynamic]textedit.Replace, context.temp_allocator)
+    edits   := make([dynamic]textedit.Replace, context.temp_allocator)
     for stop, i in stops {
         if i == editor.snippet_at || stop.index != active.index {
             continue
@@ -2403,16 +2398,26 @@ editor_snippet_mirror :: proc(editor: ^Editor) -> bool {
 
 editor_key_digit :: proc(key: ui.Key) -> (int, bool) {
     #partial switch key {
-    case .Num_0, .Pad_0: return 0, true
-    case .Num_1, .Pad_1: return 1, true
-    case .Num_2, .Pad_2: return 2, true
-    case .Num_3, .Pad_3: return 3, true
-    case .Num_4, .Pad_4: return 4, true
-    case .Num_5, .Pad_5: return 5, true
-    case .Num_6, .Pad_6: return 6, true
-    case .Num_7, .Pad_7: return 7, true
-    case .Num_8, .Pad_8: return 8, true
-    case .Num_9, .Pad_9: return 9, true
+    case .Num_0, .Pad_0:
+        return 0, true
+    case .Num_1, .Pad_1:
+        return 1, true
+    case .Num_2, .Pad_2:
+        return 2, true
+    case .Num_3, .Pad_3:
+        return 3, true
+    case .Num_4, .Pad_4:
+        return 4, true
+    case .Num_5, .Pad_5:
+        return 5, true
+    case .Num_6, .Pad_6:
+        return 6, true
+    case .Num_7, .Pad_7:
+        return 7, true
+    case .Num_8, .Pad_8:
+        return 8, true
+    case .Num_9, .Pad_9:
+        return 9, true
     }
     return 0, false
 }
@@ -2440,7 +2445,7 @@ editor_flush_jump :: proc(editor: ^Editor) -> bool {
     }
     editor.jump_active = false
     count := editor.jump_count
-    up := editor.jump_up
+    up    := editor.jump_up
     editor.jump_count = 0
     editor.jump_up = false
     if count == 0 || editor.state == nil {
@@ -2466,15 +2471,20 @@ editor_pending_jump :: proc(editor: ^Editor) -> (count: int, up: bool, active: b
 // Seconds the cursor must rest before a hover request fires, and the pixel
 // drift that counts as "moved" and cancels the dwell.
 HOVER_DWELL_SECS :: 0.45
-HOVER_MOVE_TOL :: 3
+HOVER_MOVE_TOL   :: 3
 
 // Per-frame hover tick: tracks dwell and resolves one hover once the cursor has
 // been still long enough. Movement, or toggling the modifier, resets the dwell
 // and hides any popup.
 @(private = "file")
-// `mod` is ctrl: held, the owner resolves the symbol under the cursor;
-// released, a diagnostic under it explains itself.
-editor_handle_hover :: proc(editor: ^Editor, mouse: ui.Vec2, mod: bool, now: f64) {
+editor_handle_hover :: proc(
+    // `mod` is ctrl: held, the owner resolves the symbol under the cursor;
+    // released, a diagnostic under it explains itself.
+    editor: ^Editor,
+    mouse: ui.Vec2,
+    mod: bool,
+    now: f64,
+) {
     // Runs before the dwell bookkeeping — over the popup there is no text to
     // describe, and moving inside it must not restart the dwell.
     if row := editor_completion_row_at(editor, mouse); row >= 0 {
@@ -2483,8 +2493,7 @@ editor_handle_hover :: proc(editor: ^Editor, mouse: ui.Vec2, mod: bool, now: f64
     }
     toggled := mod != editor.hover_mod_down
     editor.hover_mod_down = mod
-    moved := abs(mouse.x - editor.hover_probe_pos.x) > HOVER_MOVE_TOL ||
-             abs(mouse.y - editor.hover_probe_pos.y) > HOVER_MOVE_TOL
+    moved := abs(mouse.x - editor.hover_probe_pos.x) > HOVER_MOVE_TOL || abs(mouse.y - editor.hover_probe_pos.y) > HOVER_MOVE_TOL
     // Moving the modifier over an already-resting cursor starts a fresh dwell, so
     // neither popup appears the instant the key does, and the one already up goes
     // away rather than standing for the wrong gesture.
@@ -2524,7 +2533,7 @@ editor_handle_hover :: proc(editor: ^Editor, mouse: ui.Vec2, mod: bool, now: f64
     }
     if d, has := editor_hover_diagnostic(editor, pos, whole_line = in_gutter); has {
         color := editor_severity_color(editor, d.severity)
-        text := d.message
+        text  := d.message
         if d.code != "" {
             text = strings.concatenate({d.message, " [", d.code, "]"}, context.temp_allocator)
         }
@@ -2571,10 +2580,10 @@ HOVER_WRAP_MAX :: 640
 @(private = "file")
 hover_wrapped :: proc(editor: ^Editor, text: string) -> string {
     budget := min(editor.view.w - 32, HOVER_WRAP_MAX)
-    if budget < 120 || cast(f32) font.measure(text, editor.font_size) <= budget {
+    if budget < 120 || cast(f32)font.measure(text, editor.font_size) <= budget {
         return text
     }
-    b := strings.builder_make(context.temp_allocator)
+    b    := strings.builder_make(context.temp_allocator)
     line := "" // the current line, held back until the next word decides it is full
     rest := text
     for word in strings.split_iterator(&rest, " ") {
@@ -2585,7 +2594,7 @@ hover_wrapped :: proc(editor: ^Editor, text: string) -> string {
         joined := fmt.tprintf("%s %s", line, word)
         // A word wider than the budget on its own keeps its line rather than being
         // split, so a long path or type name survives as one token.
-        if cast(f32) font.measure(joined, editor.font_size) > budget {
+        if cast(f32)font.measure(joined, editor.font_size) > budget {
             strings.write_string(&b, line)
             strings.write_byte(&b, '\n')
             line = word
@@ -2603,15 +2612,16 @@ editor_screen_at :: proc(editor: ^Editor, offset: int) -> (x, y, line_height: f3
     if editor.state == nil || len(editor.visual_rows) == 0 {
         return 0, 0, 0, false
     }
-    text := textedit.text(editor.state)
+    text      := textedit.text(editor.state)
     row_index := editor_visual_row_index(editor, offset)
-    row := editor.visual_rows[row_index]
-    lh := cast(f32) font.line_height(editor.font_size)
+    row       := editor.visual_rows[row_index]
+    lh        := cast(f32)font.line_height(editor.font_size)
     inner_top := editor.view.y
-    text_x := editor_text_x(editor)
-    yy := inner_top - editor.scroll_y + cast(f32) row_index * lh
-    col := clamp(offset, row.start, row.end)
-    xx := text_x + cast(f32) font.measure(text[row.start:col], editor.font_size) +
+    text_x    := editor_text_x(editor)
+    yy        := inner_top - editor.scroll_y + cast(f32)row_index * lh
+    col       := clamp(offset, row.start, row.end)
+    xx        := text_x +
+        cast(f32)font.measure(text[row.start:col], editor.font_size) +
         editor_swatch_offset(editor, text[row.start:row.end], col - row.start) +
         editor_inlay_lead(editor, text, row.start, row.end, col)
     return xx, yy, lh, true
@@ -2643,9 +2653,9 @@ editor_completion_rects :: proc(editor: ^Editor) -> (box: ui.Rect, row_height: f
     visible := min(len(editor.completion_rows), COMPLETION_MAX_ROWS)
     width: f32 = 140
     for row in editor.completion_rows {
-        w := cast(f32) font.measure(row.text, editor.font_size) + 24
+        w := cast(f32)font.measure(row.text, editor.font_size) + 24
         if row.note != "" {
-            w += cast(f32) font.measure(row.note, editor.font_size) + 12
+            w += cast(f32)font.measure(row.note, editor.font_size) + 12
         }
         if w > width {
             width = w
@@ -2655,7 +2665,7 @@ editor_completion_rects :: proc(editor: ^Editor) -> (box: ui.Rect, row_height: f
 
     box_x := caret_x
     box_y := caret_y + lh + 2
-    box_h := cast(f32) visible * lh + 4
+    box_h := cast(f32)visible * lh + 4
     if box_x + width > editor.view.x + editor.view.w {
         box_x = editor.view.x + editor.view.w - width - 4
     }
@@ -2668,7 +2678,7 @@ editor_completion_rects :: proc(editor: ^Editor) -> (box: ui.Rect, row_height: f
 
     // Keep the selected item in view when the list is longer than the popup.
     top = max(editor.completion_selected - visible + 1, 0)
-    return ui.Rect {box_x, box_y, width, box_h}, lh, top, true
+    return ui.Rect{box_x, box_y, width, box_h}, lh, top, true
 }
 
 // Index of the candidate under `point`, or -1 when the point is off the rows.
@@ -2678,7 +2688,7 @@ editor_completion_row_at :: proc(editor: ^Editor, point: ui.Vec2) -> int {
     if !ok || lh <= 0 || !ui.rect_contains(box, point) {
         return -1
     }
-    row := top + cast(int) ((point.y - (box.y + 2)) / lh)
+    row := top + cast(int)((point.y - (box.y + 2)) / lh)
     if row < top || row >= top + COMPLETION_MAX_ROWS || row >= len(editor.completion_rows) {
         return -1
     }
@@ -2688,9 +2698,12 @@ editor_completion_row_at :: proc(editor: ^Editor, point: ui.Vec2) -> int {
 @(private = "file")
 editor_hex_value :: proc(b: u8) -> (u8, bool) {
     switch b {
-    case '0' ..= '9': return b - '0', true
-    case 'a' ..= 'f': return b - 'a' + 10, true
-    case 'A' ..= 'F': return b - 'A' + 10, true
+    case '0' ..= '9':
+        return b - '0', true
+    case 'a' ..= 'f':
+        return b - 'a' + 10, true
+    case 'A' ..= 'F':
+        return b - 'A' + 10, true
     }
     return 0, false
 }
@@ -2715,10 +2728,14 @@ editor_parse_hex_color :: proc(digits: string) -> (ui.Color, bool) {
         v[i] = d
     }
     switch len(digits) {
-    case 3: return ui.Color {v[0] * 17, v[1] * 17, v[2] * 17, 255}, true
-    case 4: return ui.Color {v[0] * 17, v[1] * 17, v[2] * 17, v[3] * 17}, true
-    case 6: return ui.Color {v[0] * 16 + v[1], v[2] * 16 + v[3], v[4] * 16 + v[5], 255}, true
-    case 8: return ui.Color {v[0] * 16 + v[1], v[2] * 16 + v[3], v[4] * 16 + v[5], v[6] * 16 + v[7]}, true
+    case 3:
+        return ui.Color{v[0] * 17, v[1] * 17, v[2] * 17, 255}, true
+    case 4:
+        return ui.Color{v[0] * 17, v[1] * 17, v[2] * 17, v[3] * 17}, true
+    case 6:
+        return ui.Color{v[0] * 16 + v[1], v[2] * 16 + v[3], v[4] * 16 + v[5], 255}, true
+    case 8:
+        return ui.Color{v[0] * 16 + v[1], v[2] * 16 + v[3], v[4] * 16 + v[5], v[6] * 16 + v[7]}, true
     }
     return {}, false
 }
@@ -2742,14 +2759,14 @@ Row_Swatch :: struct {
 
 // Width reserved for one swatch: the square plus padding on both sides.
 editor_swatch_span :: proc(editor: ^Editor) -> f32 {
-    return cast(f32) editor.font_size * SWATCH_SCALE + 2 * SWATCH_PAD
+    return cast(f32)editor.font_size * SWATCH_SCALE + 2 * SWATCH_PAD
 }
 
 // Finds every hex color literal in `s` (a row's text), recording its color and
 // the byte at which its reserved gap opens. Returns how many were written.
 editor_scan_swatches :: proc(s: string, out: []Row_Swatch) -> int {
     count := 0
-    i := 0
+    i     := 0
     for i < len(s) && count < len(out) {
         if s[i] != '#' {
             i += 1
@@ -2759,7 +2776,7 @@ editor_scan_swatches :: proc(s: string, out: []Row_Swatch) -> int {
         for j < len(s) && editor_is_hex_digit(s[j]) {
             j += 1
         }
-        n := j - i - 1
+        n           := j - i - 1
         // `#define` starts with the hex run "def"; a literal ends at a word end.
         at_word_end := j >= len(s) || !editor_is_word_byte(s[j])
         if at_word_end && (n == 3 || n == 4 || n == 6 || n == 8) {
@@ -2768,7 +2785,7 @@ editor_scan_swatches :: proc(s: string, out: []Row_Swatch) -> int {
                 if anchor > 0 && s[anchor - 1] == '"' {
                     anchor -= 1
                 }
-                out[count] = Row_Swatch {anchor = anchor, color = color}
+                out[count] = Row_Swatch{anchor = anchor, color = color}
                 count += 1
             }
         }
@@ -2834,8 +2851,8 @@ editor_zone_rect :: proc(editor: ^Editor) -> (ui.Rect, bool) {
     editor_ensure_visual_rows(editor)
     for row, i in editor.visual_rows {
         if row.spacer && !row.lens {
-            lh := cast(f32) font.line_height(editor.font_size)
-            return ui.Rect{editor.view.x, editor.view.y - editor.scroll_y + cast(f32) i * lh, editor.view.w, cast(f32) editor.zone_rows * lh}, true
+            lh := cast(f32)font.line_height(editor.font_size)
+            return ui.Rect{editor.view.x, editor.view.y - editor.scroll_y + cast(f32)i * lh, editor.view.w, cast(f32)editor.zone_rows * lh}, true
         }
     }
     return {}, false
@@ -2870,7 +2887,7 @@ editor_remap_zone :: proc(editor: ^Editor) {
 editor_content_row :: proc(editor: ^Editor, index, delta: int) -> int {
     rows := editor.visual_rows[:]
     step := delta < 0 ? -1 : 1
-    i := index
+    i    := index
     for i >= 0 && i < len(rows) && rows[i].spacer {
         i += step
     }
@@ -2900,7 +2917,7 @@ Inlay :: struct {
 }
 
 // Padding inside an inlay pill, and the space a padded side keeps to the text.
-INLAY_PAD :: 3
+INLAY_PAD    :: 3
 INLAY_MARGIN :: 4
 
 // The font size inlay labels are drawn at.
@@ -2910,7 +2927,7 @@ editor_inlay_font_size :: proc(editor: ^Editor) -> i32 {
 
 // The gap an inlay opens: its label, padding and margins.
 editor_inlay_width :: proc(editor: ^Editor, inlay: Inlay) -> f32 {
-    w := cast(f32) font.measure(inlay.label, editor_inlay_font_size(editor)) + 2 * INLAY_PAD
+    w := cast(f32)font.measure(inlay.label, editor_inlay_font_size(editor)) + 2 * INLAY_PAD
     if inlay.pad_left {
         w += INLAY_MARGIN
     }
@@ -2934,7 +2951,7 @@ editor_row_inlays :: proc(editor: ^Editor, text: string, row_start, row_end: int
         }
     }
     ends_line := row_end >= len(text) || text[row_end] == '\n'
-    end := lo
+    end       := lo
     for end < len(inlays) && (inlays[end].offset < row_end || inlays[end].offset == row_end && ends_line) {
         end += 1
     }
@@ -2973,9 +2990,12 @@ editor_line_diagnostic :: proc(editor: ^Editor, line: int) -> (Diagnostic_Severi
 // The squiggle and hover color of `severity`.
 editor_severity_color :: proc(editor: ^Editor, severity: Diagnostic_Severity) -> ui.Color {
     switch severity {
-    case .Error:   return editor.diagnostic_error_color
-    case .Warning: return editor.diagnostic_warn_color
-    case .Information, .Hint: return editor.diagnostic_hint_color
+    case .Error:
+        return editor.diagnostic_error_color
+    case .Warning:
+        return editor.diagnostic_warn_color
+    case .Information, .Hint:
+        return editor.diagnostic_hint_color
     }
     return editor.diagnostic_error_color
 }
@@ -2984,7 +3004,7 @@ editor_severity_color :: proc(editor: ^Editor, severity: Diagnostic_Severity) ->
 // measured text width plus any swatch gaps opened before it.
 @(private = "file")
 editor_row_width_at :: proc(editor: ^Editor, text: string, row: Visual_Row, swatches: []Row_Swatch, span: f32, pos: int) -> f32 {
-    return cast(f32) font.measure(text[row.start:pos], editor.font_size) +
+    return cast(f32)font.measure(text[row.start:pos], editor.font_size) +
         editor_swatch_offset_scanned(swatches, span, pos - row.start) +
         editor_inlay_lead(editor, text, row.start, row.end, pos)
 }
@@ -2994,12 +3014,12 @@ editor_pos_at :: proc(editor: ^Editor, position: ui.Vec2) -> (int, bool) {
     if len(editor.visual_rows) == 0 {
         return 0, false
     }
-    text := textedit.text(editor.state)
-    line_height := cast(f32) font.line_height(editor.font_size)
-    inner_top := editor.view.y
-    text_x := editor_text_x(editor)
+    text        := textedit.text(editor.state)
+    line_height := cast(f32)font.line_height(editor.font_size)
+    inner_top   := editor.view.y
+    text_x      := editor_text_x(editor)
 
-    target := cast(int) ((position.y - (inner_top - editor.scroll_y)) / line_height)
+    target := cast(int)((position.y - (inner_top - editor.scroll_y)) / line_height)
     target = clamp(target, 0, len(editor.visual_rows) - 1)
     if editor.visual_rows[target].lens {
         return editor.visual_rows[target].start, true
@@ -3008,13 +3028,13 @@ editor_pos_at :: proc(editor: ^Editor, position: ui.Vec2) -> (int, bool) {
         target = editor_content_row(editor, target, -1)
         return editor.visual_rows[target].end, true
     }
-    row := editor.visual_rows[target]
+    row      := editor.visual_rows[target]
     target_x := position.x - text_x
 
     row_text := text[row.start:row.end]
     swatches: [MAX_ROW_SWATCHES]Row_Swatch
     swatch_count := editor_scan_swatches(row_text, swatches[:])
-    span := editor_swatch_span(editor)
+    span         := editor_swatch_span(editor)
 
     // Grapheme-cluster byte offsets in the row, so the hit test below can binary
     // search instead of re-measuring the growing prefix at every byte —
@@ -3030,9 +3050,9 @@ editor_pos_at :: proc(editor: ^Editor, position: ui.Vec2) -> (int, bool) {
 
     lo, hi := 0, cluster_count
     for lo < hi {
-        mid := (lo + hi) / 2
+        mid          := (lo + hi) / 2
         width_before := editor_row_width_at(editor, text, row, swatches[:swatch_count], span, boundaries[mid])
-        width_after := editor_row_width_at(editor, text, row, swatches[:swatch_count], span, boundaries[mid + 1])
+        width_after  := editor_row_width_at(editor, text, row, swatches[:swatch_count], span, boundaries[mid + 1])
         if target_x < (width_before + width_after) / 2 {
             hi = mid
         } else {
@@ -3090,7 +3110,7 @@ editor_word_select_to :: proc(editor: ^Editor, position: ui.Vec2) {
     if !ok {
         return
     }
-    txt := textedit.text(editor.state)
+    txt           := textedit.text(editor.state)
     lo, hi, found := textedit.word_range_at(txt, pos)
     if !found {
         lo, hi = pos, pos
@@ -3107,10 +3127,10 @@ editor_word_select_to :: proc(editor: ^Editor, position: ui.Vec2) {
 editor_scroll_to_caret :: proc(editor: ^Editor) {
     // The buffer may have changed since layout, so refresh the row map first.
     editor_ensure_visual_rows(editor)
-    row_index := editor_visual_row_index(editor, textedit.primary_cursor(editor.state).caret)
-    line_height := cast(f32) font.line_height(editor.font_size)
+    row_index   := editor_visual_row_index(editor, textedit.primary_cursor(editor.state).caret)
+    line_height := cast(f32)font.line_height(editor.font_size)
     view_height := editor.view.h
-    caret_top := cast(f32) row_index * line_height
+    caret_top   := cast(f32)row_index * line_height
 
     // The view is a frame behind, so a pane declared this frame has no height
     // yet. Scrolling against it would put every row above the caret off screen.
@@ -3128,14 +3148,14 @@ editor_scroll_to_caret :: proc(editor: ^Editor) {
     // With wrap off the caret can be past the pane edge. Two columns stay in
     // view on the side the caret moves to.
     if text_width := editor_text_width(editor); !editor.wrap && text_width > 0 {
-        caret := textedit.primary_cursor(editor.state).caret
-        row := editor.visual_rows[row_index]
-        text := textedit.text(editor.state)
-        col := clamp(caret, row.start, row.end)
-        caret_x := cast(f32) font.measure(text[row.start:col], editor.font_size) +
+        caret   := textedit.primary_cursor(editor.state).caret
+        row     := editor.visual_rows[row_index]
+        text    := textedit.text(editor.state)
+        col     := clamp(caret, row.start, row.end)
+        caret_x := cast(f32)font.measure(text[row.start:col], editor.font_size) +
             editor_swatch_offset(editor, text[row.start:row.end], col - row.start) +
             editor_inlay_lead(editor, text, row.start, row.end, col)
-        margin := min(cast(f32) font.measure("0", editor.font_size) * 2, text_width * 0.25)
+        margin  := min(cast(f32)font.measure("0", editor.font_size) * 2, text_width * 0.25)
         if caret_x - margin < editor.scroll_x {
             editor.scroll_x = caret_x - margin
         }
@@ -3153,20 +3173,20 @@ editor_move_visual :: proc(editor: ^Editor, delta: int, extend: bool) {
     if len(editor.visual_rows) == 0 {
         return
     }
-    text := textedit.text(editor.state)
+    text      := textedit.text(editor.state)
     tab_width := textedit.tab_width(editor.state)
     // A run of vertical moves keeps the column it started at, through short rows.
     keep_goal := editor.move_signature != 0 && editor.move_signature == editor_cursor_signature(editor)
     for &cursor in editor.state.cursors {
         row_index := editor_visual_row_index(editor, cursor.caret)
-        row := editor.visual_rows[row_index]
-        col := textedit.display_width(text[row.start:clamp(cursor.caret, row.start, row.end)], tab_width)
+        row       := editor.visual_rows[row_index]
+        col       := textedit.display_width(text[row.start:clamp(cursor.caret, row.start, row.end)], tab_width)
         if keep_goal {
             col = cursor.preferred_column
         }
 
         target := editor_content_row(editor, clamp(row_index + delta, 0, len(editor.visual_rows) - 1), delta)
-        trow := editor.visual_rows[target]
+        trow   := editor.visual_rows[target]
         cursor.caret = editor_clamp_to_row(editor, text, target, editor_byte_at_col(text, trow.start, trow.end, col, tab_width))
         cursor.preferred_column = col
         if !extend {
@@ -3196,8 +3216,8 @@ editor_hash_mix :: proc(hash, value: u64) -> u64 {
 
 // Largest scroll_y that still shows content; 0 when the document fits the view.
 editor_max_scroll :: proc(editor: ^Editor) -> f32 {
-    content_height := cast(f32) len(editor.visual_rows) * cast(f32) font.line_height(editor.font_size)
-    view_height := editor.view.h
+    content_height := cast(f32)len(editor.visual_rows) * cast(f32)font.line_height(editor.font_size)
+    view_height    := editor.view.h
     return max(content_height - view_height, 0)
 }
 
@@ -3255,13 +3275,7 @@ editor_overlay_tick :: proc(editor: ^Editor) {
     editor_clear_signature(editor)
 }
 
-editor_press :: proc(
-    editor: ^Editor,
-    pos: ui.Vec2,
-    button: ui.Mouse_Button,
-    mods: ui.Mod_Set,
-    click_count: int,
-) -> bool {
+editor_press :: proc(editor: ^Editor, pos: ui.Vec2, button: ui.Mouse_Button, mods: ui.Mod_Set, click_count: int) -> bool {
     if editor == nil || editor.state == nil {
         return false
     }
@@ -3295,9 +3309,7 @@ editor_press :: proc(
 
     // A click in the fold column toggles that line's fold instead of moving the
     // caret.
-    if fold_x, fold_w := editor_fold_col(editor); fold_w > 0 &&
-       pos.x >= editor.view.x + fold_x &&
-       pos.x < editor.view.x + fold_x + fold_w {
+    if fold_x, fold_w := editor_fold_col(editor); fold_w > 0 && pos.x >= editor.view.x + fold_x && pos.x < editor.view.x + fold_x + fold_w {
         if at, ok := editor_pos_at(editor, pos); ok {
             editor_toggle_fold_line(editor, textedit.state_line_index(editor.state, at))
         }
@@ -3409,7 +3421,7 @@ editor_wheel :: proc(editor: ^Editor, pos: ui.Vec2, delta: f32, mods: ui.Mod_Set
         editor_zoom(editor, delta > 0 ? 1 : -1)
         return true
     }
-    editor.scroll_y -= delta * cast(f32) font.line_height(editor.font_size) * 2
+    editor.scroll_y -= delta * cast(f32)font.line_height(editor.font_size) * 2
     editor_clamp_scroll(editor)
     return true
 }
@@ -3421,7 +3433,7 @@ editor_wheel_x :: proc(editor: ^Editor, delta: f32) -> bool {
     }
     editor_clear_hover(editor)
     editor.hover_probe_offset = -1
-    editor.scroll_x -= delta * cast(f32) font.measure("0", editor.font_size) * 6
+    editor.scroll_x -= delta * cast(f32)font.measure("0", editor.font_size) * 6
     editor_clamp_scroll(editor)
     return true
 }
@@ -3449,8 +3461,9 @@ editor_text :: proc(editor: ^Editor, codepoint: rune, mods: ui.Mod_Set) -> bool 
         if !(editor.completion_semantic && editor_request_completion(editor)) {
             editor_update_completion(editor)
         }
-    } else if editor.completion_semantic && (codepoint == '.' || codepoint == '(' || codepoint == '>') &&
-       editor_is_selector_end(textedit.text(editor.state), textedit.primary_cursor(editor.state).caret) {
+    } else if editor.completion_semantic &&
+        (codepoint == '.' || codepoint == '(' || codepoint == '>') &&
+        editor_is_selector_end(textedit.text(editor.state), textedit.primary_cursor(editor.state).caret) {
         // Member access: `pkg.`, `x.(` and `x->` list their candidates right away.
         editor_request_completion(editor)
     } else {

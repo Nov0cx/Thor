@@ -25,7 +25,7 @@ Tools :: struct {
 // PowerShell fallbacks, since curl and bsdtar are only there from Windows 10
 // 1803; elsewhere curl and tar are the only candidates.
 tools_detect :: proc(archive: Archive, cancel: ^bool = nil) -> (tools: Tools, ok: bool) {
-    downloaders := [?]Downloader{.Curl, .Powershell}
+    downloaders      := [?]Downloader{.Curl, .Powershell}
     found_downloader := false
     for candidate in downloaders {
         when ODIN_OS != .Windows {
@@ -76,7 +76,7 @@ probe :: proc(command: string, cancel: ^bool) -> bool {
 // Reads a URL into `dest` and answers the HTTP status code. Used for the API
 // reply and for SHA256SUMS, both small enough for one request.
 fetch_text :: proc(tools: Tools, url: string, dest: string, agent: string, cancel: ^bool = nil) -> (code: int, ok: bool) {
-    command := api_command(tools.downloader, url, dest, agent, context.temp_allocator)
+    command           := api_command(tools.downloader, url, dest, agent, context.temp_allocator)
     output, _, run_ok := shell.run_status(command, "", API_TIMEOUT, cancel)
     defer delete(output)
     if !run_ok {
@@ -120,7 +120,7 @@ fetch_file :: proc(tools: Tools, url: string, dest: string, agent: string, cance
 
 // Unpacks `archive` into the existing directory `dir`.
 extract_archive :: proc(tools: Tools, archive: string, dir: string, cancel: ^bool = nil) -> bool {
-    command := extract_command(tools.extractor, archive, dir, context.temp_allocator)
+    command          := extract_command(tools.extractor, archive, dir, context.temp_allocator)
     output, code, ok := shell.run_status(command, "", EXTRACT_TIMEOUT, cancel)
     defer delete(output)
     if !ok || code != 0 {

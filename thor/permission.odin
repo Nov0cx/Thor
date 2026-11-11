@@ -9,8 +9,8 @@ import ui "../vendor/loom/loom"
 
 Permission_Dialog_Proc :: #type proc(data: rawptr)
 
-PERMISSION_WIDTH :: f32(520)
-PERMISSION_ROW_H :: f32(46)
+PERMISSION_WIDTH    :: f32(520)
+PERMISSION_ROW_H    :: f32(46)
 PERMISSION_MAX_ROWS :: 8
 
 @(private = "file")
@@ -20,14 +20,14 @@ Permission_Item :: struct {
 }
 
 Permission_Dialog :: struct {
-    title:        string, // owned
-    note:         string, // owned; footer hint
-    items:        [dynamic]Permission_Item, // owned
-    on_allow:     Permission_Dialog_Proc,
-    on_cancel:    Permission_Dialog_Proc,
-    data:         rawptr,
+    title:         string,                   // owned
+    note:          string,                   // owned; footer hint
+    items:         [dynamic]Permission_Item, // owned
+    on_allow:      Permission_Dialog_Proc,
+    on_cancel:     Permission_Dialog_Proc,
+    data:          rawptr,
     // Pane key the focus goes back to when the prompt closes.
-    return_focus: string,
+    return_focus:  string,
     // The box takes the focus on the next frame, so no pane reads keys under it.
     focus_pending: bool,
 }
@@ -44,24 +44,12 @@ thor_permission_destroy :: proc(thor: ^Thor) {
     delete(d.note)
 }
 
-thor_permission_open :: proc(
-    thor: ^Thor,
-    title, note: string,
-    ids, perms: []string,
-    on_allow, on_cancel: Permission_Dialog_Proc,
-    data: rawptr,
-) {
+thor_permission_open :: proc(thor: ^Thor, title, note: string, ids, perms: []string, on_allow, on_cancel: Permission_Dialog_Proc, data: rawptr) {
     d := &thor.permission
     permission_clear(d)
 
     for id, i in ids {
-        append(
-            &d.items,
-            Permission_Item {
-                id = strings.clone(id),
-                perms = strings.clone(i < len(perms) ? perms[i] : ""),
-            },
-        )
+        append(&d.items, Permission_Item{id = strings.clone(id), perms = strings.clone(i < len(perms) ? perms[i] : "")})
     }
     heading := strings.clone(title)
     delete(d.title)
@@ -94,8 +82,8 @@ permission_clear :: proc(d: ^Permission_Dialog) {
 // rebuilds this list, so it runs after the state is settled.
 @(private = "file")
 permission_answer :: proc(thor: ^Thor, allow: bool) {
-    d := &thor.permission
-    run := allow ? d.on_allow : d.on_cancel
+    d    := &thor.permission
+    run  := allow ? d.on_allow : d.on_cancel
     data := d.data
     thor.permission_open = false
     if d.return_focus != "" {
@@ -165,22 +153,14 @@ permission_box :: proc(thor: ^Thor) {
         d.focus_pending = false
     }
 
-    ui.label(
-        d.title,
-        {key = "title", props = {color = thor.theme.foreground, text_wrap = .Words}},
-    )
+    ui.label(d.title, {key = "title", props = {color = thor.theme.foreground, text_wrap = .Words}})
 
     {
         ui.scope(
             {
                 key = "rows",
                 flags = {.Clip, .Scroll_Y},
-                props = {
-                    w = ui.Grow(1),
-                    h = ui.Px(min(f32(len(d.items)), PERMISSION_MAX_ROWS) * PERMISSION_ROW_H),
-                    dir = .Column,
-                    gap = {0, 4},
-                },
+                props = {w = ui.Grow(1), h = ui.Px(min(f32(len(d.items)), PERMISSION_MAX_ROWS) * PERMISSION_ROW_H), dir = .Column, gap = {0, 4}},
             },
         )
         for item, index in d.items {
@@ -190,18 +170,10 @@ permission_box :: proc(thor: ^Thor) {
         }
     }
 
-    ui.label(
-        d.note,
-        {key = "note", props = {color = thor.theme.disabled, text_wrap = .Words}},
-    )
+    ui.label(d.note, {key = "note", props = {color = thor.theme.disabled, text_wrap = .Words}})
 
     {
-        ui.scope(
-            {
-                key = "buttons",
-                props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, justify = .End, gap = {8, 0}},
-            },
-        )
+        ui.scope({key = "buttons", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, justify = .End, gap = {8, 0}}})
         if permission_button(thor, "cancel", "Cancel", thor.theme.muted_color) {
             permission_answer(thor, false)
             return
@@ -228,14 +200,8 @@ permission_row :: proc(thor: ^Thor, item: Permission_Item) {
             },
         },
     )
-    ui.label(
-        item.id,
-        {key = "id", props = {color = thor.theme.foreground, text_wrap = .Ellipsis}},
-    )
-    ui.label(
-        item.perms,
-        {key = "perms", props = {color = thor.theme.muted_color, text_wrap = .Ellipsis}},
-    )
+    ui.label(item.id, {key = "id", props = {color = thor.theme.foreground, text_wrap = .Ellipsis}})
+    ui.label(item.perms, {key = "perms", props = {color = thor.theme.muted_color, text_wrap = .Ellipsis}})
 }
 
 @(private = "file")

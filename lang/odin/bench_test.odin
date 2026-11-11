@@ -19,7 +19,7 @@ STRICT :: #config(THOR_BENCH_STRICT, false)
 
 // Budgets of plan 7, in milliseconds.
 BUDGET_DIAGNOSTICS_MS :: 50.0
-BUDGET_COMPLETION_MS :: 30.0
+BUDGET_COMPLETION_MS  :: 30.0
 
 // The workload: one of Thor's largest sources, in Thor's own workspace.
 @(private = "file")
@@ -80,7 +80,7 @@ test_bench_diagnostics :: proc(t: ^testing.T) {
 
     start := time.tick_now()
     first := live_check(e, src, ".", BENCH_FILE)
-    cold := time.tick_since(start)
+    cold  := time.tick_since(start)
     free_live(&first)
     samples: [20]time.Duration
     for i in 0 ..< len(samples) {
@@ -91,7 +91,13 @@ test_bench_diagnostics :: proc(t: ^testing.T) {
         free_all(context.temp_allocator)
     }
     median, p95 := percentiles(samples[:])
-    log.infof("bench diagnostics: cold %.1f ms, warm median %.1f ms, p95 %.1f ms (budget %.0f)", time.duration_milliseconds(cold), median, p95, BUDGET_DIAGNOSTICS_MS)
+    log.infof(
+        "bench diagnostics: cold %.1f ms, warm median %.1f ms, p95 %.1f ms (budget %.0f)",
+        time.duration_milliseconds(cold),
+        median,
+        p95,
+        BUDGET_DIAGNOSTICS_MS,
+    )
     over_budget(t, p95 <= BUDGET_DIAGNOSTICS_MS, "diagnostics p95 %.1f ms is over %.0f", p95, BUDGET_DIAGNOSTICS_MS)
 }
 
@@ -115,26 +121,18 @@ test_bench_completion :: proc(t: ^testing.T) {
         return
     }
     typed := "ed"
-    text := strings.concatenate({src[:anchor + 1], typed, src[anchor + 1:]})
+    text  := strings.concatenate({src[:anchor + 1], typed, src[anchor + 1:]})
     defer delete(text)
     e := engine_create()
     defer engine_destroy(e)
 
     request :: proc(e: ^Engine, text: string, offset: int) -> (time.Duration, int) {
-        req := lang.Request {
-            kind      = .Completion,
-            path      = BENCH_FILE,
-            ext       = ".odin",
-            source    = text,
-            offset    = offset,
-            end       = offset,
-            workspace = ".",
-        }
-        res := lang.Result{kind = .Completion}
+        req   := lang.Request{kind = .Completion, path = BENCH_FILE, ext = ".odin", source = text, offset = offset, end = offset, workspace = "."}
+        res   := lang.Result{kind = .Completion}
         start := time.tick_now()
         resolve(e, &req, &res)
         elapsed := time.tick_since(start)
-        n := len(res.completions)
+        n       := len(res.completions)
         bench_free_completions(&res)
         free_all(context.temp_allocator)
         return elapsed, n
@@ -146,7 +144,14 @@ test_bench_completion :: proc(t: ^testing.T) {
         samples[i], count = request(e, text, anchor + 1 + len(typed))
     }
     median, p95 := percentiles(samples[:])
-    log.infof("bench completion: %d items, cold %.1f ms, warm median %.1f ms, p95 %.1f ms (budget %.0f)", count, time.duration_milliseconds(cold), median, p95, BUDGET_COMPLETION_MS)
+    log.infof(
+        "bench completion: %d items, cold %.1f ms, warm median %.1f ms, p95 %.1f ms (budget %.0f)",
+        count,
+        time.duration_milliseconds(cold),
+        median,
+        p95,
+        BUDGET_COMPLETION_MS,
+    )
     testing.expect(t, count > 0, "the completion list is empty")
     over_budget(t, p95 <= BUDGET_COMPLETION_MS, "completion p95 %.1f ms is over %.0f", p95, BUDGET_COMPLETION_MS)
 }
@@ -168,30 +173,22 @@ test_bench_cold_prewarm :: proc(t: ^testing.T) {
         return
     }
     typed := "ed"
-    text := strings.concatenate({src[:anchor + 1], typed, src[anchor + 1:]})
+    text  := strings.concatenate({src[:anchor + 1], typed, src[anchor + 1:]})
     defer delete(text)
 
     first :: proc(e: ^Engine, text: string, offset: int) -> (time.Duration, int) {
-        req := lang.Request {
-            kind      = .Completion,
-            path      = BENCH_FILE,
-            ext       = ".odin",
-            source    = text,
-            offset    = offset,
-            end       = offset,
-            workspace = ".",
-        }
-        res := lang.Result{kind = .Completion}
+        req   := lang.Request{kind = .Completion, path = BENCH_FILE, ext = ".odin", source = text, offset = offset, end = offset, workspace = "."}
+        res   := lang.Result{kind = .Completion}
         start := time.tick_now()
         resolve(e, &req, &res)
         elapsed := time.tick_since(start)
-        n := len(res.completions)
+        n       := len(res.completions)
         bench_free_completions(&res)
         free_all(context.temp_allocator)
         return elapsed, n
     }
 
-    plain := engine_create()
+    plain                   := engine_create()
     plain_time, plain_count := first(plain, text, anchor + 1 + len(typed))
     engine_destroy(plain)
 
@@ -225,21 +222,13 @@ test_bench_memory :: proc(t: ^testing.T) {
         return
     }
     _, _, before := process_memory()
-    e := engine_create()
+    e            := engine_create()
     defer engine_destroy(e)
     start := time.tick_now()
     engine_prewarm(e, ".")
     engine_prewarm_wait(e)
 
-    req := lang.Request {
-        kind      = .Completion,
-        path      = BENCH_FILE,
-        ext       = ".odin",
-        source    = src,
-        offset    = anchor + 1,
-        end       = anchor + 1,
-        workspace = ".",
-    }
+    req := lang.Request{kind = .Completion, path = BENCH_FILE, ext = ".odin", source = src, offset = anchor + 1, end = anchor + 1, workspace = "."}
     res := lang.Result{kind = .Completion}
     resolve(e, &req, &res)
     bench_free_completions(&res)
@@ -257,17 +246,44 @@ test_bench_memory :: proc(t: ^testing.T) {
     }
     elapsed := time.tick_since(start)
 
-    m := odinsema.db_memory(&e.db)
+    m                       := odinsema.db_memory(&e.db)
     resident, peak, private := process_memory()
     mb :: proc(n: int) -> f64 {
         return f64(n) / (1024 * 1024)
     }
-    log.infof("bench memory: %.0f ms; process resident %.1f MB, peak %.1f MB, private %.1f MB (%.1f MB before the engine)", time.duration_milliseconds(elapsed), mb(resident), mb(peak), mb(private), mb(before))
+    log.infof(
+        "bench memory: %.0f ms; process resident %.1f MB, peak %.1f MB, private %.1f MB (%.1f MB before the engine)",
+        time.duration_milliseconds(elapsed),
+        mb(resident),
+        mb(peak),
+        mb(private),
+        mb(before),
+    )
     log.infof("bench memory: %d file slots, %d package slots, %d memos", m.files, m.packages, m.memos)
-    log.infof("bench memory: disk parses %d, used %.1f MB, reserved %.1f MB, text %.1f MB", m.disk_bodies, mb(m.disk_used), mb(m.disk_reserved), mb(m.disk_text))
-    log.infof("bench memory: live parses %d (%d trees), used %.1f MB, reserved %.1f MB, text %.1f MB", m.live_bodies, m.live_trees, mb(m.live_used), mb(m.live_reserved), mb(m.live_text))
+    log.infof(
+        "bench memory: disk parses %d, used %.1f MB, reserved %.1f MB, text %.1f MB",
+        m.disk_bodies,
+        mb(m.disk_used),
+        mb(m.disk_reserved),
+        mb(m.disk_text),
+    )
+    log.infof(
+        "bench memory: live parses %d (%d trees), used %.1f MB, reserved %.1f MB, text %.1f MB",
+        m.live_bodies,
+        m.live_trees,
+        mb(m.live_used),
+        mb(m.live_reserved),
+        mb(m.live_text),
+    )
     log.infof("bench memory: item trees %d, used %.1f MB, reserved %.1f MB, lines %.1f MB", m.datas, mb(m.data_used), mb(m.data_reserved), mb(m.lines))
-    log.infof("bench memory: tree cache %d entries, %.1f MB; type states %d, used %.1f MB, reserved %.1f MB", m.cache_entries, mb(m.cache_bytes), m.type_states, mb(m.type_used), mb(m.type_reserved))
+    log.infof(
+        "bench memory: tree cache %d entries, %.1f MB; type states %d, used %.1f MB, reserved %.1f MB",
+        m.cache_entries,
+        mb(m.cache_bytes),
+        m.type_states,
+        mb(m.type_used),
+        mb(m.type_reserved),
+    )
 }
 
 // Fails the test in strict mode, else logs a warning, when `within` is false.

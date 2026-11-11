@@ -73,8 +73,8 @@ test_overload_resolution :: proc(t: ^testing.T) {
         return
     }
     defer check_end(&env)
-    c := &env.c
-    cases := []Overload_Case {
+    c     := &env.c
+    cases := []Overload_Case{
         {"exact(i)", "int", "proc(x: int) -> int"},
         {"exact(f)", "f32", "proc(x: f32) -> f32"},
         {`exact("s")`, "string", "proc(x: any) -> string"},
@@ -105,7 +105,7 @@ test_overload_resolution :: proc(t: ^testing.T) {
         if !testing.expectf(t, ok, "%q: no call node", k.text) {
             continue
         }
-        op := expr_type(c, ANON_FILE, n)
+        op  := expr_type(c, ANON_FILE, n)
         got := op.mode == .Invalid ? "<invalid>" : type_string(&c.table, op.type, context.temp_allocator)
         testing.expectf(t, got == k.want, "%q: got %q, want %q", k.text, got, k.want)
         member := call_group_member(c, ANON_FILE, n)
@@ -225,23 +225,39 @@ test_overload_where_intrinsics :: proc(t: ^testing.T) {
         text: string,
         want: string,
     }
-    cases := []Where_Case {
-        {"cmp(i)", "int"}, {"cmp(s)", "string"},
-        {"ord(f)", "int"}, {"ord(p)", "string"},
-        {"num(c)", "int"}, {`num("s")`, "string"},
-        {"sim(i)", "int"}, {"sim(f)", "string"},
-        {`key("s")`, "int"}, {"key(m)", "string"},
-        {"sli(s)", "int"}, {"sli(i)", "string"},
-        {"idx(m)", "int"}, {"idx(f)", "string"},
-        {"big(be)", "int"}, {"big(i)", "string"},
-        {"sub(d)", "int"}, {"sub(p)", "string"},
-        {"fld(p)", "int"}, {"fld(d)", "string"},
-        {"var(i)", "int"}, {"var(f)", "string"},
-        {"spe(l)", "int"}, {"spe(i)", "string"},
-        {"elm(fs)", "int"}, {"elm(s)", "string"},
-        {"cor(c)", "int"}, {"cor(sm)", "string"},
-        {"bse(cs)", "int"}, {"bse(ds)", "string"},
-        {"fty(p)", "int"}, {"fty(ip)", "string"},
+    cases := []Where_Case{
+        {"cmp(i)", "int"},
+        {"cmp(s)", "string"},
+        {"ord(f)", "int"},
+        {"ord(p)", "string"},
+        {"num(c)", "int"},
+        {`num("s")`, "string"},
+        {"sim(i)", "int"},
+        {"sim(f)", "string"},
+        {`key("s")`, "int"},
+        {"key(m)", "string"},
+        {"sli(s)", "int"},
+        {"sli(i)", "string"},
+        {"idx(m)", "int"},
+        {"idx(f)", "string"},
+        {"big(be)", "int"},
+        {"big(i)", "string"},
+        {"sub(d)", "int"},
+        {"sub(p)", "string"},
+        {"fld(p)", "int"},
+        {"fld(d)", "string"},
+        {"var(i)", "int"},
+        {"var(f)", "string"},
+        {"spe(l)", "int"},
+        {"spe(i)", "string"},
+        {"elm(fs)", "int"},
+        {"elm(s)", "string"},
+        {"cor(c)", "int"},
+        {"cor(sm)", "string"},
+        {"bse(cs)", "int"},
+        {"bse(ds)", "string"},
+        {"fty(p)", "int"},
+        {"fty(ip)", "string"},
     }
     for k in cases {
         at := strings.index(WHERE_SRC, k.text)
@@ -252,7 +268,7 @@ test_overload_where_intrinsics :: proc(t: ^testing.T) {
         if !testing.expectf(t, ok, "%q: no call node", k.text) {
             continue
         }
-        op := expr_type(c, ANON_FILE, n)
+        op  := expr_type(c, ANON_FILE, n)
         got := op.mode == .Invalid ? "<invalid>" : type_string(&c.table, op.type, context.temp_allocator)
         testing.expectf(t, got == k.want, "%q: got %q, want %q", k.text, got, k.want)
     }
@@ -293,24 +309,20 @@ test_named_argument_expected :: proc(t: ^testing.T) {
         value:  string, // the text of the named value, after `callee`
         want:   string,
     }
-    cases := []Named_Case {
-        {"run(1,", ".Fast", "Mode"},
-        {"runs(1,", ".Fast", "Mode"},
-        {"places(1,", "{1, 2}", "<invalid>"},
-    }
-    src := NAMED_SRC
+    cases := []Named_Case{{"run(1,", ".Fast", "Mode"}, {"runs(1,", ".Fast", "Mode"}, {"places(1,", "{1, 2}", "<invalid>"}}
+    src   := NAMED_SRC
     for k in cases {
-        call_at := strings.index(src, k.callee)
-        value_at := call_at + strings.index(src[call_at:], k.value)
-        name := k.callee[:strings.index_byte(k.callee, '(')]
+        call_at     := strings.index(src, k.callee)
+        value_at    := call_at + strings.index(src[call_at:], k.value)
+        name        := k.callee[:strings.index_byte(k.callee, '(')]
         callee, cok := expr_node_at(c, ANON_FILE, call_at, name)
-        value, vok := expr_node_at(c, ANON_FILE, value_at, k.value)
+        value, vok  := expr_node_at(c, ANON_FILE, value_at, k.value)
         if !testing.expectf(t, cok && vok, "%q: no nodes", k.callee) {
             continue
         }
-        fn := expr_type(c, ANON_FILE, callee)
+        fn       := expr_type(c, ANON_FILE, callee)
         arg_name := k.value == "{1, 2}" ? "at" : "mode"
-        args := []Call_Arg{{node = value, name = arg_name}}
+        args     := []Call_Arg{{node = value, name = arg_name}}
         eval_args(c, ANON_FILE, args, fn.type, 1)
         got := args[0].op.type == INVALID_TYPE ? "<invalid>" : type_string(&c.table, args[0].op.type, context.temp_allocator)
         testing.expectf(t, got == k.want, "%q: got %q, want %q", k.callee, got, k.want)

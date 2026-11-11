@@ -29,7 +29,14 @@ body_diagnostics :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, whens: []
 }
 
 @(private = "file")
-walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope_Map, whens: []Branch, n: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+walk_body :: proc(
+    rc: ^Request_Context,
+    c: ^odinsema.Checker,
+    m: ^odinsema.Scope_Map,
+    whens: []Branch,
+    n: odinsyntax.Syntax_Node,
+    report: ^lang.Diagnostic_Report,
+) {
     if lang.request_cancelled(rc.req) || in_untaken_branch(whens, int(n.offset)) {
         return
     }
@@ -105,7 +112,13 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope
         if p, ok := odinsema.const_arith_overflow(c, rc.live.id, n, context.temp_allocator); ok {
             text := strings.join(strings.fields(odinsyntax.node_text(n), context.temp_allocator), " ", context.temp_allocator)
             type := odinsema.type_string(&c.table, p.type, context.temp_allocator)
-            report_error(rc, report, int(n.offset), CODE_OVERFLOW, fmt.aprintf("Numeric value '%s' from '%s' cannot be represented by '%s'", p.value, text, type))
+            report_error(
+                rc,
+                report,
+                int(n.offset),
+                CODE_OVERFLOW,
+                fmt.aprintf("Numeric value '%s' from '%s' cannot be represented by '%s'", p.value, text, type),
+            )
         }
     case .Or_Return_Expr:
         or_return_errors(rc, c, n, report)
@@ -143,20 +156,32 @@ call_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odinsyntax
         type := odinsema.type_string(&c.table, p.type, context.temp_allocator)
         report_error(rc, report, p.offset, CODE_ARITY, fmt.aprintf("Parameter '%s' of type '%s' is missing in procedure call", name, type))
     case .Too_Many:
-        ce, _ := odinsyntax.as_call_expr(call)
+        ce, _     := odinsyntax.as_call_expr(call)
         callee, _ := odinsyntax.call_expr_callee(&ce)
-        name := strings.join(strings.fields(odinsyntax.node_text(callee), context.temp_allocator), "", context.temp_allocator)
+        name      := strings.join(strings.fields(odinsyntax.node_text(callee), context.temp_allocator), "", context.temp_allocator)
         if p.least == p.want {
             report_error(rc, report, p.offset, CODE_ARITY, fmt.aprintf("Too many arguments for '%s', expected %d arguments, got %d", name, p.want, p.got))
         } else {
-            report_error(rc, report, p.offset, CODE_ARITY, fmt.aprintf("Too many arguments for '%s', expected %d..=%d arguments, got %d", name, p.least, p.want, p.got))
+            report_error(
+                rc,
+                report,
+                p.offset,
+                CODE_ARITY,
+                fmt.aprintf("Too many arguments for '%s', expected %d..=%d arguments, got %d", name, p.least, p.want, p.got),
+            )
         }
     case .Unknown_Name:
         report_error(rc, report, p.offset, CODE_NAMED, fmt.aprintf("No parameter named '%s' for this procedure type", p.name))
     case .Duplicate_Name:
         report_error(rc, report, p.offset, CODE_NAMED, fmt.aprintf("Duplicate parameter '%s' in procedure call", p.name))
     case .Positional_After_Named:
-        report_error(rc, report, p.offset, CODE_NAMED, strings.clone("Non-named parameter is not allowed to follow named parameter i.e. 'field = value' in a procedure call"))
+        report_error(
+            rc,
+            report,
+            p.offset,
+            CODE_NAMED,
+            strings.clone("Non-named parameter is not allowed to follow named parameter i.e. 'field = value' in a procedure call"),
+        )
     }
 }
 
@@ -190,7 +215,7 @@ order_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odinsynta
     if !ok {
         return
     }
-    type := odinsema.type_string(&c.table, p.type, context.temp_allocator)
+    type  := odinsema.type_string(&c.table, p.type, context.temp_allocator)
     kinds := "ordered numeric or string" if p.name == "clamp" else "ordered numeric"
     report_error(rc, report, p.offset, CODE_MISMATCH, fmt.aprintf("Expected an %s type to '%s', got '%s'", kinds, p.name, type))
 }
@@ -209,14 +234,20 @@ group_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odinsynta
     if !no_match && !odinsema.group_ambiguous(c, rc.live.id, call) {
         return
     }
-    ce, _ := odinsyntax.as_call_expr(call)
+    ce, _     := odinsyntax.as_call_expr(call)
     callee, _ := odinsyntax.call_expr_callee(&ce)
-    name := strings.join(strings.fields(odinsyntax.node_text(callee), context.temp_allocator), "", context.temp_allocator)
+    name      := strings.join(strings.fields(odinsyntax.node_text(callee), context.temp_allocator), "", context.temp_allocator)
     if !no_match {
         report_error(rc, report, int(call.offset), CODE_OVERLOAD, fmt.aprintf("Ambiguous procedure group call '%s' that match with the given arguments", name))
         return
     }
-    report_error(rc, report, int(call.offset), CODE_OVERLOAD, fmt.aprintf("No procedures or ambiguous call for procedure group '%s' that match with the given arguments", name))
+    report_error(
+        rc,
+        report,
+        int(call.offset),
+        CODE_OVERLOAD,
+        fmt.aprintf("No procedures or ambiguous call for procedure group '%s' that match with the given arguments", name),
+    )
 }
 
 // Reports a conversion `T(x)` of a constant that `T` cannot take.
@@ -227,9 +258,15 @@ conversion_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odin
         return
     }
     value := strings.join(strings.fields(odinsyntax.node_text(p.value), context.temp_allocator), " ", context.temp_allocator)
-    to := odinsema.type_string(&c.table, p.to, context.temp_allocator)
-    from := untyped_name(odinsema.type_string(&c.table, p.op.type, context.temp_allocator))
-    report_error(rc, report, int(p.value.offset), CODE_OVERFLOW if p.overflow else CODE_MISMATCH, fmt.aprintf("Cannot cast '%s' as '%s' from '%s'", value, to, from))
+    to    := odinsema.type_string(&c.table, p.to, context.temp_allocator)
+    from  := untyped_name(odinsema.type_string(&c.table, p.op.type, context.temp_allocator))
+    report_error(
+        rc,
+        report,
+        int(p.value.offset),
+        CODE_OVERFLOW if p.overflow else CODE_MISMATCH,
+        fmt.aprintf("Cannot cast '%s' as '%s' from '%s'", value, to, from),
+    )
 }
 
 // Reports a selector that names no field or member of its operand.
@@ -239,11 +276,11 @@ member_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, selector: odin
     if !p.missing {
         return
     }
-    sel, _ := odinsyntax.as_selector_expr(selector)
+    sel, _     := odinsyntax.as_selector_expr(selector)
     operand, _ := odinsyntax.selector_expr_operand(&sel)
-    field, _ := odinsyntax.selector_expr_field(&sel)
-    name := odinsyntax.node_text(odinsyntax.Syntax_Node(field))
-    owner := odinsema.type_string(&c.table, p.owner, context.temp_allocator)
+    field, _   := odinsyntax.selector_expr_field(&sel)
+    name       := odinsyntax.node_text(odinsyntax.Syntax_Node(field))
+    owner      := odinsema.type_string(&c.table, p.owner, context.temp_allocator)
     if p.is_type {
         report_error(rc, report, int(selector.offset), CODE_NO_MEMBER, fmt.aprintf("Type '%s' has no field '%s'", owner, name))
         return
@@ -259,7 +296,7 @@ switch_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, sw: odinsyntax
     if len(missing) == 0 {
         return
     }
-    sw := sw
+    sw     := sw
     offset := int(sw.offset)
     if kw, ok := odinsyntax.find_child_token(&sw, {tokens = {.Switch}}); ok {
         offset = int(kw.offset)
@@ -297,15 +334,25 @@ unreachable_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, lit: odin
     for n in r.never_executed {
         message: string
         switch n.kind {
-        case .Return:    message = "Statements after this 'return' are never executed"
-        case .Break:     message = "Statements after this 'break' are never executed"
-        case .Continue:  message = "Statements after this 'continue' are never executed"
-        case .Diverging: message = "Statements after a diverging procedure call are never executed"
+        case .Return:
+            message = "Statements after this 'return' are never executed"
+        case .Break:
+            message = "Statements after this 'break' are never executed"
+        case .Continue:
+            message = "Statements after this 'continue' are never executed"
+        case .Diverging:
+            message = "Statements after a diverging procedure call are never executed"
         }
         report_error(rc, report, n.offset, CODE_UNREACHABLE, strings.clone(message))
     }
     for at in r.defers {
-        report_error(rc, report, at, CODE_UNREACHABLE_DEFER, strings.clone("Unreachable defer statement due to diverging procedure call at the end of the current scope"))
+        report_error(
+            rc,
+            report,
+            at,
+            CODE_UNREACHABLE_DEFER,
+            strings.clone("Unreachable defer statement due to diverging procedure call at the end of the current scope"),
+        )
     }
     for at in r.dead {
         report_error(rc, report, at, CODE_UNREACHABLE, strings.clone("Unreachable code"), .Warning, lint = true)
@@ -358,7 +405,10 @@ format_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odinsynt
             }
             message = fmt.aprintf("Verb '%c' does not take an argument of type '%s'", p.verb, odinsema.type_string(&c.table, p.type, context.temp_allocator))
         case .Extra:
-            message = p.count == 1 ? strings.clone("1 argument more than the format string uses") : fmt.aprintf("%d arguments more than the format string uses", p.count)
+            message = p.count == 1 ? strings.clone("1 argument more than the format string uses") : fmt.aprintf(
+                "%d arguments more than the format string uses",
+                p.count,
+            )
         }
         report_error(rc, report, p.offset, CODE_FMT_VERBS, message, .Hint, lint = true)
     }
@@ -419,7 +469,15 @@ ignored_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, stmt: odinsyn
     if !ok {
         return
     }
-    report_error(rc, report, at, CODE_IGNORED_ERROR, fmt.aprintf("Error result of type '%s' is ignored", odinsema.type_string(&c.table, type, context.temp_allocator)), .Hint, lint = true)
+    report_error(
+        rc,
+        report,
+        at,
+        CODE_IGNORED_ERROR,
+        fmt.aprintf("Error result of type '%s' is ignored", odinsema.type_string(&c.table, type, context.temp_allocator)),
+        .Hint,
+        lint = true,
+    )
 }
 
 // Reports, as a lint, the names of `n` that do not fit the naming rules of the workspace.
@@ -458,7 +516,15 @@ range_copies :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Sc
     if !ok {
         return
     }
-    report_error(rc, report, at, CODE_RANGE_COPY, fmt.aprintf("'%s' copies %d bytes on every iteration; 'for &%s' avoids the copy", name, size, name), .Hint, lint = true)
+    report_error(
+        rc,
+        report,
+        at,
+        CODE_RANGE_COPY,
+        fmt.aprintf("'%s' copies %d bytes on every iteration; 'for &%s' avoids the copy", name, size, name),
+        .Hint,
+        lint = true,
+    )
 }
 
 // Reports, as a lint, a use of a declaration marked `@(deprecated)`.
@@ -493,15 +559,23 @@ deprecated_members :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odi
 @(private = "file")
 defer_in_loop :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, loop: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
     for at in odinsema.loop_defers(m, loop, context.temp_allocator) {
-        report_error(rc, report, at, CODE_DEFER_IN_LOOP, strings.clone("A defer in a loop body releases a variable declared outside the loop on every iteration"), .Hint, lint = true)
+        report_error(
+            rc,
+            report,
+            at,
+            CODE_DEFER_IN_LOOP,
+            strings.clone("A defer in a loop body releases a variable declared outside the loop on every iteration"),
+            .Hint,
+            lint = true,
+        )
     }
 }
 
 // Reports, as a lint, a returned address or slice of a local.
 @(private = "file")
 dangling_returns :: proc(rc: ^Request_Context, c: ^odinsema.Checker, ret: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
-    ret := ret
-    rs, _ := odinsyntax.as_return_stmt(ret)
+    ret         := ret
+    rs, _       := odinsyntax.as_return_stmt(ret)
     values, has := odinsyntax.return_stmt_values(&rs)
     if !has {
         return
@@ -515,14 +589,14 @@ dangling_returns :: proc(rc: ^Request_Context, c: ^odinsema.Checker, ret: odinsy
 // Reports, as a lint, an address or slice of a local stored where it outlives the frame.
 @(private = "file")
 dangling_stores :: proc(rc: ^Request_Context, c: ^odinsema.Checker, assign: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
-    as, _ := odinsyntax.as_assign_stmt(assign)
+    as, _        := odinsyntax.as_assign_stmt(assign)
     lhs, has_lhs := odinsyntax.assign_stmt_lhs(&as)
     rhs, has_rhs := odinsyntax.assign_stmt_rhs(&as)
     if !has_lhs || !has_rhs {
         return
     }
     targets := odinsyntax.expr_list_items(&lhs)
-    values := odinsyntax.expr_list_items(&rhs)
+    values  := odinsyntax.expr_list_items(&rhs)
     for target in odinsyntax.child_iter_next(&targets) {
         value, more := odinsyntax.child_iter_next(&values)
         if !more {
@@ -538,14 +612,29 @@ dangling_stores :: proc(rc: ^Request_Context, c: ^odinsema.Checker, assign: odin
 @(private = "file")
 dangling_report :: proc(rc: ^Request_Context, c: ^odinsema.Checker, value: odinsyntax.Syntax_Node, what: string, report: ^lang.Diagnostic_Report) {
     if at, name, ok := odinsema.dangling_place(c, rc.live.id, value); ok {
-        report_error(rc, report, at, CODE_DANGLING_SLICE, fmt.aprintf("Address of local '%s' is %s and dangles after the procedure returns", name, what), .Hint, lint = true)
+        report_error(
+            rc,
+            report,
+            at,
+            CODE_DANGLING_SLICE,
+            fmt.aprintf("Address of local '%s' is %s and dangles after the procedure returns", name, what),
+            .Hint,
+            lint = true,
+        )
     }
 }
 
 // Reports, as a lint, an address or slice of a local that reaches a return or a store that outlives
 // the frame through a local, a field or a call.
 @(private = "file")
-dangling_flow_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope_Map, whens: []Branch, lit: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+dangling_flow_errors :: proc(
+    rc: ^Request_Context,
+    c: ^odinsema.Checker,
+    m: ^odinsema.Scope_Map,
+    whens: []Branch,
+    lit: odinsyntax.Syntax_Node,
+    report: ^lang.Diagnostic_Report,
+) {
     stores, err := odinsema.dangling_flow(c, rc.live.id, m, lit, context.temp_allocator)
     if err != nil {
         return
@@ -555,14 +644,29 @@ dangling_flow_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odi
             continue
         }
         what := s.returned ? "returned" : "stored"
-        report_error(rc, report, s.offset, CODE_DANGLING_SLICE, fmt.aprintf("A pointer or slice of a local is %s and dangles after the procedure returns", what), .Hint, lint = true)
+        report_error(
+            rc,
+            report,
+            s.offset,
+            CODE_DANGLING_SLICE,
+            fmt.aprintf("A pointer or slice of a local is %s and dangles after the procedure returns", what),
+            .Hint,
+            lint = true,
+        )
     }
 }
 
 // Reports, as a lint, a temp allocator value stored where it outlives the frame. A procedure may
 // hand one out in its result on purpose, but not park it in a global.
 @(private = "file")
-temp_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope_Map, whens: []Branch, lit: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+temp_errors :: proc(
+    rc: ^Request_Context,
+    c: ^odinsema.Checker,
+    m: ^odinsema.Scope_Map,
+    whens: []Branch,
+    lit: odinsyntax.Syntax_Node,
+    report: ^lang.Diagnostic_Report,
+) {
     stores, err := odinsema.temp_stores(c, rc.live.id, m, lit, context.temp_allocator)
     if err != nil {
         return
@@ -571,27 +675,50 @@ temp_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Sco
         if in_untaken_branch(whens, s.offset) {
             continue
         }
-        report_error(rc, report, s.offset, CODE_TEMP_ESCAPE, strings.clone("Value from the temp allocator is stored and is freed by the next free_all(context.temp_allocator)"), .Hint, lint = true)
+        report_error(
+            rc,
+            report,
+            s.offset,
+            CODE_TEMP_ESCAPE,
+            strings.clone("Value from the temp allocator is stored and is freed by the next free_all(context.temp_allocator)"),
+            .Hint,
+            lint = true,
+        )
     }
 }
 
 // Reports an `or_return` that does not fit the procedure around it.
 @(private = "file")
 or_return_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, n: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
-    p := odinsema.or_return_problem(c, rc.live.id, n)
+    p  := odinsema.or_return_problem(c, rc.live.id, n)
     at := int(n.offset)
     switch p.kind {
     case .None:
     case .No_Results:
         report_error(rc, report, at, CODE_OR_RETURN, strings.clone("'or_return' requires the current procedure to have at least one return value"))
     case .Unnamed_Results:
-        report_error(rc, report, at, CODE_OR_RETURN, strings.clone("'or_return' within a procedure with more than 1 return value requires that the return values are named, allowing for early return"))
+        report_error(
+            rc,
+            report,
+            at,
+            CODE_OR_RETURN,
+            strings.clone("'or_return' within a procedure with more than 1 return value requires that the return values are named, allowing for early return"),
+        )
     case .Single_Value:
         end := odinsema.type_string(&c.table, p.end, context.temp_allocator)
-        report_error(rc, report, at, CODE_OR_RETURN, fmt.aprintf("'or_return' expects an \"optional ok\" like value, or an n-valued expression where the last value is either a boolean or can be compared against 'nil', got %s", end))
+        report_error(
+            rc,
+            report,
+            at,
+            CODE_OR_RETURN,
+            fmt.aprintf(
+                "'or_return' expects an \"optional ok\" like value, or an n-valued expression where the last value is either a boolean or can be compared against 'nil', got %s",
+                end,
+            ),
+        )
     case .End_Mismatch:
         end := odinsema.type_string(&c.table, p.end, context.temp_allocator)
-        to := odinsema.type_string(&c.table, p.to, context.temp_allocator)
+        to  := odinsema.type_string(&c.table, p.to, context.temp_allocator)
         report_error(rc, report, at, CODE_OR_RETURN, fmt.aprintf("Cannot assign end value of type '%s' to '%s' in 'or_return'", end, to))
     }
 }
@@ -599,7 +726,14 @@ or_return_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, n: odinsynt
 // Reports, as a lint, a pointer dereference or a procedure value call whose operand is nil on every
 // path to it.
 @(private = "file")
-nil_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope_Map, whens: []Branch, lit: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+nil_errors :: proc(
+    rc: ^Request_Context,
+    c: ^odinsema.Checker,
+    m: ^odinsema.Scope_Map,
+    whens: []Branch,
+    lit: odinsyntax.Syntax_Node,
+    report: ^lang.Diagnostic_Report,
+) {
     uses, err := odinsema.nil_deref(c, rc.live.id, m, lit, context.temp_allocator)
     if err != nil {
         return
@@ -670,7 +804,7 @@ mismatch_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, problems: []
                 value = text
             }
         }
-        to := untyped_name(odinsema.type_string(&c.table, p.to, context.temp_allocator))
+        to   := untyped_name(odinsema.type_string(&c.table, p.to, context.temp_allocator))
         from := odinsema.type_string(&c.table, p.op.type, context.temp_allocator)
         if p.truncated {
             report_error(rc, report, int(p.value.offset), CODE_MISMATCH, fmt.aprintf("'%s' truncated to '%s', got %s", value, to, p.got))
@@ -681,11 +815,23 @@ mismatch_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, problems: []
             if p.got != "" {
                 got = p.got
             }
-            report_error(rc, report, int(p.value.offset), CODE_OVERFLOW, fmt.aprintf("Cannot convert numeric value '%s' from '%s' to '%s' from '%s'", got, value, to, untyped_name(from)))
+            report_error(
+                rc,
+                report,
+                int(p.value.offset),
+                CODE_OVERFLOW,
+                fmt.aprintf("Cannot convert numeric value '%s' from '%s' to '%s' from '%s'", got, value, to, untyped_name(from)),
+            )
             continue
         }
         if !odinsema.type_is_untyped(&c.table, p.op.type) {
-            report_error(rc, report, int(p.value.offset), CODE_MISMATCH, fmt.aprintf("Cannot assign value '%s' of type '%s' to '%s' in %s", value, from, to, place))
+            report_error(
+                rc,
+                report,
+                int(p.value.offset),
+                CODE_MISMATCH,
+                fmt.aprintf("Cannot assign value '%s' of type '%s' to '%s' in %s", value, from, to, place),
+            )
             continue
         }
         from = untyped_name(from)
@@ -708,10 +854,14 @@ untyped_name :: proc(name: string) -> string {
 @(private = "file")
 const_text :: proc(v: odinsema.Const_Value) -> (string, bool) {
     #partial switch x in v {
-    case i64:    return fmt.tprint(x), true
-    case rune:   return fmt.tprint(i64(x)), true
-    case bool:   return x ? "true" : "false", true
-    case string: return fmt.tprintf("%q", x), true
+    case i64:
+        return fmt.tprint(x), true
+    case rune:
+        return fmt.tprint(i64(x)), true
+    case bool:
+        return x ? "true" : "false", true
+    case string:
+        return fmt.tprintf("%q", x), true
     }
     return "", false
 }

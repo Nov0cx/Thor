@@ -20,7 +20,7 @@ import "core:time"
 
 // The repository the releases are published from.
 OWNER :: "Nov0cx"
-REPO :: "Thor"
+REPO  :: "Thor"
 
 // The releases API. /latest excludes drafts and prereleases itself; the decoded
 // flags are re-checked anyway so a later switch to /releases cannot ship one.
@@ -51,11 +51,11 @@ NOTES_MAX :: 4096
 
 // How long each shell-out may take. None is ever unbounded: a hung curl must
 // not outlive the editor.
-PROBE_TIMEOUT :: 5 * time.Second
-API_TIMEOUT :: 20 * time.Second
-SLICE_TIMEOUT :: 120 * time.Second
+PROBE_TIMEOUT   :: 5 * time.Second
+API_TIMEOUT     :: 20 * time.Second
+SLICE_TIMEOUT   :: 120 * time.Second
 EXTRACT_TIMEOUT :: 300 * time.Second
-XATTR_TIMEOUT :: 30 * time.Second
+XATTR_TIMEOUT   :: 30 * time.Second
 UNBLOCK_TIMEOUT :: 60 * time.Second
 
 // Why a check or an install stopped. Ok is the only success; Up_To_Date is the
@@ -88,13 +88,13 @@ Status :: enum {
 // What a check found. Every string is owned by the caller's allocator and is
 // empty unless the status is Ok.
 Check_Result :: struct {
-    status:   Status,
-    version:  string, // owned; the release version, no leading v
-    notes:    string, // owned; the release body, capped at NOTES_MAX
-    url:      string, // owned; the validated archive download
-    sums_url: string, // owned; the validated SHA256SUMS download
-    asset:    string, // owned; the archive name, which is the SHA256SUMS key
-    size:     i64,
+    status:      Status,
+    version:     string, // owned; the release version, no leading v
+    notes:       string, // owned; the release body, capped at NOTES_MAX
+    url:         string, // owned; the validated archive download
+    sums_url:    string, // owned; the validated SHA256SUMS download
+    asset:       string, // owned; the archive name, which is the SHA256SUMS key
+    size:        i64,
     // Whether this build may install what it found. False sends the user to the
     // releases page instead — a dev tree, a directory it cannot write.
     installable: bool,

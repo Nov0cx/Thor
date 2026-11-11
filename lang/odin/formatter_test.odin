@@ -18,7 +18,7 @@ test_format_config_integer_settings_apply :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    root := "thor_lang_fmtcfg_ws"
+    root    := "thor_lang_fmtcfg_ws"
     cfg_dir := strings.concatenate({root, "/.thor"}, context.temp_allocator)
     _ = os.make_directory(root)
     _ = os.make_directory(cfg_dir)
@@ -30,12 +30,7 @@ test_format_config_integer_settings_apply :: proc(t: ^testing.T) {
     // Every numeric key written as a bare integer, plus tabs:false so
     // `spaces` is the one actually rendered — if read_int only matched
     // a float, every field here would silently stay at its default.
-    cfg_src := "return {\n" +
-        "    spaces = 2,\n" +
-        "    tabs = false,\n" +
-        "    character_width = 40,\n" +
-        "    newline_limit = 0,\n" +
-        "}\n"
+    cfg_src := "return {\n" + "    spaces = 2,\n" + "    tabs = false,\n" + "    character_width = 40,\n" + "    newline_limit = 0,\n" + "}\n"
     _ = os.write_entire_file(cfg, transmute([]byte)cfg_src)
 
     src := "package demo\nFoo :: struct {\n\tx: int,\n\ty: int,\n}\n"
@@ -58,17 +53,9 @@ test_format_config_integer_settings_apply :: proc(t: ^testing.T) {
     // front — front to back would use offsets stale from earlier edits.
     formatted := src
     #reverse for edit in res.edits {
-        formatted = strings.concatenate(
-            {formatted[:edit.start], edit.new_text, formatted[edit.end:]},
-            context.temp_allocator,
-        )
+        formatted = strings.concatenate({formatted[:edit.start], edit.new_text, formatted[edit.end:]}, context.temp_allocator)
     }
-    testing.expectf(
-        t,
-        strings.contains(formatted, "\n  x: int,"),
-        "expected 2-space indent from the config's \"spaces\": 2, got:\n%s",
-        formatted,
-    )
+    testing.expectf(t, strings.contains(formatted, "\n  x: int,"), "expected 2-space indent from the config's \"spaces\": 2, got:\n%s", formatted)
 }
 
 // Applies res.edits to src back to front, the order thor_apply_edits uses.
@@ -100,15 +87,8 @@ test_format_range_clips_to_selection :: proc(t: ^testing.T) {
     defer engine_destroy(e)
 
     src := "package demo\nf :: proc() {\nreturn\n}\ng :: proc() {\nreturn\n}\n"
-    lo := strings.index(src, "g :: proc")
-    req := lang.Request {
-        kind   = .Format_Range,
-        path   = "buffer.odin",
-        ext    = ".odin",
-        source = src,
-        offset = lo,
-        end    = len(src),
-    }
+    lo  := strings.index(src, "g :: proc")
+    req := lang.Request{kind = .Format_Range, path = "buffer.odin", ext = ".odin", source = src, offset = lo, end = len(src)}
     res := lang.Result{kind = .Format_Range}
     resolve(e, &req, &res)
     defer free_edits(&res)
@@ -131,7 +111,7 @@ test_format_range_keeps_imports_with_sort :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    root := "thor_lang_fmtsort_ws"
+    root    := "thor_lang_fmtsort_ws"
     cfg_dir := strings.concatenate({root, "/.thor"}, context.temp_allocator)
     _ = os.make_directory(root)
     _ = os.make_directory(cfg_dir)
@@ -143,17 +123,9 @@ test_format_range_keeps_imports_with_sort :: proc(t: ^testing.T) {
     _ = os.write_entire_file(cfg, transmute([]byte)cfg_src)
 
     src := "package demo\nimport \"core:os\"\nimport \"core:mem\"\nimport \"core:fmt\"\n"
-    lo := strings.index(src, "import")
-    hi := lo + strings.index(src[lo:], "\n")
-    req := lang.Request {
-        kind      = .Format_Range,
-        path      = "buffer.odin",
-        ext       = ".odin",
-        source    = src,
-        workspace = root,
-        offset    = lo,
-        end       = hi,
-    }
+    lo  := strings.index(src, "import")
+    hi  := lo + strings.index(src[lo:], "\n")
+    req := lang.Request{kind = .Format_Range, path = "buffer.odin", ext = ".odin", source = src, workspace = root, offset = lo, end = hi}
     res := lang.Result{kind = .Format_Range}
     resolve(e, &req, &res)
     defer free_edits(&res)
@@ -164,17 +136,12 @@ test_format_range_keeps_imports_with_sort :: proc(t: ^testing.T) {
     }
 
     // The whole-document format still sorts.
-    all := lang.Request{kind = .Format, path = "buffer.odin", ext = ".odin", source = src, workspace = root}
+    all     := lang.Request{kind = .Format, path = "buffer.odin", ext = ".odin", source = src, workspace = root}
     all_res := lang.Result{kind = .Format}
     resolve(e, &all, &all_res)
     defer free_edits(&all_res)
     sorted := apply_edits(src, &all_res)
-    testing.expectf(
-        t,
-        strings.contains(sorted, "\"core:fmt\"\nimport \"core:mem\"\nimport \"core:os\""),
-        "expected a sorted import run, got:\n%s",
-        sorted,
-    )
+    testing.expectf(t, strings.contains(sorted, "\"core:fmt\"\nimport \"core:mem\"\nimport \"core:os\""), "expected a sorted import run, got:\n%s", sorted)
 }
 
 // Format-on-type at a closing brace reindents that line. The rest of the buffer
@@ -186,15 +153,8 @@ test_format_on_type_reindents_trigger_line :: proc(t: ^testing.T) {
     defer engine_destroy(e)
 
     src := "package demo\nf :: proc() {\n\treturn\n    }\n"
-    at := strings.index(src, "    }")
-    req := lang.Request {
-        kind    = .Format_On_Type,
-        path    = "buffer.odin",
-        ext     = ".odin",
-        source  = src,
-        offset  = at,
-        trigger = "}",
-    }
+    at  := strings.index(src, "    }")
+    req := lang.Request{kind = .Format_On_Type, path = "buffer.odin", ext = ".odin", source = src, offset = at, trigger = "}"}
     res := lang.Result{kind = .Format_On_Type}
     resolve(e, &req, &res)
     defer free_edits(&res)
@@ -213,15 +173,8 @@ test_format_on_type_leaves_other_lines_alone :: proc(t: ^testing.T) {
     defer engine_destroy(e)
 
     src := "package demo\nf :: proc() {\nreturn\n    }\n"
-    at := strings.index(src, "    }")
-    req := lang.Request {
-        kind    = .Format_On_Type,
-        path    = "buffer.odin",
-        ext     = ".odin",
-        source  = src,
-        offset  = at,
-        trigger = "}",
-    }
+    at  := strings.index(src, "    }")
+    req := lang.Request{kind = .Format_On_Type, path = "buffer.odin", ext = ".odin", source = src, offset = at, trigger = "}"}
     res := lang.Result{kind = .Format_On_Type}
     resolve(e, &req, &res)
     defer free_edits(&res)
@@ -256,7 +209,7 @@ test_format_config_reports_bad_values :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    root := "thor_lang_fmtcfg_bad_ws"
+    root    := "thor_lang_fmtcfg_bad_ws"
     cfg_dir := strings.concatenate({root, "/.thor"}, context.temp_allocator)
     _ = os.make_directory(root)
     _ = os.make_directory(cfg_dir)
@@ -270,7 +223,7 @@ test_format_config_reports_bad_values :: proc(t: ^testing.T) {
 
     warnings := 0
     {
-        context.logger = runtime.Logger {count_warnings, &warnings, .Debug, {}}
+        context.logger = runtime.Logger{count_warnings, &warnings, .Debug, {}}
         format_config_ensure(&e.format_config, root)
     }
     testing.expect_value(t, warnings, 4)

@@ -9,8 +9,8 @@ import "core:strings"
 import "core:thread"
 import "core:time"
 
-import "../shell"
 import "../lockfree"
+import "../shell"
 
 // Async git commands for the git view: one Git_Op_Job per operation, run on a
 // worker thread and drained by thor_process_io. The parsers are pure and take
@@ -18,24 +18,24 @@ import "../lockfree"
 
 // Commands with no network access get the short timeout; fetch/pull/push can
 // stall on a credential prompt, so they are killed instead of hanging forever.
-GIT_LOCAL_TIMEOUT :: 10 * time.Second
+GIT_LOCAL_TIMEOUT   :: 10 * time.Second
 GIT_NETWORK_TIMEOUT :: 60 * time.Second
 
 // Rows past this cap are dropped and replaced with one truncation marker.
 GIT_DIFF_MAX_ROWS :: 5000
 
 Git_Op :: enum {
-    Snapshot,        // status -z + branch + upstream counts
-    Diff_File,       // unified diff of one path (arg), staged when flag is set
-    Log,             // arg = commit count
-    Commit_Show,     // arg = hash
-    Refs,            // branches + remotes + tags + stashes
-    Stage,           // arg = repo-relative path
+    Snapshot,    // status -z + branch + upstream counts
+    Diff_File,   // unified diff of one path (arg), staged when flag is set
+    Log,         // arg = commit count
+    Commit_Show, // arg = hash
+    Refs,        // branches + remotes + tags + stashes
+    Stage,       // arg = repo-relative path
     Unstage,
     Stage_All,
     Unstage_All,
-    Discard,         // arg = repo-relative path
-    Commit,          // arg = subject, arg2 = description, flag = amend
+    Discard, // arg = repo-relative path
+    Commit,  // arg = subject, arg2 = description, flag = amend
     Fetch,
     Pull,
     Push,
@@ -45,16 +45,16 @@ Git_Op :: enum {
     Stash_Apply,     // arg = "stash@{N}"
     Stash_Pop,
     Stash_Drop,
-    Config_List,     // local + global tables
-    Config_Set,      // arg = key, arg2 = value, flag = global
-    Remote_Url,      // origin's URL
-    CLI_Probe,       // gh + glab --version
-    PR_List,         // flag = use glab
-    PR_Create,       // arg = branch, flag = use glab
-    Clone,           // arg = url, arg2 = destination directory
-    Lfs_Probe,       // git lfs version + ls-files + tracked patterns
-    Lfs_Pull,        // fetch + checkout of LFS objects
-    Lfs_Track,       // arg = pattern
+    Config_List, // local + global tables
+    Config_Set,  // arg = key, arg2 = value, flag = global
+    Remote_Url,  // origin's URL
+    CLI_Probe,   // gh + glab --version
+    PR_List,     // flag = use glab
+    PR_Create,   // arg = branch, flag = use glab
+    Clone,       // arg = url, arg2 = destination directory
+    Lfs_Probe,   // git lfs version + ls-files + tracked patterns
+    Lfs_Pull,    // fetch + checkout of LFS objects
+    Lfs_Track,   // arg = pattern
 }
 
 // Cloning fetches a whole repository, so it gets its own generous timeout.
@@ -70,26 +70,26 @@ Git_Op_Job :: struct {
     worker:     ^thread.Thread,
     op:         Git_Op,
     generation: int,
-    serial:     int,     // Diff_File: thor.git_diff_serial at dispatch
-    cwd:        string,  // owned
-    arg:        string,  // owned
-    arg2:       string,  // owned
+    serial:     int,    // Diff_File: thor.git_diff_serial at dispatch
+    cwd:        string, // owned
+    arg:        string, // owned
+    arg2:       string, // owned
     flag:       bool,
-    output:     string,  // owned; main command output
+    output:     string, // owned; main command output
     code:       int,
     ok:         bool,
     // Secondary command outputs, owned; what each slot holds depends on the
     // op — Snapshot: branch / short head / upstream counts, Refs: remote
     // branches / tags / stash list.
-    aux:       [3]string,
-    aux_codes: [3]int,
+    aux:        [3]string,
+    aux_codes:  [3]int,
 }
 
 // One changed path from `git status --porcelain -z`, assigned to the staged
 // (index) or unstaged (worktree) list. A file changed in both places yields
 // two entries. Conflicts yield one unstaged entry.
 Git_File_Entry :: struct {
-    path:   string,  // owned; repo-relative, forward slashes
+    path:   string, // owned; repo-relative, forward slashes
     status: Git_Status,
     staged: bool,
 }
@@ -136,9 +136,26 @@ thor_git_op :: proc(thor: ^Thor, op: Git_Op, arg := "", arg2 := "", flag := fals
 
 git_op_is_mutation :: proc(op: Git_Op) -> bool {
     switch op {
-    case .Stage, .Unstage, .Stage_All, .Unstage_All, .Discard, .Commit, .Fetch, .Pull, .Push,
-         .Checkout, .Checkout_Remote, .Stash_Save, .Stash_Apply, .Stash_Pop, .Stash_Drop,
-         .Config_Set, .PR_Create, .Clone, .Lfs_Pull, .Lfs_Track:
+    case .Stage,
+        .Unstage,
+        .Stage_All,
+        .Unstage_All,
+        .Discard,
+        .Commit,
+        .Fetch,
+        .Pull,
+        .Push,
+        .Checkout,
+        .Checkout_Remote,
+        .Stash_Save,
+        .Stash_Apply,
+        .Stash_Pop,
+        .Stash_Drop,
+        .Config_Set,
+        .PR_Create,
+        .Clone,
+        .Lfs_Pull,
+        .Lfs_Track:
         return true
     case .Snapshot, .Diff_File, .Log, .Commit_Show, .Refs, .Config_List, .Remote_Url, .CLI_Probe, .PR_List, .Lfs_Probe:
         return false
@@ -166,10 +183,29 @@ git_op_worker :: proc(job: ^Git_Op_Job) {
         git_run_cli_probe(job)
     case .Lfs_Probe:
         git_run_lfs_probe(job)
-    case .Stage, .Unstage, .Stage_All, .Unstage_All, .Discard, .Fetch, .Pull, .Push,
-         .Log, .Commit_Show, .Checkout, .Checkout_Remote,
-         .Stash_Save, .Stash_Apply, .Stash_Pop, .Stash_Drop,
-         .Config_Set, .Remote_Url, .PR_List, .PR_Create, .Clone, .Lfs_Pull, .Lfs_Track:
+    case .Stage,
+        .Unstage,
+        .Stage_All,
+        .Unstage_All,
+        .Discard,
+        .Fetch,
+        .Pull,
+        .Push,
+        .Log,
+        .Commit_Show,
+        .Checkout,
+        .Checkout_Remote,
+        .Stash_Save,
+        .Stash_Apply,
+        .Stash_Pop,
+        .Stash_Drop,
+        .Config_Set,
+        .Remote_Url,
+        .PR_List,
+        .PR_Create,
+        .Clone,
+        .Lfs_Pull,
+        .Lfs_Track:
         git_run_simple(job)
     }
 
@@ -233,7 +269,7 @@ git_run_diff_file :: proc(job: ^Git_Op_Job) {
         return
     }
     cached := job.flag ? "--cached " : ""
-    cmd := strings.concatenate({"git --no-optional-locks diff ", cached, "--no-color -- ", quoted}, context.temp_allocator)
+    cmd    := strings.concatenate({"git --no-optional-locks diff ", cached, "--no-color -- ", quoted}, context.temp_allocator)
     job.output, job.code, job.ok = shell.run_status(cmd, job.cwd, GIT_LOCAL_TIMEOUT)
 }
 
@@ -269,7 +305,7 @@ git_run_commit :: proc(job: ^Git_Op_Job) {
     if job.arg2 == "" {
         message = strings.concatenate({job.arg, "\n"}, context.temp_allocator)
     }
-    if err := os.write_entire_file(msg_path, transmute([]byte) message); err != nil {
+    if err := os.write_entire_file(msg_path, transmute([]byte)message); err != nil {
         job.output = strings.clone("could not write the commit message file")
         job.code = -1
         return
@@ -283,7 +319,7 @@ git_run_commit :: proc(job: ^Git_Op_Job) {
         return
     }
     amend := job.flag ? " --amend" : ""
-    cmd := strings.concatenate({"git commit -F ", quoted, amend}, context.temp_allocator)
+    cmd   := strings.concatenate({"git commit -F ", quoted, amend}, context.temp_allocator)
     job.output, job.code, job.ok = shell.run_status(cmd, job.cwd, GIT_LOCAL_TIMEOUT)
 }
 
@@ -301,8 +337,10 @@ git_run_simple :: proc(job: ^Git_Op_Job) {
         }
         verb := "git add -- "
         #partial switch job.op {
-        case .Unstage: verb = "git reset -q -- "
-        case .Discard: verb = "git checkout -- "
+        case .Unstage:
+            verb = "git reset -q -- "
+        case .Discard:
+            verb = "git checkout -- "
         }
         cmd = strings.concatenate({verb, quoted}, context.temp_allocator)
     case .Stage_All:
@@ -312,10 +350,7 @@ git_run_simple :: proc(job: ^Git_Op_Job) {
     case .Log:
         // Control-character field/record separators survive any subject text;
         // %x1f splits fields, %x1e ends a record.
-        cmd = strings.concatenate(
-            {"git log --date=short -n ", job.arg, " --format=%H%x1f%h%x1f%an%x1f%ad%x1f%D%x1f%s%x1e"},
-            context.temp_allocator,
-        )
+        cmd = strings.concatenate({"git log --date=short -n ", job.arg, " --format=%H%x1f%h%x1f%an%x1f%ad%x1f%D%x1f%s%x1e"}, context.temp_allocator)
     case .Commit_Show:
         quoted, quote_ok := git_quote_path(job.arg)
         if !quote_ok {
@@ -341,7 +376,7 @@ git_run_simple :: proc(job: ^Git_Op_Job) {
             local = local[slash + 1:]
         }
         remote_quoted, remote_ok := git_quote_path(job.arg)
-        local_quoted, local_ok := git_quote_path(local)
+        local_quoted, local_ok   := git_quote_path(local)
         if !remote_ok || !local_ok {
             job.output = strings.clone("unsupported character in name")
             job.code = -1
@@ -368,8 +403,10 @@ git_run_simple :: proc(job: ^Git_Op_Job) {
         }
         verb := "git stash apply "
         #partial switch job.op {
-        case .Stash_Pop:  verb = "git stash pop "
-        case .Stash_Drop: verb = "git stash drop "
+        case .Stash_Pop:
+            verb = "git stash pop "
+        case .Stash_Drop:
+            verb = "git stash drop "
         }
         cmd = strings.concatenate({verb, quoted}, context.temp_allocator)
     case .Fetch:
@@ -382,7 +419,7 @@ git_run_simple :: proc(job: ^Git_Op_Job) {
         cmd = "git push"
         timeout = GIT_NETWORK_TIMEOUT
     case .Config_Set:
-        key_quoted, key_ok := git_quote_path(job.arg)
+        key_quoted, key_ok     := git_quote_path(job.arg)
         value_quoted, value_ok := git_quote_path(job.arg2)
         if !key_ok || !value_ok {
             job.output = strings.clone("unsupported character in the value")
@@ -489,9 +526,26 @@ thor_apply_git_op :: proc(thor: ^Thor, job: ^Git_Op_Job) {
         if !stale {
             thor_git_push_prs(thor, job)
         }
-    case .Stage, .Unstage, .Stage_All, .Unstage_All, .Discard, .Commit, .Fetch, .Pull, .Push,
-         .Checkout, .Checkout_Remote, .Stash_Save, .Stash_Apply, .Stash_Pop, .Stash_Drop,
-         .Config_Set, .PR_Create, .Clone, .Lfs_Pull, .Lfs_Track:
+    case .Stage,
+        .Unstage,
+        .Stage_All,
+        .Unstage_All,
+        .Discard,
+        .Commit,
+        .Fetch,
+        .Pull,
+        .Push,
+        .Checkout,
+        .Checkout_Remote,
+        .Stash_Save,
+        .Stash_Apply,
+        .Stash_Pop,
+        .Stash_Drop,
+        .Config_Set,
+        .PR_Create,
+        .Clone,
+        .Lfs_Pull,
+        .Lfs_Track:
         thor.git_mutation_inflight = false
         thor_refresh_git_status(thor)
         if !stale {
@@ -626,10 +680,14 @@ git_next_field :: proc(rest: ^string) -> (field: string, ok: bool) {
 @(private = "file")
 git_letter_status :: proc(c: u8) -> Git_Status {
     switch c {
-    case 'A', 'C': return .Added
-    case 'D':      return .Deleted
-    case 'R':      return .Renamed
-    case '?':      return .Untracked
+    case 'A', 'C':
+        return .Added
+    case 'D':
+        return .Deleted
+    case 'R':
+        return .Renamed
+    case '?':
+        return .Untracked
     }
     return .Modified
 }
@@ -645,7 +703,7 @@ git_file_entries_destroy :: proc(entries: ^[dynamic]Git_File_Entry) {
 // side counts commits only upstream has (behind), the right side ours (ahead).
 git_parse_upstream_counts :: proc(output: string) -> (ahead, behind: int, ok: bool) {
     trimmed := strings.trim_space(output)
-    tab := strings.index_byte(trimmed, '\t')
+    tab     := strings.index_byte(trimmed, '\t')
     if tab < 0 {
         return
     }
@@ -731,7 +789,7 @@ git_diff_text :: proc(line: string) -> string {
 // "@@ -old_start[,count] +new_start[,count] @@": both start values.
 @(private = "file")
 git_parse_hunk_starts :: proc(line: string) -> (old_start, new_start: int, ok: bool) {
-    rest := strings.trim_prefix(line, "@@")
+    rest  := strings.trim_prefix(line, "@@")
     close := strings.index(rest, "@@")
     if close < 0 {
         return
@@ -752,7 +810,7 @@ Git_Log_Entry :: struct {
     short:   string,
     author:  string,
     date:    string,
-    refs:    string,  // decorations ("HEAD -> master, origin/master"), "" for none
+    refs:    string, // decorations ("HEAD -> master, origin/master"), "" for none
     subject: string,
 }
 
@@ -772,14 +830,17 @@ git_parse_log :: proc(output: string, out: ^[dynamic]Git_Log_Entry) {
         if len(parts) != 6 {
             continue
         }
-        append(out, Git_Log_Entry {
-            hash = strings.clone(parts[0]),
-            short = strings.clone(parts[1]),
-            author = strings.clone(parts[2]),
-            date = strings.clone(parts[3]),
-            refs = strings.clone(strings.trim_space(parts[4])),
-            subject = strings.clone(parts[5]),
-        })
+        append(
+            out,
+            Git_Log_Entry{
+                hash = strings.clone(parts[0]),
+                short = strings.clone(parts[1]),
+                author = strings.clone(parts[2]),
+                date = strings.clone(parts[3]),
+                refs = strings.clone(strings.trim_space(parts[4])),
+                subject = strings.clone(parts[5]),
+            },
+        )
     }
 }
 
@@ -805,7 +866,7 @@ git_parse_branch_lines :: proc(output: string, out: ^[dynamic]string) -> (curren
         if trimmed == "" {
             continue
         }
-        name := trimmed
+        name       := trimmed
         is_current := false
         if tab := strings.index_byte(trimmed, '\t'); tab >= 0 {
             is_current = strings.trim_space(trimmed[tab + 1:]) == "*"
@@ -846,7 +907,7 @@ Git_Config_Entry :: struct {
 git_parse_config_z :: proc(output: string, out: ^[dynamic]Git_Config_Entry) {
     rest := output
     for len(rest) > 0 {
-        nul := strings.index_byte(rest, 0)
+        nul   := strings.index_byte(rest, 0)
         entry := nul >= 0 ? rest[:nul] : rest
         rest = nul >= 0 ? rest[nul + 1:] : ""
         if strings.trim_space(entry) == "" {
@@ -857,10 +918,7 @@ git_parse_config_z :: proc(output: string, out: ^[dynamic]Git_Config_Entry) {
             append(out, Git_Config_Entry{strings.clone(strings.trim_space(entry)), strings.clone("")})
             continue
         }
-        append(out, Git_Config_Entry{
-            strings.clone(strings.trim_space(entry[:newline])),
-            strings.clone(entry[newline + 1:]),
-        })
+        append(out, Git_Config_Entry{strings.clone(strings.trim_space(entry[:newline])), strings.clone(entry[newline + 1:])})
     }
 }
 
@@ -877,7 +935,7 @@ git_parse_stash_lines :: proc(output: string, ids, subjects: ^[dynamic]string) {
     it := output
     for line in strings.split_lines_iterator(&it) {
         trimmed := strings.trim_space(line)
-        tab := strings.index_byte(trimmed, '\t')
+        tab     := strings.index_byte(trimmed, '\t')
         if tab <= 0 {
             continue
         }
@@ -910,8 +968,8 @@ git_parse_lfs_patterns :: proc(output: string, out: ^[dynamic]string) {
 // pointer field, with a pointer version line among them.
 git_diff_is_lfs_pointer :: proc(output: string) -> bool {
     saw_version := false
-    saw_change := false
-    it := output
+    saw_change  := false
+    it          := output
     for raw in strings.split_lines_iterator(&it) {
         line := strings.trim_suffix(raw, "\r")
         if len(line) == 0 || (line[0] != '+' && line[0] != '-') {
@@ -955,9 +1013,9 @@ git_lfs_pointer_rows :: proc(output: string, out: ^[dynamic]Git_Diff_Row) {
 // side has no oid.
 @(private = "file")
 git_lfs_side_label :: proc(output: string, sign: u8, allocator := context.temp_allocator) -> string {
-    oid := ""
+    oid  := ""
     size := -1
-    it := output
+    it   := output
     for raw in strings.split_lines_iterator(&it) {
         line := strings.trim_suffix(raw, "\r")
         if len(line) < 2 || line[0] != sign || line[1] == sign {
@@ -984,8 +1042,8 @@ git_lfs_side_label :: proc(output: string, sign: u8, allocator := context.temp_a
 
 // "12.3 MB" for a byte count.
 git_size_label :: proc(bytes: int, allocator := context.temp_allocator) -> string {
-    units := [?]string {"KB", "MB", "GB", "TB"}
-    value := cast(f64) bytes
+    units := [?]string{"KB", "MB", "GB", "TB"}
+    value := cast(f64)bytes
     index := -1
     for value >= 1024 && index < len(units) - 1 {
         value /= 1024
@@ -1010,7 +1068,7 @@ git_quote_path :: proc(path: string, allocator := context.temp_allocator) -> (qu
         b: strings.Builder
         strings.builder_init(&b, allocator)
         strings.write_byte(&b, '"')
-        for c in transmute([]u8) path {
+        for c in transmute([]u8)path {
             if c == '"' || c == '$' || c == '`' || c == '\\' {
                 strings.write_byte(&b, '\\')
             }

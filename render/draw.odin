@@ -5,8 +5,8 @@ import "core:math"
 import rl "vendor:raylib"
 import "vendor:raylib/rlgl"
 import "../font"
-import ui "../vendor/loom/loom"
 import "../prof"
+import ui "../vendor/loom/loom"
 
 // Turns a frame's draw list into raylib calls.
 draw :: proc(b: ^Backend, list: ui.Draw_List) {
@@ -61,10 +61,10 @@ arc_path :: proc(out: ^[dynamic]rl.Vector2, cx, cy, radius, a0, a1: f32, segs: i
 rrect_path :: proc(b: ^Backend, out: ^[dynamic]rl.Vector2, r: rl.Rectangle, rad: ui.Radius) {
     clear(out)
     lim := min(r.width, r.height) * 0.5
-    tl := clamp(rad.tl, 0, lim)
-    tr := clamp(rad.tr, 0, lim)
-    br := clamp(rad.br, 0, lim)
-    bl := clamp(rad.bl, 0, lim)
+    tl  := clamp(rad.tl, 0, lim)
+    tr  := clamp(rad.tr, 0, lim)
+    br  := clamp(rad.br, 0, lim)
+    bl  := clamp(rad.bl, 0, lim)
 
     segs := b.opts.arc_segments
     PI :: math.PI
@@ -107,8 +107,8 @@ paint_at :: proc(p: ui.Paint, x, y: f32, box: rl.Rectangle) -> rl.Color {
             if len(v.stops) < 4 {
                 return raylib_color(v.stops[0].color)
             }
-            u := box.width > 0 ? clamp((x - box.x) / box.width, 0, 1) : 0
-            w := box.height > 0 ? clamp((y - box.y) / box.height, 0, 1) : 0
+            u   := box.width > 0 ? clamp((x - box.x) / box.width, 0, 1) : 0
+            w   := box.height > 0 ? clamp((y - box.y) / box.height, 0, 1) : 0
             top := mix_color(v.stops[0].color, v.stops[1].color, u)
             bot := mix_color(v.stops[3].color, v.stops[2].color, u)
             return raylib_color(mix_color(top, bot, w))
@@ -118,7 +118,7 @@ paint_at :: proc(p: ui.Paint, x, y: f32, box: rl.Rectangle) -> rl.Color {
         for s in v.stops {
             if s.t >= t {
                 span := s.t - lo.t
-                k := span > 0 ? (t - lo.t) / span : 0
+                k    := span > 0 ? (t - lo.t) / span : 0
                 return raylib_color(mix_color(lo.color, s.color, k))
             }
             lo = s
@@ -136,7 +136,7 @@ draw_poly :: proc(b: ^Backend, cmd: ui.Cmd_Poly) {
         return
     }
     col := raylib_color(cmd.color)
-    a := rl.Vector2{cmd.points[0].x, cmd.points[0].y}
+    a   := rl.Vector2{cmd.points[0].x, cmd.points[0].y}
     for i in 1 ..< len(cmd.points) - 1 {
         p1 := rl.Vector2{cmd.points[i].x, cmd.points[i].y}
         p2 := rl.Vector2{cmd.points[i + 1].x, cmd.points[i + 1].y}
@@ -162,8 +162,8 @@ fill_poly :: proc(pts: []rl.Vector2, box: rl.Rectangle, p: ui.Paint) {
     rlgl.Begin(rlgl.TRIANGLES)
     rlgl.TexCoord2f(0, 0)
     for i in 0 ..< len(pts) {
-        a := pts[i]
-        d := pts[(i + 1) % len(pts)]
+        a  := pts[i]
+        d  := pts[(i + 1) % len(pts)]
         ca := paint_at(p, a.x, a.y, box)
         cd := paint_at(p, d.x, d.y, box)
         rlgl.Color4ub(cc.r, cc.g, cc.b, cc.a)
@@ -215,20 +215,15 @@ grow_radius :: proc(rad: ui.Radius, w: f32) -> ui.Radius {
 
 draw_rect :: proc(b: ^Backend, cmd: ui.Cmd_Rect) {
     box := raylib_rect(cmd.rect)
-    s := cmd.shadow
+    s   := cmd.shadow
 
     if s.color[3] > 0 && !s.inset {
         steps := int(clamp(s.blur * 0.5, 1, MAX_SHADOW_STEPS))
         for i in 0 ..< steps {
-            t := f32(i) / f32(steps)
+            t    := f32(i) / f32(steps)
             grow := s.spread + s.blur * t
-            a := u8(f32(s.color[3]) / f32(steps) * (1 - t))
-            r := rl.Rectangle {
-                box.x + s.offset.x - grow,
-                box.y + s.offset.y - grow,
-                box.width + grow * 2,
-                box.height + grow * 2,
-            }
+            a    := u8(f32(s.color[3]) / f32(steps) * (1 - t))
+            r    := rl.Rectangle{box.x + s.offset.x - grow, box.y + s.offset.y - grow, box.width + grow * 2, box.height + grow * 2}
             rrect_path(b, &b.path_a, r, grow_radius(cmd.radius, grow))
             fill_poly(b.path_a[:], r, ui.Color{s.color[0], s.color[1], s.color[2], a})
         }
@@ -240,15 +235,10 @@ draw_rect :: proc(b: ^Backend, cmd: ui.Cmd_Rect) {
     if s.color[3] > 0 && s.inset {
         steps := int(clamp(s.blur * 0.5, 1, MAX_SHADOW_STEPS))
         for i in 0 ..< steps {
-            t := f32(i) / f32(steps)
+            t      := f32(i) / f32(steps)
             shrink := s.spread + s.blur * t
-            a := u8(f32(s.color[3]) / f32(steps) * (1 - t))
-            r := rl.Rectangle {
-                box.x + s.offset.x + shrink,
-                box.y + s.offset.y + shrink,
-                box.width - shrink * 2,
-                box.height - shrink * 2,
-            }
+            a      := u8(f32(s.color[3]) / f32(steps) * (1 - t))
+            r      := rl.Rectangle{box.x + s.offset.x + shrink, box.y + s.offset.y + shrink, box.width - shrink * 2, box.height - shrink * 2}
             if r.width <= 0 || r.height <= 0 {
                 break
             }
@@ -262,17 +252,12 @@ draw_rect :: proc(b: ^Backend, cmd: ui.Cmd_Rect) {
         return
     }
 
-    bw := cmd.border.width
+    bw  := cmd.border.width
     col := raylib_color(cmd.border.color)
     if bw.l == bw.t && bw.t == bw.r && bw.r == bw.b {
         if bw.l > 0 {
-            w := bw.l
-            inner := rl.Rectangle {
-                box.x + w,
-                box.y + w,
-                max(box.width - w * 2, 0),
-                max(box.height - w * 2, 0),
-            }
+            w     := bw.l
+            inner := rl.Rectangle{box.x + w, box.y + w, max(box.width - w * 2, 0), max(box.height - w * 2, 0)}
             rrect_path(b, &b.path_a, box, cmd.radius)
             rrect_path(b, &b.path_b, inner, inset_radius(cmd.radius, w))
             stroke_ring(b.path_a[:], b.path_b[:], col)
@@ -300,16 +285,7 @@ draw_text :: proc(b: ^Backend, cmd: ui.Cmd_Text) {
     }
     // Loom places a run by its baseline; the font package draws from the top.
     top := cmd.pos.y - cmd.size * ASCENT_FRACTION
-    font.draw(
-        cmd.text,
-        i32(cmd.pos.x),
-        i32(top),
-        i32(cmd.size),
-        raylib_color(cmd.color),
-        family_of(b, cmd.font),
-        0,
-        style_of(b, cmd.font),
-    )
+    font.draw(cmd.text, i32(cmd.pos.x), i32(top), i32(cmd.size), raylib_color(cmd.color), family_of(b, cmd.font), 0, style_of(b, cmd.font))
 }
 
 draw_image :: proc(b: ^Backend, cmd: ui.Cmd_Image) {
@@ -322,12 +298,7 @@ draw_image :: proc(b: ^Backend, cmd: ui.Cmd_Image) {
     if src.w == 0 || src.h == 0 {
         src = {0, 0, f32(tex.width), f32(tex.height)}
     } else {
-        src = {
-            src.x * f32(tex.width),
-            src.y * f32(tex.height),
-            src.w * f32(tex.width),
-            src.h * f32(tex.height),
-        }
+        src = {src.x * f32(tex.width), src.y * f32(tex.height), src.w * f32(tex.width), src.h * f32(tex.height)}
     }
 
     tint := cmd.tint
@@ -338,9 +309,12 @@ draw_image :: proc(b: ^Backend, cmd: ui.Cmd_Image) {
 }
 
 @(private)
-// A scissor is axis-aligned, so Cmd_Push_Clip.radius is dropped: a rounded
-// panel clips its contents to the bounding box, not to the corner.
-push_clip :: proc(b: ^Backend, r: rl.Rectangle) {
+push_clip :: proc(
+    // A scissor is axis-aligned, so Cmd_Push_Clip.radius is dropped: a rounded
+    // panel clips its contents to the bounding box, not to the corner.
+    b: ^Backend,
+    r: rl.Rectangle,
+) {
     next := r
     if len(b.clip) > 0 {
         p := b.clip[len(b.clip) - 1]
@@ -367,12 +341,9 @@ pop_clip :: proc(b: ^Backend) {
 }
 
 @(private)
-// The rect is in screen coordinates, the same space as every draw call; raylib scales it to the framebuffer.
-apply_clip :: proc(r: rl.Rectangle) {
-    rl.BeginScissorMode(
-        c.int(math.round(r.x)),
-        c.int(math.round(r.y)),
-        c.int(math.round(r.width)),
-        c.int(math.round(r.height)),
-    )
+apply_clip :: proc(
+    // The rect is in screen coordinates, the same space as every draw call; raylib scales it to the framebuffer.
+    r: rl.Rectangle,
+) {
+    rl.BeginScissorMode(c.int(math.round(r.x)), c.int(math.round(r.y)), c.int(math.round(r.width)), c.int(math.round(r.height)))
 }

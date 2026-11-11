@@ -40,9 +40,9 @@ Whats_New :: struct {
 // the next `# ` heading. Borrows from `text`.
 whats_new_section :: proc(text, version: string) -> (body: string, ok: bool) {
     start := -1
-    pos := 0
+    pos   := 0
     for pos < len(text) {
-        end := strings.index_byte(text[pos:], '\n')
+        end  := strings.index_byte(text[pos:], '\n')
         next := end < 0 ? len(text) : pos + end + 1
         line := strings.trim_right(text[pos:next], " \t\r\n")
         if strings.has_prefix(line, "# ") {
@@ -82,7 +82,7 @@ thor_whats_new_text :: proc(full: bool) -> (text: string, ok: bool) {
 // Opens the card when this version is newer than the one it last opened for.
 // A first start records the version and opens nothing: that is no update.
 thor_whats_new_check :: proc(thor: ^Thor) {
-    fresh := !os.exists("sessions")
+    fresh     := !os.exists("sessions")
     data, err := os.read_entire_file(WHATS_NEW_FILE, context.temp_allocator)
     if err == nil && strings.trim_space(string(data)) == VERSION {
         return
@@ -119,7 +119,7 @@ thor_whats_new_show :: proc(thor: ^Thor, full: bool) {
 }
 
 thor_cmd_whats_new :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if _, ok := thor_whats_new_text(false); !ok {
         thor_flash_status(thor, fmt.tprintf("No release notes for %s", VERSION), true)
         return
@@ -162,7 +162,7 @@ thor_whats_new_view :: proc(thor: ^Thor) {
     )
 
     width := min(WHATS_NEW_WIDTH, ui.viewport().x - 60)
-    box := ui.scope(
+    box   := ui.scope(
         {
             key = "whats-new-box",
             flags = {.Clickable, .Focusable},
@@ -220,15 +220,9 @@ thor_whats_new_body :: proc(thor: ^Thor, text: string, avail: f32) {
     thor_markdown_set_source(view, text, 0, nil)
     thor_markdown_ensure(thor, view, avail, thor_markdown_base(thor))
     content := max(view.page.content_height - markdown.PAD_TOP - markdown.PAD_BOTTOM, 0)
-    h := min(content, max(ui.viewport().y * 0.6, 120))
+    h       := min(content, max(ui.viewport().y * 0.6, 120))
 
-    body := ui.begin(
-        {
-            key = "body",
-            flags = {.Clip, .Scroll_Y, .Wheel},
-            props = {position = .Relative, w = ui.Px(avail), h = ui.Px(h)},
-        },
-    )
+    body := ui.begin({key = "body", flags = {.Clip, .Scroll_Y, .Wheel}, props = {position = .Relative, w = ui.Px(avail), h = ui.Px(h)}})
     defer ui.end()
     if body.node.scroll.y != view.scroll {
         view.scroll = body.node.scroll.y

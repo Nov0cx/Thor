@@ -35,13 +35,7 @@ test_log_init_round_trips :: proc(t: ^testing.T) {
 // A state that did not change says nothing, and neither does an ordinary start.
 @(test)
 test_lsp_health_flash_stays_quiet :: proc(t: ^testing.T) {
-    quiet := [][2]lsp.Server_State {
-        {.Idle, .Idle},
-        {.Ready, .Ready},
-        {.Idle, .Starting},
-        {.Starting, .Ready},
-        {.Ready, .Stopping},
-    }
+    quiet := [][2]lsp.Server_State{{.Idle, .Idle}, {.Ready, .Ready}, {.Idle, .Starting}, {.Starting, .Ready}, {.Ready, .Stopping}}
     for pair in quiet {
         _, _, say := thor_lsp_health_flash(pair[0], pair[1])
         testing.expectf(t, !say, "%v -> %v was reported", pair[0], pair[1])
@@ -101,7 +95,7 @@ test_lsp_append_server_keeps_a_broken_file :: proc(t: ^testing.T) {
     defer os.remove(PATH)
 
     BROKEN :: `return { servers = {`
-    testing.expect(t, os.write_entire_file(PATH, transmute([]u8) string(BROKEN)) == nil, "the fixture was not written")
+    testing.expect(t, os.write_entire_file(PATH, transmute([]u8)string(BROKEN)) == nil, "the fixture was not written")
     testing.expect(t, !thor_lsp_append_server(PATH, "ruff"), "a broken file must not be written to")
 
     after, _ := os.read_entire_file(PATH, context.temp_allocator)

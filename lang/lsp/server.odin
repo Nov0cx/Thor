@@ -63,7 +63,7 @@ RESTART_BACKOFF := [RESTART_LIMIT]time.Duration{1 * time.Second, 4 * time.Second
 
 // How many deadline misses in a row put a ready server on hold, and for how long
 // it then gets no request. A reply, a restart or the cooldown ending clears it.
-LATCH_STREAK :: 3
+LATCH_STREAK   :: 3
 LATCH_COOLDOWN :: 30 * time.Second
 
 // How often a waiting worker looks at the state again.
@@ -90,64 +90,64 @@ Doc_Notice :: struct {
 }
 
 Server :: struct {
-    config:      ^Server_Config, // borrowed from the Client's Config
-    workspace:   string,         // owned
-    trigger:     string,         // owned; the file that first needed the server
-    root:        string,         // owned; chosen by the pump at the first launch; guarded by status_mutex
-    folders:     string,         // owned; the workspaceFolders array, as JSON text
+    config:           ^Server_Config, // borrowed from the Client's Config
+    workspace:        string,         // owned
+    trigger:          string,         // owned; the file that first needed the server
+    root:             string,         // owned; chosen by the pump at the first launch; guarded by status_mutex
+    folders:          string,         // owned; the workspaceFolders array, as JSON text
     // Must be the Manager's allocator: a pushed result is built here and freed by
     // lang.result_free, which uses the Manager's.
-    allocator:   runtime.Allocator,
-    state:       Server_State, // atomic
+    allocator:        runtime.Allocator,
+    state:            Server_State,               // atomic
     // The admin gate the settings own. config.enabled/config.features seed it in
     // server_create and state nothing after that, so a server turned off in
     // lsp.lua can be turned back on in Settings. Atomic: resolve (worker
     // thread) reaches it through client_servers_for.
-    admin_enabled: bool, // atomic
+    admin_enabled:    bool,                       // atomic
     // The per-kind half of that gate, seeded from config.features. Atomic:
     // server_supports runs main-thread only, but this is set from the same
     // settings path as admin_enabled.
-    admin_features: bit_set[lang.Request_Kind], // atomic
-    caps:        Capabilities, // written before state becomes .Ready, never after
-    caps_set:    bool,         // pump thread only
+    admin_features:   bit_set[lang.Request_Kind], // atomic
+    caps:             Capabilities,               // written before state becomes .Ready, never after
+    caps_set:         bool,                       // pump thread only
     // The pump, and the lock that makes two starters one.
-    start_mutex: sync.Mutex,
-    started:     bool,           // guarded by start_mutex
-    pump:        ^thread.Thread, // owned; guarded by start_mutex
-    stopping:    bool,           // atomic
-    conn:        ^Conn,          // owned; guarded by conn_lock
-    conn_lock:   sync.RW_Mutex,  // shared by a request in flight, taken by a swap
+    start_mutex:      sync.Mutex,
+    started:          bool,           // guarded by start_mutex
+    pump:             ^thread.Thread, // owned; guarded by start_mutex
+    stopping:         bool,           // atomic
+    conn:             ^Conn,          // owned; guarded by conn_lock
+    conn_lock:        sync.RW_Mutex,  // shared by a request in flight, taken by a swap
     // The outbox. `wake` is posted for every entry, so a pump waiting out its
     // slice leaves it at once.
-    out_mutex:   sync.Mutex,
-    outbox:      [dynamic]Doc_Notice, // owned
-    wake:        sync.Sema,
+    out_mutex:        sync.Mutex,
+    outbox:           [dynamic]Doc_Notice, // owned
+    wake:             sync.Sema,
     // The documents the server knows about. The pump thread and a worker in
     // `resolve` both reach them, so every read and write is under `docs_mutex`;
     // the main thread needs it only before it has joined the pump.
-    docs_mutex:  sync.Mutex,
-    docs:        [dynamic]^Document, // owned; guarded by docs_mutex
+    docs_mutex:       sync.Mutex,
+    docs:             [dynamic]^Document, // owned; guarded by docs_mutex
     // What the server published without being asked, decoded by the pump and
     // taken by the main thread through the backend's poll.
-    push_mutex:  sync.Mutex,
-    pushes:      [dynamic]lang.Result, // owned; guarded by push_mutex
-    push_head:   int,                  // read cursor into pushes; guarded by push_mutex
+    push_mutex:       sync.Mutex,
+    pushes:           [dynamic]lang.Result, // owned; guarded by push_mutex
+    push_head:        int,                  // read cursor into pushes; guarded by push_mutex
     // What a status read takes. The pump writes all three; the main thread reads
     // them, so a plain field would be a race. A leaf lock, held for the copy only.
-    status_mutex: sync.Mutex,
-    restarts:    int,                  // guarded by status_mutex
-    last_error:  string,               // owned; guarded by status_mutex; "" until one start failed
-    misses:      [2]int,               // deadline misses in a row, interactive then heavy; guarded by status_mutex
-    latched:     bool,                 // guarded by status_mutex
-    latched_at:  time.Tick,            // guarded by status_mutex
-    deadline_percent: int,             // test hook: scales every request deadline; 0 is 100
-    latch_cooldown: time.Duration,     // test hook: 0 is LATCH_COOLDOWN
+    status_mutex:     sync.Mutex,
+    restarts:         int,           // guarded by status_mutex
+    last_error:       string,        // owned; guarded by status_mutex; "" until one start failed
+    misses:           [2]int,        // deadline misses in a row, interactive then heavy; guarded by status_mutex
+    latched:          bool,          // guarded by status_mutex
+    latched_at:       time.Tick,     // guarded by status_mutex
+    deadline_percent: int,           // test hook: scales every request deadline; 0 is 100
+    latch_cooldown:   time.Duration, // test hook: 0 is LATCH_COOLDOWN
     // How the process is opened, and what it is opened from. The default starts
     // the configured command; a test replaces it with a scripted server running
     // in this process, which is what makes the lifetime testable with no server
     // installed on any of the four CI platforms.
-    open:        proc(s: ^Server) -> (Transport, bool),
-    open_data:   rawptr, // borrowed by `open`
+    open:             proc(s: ^Server) -> (Transport, bool),
+    open_data:        rawptr, // borrowed by `open`
 }
 
 // A server that is not running. `config` is borrowed and must outlive it.
@@ -299,11 +299,7 @@ server_notify :: proc(s: ^Server, event: lang.Doc_Event, path, source: string, r
         server_start(s, path)
     }
 
-    notice := Doc_Notice {
-        event    = event,
-        path     = strings.clone(path, s.allocator),
-        revision = revision,
-    }
+    notice := Doc_Notice{event = event, path = strings.clone(path, s.allocator), revision = revision}
     if event == .Opened || event == .Changed {
         notice.source = strings.clone(source, s.allocator)
     }
@@ -594,17 +590,16 @@ server_launch :: proc(s: ^Server) -> (launched: bool, spawned: bool) {
         }
         return false, false
     }
-    conn := conn_start(transport, s.allocator, Conn_Answers {
-        settings        = s.config.settings,
-        folders         = s.folders,
-        apply_edit      = server_apply_edit,
-        apply_edit_data = s,
-    })
+    conn := conn_start(
+        transport,
+        s.allocator,
+        Conn_Answers{settings = s.config.settings, folders = s.folders, apply_edit = server_apply_edit, apply_edit_data = s},
+    )
     sync.rw_mutex_lock(&s.conn_lock)
     s.conn = conn
     sync.rw_mutex_unlock(&s.conn_lock)
 
-    params := initialize_params(s)
+    params      := initialize_params(s)
     // A stop cancels the handshake, so it does not wait out the deadline.
     result, err := conn_call(s.conn, "initialize", params, DEADLINE_START, &s.stopping)
     delete(params, s.allocator)
@@ -690,7 +685,7 @@ apply_wait_release :: proc(wait: ^Apply_Wait) {
 // frees the struct once both sides are through.
 @(private)
 lsp_apply_done :: proc(token: rawptr, applied: bool) {
-    wait := cast(^Apply_Wait) token
+    wait := cast(^Apply_Wait)token
     wait.applied = applied
     sync.sema_post(&wait.done)
     apply_wait_release(wait)
@@ -702,7 +697,7 @@ lsp_apply_done :: proc(token: rawptr, applied: bool) {
 // up to APPLY_EDIT_TIMEOUT. `data` is the owning Server.
 @(private)
 server_apply_edit :: proc(data: rawptr, params: json.Value) -> bool {
-    s := cast(^Server) data
+    s := cast(^Server)data
     if .Apply_Edit not_in server_admin_features(s) {
         return false
     }
@@ -721,14 +716,14 @@ server_apply_edit :: proc(data: rawptr, params: json.Value) -> bool {
     // server's held documents or disk, same as a file the request did not
     // itself name.
     req := lang.Request{}
-    ask := Ask {
+    ask := Ask{
         server = s,
-        req    = &req,
-        texts  = make(map[string]string, allocator = context.temp_allocator),
-        raws   = make(map[string]^Line_Index, allocator = context.temp_allocator),
+        req = &req,
+        texts = make(map[string]string, allocator = context.temp_allocator),
+        raws = make(map[string]^Line_Index, allocator = context.temp_allocator),
     }
 
-    edits := make([dynamic]lang.Text_Edit, s.allocator)
+    edits        := make([dynamic]lang.Text_Edit, s.allocator)
     resource_ops := make([dynamic]lang.Resource_Op, s.allocator)
     if !decode_workspace_edit(&ask, edit_value, &edits, &resource_ops) {
         delete(edits)
@@ -755,14 +750,7 @@ server_apply_edit :: proc(data: rawptr, params: json.Value) -> bool {
     wait.refs = 2
 
     sync.lock(&s.push_mutex)
-    append(&s.pushes, lang.Result {
-        kind         = .Apply_Edit,
-        ok           = true,
-        edits        = edits,
-        resource_ops = resource_ops,
-        token        = wait,
-        on_applied   = lsp_apply_done,
-    })
+    append(&s.pushes, lang.Result{kind = .Apply_Edit, ok = true, edits = edits, resource_ops = resource_ops, token = wait, on_applied = lsp_apply_done})
     sync.unlock(&s.push_mutex)
 
     got := sync.sema_wait_with_timeout(&wait.done, APPLY_EDIT_TIMEOUT)
@@ -852,11 +840,7 @@ server_push_message :: proc(s: ^Server, text: string, is_error: bool) {
             return
         }
     }
-    append(&s.pushes, lang.Result {
-        kind    = .Message,
-        ok      = true,
-        message = {strings.clone(text, s.allocator), is_error},
-    })
+    append(&s.pushes, lang.Result{kind = .Message, ok = true, message = {strings.clone(text, s.allocator), is_error}})
 }
 
 // Takes the oldest decoded push. Main thread, called until it answers false.
@@ -896,7 +880,7 @@ server_claim_push :: proc(s: ^Server, res: ^lang.Result) -> bool {
     if res.kind != .Apply_Edit {
         return true
     }
-    wait := cast(^Apply_Wait) res.token
+    wait     := cast(^Apply_Wait)res.token
     _, taken := sync.atomic_compare_exchange_strong(&wait.claim, APPLY_OPEN, APPLY_TAKEN)
     return taken
 }
@@ -1046,9 +1030,7 @@ server_range_in_open :: proc(s: ^Server, path: string, start_line, start_char, e
     if !found {
         return 0, 0, false
     }
-    return offset_from_position(&doc.lines, start_line, start_char),
-        offset_from_position(&doc.lines, end_line, end_char),
-        true
+    return offset_from_position(&doc.lines, start_line, start_char), offset_from_position(&doc.lines, end_line, end_char), true
 }
 
 // The text of a document this server already holds, cloned under docs_mutex so
@@ -1296,14 +1278,7 @@ server_open_child :: proc(s: ^Server) -> (Transport, bool) {
             cwd = joined
         }
     }
-    return transport_child(
-        shell.Child_Spec {
-            exe = cmd.exe,
-            args = cmd.args,
-            cwd = cwd,
-            env = s.config.env,
-        },
-    )
+    return transport_child(shell.Child_Spec{exe = cmd.exe, args = cmd.args, cwd = cwd, env = s.config.env})
 }
 
 // The directory the server is rooted at: the nearest one at or above the file
@@ -1402,38 +1377,38 @@ initialize_params :: proc(s: ^Server) -> string {
 // range is used) and a list may share itemDefaults; decode_completion reads all three.
 @(private)
 CLIENT_CAPABILITIES :: `{` +
-`"general":{"positionEncodings":["utf-8","utf-16"]},` +
-`"window":{"workDoneProgress":true},` +
-`"workspace":{"configuration":true,"workspaceFolders":true,` +
-`"didChangeConfiguration":{"dynamicRegistration":false},` +
-`"symbol":{"dynamicRegistration":false},` +
-`"workspaceEdit":{"documentChanges":true,"resourceOperations":["create","rename","delete"]}},` +
-`"textDocument":{` +
-`"synchronization":{"dynamicRegistration":false,"didSave":true,"willSave":false,"willSaveWaitUntil":false},` +
-`"completion":{"dynamicRegistration":false,"contextSupport":true,` +
-`"completionItem":{"snippetSupport":true,"documentationFormat":["markdown","plaintext"],"deprecatedSupport":false,"preselectSupport":true,` +
-`"insertReplaceSupport":true,"labelDetailsSupport":true,` +
-`"resolveSupport":{"properties":["detail","documentation","additionalTextEdits","command"]}},` +
-`"completionList":{"itemDefaults":["editRange","insertTextFormat","data"]}},` +
-`"hover":{"dynamicRegistration":false,"contentFormat":["plaintext","markdown"]},` +
-`"signatureHelp":{"dynamicRegistration":false,` +
-`"signatureInformation":{"documentationFormat":["plaintext"],"parameterInformation":{"labelOffsetSupport":true}}},` +
-`"definition":{"dynamicRegistration":false,"linkSupport":true},` +
-`"typeDefinition":{"dynamicRegistration":false,"linkSupport":true},` +
-`"references":{"dynamicRegistration":false},` +
-`"documentSymbol":{"dynamicRegistration":false,"hierarchicalDocumentSymbolSupport":true},` +
-`"codeAction":{"dynamicRegistration":false,` +
-`"codeActionLiteralSupport":{"codeActionKind":{"valueSet":["quickfix","refactor","source"]}},` +
-`"resolveSupport":{"properties":["edit"]}},` +
-`"rename":{"dynamicRegistration":false,"prepareSupport":true},` +
-`"formatting":{"dynamicRegistration":false},` +
-`"rangeFormatting":{"dynamicRegistration":false},` +
-`"onTypeFormatting":{"dynamicRegistration":false},` +
-`"publishDiagnostics":{"relatedInformation":false,"versionSupport":true},` +
-`"inlayHint":{"dynamicRegistration":false},` +
-`"documentHighlight":{"dynamicRegistration":false},` +
-`"semanticTokens":{"dynamicRegistration":false,"requests":{"full":true},"formats":["relative"],` +
-`"tokenModifiers":[],` +
-`"tokenTypes":["namespace","type","class","enum","interface","struct","typeParameter","parameter",` +
-`"variable","property","enumMember","event","function","method","macro","keyword","modifier",` +
-`"comment","string","number","regexp","operator"]}}}`
+    `"general":{"positionEncodings":["utf-8","utf-16"]},` +
+    `"window":{"workDoneProgress":true},` +
+    `"workspace":{"configuration":true,"workspaceFolders":true,` +
+    `"didChangeConfiguration":{"dynamicRegistration":false},` +
+    `"symbol":{"dynamicRegistration":false},` +
+    `"workspaceEdit":{"documentChanges":true,"resourceOperations":["create","rename","delete"]}},` +
+    `"textDocument":{` +
+    `"synchronization":{"dynamicRegistration":false,"didSave":true,"willSave":false,"willSaveWaitUntil":false},` +
+    `"completion":{"dynamicRegistration":false,"contextSupport":true,` +
+    `"completionItem":{"snippetSupport":true,"documentationFormat":["markdown","plaintext"],"deprecatedSupport":false,"preselectSupport":true,` +
+    `"insertReplaceSupport":true,"labelDetailsSupport":true,` +
+    `"resolveSupport":{"properties":["detail","documentation","additionalTextEdits","command"]}},` +
+    `"completionList":{"itemDefaults":["editRange","insertTextFormat","data"]}},` +
+    `"hover":{"dynamicRegistration":false,"contentFormat":["plaintext","markdown"]},` +
+    `"signatureHelp":{"dynamicRegistration":false,` +
+    `"signatureInformation":{"documentationFormat":["plaintext"],"parameterInformation":{"labelOffsetSupport":true}}},` +
+    `"definition":{"dynamicRegistration":false,"linkSupport":true},` +
+    `"typeDefinition":{"dynamicRegistration":false,"linkSupport":true},` +
+    `"references":{"dynamicRegistration":false},` +
+    `"documentSymbol":{"dynamicRegistration":false,"hierarchicalDocumentSymbolSupport":true},` +
+    `"codeAction":{"dynamicRegistration":false,` +
+    `"codeActionLiteralSupport":{"codeActionKind":{"valueSet":["quickfix","refactor","source"]}},` +
+    `"resolveSupport":{"properties":["edit"]}},` +
+    `"rename":{"dynamicRegistration":false,"prepareSupport":true},` +
+    `"formatting":{"dynamicRegistration":false},` +
+    `"rangeFormatting":{"dynamicRegistration":false},` +
+    `"onTypeFormatting":{"dynamicRegistration":false},` +
+    `"publishDiagnostics":{"relatedInformation":false,"versionSupport":true},` +
+    `"inlayHint":{"dynamicRegistration":false},` +
+    `"documentHighlight":{"dynamicRegistration":false},` +
+    `"semanticTokens":{"dynamicRegistration":false,"requests":{"full":true},"formats":["relative"],` +
+    `"tokenModifiers":[],` +
+    `"tokenTypes":["namespace","type","class","enum","interface","struct","typeParameter","parameter",` +
+    `"variable","property","enumMember","event","function","method","macro","keyword","modifier",` +
+    `"comment","string","number","regexp","operator"]}}}`

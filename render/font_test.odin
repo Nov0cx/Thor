@@ -11,7 +11,7 @@ test_the_metrics_add_up_to_the_line_height :: proc(t: ^testing.T) {
     // Loom derives its line height from the three metrics, so the split has to
     // come back to what the font package reports, or every row drifts.
     for size in ([]f32{12, 14, 16, 24, 32}) {
-        m := font_metrics(DEFAULT_FONT, size, nil)
+        m   := font_metrics(DEFAULT_FONT, size, nil)
         got := m.ascent - m.descent + m.line_gap
         testing.expect_value(t, got, f32(font.line_height(i32(size))))
         testing.expect(t, m.descent < 0, "the descent hangs below the baseline")
@@ -24,8 +24,8 @@ test_the_metrics_add_up_to_the_line_height :: proc(t: ^testing.T) {
 @(test)
 test_the_leading_is_shared_above_and_below_the_em :: proc(t: ^testing.T) {
     for size in ([]f32{12, 14, 16, 24, 32}) {
-        m := font_metrics(DEFAULT_FONT, size, nil)
-        over := m.ascent - size * ASCENT_FRACTION
+        m     := font_metrics(DEFAULT_FONT, size, nil)
+        over  := m.ascent - size * ASCENT_FRACTION
         under := (m.ascent - m.descent) - size - over
         testing.expect_value(t, over, half_leading(size))
         testing.expect_value(t, under, over)
@@ -99,7 +99,7 @@ test_right_alt_is_alt_unless_it_is_alt_gr :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_every_mapped_key_is_distinct:: proc(t: ^testing.T) {
+test_every_mapped_key_is_distinct :: proc(t: ^testing.T) {
     // Two raylib keys may share one Loom key on purpose, but a raylib key must
     // never appear twice, or its release fires against a stale mapping.
     for a, i in KEYS {

@@ -25,14 +25,14 @@ Param_Info :: struct {
 
 @(private)
 call_operand :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, expected: Type_Id) -> Operand {
-    call, _ := odinsyntax.as_call_expr(n)
+    call, _            := odinsyntax.as_call_expr(n)
     callee, has_callee := odinsyntax.call_expr_callee(&call)
     if !has_callee {
         return {}
     }
     temp := scratch_begin(c)
     defer scratch_end(temp)
-    args := make([dynamic]Call_Arg, c.tmp)
+    args   := make([dynamic]Call_Arg, c.tmp)
     values := make([dynamic]odinsyntax.Syntax_Node, c.tmp)
     if list, ok := odinsyntax.call_expr_args(&call); ok {
         it := odinsyntax.arg_list_args(&list)
@@ -40,8 +40,8 @@ call_operand :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, expe
             a := Call_Arg{node = arg}
             #partial switch arg.green.kind {
             case .Field_Value:
-                fv, _ := odinsyntax.as_field_value(arg)
-                name, nok := odinsyntax.field_value_name(&fv)
+                fv, _      := odinsyntax.as_field_value(arg)
+                name, nok  := odinsyntax.field_value_name(&fv)
                 value, vok := odinsyntax.field_value_value(&fv)
                 if !nok || !vok {
                     continue
@@ -49,7 +49,7 @@ call_operand :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, expe
                 a.name = odinsyntax.node_text(name)
                 a.node = value
             case .Spread_Expr:
-                se, _ := odinsyntax.as_spread_expr(arg)
+                se, _      := odinsyntax.as_spread_expr(arg)
                 inner, iok := odinsyntax.spread_expr_expr(&se)
                 if !iok {
                     continue
@@ -125,8 +125,8 @@ call_operand :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, expe
 // when every member agrees on it.
 @(private)
 eval_args :: proc(c: ^Checker, file: File_Id, args: []Call_Arg, callee: Type_Id, first: int) {
-    base := type_base(&c.table, callee)
-    p, is_proc := type_get(&c.table, base).(Proc_Type)
+    base        := type_base(&c.table, callee)
+    p, is_proc  := type_get(&c.table, base).(Proc_Type)
     g, is_group := type_get(&c.table, base).(Proc_Group_Type)
     for &a, i in args {
         expected := INVALID_TYPE
@@ -236,7 +236,7 @@ call_value :: proc(c: ^Checker, file: File_Id, callee: Type_Id, args: []Call_Arg
 @(private)
 choose_member :: proc(c: ^Checker, file: File_Id, g: Proc_Group_Type, args: []Call_Arg) -> (chosen, first_fit: Type_Id) {
     best_score := -1
-    tied := false
+    tied       := false
     for m in g.members {
         p, ok := type_get(&c.table, type_base(&c.table, m)).(Proc_Type)
         if !ok {
@@ -338,7 +338,7 @@ generic_result :: proc(c: ^Checker, p: Proc_Type, env: []Binding) -> Operand {
     if !ok {
         return {}
     }
-    pt, _ := odinsyntax.as_proc_type(node)
+    pt, _                := odinsyntax.as_proc_type(node)
     results, has_results := odinsyntax.proc_type_results(&pt)
     if p.diverging || !has_results {
         return {mode = .No_Value}
@@ -391,12 +391,12 @@ Slot_Miss :: struct {
 // The parameter each argument goes to, or the first reason the arguments do not fit.
 @(private)
 match_slots :: proc(c: ^Checker, p: Proc_Type, args: []Call_Arg) -> ([]int, Slot_Miss) {
-    slots, serr := make([]int, len(args), c.tmp)
+    slots, serr   := make([]int, len(args), c.tmp)
     covered, cerr := make([]bool, len(p.params), c.tmp)
     if !note_alloc(c, serr) || !note_alloc(c, cerr) {
         return nil, {kind = .Too_Many, arg = -1}
     }
-    pos := 0
+    pos   := 0
     named := false
     for a, i in args {
         k := -1
@@ -510,7 +510,7 @@ bound_params :: proc(c: ^Checker, p: Proc_Type, env: []Binding) -> []Proc_Param 
     if !ok {
         return nil
     }
-    pt, _ := odinsyntax.as_proc_type(node)
+    pt, _              := odinsyntax.as_proc_type(node)
     params, has_params := odinsyntax.proc_type_params(&pt)
     if !has_params {
         return nil
@@ -529,18 +529,30 @@ has_poly :: proc(c: ^Checker, t: Type_Id, depth: int) -> bool {
         return false
     }
     #partial switch v in type_get(&c.table, t) {
-    case Poly_Param_Type:       return true
-    case Pointer_Type:          return has_poly(c, v.elem, depth + 1)
-    case Multi_Pointer_Type:    return has_poly(c, v.elem, depth + 1)
-    case Slice_Type:            return has_poly(c, v.elem, depth + 1)
-    case Array_Type:            return v.len < 0 || has_poly(c, v.elem, depth + 1)
-    case Enumerated_Array_Type: return has_poly(c, v.index, depth + 1) || has_poly(c, v.elem, depth + 1)
-    case Dynamic_Array_Type:    return has_poly(c, v.elem, depth + 1)
-    case Map_Type:              return has_poly(c, v.key, depth + 1) || has_poly(c, v.value, depth + 1)
-    case Bit_Set_Type:          return has_poly(c, v.elem, depth + 1)
-    case Matrix_Type:           return has_poly(c, v.elem, depth + 1)
-    case Simd_Type:             return has_poly(c, v.elem, depth + 1)
-    case Soa_Type:              return has_poly(c, v.elem, depth + 1)
+    case Poly_Param_Type:
+        return true
+    case Pointer_Type:
+        return has_poly(c, v.elem, depth + 1)
+    case Multi_Pointer_Type:
+        return has_poly(c, v.elem, depth + 1)
+    case Slice_Type:
+        return has_poly(c, v.elem, depth + 1)
+    case Array_Type:
+        return v.len < 0 || has_poly(c, v.elem, depth + 1)
+    case Enumerated_Array_Type:
+        return has_poly(c, v.index, depth + 1) || has_poly(c, v.elem, depth + 1)
+    case Dynamic_Array_Type:
+        return has_poly(c, v.elem, depth + 1)
+    case Map_Type:
+        return has_poly(c, v.key, depth + 1) || has_poly(c, v.value, depth + 1)
+    case Bit_Set_Type:
+        return has_poly(c, v.elem, depth + 1)
+    case Matrix_Type:
+        return has_poly(c, v.elem, depth + 1)
+    case Simd_Type:
+        return has_poly(c, v.elem, depth + 1)
+    case Soa_Type:
+        return has_poly(c, v.elem, depth + 1)
     case Named_Type:
         if inst, ok := c.instances[t]; ok {
             for a in inst.args {
@@ -557,9 +569,12 @@ has_poly :: proc(c: ^Checker, t: Type_Id, depth: int) -> bool {
 @(private)
 spread_elem :: proc(c: ^Checker, t: Type_Id) -> Type_Id {
     #partial switch v in type_get(&c.table, type_base(&c.table, t)) {
-    case Slice_Type:         return v.elem
-    case Array_Type:         return v.elem
-    case Dynamic_Array_Type: return v.elem
+    case Slice_Type:
+        return v.elem
+    case Array_Type:
+        return v.elem
+    case Dynamic_Array_Type:
+        return v.elem
     }
     return INVALID_TYPE
 }
@@ -567,7 +582,7 @@ spread_elem :: proc(c: ^Checker, t: Type_Id) -> Type_Id {
 // The Distance of an operand from a parameter of type `to`; -1 when it cannot be passed.
 @(private)
 assign_distance :: proc(c: ^Checker, to: Type_Id, op: Operand, any_int, spread: bool) -> i64 {
-    t := &c.table
+    t    := &c.table
     from := op.type
     if spread {
         from = spread_elem(c, from)
@@ -575,7 +590,7 @@ assign_distance :: proc(c: ^Checker, to: Type_Id, op: Operand, any_int, spread: 
     if to == INVALID_TYPE || op.mode == .Invalid {
         return i64(Distance.Unknown)
     }
-    tb := type_base(t, to)
+    tb     := type_base(t, to)
     to_any := false
     if b, ok := type_get(t, tb).(Basic_Type); ok {
         to_any = b.kind == .Any
@@ -705,9 +720,12 @@ untyped_holds :: proc(c: ^Checker, kind: Untyped_Kind, to: Type_Id, value: Const
 integer_holds :: proc(c: ^Checker, to: Type_Id, value: Const_Value) -> bool {
     v: i64
     #partial switch x in value {
-    case i64:  v = x
-    case rune: v = i64(x)
-    case:      return true
+    case i64:
+        v = x
+    case rune:
+        v = i64(x)
+    case:
+        return true
     }
     lo, hi, ok := integer_bounds(c, to)
     if !ok {
@@ -761,8 +779,8 @@ embeds :: proc(c: ^Checker, outer, inner: Type_Id, depth: int) -> bool {
 @(private)
 param_infos :: proc(c: ^Checker, list: odinsyntax.Syntax_Node) -> []Param_Info {
     list := list
-    out := make([dynamic]Param_Info, c.tmp)
-    it := odinsyntax.child_iter(&list, {kinds = {.Field}})
+    out  := make([dynamic]Param_Info, c.tmp)
+    it   := odinsyntax.child_iter(&list, {kinds = {.Field}})
     for field in odinsyntax.child_iter_next(&it) {
         f, _ := odinsyntax.as_field(field)
         base := Param_Info{name_offset = -1}
@@ -799,13 +817,13 @@ bind_generic :: proc(c: ^Checker, p: Proc_Type, args: []Call_Arg, slots: []int) 
     if !ok {
         return nil, true
     }
-    pt, _ := odinsyntax.as_proc_type(node)
+    pt, _              := odinsyntax.as_proc_type(node)
     params, has_params := odinsyntax.proc_type_params(&pt)
     if !has_params {
         return nil, true
     }
     infos := param_infos(c, odinsyntax.Syntax_Node(params))
-    env := make([dynamic]Binding, c.tmp)
+    env   := make([dynamic]Binding, c.tmp)
     saved := c.env
     defer c.env = saved
     for a, i in args {
@@ -847,7 +865,7 @@ bind_generic :: proc(c: ^Checker, p: Proc_Type, args: []Call_Arg, slots: []int) 
             continue
         }
         type_node := info.type
-        arg := type_default(&c.table, a.op.type)
+        arg       := type_default(&c.table, a.op.type)
         if e, is_ellipsis := odinsyntax.as_ellipsis_type(type_node); is_ellipsis {
             elem, eok := odinsyntax.ellipsis_type_elem(&e)
             if !eok {
@@ -922,7 +940,7 @@ unify :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, arg: Type_I
     }
     #partial switch n.green.kind {
     case .Poly_Type:
-        pt, _ := odinsyntax.as_poly_type(n)
+        pt, _     := odinsyntax.as_poly_type(n)
         ident, ok := odinsyntax.poly_type_name(&pt)
         if !ok {
             return true
@@ -935,17 +953,17 @@ unify :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, arg: Type_I
         }
         return true
     case .Paren_Expr:
-        p, _ := odinsyntax.as_paren_expr(n)
+        p, _      := odinsyntax.as_paren_expr(n)
         inner, ok := odinsyntax.paren_expr_expr(&p)
         return !ok || unify(c, file, inner, arg, env)
     case .Pointer_Type:
-        v, ok := type_get(t, base).(Pointer_Type)
-        p, _ := odinsyntax.as_pointer_type(n)
+        v, ok     := type_get(t, base).(Pointer_Type)
+        p, _      := odinsyntax.as_pointer_type(n)
         elem, eok := odinsyntax.pointer_type_elem(&p)
         return ok && (!eok || unify(c, file, elem, v.elem, env))
     case .Multi_Pointer_Type:
-        v, ok := type_get(t, base).(Multi_Pointer_Type)
-        p, _ := odinsyntax.as_multi_pointer_type(n)
+        v, ok     := type_get(t, base).(Multi_Pointer_Type)
+        p, _      := odinsyntax.as_multi_pointer_type(n)
         elem, eok := odinsyntax.multi_pointer_type_elem(&p)
         return ok && (!eok || unify(c, file, elem, v.elem, env))
     case .Dynamic_Array_Type:
@@ -955,13 +973,13 @@ unify :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, arg: Type_I
                 return false
             }
         }
-        v, ok := type_get(t, base).(Dynamic_Array_Type)
-        d, _ := odinsyntax.as_dynamic_array_type(n)
+        v, ok     := type_get(t, base).(Dynamic_Array_Type)
+        d, _      := odinsyntax.as_dynamic_array_type(n)
         elem, eok := odinsyntax.dynamic_array_type_elem(&d)
         return ok && (!eok || unify(c, file, elem, v.elem, env))
     case .Array_Type:
-        a, _ := odinsyntax.as_array_type(n)
-        elem, eok := odinsyntax.array_type_elem(&a)
+        a, _              := odinsyntax.as_array_type(n)
+        elem, eok         := odinsyntax.array_type_elem(&a)
         len_node, has_len := odinsyntax.array_type_len(&a)
         #partial switch v in type_get(t, base) {
         case Slice_Type:
@@ -1026,7 +1044,7 @@ unify :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, arg: Type_I
         elem, eok := odinsyntax.matrix_type_elem(&m)
         return !eok || unify(c, file, elem, v.elem, env)
     case .Tag_Expr:
-        tag, _ := odinsyntax.as_tag_expr(n)
+        tag, _    := odinsyntax.as_tag_expr(n)
         inner, ok := odinsyntax.tag_expr_expr(&tag)
         if !ok {
             return true
@@ -1035,8 +1053,8 @@ unify :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, arg: Type_I
         case Soa_Type:
             #partial switch inner.green.kind {
             case .Array_Type:
-                a, _ := odinsyntax.as_array_type(inner)
-                elem, eok := odinsyntax.array_type_elem(&a)
+                a, _              := odinsyntax.as_array_type(inner)
+                elem, eok         := odinsyntax.array_type_elem(&a)
                 len_node, has_len := odinsyntax.array_type_len(&a)
                 if has_len ? v.kind != .Array : v.kind != .Slice {
                     return false
@@ -1046,7 +1064,7 @@ unify :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, arg: Type_I
                 }
                 return !eok || unify(c, file, elem, v.elem, env)
             case .Dynamic_Array_Type:
-                d, _ := odinsyntax.as_dynamic_array_type(inner)
+                d, _      := odinsyntax.as_dynamic_array_type(inner)
                 elem, eok := odinsyntax.dynamic_array_type_elem(&d)
                 return v.kind == .Dynamic && (!eok || unify(c, file, elem, v.elem, env))
             }
@@ -1088,7 +1106,7 @@ unify :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, arg: Type_I
         if !ok {
             return false
         }
-        call, _ := odinsyntax.as_call_expr(n)
+        call, _     := odinsyntax.as_call_expr(n)
         callee, cok := odinsyntax.call_expr_callee(&call)
         if !cok {
             return true
@@ -1102,7 +1120,7 @@ unify :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, arg: Type_I
             return true
         }
         it := odinsyntax.arg_list_args(&list)
-        i := 0
+        i  := 0
         for a in odinsyntax.child_iter_next(&it) {
             defer i += 1
             if i >= len(inst.args) {
@@ -1176,12 +1194,12 @@ record_param_defaults :: proc(c: ^Checker, file: File_Id, offset: int, kind: odi
     if !has_list {
         return nil
     }
-    out := make([dynamic]odinsyntax.Syntax_Node, c.tmp)
+    out    := make([dynamic]odinsyntax.Syntax_Node, c.tmp)
     fields := odinsyntax.param_list_fields(&list)
     for field in odinsyntax.child_iter_next(&fields) {
-        f, _ := odinsyntax.as_field(field)
+        f, _   := odinsyntax.as_field(field)
         def, _ := odinsyntax.field_default(&f)
-        n := 1
+        n      := 1
         if names, has_names := odinsyntax.field_names(&f); has_names {
             n = 0
             it := odinsyntax.name_list_names(&names)
@@ -1221,7 +1239,7 @@ instantiate :: proc(c: ^Checker, generic: Type_Id, args: []Call_Arg) -> Operand 
         return {}
     }
     bindings := make([dynamic]Binding, c.tmp)
-    pos := 0
+    pos      := 0
     for a in args {
         k := -1
         if a.name != "" {
@@ -1309,7 +1327,7 @@ instantiate :: proc(c: ^Checker, generic: Type_Id, args: []Call_Arg) -> Operand 
     if inst == INVALID_TYPE {
         return {}
     }
-    stored_key, kerr := strings.clone(key, c.alloc)
+    stored_key, kerr  := strings.clone(key, c.alloc)
     stored_args, aerr := make([]Operand, len(ops), c.alloc)
     if !note_alloc(c, kerr) || !note_alloc(c, aerr) {
         return {}
@@ -1345,9 +1363,9 @@ instance_key :: proc(c: ^Checker, sym: Symbol, ops: []Operand) -> (string, bool)
     buf := make([dynamic]byte, c.tmp)
     put_int :: proc(c: ^Checker, buf: ^[dynamic]byte, tag: byte, v: i64) -> bool {
         digits: [24]byte
-        s := strconv.write_int(digits[:], v, 10)
+        s       := strconv.write_int(digits[:], v, 10)
         _, terr := append(buf, tag)
-        _, err := append(buf, s)
+        _, err  := append(buf, s)
         return note_alloc(c, terr) && note_alloc(c, err)
     }
     if !put_int(c, &buf, 'f', i64(sym.file)) || !put_int(c, &buf, 'i', i64(sym.item)) || !put_int(c, &buf, 'c', i64(sym.child)) {
@@ -1359,12 +1377,16 @@ instance_key :: proc(c: ^Checker, sym: Symbol, ops: []Operand) -> (string, bool)
         }
         ok := true
         switch x in op.value {
-        case i64:    ok = put_int(c, &buf, 'I', x)
+        case i64:
+            ok = put_int(c, &buf, 'I', x)
         case Wide_Int:
             ok = put_int(c, &buf, 'W', x.neg ? 1 : 0) && put_int(c, &buf, 'H', i64(i128(x.mag) >> 64)) && put_int(c, &buf, 'L', i64(x.mag))
-        case f64:    ok = put_int(c, &buf, 'F', transmute(i64)x)
-        case bool:   ok = put_int(c, &buf, 'B', x ? 1 : 0)
-        case rune:   ok = put_int(c, &buf, 'R', i64(x))
+        case f64:
+            ok = put_int(c, &buf, 'F', transmute(i64)x)
+        case bool:
+            ok = put_int(c, &buf, 'B', x ? 1 : 0)
+        case rune:
+            ok = put_int(c, &buf, 'R', i64(x))
         case string:
             _, err := append(&buf, x)
             ok = put_int(c, &buf, 'S', i64(len(x))) && note_alloc(c, err)
@@ -1379,12 +1401,17 @@ instance_key :: proc(c: ^Checker, sym: Symbol, ops: []Operand) -> (string, bool)
 @(private)
 write_const :: proc(sb: ^strings.Builder, v: Const_Value) {
     switch x in v {
-    case i64:    strings.write_i64(sb, x)
+    case i64:
+        strings.write_i64(sb, x)
     case Wide_Int:
         strings.write_string(sb, wide_text(x.neg, x.mag, context.temp_allocator))
-    case f64:    strings.write_f64(sb, x, 'g')
-    case string: strings.write_quoted_string(sb, x)
-    case bool:   strings.write_string(sb, x ? "true" : "false")
-    case rune:   strings.write_quoted_rune(sb, x)
+    case f64:
+        strings.write_f64(sb, x, 'g')
+    case string:
+        strings.write_quoted_string(sb, x)
+    case bool:
+        strings.write_string(sb, x ? "true" : "false")
+    case rune:
+        strings.write_quoted_rune(sb, x)
     }
 }

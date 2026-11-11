@@ -3,9 +3,9 @@ package thor
 import "core:strings"
 import "core:testing"
 
+import "../editview"
 import "../lang"
 import "../textedit"
-import "../editview"
 
 // The editor's half of the diagnostics path: mapping a compiler position onto a
 // span of the live buffer, and deciding which reports describe it. The `odin
@@ -75,11 +75,7 @@ test_report_applies_to_unsaved_buffer :: proc(t: ^testing.T) {
     textedit.insert_text(&file.state, "x")
     testing.expect(t, file.state.revision != file.saved_revision, "the buffer should read as dirty")
 
-    res := lang.Result {
-        kind     = .Diagnostics,
-        ok       = true,
-        revision = file.state.revision,
-    }
+    res := lang.Result{kind = .Diagnostics, ok = true, revision = file.state.revision}
     res.report.scope = "D:/w/pkg/a.odin"
     res.report.items = make([dynamic]lang.Diagnostic)
     defer delete(res.report.items)
@@ -107,11 +103,7 @@ test_stale_report_skips_dirty_buffer :: proc(t: ^testing.T) {
     stale := file.state.revision
     textedit.insert_text(&file.state, "x")
 
-    res := lang.Result {
-        kind     = .Diagnostics,
-        ok       = true,
-        revision = stale,
-    }
+    res := lang.Result{kind = .Diagnostics, ok = true, revision = stale}
     res.report.scope = "D:/w/pkg"
     res.report.items = make([dynamic]lang.Diagnostic)
     defer delete(res.report.items)

@@ -3,15 +3,18 @@
 package prof
 
 // Used by the profile build only.
-@(require) import "base:runtime"
-@(require) import "core:log"
+@(require)
+import "base:runtime"
+@(require)
+import "core:log"
 import "core:prof/spall"
-@(require) import "core:sync"
+@(require)
+import "core:sync"
 
 // Set by `-profile`: the zones record.
 ENABLED :: #config(THOR_PROFILE, false)
 // Set by `-profile-all`: every procedure records too.
-ALL :: #config(THOR_PROFILE_ALL, false)
+ALL     :: #config(THOR_PROFILE_ALL, false)
 
 @(private)
 ctx: spall.Context
@@ -186,7 +189,7 @@ when ENABLED && ALL {
     begin_end: [MAX_TRACKED]int
 
     @(instrumentation_enter)
-    enter :: proc "contextless" (proc_address, call_site_return_address: rawptr, loc: runtime.Source_Code_Location) {
+    enter :: proc "contextless"(proc_address, call_site_return_address: rawptr, loc: runtime.Source_Code_Location) {
         if len(buffer.data) == 0 {
             return
         }
@@ -202,7 +205,7 @@ when ENABLED && ALL {
     }
 
     @(instrumentation_exit)
-    exit :: proc "contextless" (proc_address, call_site_return_address: rawptr, loc: runtime.Source_Code_Location) {
+    exit :: proc "contextless"(proc_address, call_site_return_address: rawptr, loc: runtime.Source_Code_Location) {
         if depth == 0 || len(buffer.data) == 0 {
             return
         }
@@ -217,7 +220,7 @@ when ENABLED && ALL {
 
     // Rewinds the buffer over a begin event that nothing followed, when the call took less than MIN_US.
     @(private, no_instrumentation)
-    drop_short :: proc "contextless" (at, end: int) -> bool {
+    drop_short :: proc "contextless"(at, end: int) -> bool {
         if buffer.head != end || at < size_of(spall.Manual_Buffer_Header) {
             return false
         }

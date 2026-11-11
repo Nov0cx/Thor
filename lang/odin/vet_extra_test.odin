@@ -9,7 +9,7 @@ import lang ".."
 @(test)
 test_live_vet_cast :: proc(t: ^testing.T) {
     root := fixture(t, "live_vet_cast", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     src := `package app
@@ -36,14 +36,19 @@ poly :: proc(v: $T) -> T {
 `
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
     defer free_live(&res)
-    expect_errors(t, &res, src, {
-        {"c\n\tx2", "Unneeded cast of 'c' to identical type 'int'", 0},
-        {"c\n\tx3", "Unneeded cast of 'c' to identical type 'int'", 0},
-        {"d\n\tx6", "Unneeded cast of 'd' to identical type 'Dist'", 0},
-        {"s\n\tx7", "Unneeded cast of 's' to identical type 'string'", 0},
-        {"transmute(int)c", "Unneeded transmute of 'transmute(int)c' to identical type 'int'", 0},
-        {"a\n\treturn", "Unneeded cast of 'a' to identical type 'int'", 0},
-    })
+    expect_errors(
+        t,
+        &res,
+        src,
+        {
+            {"c\n\tx2", "Unneeded cast of 'c' to identical type 'int'", 0},
+            {"c\n\tx3", "Unneeded cast of 'c' to identical type 'int'", 0},
+            {"d\n\tx6", "Unneeded cast of 'd' to identical type 'Dist'", 0},
+            {"s\n\tx7", "Unneeded cast of 's' to identical type 'string'", 0},
+            {"transmute(int)c", "Unneeded transmute of 'transmute(int)c' to identical type 'int'", 0},
+            {"a\n\treturn", "Unneeded cast of 'a' to identical type 'int'", 0},
+        },
+    )
     for d in res.report.items {
         testing.expect_value(t, d.code, CODE_CAST)
         testing.expect_value(t, d.severity, lang.Diagnostic_Severity.Warning)
@@ -52,8 +57,12 @@ poly :: proc(v: $T) -> T {
 
 @(test)
 test_live_vet_cast_off :: proc(t: ^testing.T) {
-    root := fixture(t, "live_vet_cast_off", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" }, diagnostics = { ["vet/cast"] = "off" } }`}})
-    e := engine_create()
+    root := fixture(
+        t,
+        "live_vet_cast_off",
+        {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" }, diagnostics = { ["vet/cast"] = "off" } }`}},
+    )
+    e    := engine_create()
     defer engine_destroy(e)
 
     src := "package app\n\nf :: proc(c: int) -> int {\n\treturn cast(int)c\n}\n"
@@ -67,25 +76,35 @@ test_live_vet_syntax :: proc(t: ^testing.T) {
     root := fixture(
         t,
         "live_vet_syntax",
-        {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" }, diagnostics = { ["vet/semicolon"] = "warning", ["vet/tabs"] = "hint", ["vet/style"] = "warning" } }`}},
+        {
+            {
+                ".thor/odin-analyzer.lua",
+                `return { target = { os = "windows", arch = "amd64" }, diagnostics = { ["vet/semicolon"] = "warning", ["vet/tabs"] = "hint", ["vet/style"] = "warning" } }`,
+            },
+        },
     )
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     src := "package app\n\nE :: enum {\n\tA,\n\tB\n}\n\nf :: proc() {\n\tx := 1;\n    y := 2\n\t_ = x; _ = y\n}\n"
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
     defer free_live(&res)
-    expect_errors(t, &res, src, {
-        {"\n}\n\nf", "Expected a comma, got a newline", 0},
-        {";\n    y", "Found unneeded semicolon", 0},
-        {"y := 2", "With '-vet-tabs', tabs must be used for indentation", 0},
-    })
+    expect_errors(
+        t,
+        &res,
+        src,
+        {
+            {"\n}\n\nf", "Expected a comma, got a newline", 0},
+            {";\n    y", "Found unneeded semicolon", 0},
+            {"y := 2", "With '-vet-tabs', tabs must be used for indentation", 0},
+        },
+    )
 }
 
 @(test)
 test_live_vet_syntax_default_off :: proc(t: ^testing.T) {
     root := fixture(t, "live_vet_syntax_off", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     src := "package app\n\nf :: proc() {\n    x := 1;\n    _ = x\n}\n"
@@ -97,7 +116,7 @@ test_live_vet_syntax_default_off :: proc(t: ^testing.T) {
 @(test)
 test_live_nil_deref :: proc(t: ^testing.T) {
     root := fixture(t, "live_nil_deref", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     src := `package app
@@ -152,12 +171,17 @@ f :: proc(c: bool, q: ^T, q2: ^[4]int) -> int {
 `
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
     defer free_live(&res)
-    expect_errors(t, &res, src, {
-        {"a.x", "Dereferencing 'a', which is always nil here", 0},
-        {"b.x", "Dereferencing 'b', which is always nil here", 0},
-        {"fn()", "Calling 'fn', which is always nil here", 0},
-        {"arr[1]", "Dereferencing 'arr', which is always nil here", 0},
-    })
+    expect_errors(
+        t,
+        &res,
+        src,
+        {
+            {"a.x", "Dereferencing 'a', which is always nil here", 0},
+            {"b.x", "Dereferencing 'b', which is always nil here", 0},
+            {"fn()", "Calling 'fn', which is always nil here", 0},
+            {"arr[1]", "Dereferencing 'arr', which is always nil here", 0},
+        },
+    )
     for d in res.report.items {
         if d.code == CODE_NIL_DEREF {
             testing.expect_value(t, d.severity, lang.Diagnostic_Severity.Hint)
@@ -169,7 +193,7 @@ f :: proc(c: bool, q: ^T, q2: ^[4]int) -> int {
 @(test)
 test_live_nil_deref_narrowing :: proc(t: ^testing.T) {
     root := fixture(t, "live_nil_deref_narrowing", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     src := `package app
@@ -302,20 +326,25 @@ multi :: proc(n: int) -> int {
 `
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
     defer free_live(&res)
-    expect_errors(t, &res, src, {
-        {"a.x", "Dereferencing 'a', which is always nil here", 0},
-        {"j.x", "Dereferencing 'j', which is always nil here", 0},
-        {"k.x", "Dereferencing 'k', which is always nil here", 0},
-        {"q.x", "Dereferencing 'q', which is always nil here", 0},
-        {"r.x", "Dereferencing 'r', which is always nil here", 0},
-        {"s.cb()", "Calling 's.cb', which is always nil here", 0},
-        {"v.p.x", "Dereferencing 'v.p', which is always nil here", 0},
-        {"z.cb()", "Calling 'z.cb', which is always nil here", 0},
-        {"aa.inner.cb()", "Calling 'aa.inner.cb', which is always nil here", 0},
-        {"ab.inner.cb()", "Calling 'ab.inner.cb', which is always nil here", 0},
-        {"ad.cb()", "Calling 'ad.cb', which is always nil here", 0},
-        {"p[0]", "Dereferencing 'p', which is always nil here", 0},
-    })
+    expect_errors(
+        t,
+        &res,
+        src,
+        {
+            {"a.x", "Dereferencing 'a', which is always nil here", 0},
+            {"j.x", "Dereferencing 'j', which is always nil here", 0},
+            {"k.x", "Dereferencing 'k', which is always nil here", 0},
+            {"q.x", "Dereferencing 'q', which is always nil here", 0},
+            {"r.x", "Dereferencing 'r', which is always nil here", 0},
+            {"s.cb()", "Calling 's.cb', which is always nil here", 0},
+            {"v.p.x", "Dereferencing 'v.p', which is always nil here", 0},
+            {"z.cb()", "Calling 'z.cb', which is always nil here", 0},
+            {"aa.inner.cb()", "Calling 'aa.inner.cb', which is always nil here", 0},
+            {"ab.inner.cb()", "Calling 'ab.inner.cb', which is always nil here", 0},
+            {"ad.cb()", "Calling 'ad.cb', which is always nil here", 0},
+            {"p[0]", "Dereferencing 'p', which is always nil here", 0},
+        },
+    )
 }
 
 @(test)
@@ -328,7 +357,7 @@ test_live_vet_unused_procedure :: proc(t: ^testing.T) {
             {"app/other.odin", "package app\n\nuse_other :: proc() {\n\tused_elsewhere()\n}\n"},
         },
     )
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     src := `package app
@@ -367,22 +396,28 @@ main :: proc() {}
 `
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
     defer free_live(&res)
-    expect_errors(t, &res, src, {
-        {"unused ::", "'unused' declared but not used", 0},
-        {"unused_private", "'unused_private' declared but not used", 0},
-        {"begin ::", "'begin' declared but not used", 0},
-    })
+    expect_errors(
+        t,
+        &res,
+        src,
+        {
+            {"unused ::", "'unused' declared but not used", 0},
+            {"unused_private", "'unused_private' declared but not used", 0},
+            {"begin ::", "'begin' declared but not used", 0},
+        },
+    )
 }
 
 // The on-save check passes `-vet-cast` and, once the config names it, `-vet-unused-procedures`, and
 // gives their lines the ids `vet/cast` and `vet/unused-procedure`.
 @(test)
 test_check_vet_extra_lines :: proc(t: ^testing.T) {
-    src := "package app\n\nhelper :: proc() {}\n\nf :: proc(c: int) -> int {\n\treturn cast(int)c\n}\n"
-    rel := fixture(t, "check_vet_extra", {
-        {".thor/odin-analyzer.lua", `return { diagnostics = { ["vet/unused-procedure"] = "hint" } }`},
-        {"app/main.odin", src},
-    })
+    src        := "package app\n\nhelper :: proc() {}\n\nf :: proc(c: int) -> int {\n\treturn cast(int)c\n}\n"
+    rel        := fixture(
+        t,
+        "check_vet_extra",
+        {{".thor/odin-analyzer.lua", `return { diagnostics = { ["vet/unused-procedure"] = "hint" } }`}, {"app/main.odin", src}},
+    )
     root, aerr := filepath.abs(rel, context.temp_allocator)
     if !testing.expect_value(t, aerr, nil) {
         return
@@ -412,7 +447,7 @@ test_check_vet_extra_lines :: proc(t: ^testing.T) {
 @(test)
 test_live_ignored_ok :: proc(t: ^testing.T) {
     root := fixture(t, "live_ignored_ok", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     src := `package app

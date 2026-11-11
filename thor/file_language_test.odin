@@ -20,18 +20,9 @@ test_file_language_override_routes_highlighting :: proc(t: ^testing.T) {
     thor.config.general.file_languages["src/boot.asm"] = "FASM"
     thor.config.general.file_languages["src/odd.asm"] = "No Such Language"
 
-    boot := Open_File {
-        path = "thor_file_lang_ws.tmp/src/boot.asm",
-        name = "boot.asm",
-    }
-    other := Open_File {
-        path = "thor_file_lang_ws.tmp/src/other.asm",
-        name = "other.asm",
-    }
-    odd := Open_File {
-        path = "thor_file_lang_ws.tmp/src/odd.asm",
-        name = "odd.asm",
-    }
+    boot  := Open_File{path = "thor_file_lang_ws.tmp/src/boot.asm", name = "boot.asm"}
+    other := Open_File{path = "thor_file_lang_ws.tmp/src/other.asm", name = "other.asm"}
+    odd   := Open_File{path = "thor_file_lang_ws.tmp/src/odd.asm", name = "odd.asm"}
 
     testing.expect_value(t, thor_file_language_key(thor, boot.path), "src/boot.asm")
     testing.expect_value(t, thor_file_highlight_key(thor, &boot), plugin.language_key(&thor.plugins, "FASM"))

@@ -7,7 +7,7 @@ import odinsyntax "../syntax"
 
 @(test)
 test_nested_decls :: proc(t: ^testing.T) {
-    src := `package demo
+    src         := `package demo
 
 outer :: proc() {
     Local :: struct { a: int, b: f32 }
@@ -51,14 +51,7 @@ other :: proc() {}
         kind:   Item_Kind,
         parent: int,
     }
-    want := []Want {
-        {"Local", .Struct, -1},
-        {"inner", .Proc, -1},
-        {"deepest", .Proc, 1},
-        {"Kind", .Enum, 1},
-        {"Hidden", .Union, -1},
-        {"after", .Proc, -1},
-    }
+    want := []Want{{"Local", .Struct, -1}, {"inner", .Proc, -1}, {"deepest", .Proc, 1}, {"Kind", .Enum, 1}, {"Hidden", .Union, -1}, {"after", .Proc, -1}}
     testing.expect_value(t, len(decls), len(want))
     for w, i in want {
         if i >= len(decls) {

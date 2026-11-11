@@ -40,10 +40,10 @@ cache_fixture :: proc(t: ^testing.T, name: string) -> (Cache_Fixture, string, bo
     if !ok {
         return {}, "", false
     }
-    f := Cache_Fixture {
-        live  = put_file(t, dir, "a/a.odin", "package a\n\nL :: struct { n: int }\n\nmain :: proc() {}\n"),
+    f := Cache_Fixture{
+        live = put_file(t, dir, "a/a.odin", "package a\n\nL :: struct { n: int }\n\nmain :: proc() {}\n"),
         other = put_file(t, dir, "a/other.odin", "package a\n\nimport \"../b\"\n\nv: b.S\nw: L\n"),
-        dep   = put_file(t, dir, "b/b.odin", "package b\n\nS :: struct { x: int }\n"),
+        dep = put_file(t, dir, "b/b.odin", "package b\n\nS :: struct { x: int }\n"),
     }
     return f, dir, true
 }

@@ -43,8 +43,8 @@ kids :: proc(n: Node) -> []Node {
         return nil
     }
     children := syn.green_children(n.green)
-    out := make([dynamic]Node, 0, len(children))
-    offset := n.start
+    out      := make([dynamic]Node, 0, len(children))
+    offset   := n.start
     for child in children {
         length := int(syn.element_len(child))
         if g, is_node := syn.element_node(child); is_node {
@@ -174,7 +174,7 @@ Comment_Walk :: struct {
     pr:        ^Printer,
     groups:    [dynamic]Comment_Group,
     current:   [dynamic]Comment,
-    prev_line: int, // start line of the last significant token
+    prev_line: int,  // start line of the last significant token
     in_run:    bool, // no significant token since the last comment
     end_line:  int,  // end line of the last comment of the open group
     same_line: bool, // the open group started on the line of the code before it

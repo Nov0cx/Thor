@@ -21,8 +21,8 @@ test_fuzzy_match_reports_positions :: proc(t: ^testing.T) {
             testing.expect(t, hits[i] > hits[i - 1], "positions must ascend")
         }
     }
-    testing.expect_value(t, hits[0], 0)  // t of thor
-    testing.expect_value(t, hits[1], 5)  // f of format
+    testing.expect_value(t, hits[0], 0) // t of thor
+    testing.expect_value(t, hits[1], 5) // f of format
     testing.expect_value(t, hits[2], 12) // w of write
 }
 
@@ -50,11 +50,11 @@ test_fuzzy_score_matches_fuzzy_match :: proc(t: ^testing.T) {
     testing.expect_value(t, score, 0)
     testing.expect_value(t, count, 0)
 
-    texts := []string{"thor/palette.odin", "build.odin", "README.md"}
+    texts   := []string{"thor/palette.odin", "build.odin", "README.md"}
     queries := []string{"", "od", "pal", "zzz"}
     for text in texts {
         for query in queries {
-            want, want_ok := fuzzy_score(query, text)
+            want, want_ok  := fuzzy_score(query, text)
             got, _, got_ok := fuzzy_match(query, text, hits[:])
             testing.expect_value(t, got_ok, want_ok)
             testing.expect_value(t, got, want)
@@ -77,7 +77,7 @@ test_fuzzy_match_bounds_its_output :: proc(t: ^testing.T) {
 // text is snapped out to the rune boundaries around it.
 @(test)
 test_palette_match_spans_stay_on_runes :: proc(t: ^testing.T) {
-    text := "ölçü.odin"
+    text  := "ölçü.odin"
     spans := palette_match_spans("od", text, {})
     testing.expect(t, len(spans) > 0, "the query matches the extension")
     for s in spans {
@@ -105,8 +105,10 @@ test_replaced_confirm_fires_cancel :: proc(t: ^testing.T) {
     defer delete(thor.palette.query)
 
     cancelled := 0
-    on_cancel :: proc(data: rawptr) {(cast(^int) data)^ += 1}
-    on_run :: proc(data: rawptr) {}
+    on_cancel :: proc(data: rawptr) {
+        (cast(^int)data)^ += 1
+    }
+    on_run    :: proc(data: rawptr) {}
     thor_palette_confirm(thor, "Reload?", on_run, &cancelled, on_cancel)
     thor_palette_open_line(thor)
     testing.expect_value(t, cancelled, 1)

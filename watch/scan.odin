@@ -88,7 +88,7 @@ scan_skip_dir :: proc(parent, name: string) -> bool {
 @(private)
 scan_skip_rel :: proc(root, rel: string) -> bool {
     parent := filepath.base(root)
-    rest := rel
+    rest   := rel
     for {
         cut := strings.index_any(rest, "/\\")
         if cut < 0 {
@@ -133,22 +133,14 @@ scan_directory :: proc(s: ^Scan, dir: string, depth: int, allocator: runtime.All
 @(private)
 scan_add :: proc(s: ^Scan, path: string, modified: i64, size: i64, is_dir: bool) {
     strings.write_string(&s.paths, path)
-    append(
-        &s.entries,
-        Scan_Entry {
-            end = strings.builder_len(s.paths),
-            modified = modified,
-            size = size,
-            is_dir = is_dir,
-        },
-    )
+    append(&s.entries, Scan_Entry{end = strings.builder_len(s.paths), modified = modified, size = size, is_dir = is_dir})
 }
 
 // Hands every entry its path and sorts the snapshot. Call once, after the walk.
 @(private)
 scan_finish :: proc(s: ^Scan) {
     buffer := strings.to_string(s.paths)
-    start := 0
+    start  := 0
     for &entry in s.entries {
         entry.path = buffer[start:entry.end]
         start = entry.end
@@ -171,24 +163,24 @@ scan_diff :: proc(old, new: Scan, allocator := context.temp_allocator) -> []Chan
         before, after := old.entries[i], new.entries[j]
         switch {
         case before.path < after.path:
-            append(&changes, Change {kind = .Deleted, path = before.path})
+            append(&changes, Change{kind = .Deleted, path = before.path})
             i += 1
         case after.path < before.path:
-            append(&changes, Change {kind = .Created, path = after.path})
+            append(&changes, Change{kind = .Created, path = after.path})
             j += 1
         case:
             if !after.is_dir && (before.size != after.size || before.modified != after.modified) {
-                append(&changes, Change {kind = .Modified, path = after.path})
+                append(&changes, Change{kind = .Modified, path = after.path})
             }
             i += 1
             j += 1
         }
     }
     for ; i < len(old.entries); i += 1 {
-        append(&changes, Change {kind = .Deleted, path = old.entries[i].path})
+        append(&changes, Change{kind = .Deleted, path = old.entries[i].path})
     }
     for ; j < len(new.entries); j += 1 {
-        append(&changes, Change {kind = .Created, path = new.entries[j].path})
+        append(&changes, Change{kind = .Created, path = new.entries[j].path})
     }
     return changes[:]
 }

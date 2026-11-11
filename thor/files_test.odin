@@ -18,7 +18,7 @@ import "../watch"
 @(test)
 test_async_file_roundtrip :: proc(t: ^testing.T) {
     TEST_PATH :: "thor_roundtrip.tmp"
-    ORIGINAL :: "hello\nworld\n"
+    ORIGINAL  :: "hello\nworld\n"
 
     write_err := os.write_entire_file(TEST_PATH, ORIGINAL)
     testing.expect(t, write_err == nil, "could not create test file")
@@ -26,7 +26,9 @@ test_async_file_roundtrip :: proc(t: ^testing.T) {
 
     thor := new(Thor)
     defer free(thor)
-    defer for &editor in thor.editors {editview.editor_destroy(&editor)}
+    defer for &editor in thor.editors {
+        editview.editor_destroy(&editor)
+    }
     thor.active_file = make_signal(-1)
     thor.open_files = make([dynamic]^Open_File)
     thor.zombie_files = make([dynamic]^Open_File)
@@ -109,7 +111,7 @@ test_open_file_refuses_a_directory :: proc(t: ^testing.T) {
 @(test)
 test_async_load_prepares_crlf_text :: proc(t: ^testing.T) {
     TEST_PATH :: "thor_crlf_roundtrip.tmp"
-    ORIGINAL :: "hello\r\nworld\r\n"
+    ORIGINAL  :: "hello\r\nworld\r\n"
 
     write_err := os.write_entire_file(TEST_PATH, ORIGINAL)
     testing.expect(t, write_err == nil, "could not create test file")
@@ -117,7 +119,9 @@ test_async_load_prepares_crlf_text :: proc(t: ^testing.T) {
 
     thor := new(Thor)
     defer free(thor)
-    defer for &editor in thor.editors {editview.editor_destroy(&editor)}
+    defer for &editor in thor.editors {
+        editview.editor_destroy(&editor)
+    }
     thor.active_file = make_signal(-1)
     thor.open_files = make([dynamic]^Open_File)
     thor.zombie_files = make([dynamic]^Open_File)
@@ -152,7 +156,9 @@ test_async_load_prepares_crlf_text :: proc(t: ^testing.T) {
 test_image_tab_is_not_stuck_loading :: proc(t: ^testing.T) {
     thor := new(Thor)
     defer free(thor)
-    defer for &editor in thor.editors {editview.editor_destroy(&editor)}
+    defer for &editor in thor.editors {
+        editview.editor_destroy(&editor)
+    }
     thor.open_files = make([dynamic]^Open_File)
     defer delete(thor.open_files)
 
@@ -216,7 +222,7 @@ test_line_ending_conversion :: proc(t: ^testing.T) {
 
     // A CRLF file survives a load/save round trip byte for byte.
     buffer_text, _ := thor_to_buffer_text("a\r\nb\r\n")
-    round := thor_to_disk_text(buffer_text, .CRLF, context.temp_allocator)
+    round          := thor_to_disk_text(buffer_text, .CRLF, context.temp_allocator)
     testing.expect_value(t, round, "a\r\nb\r\n")
 }
 
@@ -226,7 +232,7 @@ test_line_ending_conversion :: proc(t: ^testing.T) {
 test_crlf_file_roundtrip :: proc(t: ^testing.T) {
     TEST_PATH :: "thor_crlf.tmp"
 
-    write_err := os.write_entire_file(TEST_PATH, transmute([]u8) string("a\r\nb\r\n"))
+    write_err := os.write_entire_file(TEST_PATH, transmute([]u8)string("a\r\nb\r\n"))
     testing.expect(t, write_err == nil, "could not create test file")
     defer os.remove(TEST_PATH)
 
@@ -274,7 +280,7 @@ test_crlf_file_roundtrip :: proc(t: ^testing.T) {
 test_reload_keeps_cursor_and_view :: proc(t: ^testing.T) {
     TEST_PATH :: "thor_reload.tmp"
 
-    write_err := os.write_entire_file(TEST_PATH, transmute([]u8) string("alpha\nbeta\ngamma\n"))
+    write_err := os.write_entire_file(TEST_PATH, transmute([]u8)string("alpha\nbeta\ngamma\n"))
     testing.expect(t, write_err == nil, "could not create test file")
     defer os.remove(TEST_PATH)
 
@@ -296,7 +302,7 @@ test_reload_keeps_cursor_and_view :: proc(t: ^testing.T) {
     textedit.select_range(&file.state, 6, 10)
     thor.editors[0].scroll_y = 120
 
-    rewrite_err := os.write_entire_file(TEST_PATH, transmute([]u8) string("inserted\nalpha\nbeta\ngamma\n"))
+    rewrite_err := os.write_entire_file(TEST_PATH, transmute([]u8)string("inserted\nalpha\nbeta\ngamma\n"))
     testing.expect(t, rewrite_err == nil, "could not rewrite test file")
 
     thor_reload_file(thor, file)
@@ -314,7 +320,7 @@ test_reload_keeps_cursor_and_view :: proc(t: ^testing.T) {
     testing.expect_value(t, file.saved_revision, file.state.revision)
 
     // Truncated to a prefix of itself: a cursor inside the cut lands on its end.
-    truncate_err := os.write_entire_file(TEST_PATH, transmute([]u8) string("inserted\n"))
+    truncate_err := os.write_entire_file(TEST_PATH, transmute([]u8)string("inserted\n"))
     testing.expect(t, truncate_err == nil, "could not truncate test file")
 
     thor_reload_file(thor, file)
@@ -333,7 +339,7 @@ test_reload_keeps_cursor_and_view :: proc(t: ^testing.T) {
 test_reload_reads_file_held_by_a_writer :: proc(t: ^testing.T) {
     TEST_PATH :: "thor_held.tmp"
 
-    write_err := os.write_entire_file(TEST_PATH, transmute([]u8) string("one\ntwo\n"))
+    write_err := os.write_entire_file(TEST_PATH, transmute([]u8)string("one\ntwo\n"))
     testing.expect(t, write_err == nil, "could not create test file")
     defer os.remove(TEST_PATH)
 
@@ -348,7 +354,7 @@ test_reload_reads_file_held_by_a_writer :: proc(t: ^testing.T) {
     handle, open_err := os.open(TEST_PATH, os.O_WRONLY)
     testing.expect(t, open_err == nil, "could not open the file as a second writer")
     // Same length, so no truncation is needed to overwrite in place.
-    _, rewrite_err := os.write_at(handle, transmute([]u8) string("six\nten\n"), 0)
+    _, rewrite_err := os.write_at(handle, transmute([]u8)string("six\nten\n"), 0)
     testing.expect(t, rewrite_err == nil, "could not rewrite through the second writer")
 
     thor_reload_file(thor, file)
@@ -365,7 +371,7 @@ test_reload_reads_file_held_by_a_writer :: proc(t: ^testing.T) {
 test_reload_during_read_is_retried :: proc(t: ^testing.T) {
     TEST_PATH :: "thor_retry.tmp"
 
-    write_err := os.write_entire_file(TEST_PATH, transmute([]u8) string("first\n"))
+    write_err := os.write_entire_file(TEST_PATH, transmute([]u8)string("first\n"))
     testing.expect(t, write_err == nil, "could not create test file")
     defer os.remove(TEST_PATH)
 
@@ -383,7 +389,7 @@ test_reload_during_read_is_retried :: proc(t: ^testing.T) {
     // Windows refuses to truncate a file while the worker still maps it.
     final_err: os.Error
     for _ in 0 ..< 500 {
-        final_err = os.write_entire_file(TEST_PATH, transmute([]u8) string("second\n"))
+        final_err = os.write_entire_file(TEST_PATH, transmute([]u8)string("second\n"))
         if final_err == nil {
             break
         }
@@ -406,7 +412,7 @@ test_reload_during_read_is_retried :: proc(t: ^testing.T) {
 test_reload_conflict_keeps_edits :: proc(t: ^testing.T) {
     TEST_PATH :: "thor_conflict.tmp"
 
-    write_err := os.write_entire_file(TEST_PATH, transmute([]u8) string("disk one\n"))
+    write_err := os.write_entire_file(TEST_PATH, transmute([]u8)string("disk one\n"))
     testing.expect(t, write_err == nil, "could not create test file")
     defer os.remove(TEST_PATH)
 
@@ -427,7 +433,7 @@ test_reload_conflict_keeps_edits :: proc(t: ^testing.T) {
     textedit.insert_text(&file.state, "mine ")
     testing.expect(t, file.state.revision != file.saved_revision, "edit did not dirty the buffer")
 
-    rewrite_err := os.write_entire_file(TEST_PATH, transmute([]u8) string("disk two\n"))
+    rewrite_err := os.write_entire_file(TEST_PATH, transmute([]u8)string("disk two\n"))
     testing.expect(t, rewrite_err == nil, "could not rewrite test file")
 
     thor_reload_file(thor, file)
@@ -457,7 +463,7 @@ test_reload_conflict_keeps_edits :: proc(t: ^testing.T) {
 test_save_skipped_during_reload :: proc(t: ^testing.T) {
     TEST_PATH :: "thor_save_race.tmp"
 
-    write_err := os.write_entire_file(TEST_PATH, transmute([]u8) string("disk one\n"))
+    write_err := os.write_entire_file(TEST_PATH, transmute([]u8)string("disk one\n"))
     testing.expect(t, write_err == nil, "could not create test file")
     defer os.remove(TEST_PATH)
 
@@ -478,7 +484,7 @@ test_save_skipped_during_reload :: proc(t: ^testing.T) {
     textedit.insert_text(&file.state, "mine ")
     testing.expect(t, file.state.revision != file.saved_revision, "edit did not dirty the buffer")
 
-    rewrite_err := os.write_entire_file(TEST_PATH, transmute([]u8) string("disk two\n"))
+    rewrite_err := os.write_entire_file(TEST_PATH, transmute([]u8)string("disk two\n"))
     testing.expect(t, rewrite_err == nil, "could not rewrite test file")
 
     thor_reload_file(thor, file)
@@ -511,7 +517,7 @@ test_save_skipped_during_reload :: proc(t: ^testing.T) {
 test_reload_edits_matching_disk_clean_buffer :: proc(t: ^testing.T) {
     TEST_PATH :: "thor_match.tmp"
 
-    write_err := os.write_entire_file(TEST_PATH, transmute([]u8) string("same\n"))
+    write_err := os.write_entire_file(TEST_PATH, transmute([]u8)string("same\n"))
     testing.expect(t, write_err == nil, "could not create test file")
     defer os.remove(TEST_PATH)
 
@@ -572,8 +578,8 @@ test_watcher_reloads_open_file :: proc(t: ^testing.T) {
     }
     defer os.remove(root)
 
-    path, _ := filepath.join({root, "watched.txt"}, context.temp_allocator)
-    write_err := os.write_entire_file(path, transmute([]u8) string("one\n"))
+    path, _   := filepath.join({root, "watched.txt"}, context.temp_allocator)
+    write_err := os.write_entire_file(path, transmute([]u8)string("one\n"))
     testing.expect(t, write_err == nil, "could not create test file")
     defer os.remove(path)
 
@@ -601,7 +607,7 @@ test_watcher_reloads_open_file :: proc(t: ^testing.T) {
     // The write is repeated because a change made before the watcher thread's
     // first read call is not queued, and the thread starts asynchronously.
     poll: for _ in 0 ..< 10 {
-        rewrite_err := os.write_entire_file(path, transmute([]u8) string("one\ntwo\n"))
+        rewrite_err := os.write_entire_file(path, transmute([]u8)string("one\ntwo\n"))
         testing.expect(t, rewrite_err == nil, "could not rewrite test file")
         for _ in 0 ..< 30 {
             watch.watcher_poll(&thor.watcher)
@@ -635,10 +641,10 @@ test_watcher_reloads_open_file :: proc(t: ^testing.T) {
 @(test)
 test_async_file_ops :: proc(t: ^testing.T) {
     // Constants, not temp strings: thor_drain_io frees the temp allocator.
-    ROOT :: "thor_fileops.tmp"
-    SRC :: ROOT + "/src"
+    ROOT   :: "thor_fileops.tmp"
+    SRC    :: ROOT + "/src"
     NESTED :: SRC + "/nested"
-    DST :: ROOT + "/dst"
+    DST    :: ROOT + "/dst"
     COPIED :: DST + "/src"
 
     _ = os.remove_all(ROOT) // a previous run that died mid-test
@@ -667,7 +673,7 @@ test_async_file_ops :: proc(t: ^testing.T) {
     thor_drain_io(thor)
     testing.expect_value(t, thor.inflight_jobs, 0)
 
-    top_data, top_err := os.read_entire_file(COPIED + "/a.txt", context.temp_allocator)
+    top_data, top_err       := os.read_entire_file(COPIED + "/a.txt", context.temp_allocator)
     nested_data, nested_err := os.read_entire_file(COPIED + "/nested/b.txt", context.temp_allocator)
     testing.expect(t, top_err == nil, "copied file missing")
     testing.expect(t, nested_err == nil, "copied nested file missing")
@@ -695,7 +701,9 @@ test_async_file_ops :: proc(t: ^testing.T) {
 test_tab_labels_disambiguate :: proc(t: ^testing.T) {
     thor := new(Thor)
     defer free(thor)
-    defer for &editor in thor.editors {editview.editor_destroy(&editor)}
+    defer for &editor in thor.editors {
+        editview.editor_destroy(&editor)
+    }
     thor.open_files = make([dynamic]^Open_File)
     defer delete(thor.open_files)
 
@@ -703,7 +711,7 @@ test_tab_labels_disambiguate :: proc(t: ^testing.T) {
         path:  string,
         name:  string,
         label: string,
-    } {
+    }{
         {"D:/thor/thor/state.odin", "state.odin", "state.odin — thor/thor"},
         {"D:/thor/ui/state.odin", "state.odin", "state.odin — ui"},
         {"D:/thor/widgets/editor.odin", "editor.odin", "editor.odin"},
@@ -736,15 +744,15 @@ test_tab_labels_disambiguate :: proc(t: ^testing.T) {
 // tab is closed for a folder delete too, or autosave would write the file back.
 @(test)
 test_delete_settles_an_inflight_save :: proc(t: ^testing.T) {
-    ROOT :: "thor_delete_save.tmp"
-    NESTED :: ROOT + "/nested"
+    ROOT      :: "thor_delete_save.tmp"
+    NESTED    :: ROOT + "/nested"
     TEST_PATH :: NESTED + "/doomed.txt"
 
     _ = os.remove_all(ROOT) // a previous run that died mid-test
     defer os.remove_all(ROOT)
     testing.expect(t, os.make_directory(ROOT) == nil, "could not create test root")
     testing.expect(t, os.make_directory(NESTED) == nil, "could not create nested dir")
-    testing.expect(t, os.write_entire_file(TEST_PATH, transmute([]u8) string("disk\n")) == nil, "could not create test file")
+    testing.expect(t, os.write_entire_file(TEST_PATH, transmute([]u8)string("disk\n")) == nil, "could not create test file")
 
     thor := test_make_thor()
     defer test_free_thor(thor)
@@ -797,7 +805,9 @@ test_make_thor :: proc() -> ^Thor {
 
 @(private = "file")
 test_free_thor :: proc(thor: ^Thor) {
-    for &editor in thor.editors {editview.editor_destroy(&editor)}
+    for &editor in thor.editors {
+        editview.editor_destroy(&editor)
+    }
     delete(thor.status_message)
     delete(thor.conflict_prompt)
     delete(thor.open_files)
@@ -813,7 +823,7 @@ test_free_thor :: proc(thor: ^Thor) {
 test_reload_drops_data_derived_from_the_old_text :: proc(t: ^testing.T) {
     TEST_PATH :: "thor_reload_derived.tmp"
 
-    write_err := os.write_entire_file(TEST_PATH, transmute([]u8) string("alpha :: 1\n"))
+    write_err := os.write_entire_file(TEST_PATH, transmute([]u8)string("alpha :: 1\n"))
     testing.expect(t, write_err == nil, "could not create test file")
     defer os.remove(TEST_PATH)
 
@@ -836,7 +846,7 @@ test_reload_drops_data_derived_from_the_old_text :: proc(t: ^testing.T) {
     file.folds_ready = true
     file.folds_revision = file.state.revision
 
-    rewrite_err := os.write_entire_file(TEST_PATH, transmute([]u8) string("beta :: 2\n"))
+    rewrite_err := os.write_entire_file(TEST_PATH, transmute([]u8)string("beta :: 2\n"))
     testing.expect(t, rewrite_err == nil, "could not rewrite test file")
     thor_reload_file(thor, file)
     thor_drain_io(thor)
@@ -878,7 +888,7 @@ test_semantic_slot_recovers_from_a_lost_result :: proc(t: ^testing.T) {
 test_backup_restores_unsaved_edits :: proc(t: ^testing.T) {
     TEST_PATH :: "thor_backup.tmp"
 
-    write_err := os.write_entire_file(TEST_PATH, transmute([]u8) string("disk\n"))
+    write_err := os.write_entire_file(TEST_PATH, transmute([]u8)string("disk\n"))
     testing.expect(t, write_err == nil, "could not create test file")
     defer os.remove(TEST_PATH)
 
@@ -929,7 +939,7 @@ test_retarget_moves_tabs_under_a_folder :: proc(t: ^testing.T) {
     thor := new(Thor)
     defer free(thor)
 
-    inside := new(Open_File)
+    inside  := new(Open_File)
     sibling := new(Open_File)
     inside.path = strings.clone(thor_abs_path("proj/src/a.odin"))
     sibling.path = strings.clone(thor_abs_path("proj/srcs/b.odin"))

@@ -52,7 +52,7 @@ thor_tip_of_the_day :: proc(thor: ^Thor) -> (tip: setting.Tip, index: int, ok: b
     }
 
     record := thor_read_tips_record()
-    day := thor_tip_today()
+    day    := thor_tip_today()
     if next, moved := thor_tip_index_for_day(record.last_day, day, record.index, count); moved {
         record.index = next
         record.last_day = day
@@ -104,14 +104,7 @@ thor_wrap_tip :: proc(index, count: int) -> int {
 // The tip both cards show: the pick, its position in the list, and the chord of
 // the action it names resolved against the keybinds in force. `ok` is false when
 // tips are off or no config layer holds one, which hides the cards.
-thor_tip_current :: proc(
-    thor: ^Thor,
-) -> (
-    tip: setting.Tip,
-    index, count: int,
-    shortcut: string,
-    ok: bool,
-) {
+thor_tip_current :: proc(thor: ^Thor) -> (tip: setting.Tip, index, count: int, shortcut: string, ok: bool) {
     tip, index, ok = thor_tip_of_the_day(thor)
     ok = ok && setting.tip_of_the_day(&thor.config)
     if !ok {
@@ -181,10 +174,7 @@ thor_tip_close_on_escape :: proc(thor: ^Thor) -> bool {
     if !thor.tip_open {
         return false
     }
-    if thor_palette_is_open(thor) ||
-       thor.find_open ||
-       thor_select_is_open(thor) ||
-       thor_menu_is_open(thor) {
+    if thor_palette_is_open(thor) || thor.find_open || thor_select_is_open(thor) || thor_menu_is_open(thor) {
         return false
     }
     thor.tip_open = false
@@ -281,39 +271,17 @@ thor_tip_card_view :: proc(thor: ^Thor) {
 
 // Title, body, chord and the footer, shared by the floating card and the welcome
 // page. `closable` adds the close box and the "never show again" line.
-thor_tip_card_body :: proc(
-    thor: ^Thor,
-    tip: setting.Tip,
-    index, count: int,
-    shortcut: string,
-    closable: bool,
-) {
+thor_tip_card_body :: proc(thor: ^Thor, tip: setting.Tip, index, count: int, shortcut: string, closable: bool) {
     {
-        ui.scope(
-            {
-                key = "head",
-                props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {8, 0}},
-            },
-        )
+        ui.scope({key = "head", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {8, 0}}})
         thor_icon_label(thor, "bulb", thor.theme.accent_color)
-        ui.label(
-            tip.title,
-            {key = "title", props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .Ellipsis}},
-        )
+        ui.label(tip.title, {key = "title", props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .Ellipsis}})
         if closable {
             close := ui.scope(
                 {
                     key = "close",
                     flags = {.Clickable},
-                    props = {
-                        w = ui.Px(22),
-                        h = ui.Px(22),
-                        dir = .Row,
-                        justify = .Center,
-                        align = .Center,
-                        radius = ui.rad(4),
-                        cursor = .Pointer,
-                    },
+                    props = {w = ui.Px(22), h = ui.Px(22), dir = .Row, justify = .Center, align = .Center, radius = ui.rad(4), cursor = .Pointer},
                     hover = {bg = thor.theme.buttons},
                 },
             )
@@ -326,45 +294,19 @@ thor_tip_card_body :: proc(
         }
     }
 
-    ui.label(
-        tip.body,
-        {key = "body", props = {w = ui.Grow(1), color = thor.theme.muted_color, text_wrap = .Words}},
-    )
+    ui.label(tip.body, {key = "body", props = {w = ui.Grow(1), color = thor.theme.muted_color, text_wrap = .Words}})
     if shortcut != "" {
         ui.label(
             shortcut,
-            {
-                key = "chord",
-                props = {
-                    pad = ui.xy(8, 3),
-                    radius = ui.rad(4),
-                    bg = thor.theme.buttons,
-                    color = thor.theme.accent_color,
-                    text_wrap = .None,
-                },
-            },
+            {key = "chord", props = {pad = ui.xy(8, 3), radius = ui.rad(4), bg = thor.theme.buttons, color = thor.theme.accent_color, text_wrap = .None}},
         )
     }
 
     {
-        ui.scope(
-            {
-                key = "foot",
-                props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {6, 0}},
-            },
-        )
+        ui.scope({key = "foot", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {6, 0}}})
         if closable {
-            never := ui.scope(
-                {
-                    key = "never",
-                    flags = {.Clickable},
-                    props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, cursor = .Pointer},
-                },
-            )
-            ui.label(
-                "Do not show tips again",
-                {key = "text", props = {color = thor.theme.disabled, text_wrap = .None}},
-            )
+            never := ui.scope({key = "never", flags = {.Clickable}, props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, cursor = .Pointer}})
+            ui.label("Do not show tips again", {key = "text", props = {color = thor.theme.disabled, text_wrap = .None}})
             thor_tip(thor, never.id, "Turn the tip of the day off")
             if never.clicked {
                 thor_tip_card_close(thor, true)
@@ -378,10 +320,7 @@ thor_tip_card_body :: proc(
             if thor_tip_arrow(thor, "prev", "chevron-left", "Previous tip") {
                 thor_tip_step(thor, -1)
             }
-            ui.label(
-                fmt.tprintf("%d / %d", index + 1, count),
-                {key = "pos", props = {color = thor.theme.disabled, text_wrap = .None}},
-            )
+            ui.label(fmt.tprintf("%d / %d", index + 1, count), {key = "pos", props = {color = thor.theme.disabled, text_wrap = .None}})
             if thor_tip_arrow(thor, "next", "chevron-right", "Next tip") {
                 thor_tip_step(thor, 1)
             }
@@ -395,15 +334,7 @@ thor_tip_arrow :: proc(thor: ^Thor, key, icon, tip: string) -> bool {
         {
             key = key,
             flags = {.Clickable},
-            props = {
-                w = ui.Px(22),
-                h = ui.Px(22),
-                dir = .Row,
-                justify = .Center,
-                align = .Center,
-                radius = ui.rad(4),
-                cursor = .Pointer,
-            },
+            props = {w = ui.Px(22), h = ui.Px(22), dir = .Row, justify = .Center, align = .Center, radius = ui.rad(4), cursor = .Pointer},
             hover = {bg = thor.theme.buttons},
         },
     )

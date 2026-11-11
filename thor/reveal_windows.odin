@@ -20,9 +20,16 @@ thor_reveal_path :: proc(path: string) -> bool {
         return false
     }
     native, _ := strings.replace_all(path, "/", "\\", context.temp_allocator)
-    param := strings.concatenate({"/select,", native}, context.temp_allocator)
-    result := win32.ShellExecuteW(nil, win32.utf8_to_wstring("open"), win32.utf8_to_wstring("explorer.exe"), win32.utf8_to_wstring(param), nil, win32.SW_SHOWNORMAL)
-    ok := shell_execute_ok(result)
+    param     := strings.concatenate({"/select,", native}, context.temp_allocator)
+    result    := win32.ShellExecuteW(
+        nil,
+        win32.utf8_to_wstring("open"),
+        win32.utf8_to_wstring("explorer.exe"),
+        win32.utf8_to_wstring(param),
+        nil,
+        win32.SW_SHOWNORMAL,
+    )
+    ok        := shell_execute_ok(result)
     if !ok {
         log.warnf("reveal in explorer failed for %q: ShellExecuteW returned %d", path, uintptr(result))
     }
@@ -39,16 +46,16 @@ thor_open_in_browser :: proc(target: string) -> bool {
         return false
     }
     if browser := default_browser_exe(); browser != "" {
-        args := strings.concatenate({`"`, target, `"`}, context.temp_allocator)
+        args   := strings.concatenate({`"`, target, `"`}, context.temp_allocator)
         result := win32.ShellExecuteW(nil, win32.utf8_to_wstring("open"), win32.utf8_to_wstring(browser), win32.utf8_to_wstring(args), nil, win32.SW_SHOWNORMAL)
-        ok := shell_execute_ok(result)
+        ok     := shell_execute_ok(result)
         if !ok {
             log.warnf("open in browser failed for %q via %q: ShellExecuteW returned %d", target, browser, uintptr(result))
         }
         return ok
     }
     result := win32.ShellExecuteW(nil, win32.utf8_to_wstring("open"), win32.utf8_to_wstring(target), nil, nil, win32.SW_SHOWNORMAL)
-    ok := shell_execute_ok(result)
+    ok     := shell_execute_ok(result)
     if !ok {
         log.warnf("open in browser failed for %q: ShellExecuteW returned %d", target, uintptr(result))
     }
@@ -61,16 +68,12 @@ thor_open_in_browser :: proc(target: string) -> bool {
 // given as its one argument. Temporary memory.
 @(private = "file")
 default_browser_exe :: proc() -> string {
-    prog_id := registry_string(
-        win32.HKEY_CURRENT_USER,
-        `Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice`,
-        "ProgId",
-    )
+    prog_id := registry_string(win32.HKEY_CURRENT_USER, `Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice`, "ProgId")
     if prog_id == "" {
         return ""
     }
 
-    subkey := strings.concatenate({prog_id, `\shell\open\command`}, context.temp_allocator)
+    subkey  := strings.concatenate({prog_id, `\shell\open\command`}, context.temp_allocator)
     command := registry_string(win32.HKEY_CLASSES_ROOT, subkey, "")
     if command == "" {
         return ""
@@ -102,14 +105,14 @@ registry_string :: proc(root: win32.HKEY, subkey, value: string) -> string {
     // A registered command carries the program and its argument template, so it
     // outgrows MAX_PATH more easily than a plain path value.
     buf: [1024]u16
-    size := win32.DWORD(size_of(buf))
+    size   := win32.DWORD(size_of(buf))
     wvalue := value != "" ? win32.utf8_to_wstring(value, context.temp_allocator) : nil
-    flags := win32.DWORD(win32.RRF_RT_REG_SZ | win32.RRF_RT_REG_EXPAND_SZ)
+    flags  := win32.DWORD(win32.RRF_RT_REG_SZ | win32.RRF_RT_REG_EXPAND_SZ)
     if win32.RegGetValueW(key, nil, wvalue, flags, nil, raw_data(buf[:]), &size) != 0 {
         return ""
     }
 
-    text, err := win32.wstring_to_utf8(cast(win32.wstring) raw_data(buf[:]), -1, context.temp_allocator)
+    text, err := win32.wstring_to_utf8(cast(win32.wstring)raw_data(buf[:]), -1, context.temp_allocator)
     if err != nil {
         return ""
     }

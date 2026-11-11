@@ -23,7 +23,7 @@ test_fixture_name :: proc(name: string) -> string {
 @(test)
 test_recent_workspaces :: proc(t: ^testing.T) {
     backup, backup_err := os.read_entire_file(RECENT_WORKSPACES_FILE, context.temp_allocator)
-    had_backup := backup_err == nil
+    had_backup         := backup_err == nil
     defer {
         if had_backup {
             _ = os.write_entire_file(RECENT_WORKSPACES_FILE, backup)
@@ -79,11 +79,7 @@ test_recent_workspaces :: proc(t: ^testing.T) {
     }
     capped := thor_recent_workspaces(context.temp_allocator)
     testing.expect(t, len(capped) <= RECENT_WORKSPACES_MAX, "recent workspaces must stay capped")
-    testing.expect(
-        t,
-        strings.equal_fold(capped[0], cap_dirs[len(cap_dirs) - 1]),
-        "the most recently recorded folder must still lead",
-    )
+    testing.expect(t, strings.equal_fold(capped[0], cap_dirs[len(cap_dirs) - 1]), "the most recently recorded folder must still lead")
 }
 
 // A folder saved into a session (an older build let one open) is dropped on
@@ -92,18 +88,14 @@ test_recent_workspaces :: proc(t: ^testing.T) {
 @(test)
 test_restore_drops_a_directory :: proc(t: ^testing.T) {
     workspace := test_fixture_name("thor_session_dir_test")
-    sub := fmt.tprintf("%s/sub", workspace)
-    note := fmt.tprintf("%s/note.txt", workspace)
+    sub       := fmt.tprintf("%s/sub", workspace)
+    note      := fmt.tprintf("%s/note.txt", workspace)
 
     testing.expect(t, os.make_directory(workspace) == nil, "could not create test workspace")
     defer os.remove(workspace)
     testing.expect(t, os.make_directory(sub) == nil, "could not create test dir")
     defer os.remove(sub)
-    testing.expect(
-        t,
-        os.write_entire_file(note, transmute([]u8)string("note\n")) == nil,
-        "could not create test file",
-    )
+    testing.expect(t, os.write_entire_file(note, transmute([]u8)string("note\n")) == nil, "could not create test file")
     defer os.remove(note)
 
     if !os.is_dir("sessions") {
@@ -111,26 +103,16 @@ test_restore_drops_a_directory :: proc(t: ^testing.T) {
     }
     // Written by hand: the on-disk Session shape is file-private to session.odin.
     // The folder comes first, so the saved active tab is position 1.
-    data := fmt.tprintf(
-        `{{"workspace":%q,"open_files":[%q,%q],"active_file":1,"split_second_file":-1}}`,
-        workspace,
-        sub,
-        note,
-    )
-    path := strings.concatenate(
-        {"sessions/", thor_path_key(workspace), ".json"},
-        context.temp_allocator,
-    )
-    testing.expect(
-        t,
-        os.write_entire_file(path, transmute([]u8)data) == nil,
-        "could not write the test session",
-    )
+    data := fmt.tprintf(`{{"workspace":%q,"open_files":[%q,%q],"active_file":1,"split_second_file":-1}}`, workspace, sub, note)
+    path := strings.concatenate({"sessions/", thor_path_key(workspace), ".json"}, context.temp_allocator)
+    testing.expect(t, os.write_entire_file(path, transmute([]u8)data) == nil, "could not write the test session")
     defer os.remove(path)
 
     thor := new(Thor)
     defer free(thor)
-    defer for &editor in thor.editors {editview.editor_destroy(&editor)}
+    defer for &editor in thor.editors {
+        editview.editor_destroy(&editor)
+    }
     thor.active_file = make_signal(-1)
     thor.open_files = make([dynamic]^Open_File)
     thor.zombie_files = make([dynamic]^Open_File)
@@ -174,25 +156,16 @@ n0.tabs = Explorer
 
     // Written by hand: the on-disk Session shape is file-private to session.odin.
     escaped, _ := strings.replace_all(LAYOUT, "\n", "\\n", context.temp_allocator)
-    data := fmt.tprintf(
-        `{{"workspace":%q,"open_files":[],"active_file":-1,"split_second_file":-1,"dock_layout":"%s"}}`,
-        workspace,
-        escaped,
-    )
-    path := strings.concatenate(
-        {"sessions/", thor_path_key(workspace), ".json"},
-        context.temp_allocator,
-    )
-    testing.expect(
-        t,
-        os.write_entire_file(path, transmute([]u8)data) == nil,
-        "could not write the test session",
-    )
+    data       := fmt.tprintf(`{{"workspace":%q,"open_files":[],"active_file":-1,"split_second_file":-1,"dock_layout":"%s"}}`, workspace, escaped)
+    path       := strings.concatenate({"sessions/", thor_path_key(workspace), ".json"}, context.temp_allocator)
+    testing.expect(t, os.write_entire_file(path, transmute([]u8)data) == nil, "could not write the test session")
     defer os.remove(path)
 
     thor := new(Thor)
     defer free(thor)
-    defer for &editor in thor.editors {editview.editor_destroy(&editor)}
+    defer for &editor in thor.editors {
+        editview.editor_destroy(&editor)
+    }
     thor.active_file = make_signal(-1)
     thor.open_files = make([dynamic]^Open_File)
     thor.zombie_files = make([dynamic]^Open_File)

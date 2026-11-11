@@ -10,16 +10,16 @@ import "core:time"
 import "core:unicode/utf8"
 import rl "vendor:raylib"
 
+import "../editview"
+import "../font"
 import "../lang/lsp"
+import "../lockfree"
 import "../luaconf"
+import "../prof"
 import "../setting"
 import "../textedit"
-import ui "../vendor/loom/loom"
-import "../font"
 import "../theme"
-import "../editview"
-import "../lockfree"
-import "../prof"
+import ui "../vendor/loom/loom"
 // A global app chord: its keybinds.lua name, the live binding and the built-in default.
 App_Key :: struct {
     name:    string,
@@ -29,57 +29,57 @@ App_Key :: struct {
 
 // The global app chords of thor_global_key. The slice is in the temp allocator.
 thor_app_keys :: proc(thor: ^Thor) -> []App_Key {
-    keys := [?]App_Key {
-    {"command_palette",          &thor.command_palette_key,       {key = .Period, mods = {.Ctrl}}},
-    {"quick_open",               &thor.quick_open_key,            {key = .Tab, mods = {.Ctrl}}},
-    {"toggle_fullscreen",        &thor.fullscreen_key,            {key = .F12}},
-    {"toggle_console",           &thor.console_toggle_key,        {key = .T, mods = {.Ctrl}}},
-    {"find",                     &thor.find_key,                  {key = .F, mods = {.Ctrl}}},
-    {"replace",                  &thor.replace_key,               {key = .R, mods = {.Ctrl}}},
-    {"focus_editor",             &thor.focus_editor_key,          {key = .E, mods = {.Ctrl, .Shift}}},
-    {"focus_explorer",           &thor.focus_explorer_key,        {key = .B, mods = {.Ctrl, .Shift}}},
-    {"focus_terminal",           &thor.focus_terminal_key,        {key = .T, mods = {.Ctrl, .Shift}}},
-    {"trim_trailing_whitespace", &thor.trim_whitespace_key,       {key = .W, mods = {.Ctrl, .Shift}}},
-    {"format_document",          &thor.format_key,                {key = .L, mods = {.Ctrl, .Alt}}},
-    {"format_selection",         &thor.format_selection_key,      {key = .L, mods = {.Ctrl, .Alt, .Shift}}},
-    {"align_at_char",            &thor.align_char_key,            {key = .A, mods = {.Ctrl, .Shift}}},
-    {"goto_line",                &thor.goto_line_key,             {key = .G, mods = {.Ctrl}}},
-    {"goto_definition",          &thor.goto_def_key,              {key = .Enter, mods = {.Alt}}},
-    {"goto_type_definition",     &thor.goto_type_def_key,         {key = .Enter, mods = {.Alt, .Shift}}},
-    {"peek_definition",          &thor.peek_def_key,              {key = .F12, mods = {.Alt}}},
-    {"goto_symbol",              &thor.goto_symbol_key,           {key = .O, mods = {.Ctrl, .Shift}}},
-    {"goto_workspace_symbol",    &thor.goto_workspace_symbol_key, {key = .Q, mods = {.Ctrl}}},
-    {"find_references",          &thor.find_references_key,       {key = .F10}},
-    {"signature_help",           &thor.signature_help_key,        {key = .Space, mods = {.Ctrl, .Shift}}},
-    {"package_doc",              &thor.package_doc_key,           {key = .F3}},
-    {"code_actions",             &thor.code_actions_key,          {key = .U, mods = {.Ctrl, .Shift}}},
-    // Ctrl+Alt+Left/Right, not the browsers' plain Alt+Left/Right: those two are
-    // already line_start / line_end.
-    {"jump_back",                &thor.jump_back_key,             {key = .Left, mods = {.Ctrl, .Alt}}},
-    {"jump_forward",             &thor.jump_forward_key,          {key = .Right, mods = {.Ctrl, .Alt}}},
-    {"last_file",                &thor.last_file_key,             {key = .E, mods = {.Ctrl}}},
-    {"toggle_split",             &thor.split_key,                 {}},
-    {"focus_pane_1",             &thor.focus_pane_keys[0],        {key = .Num_1, mods = {.Ctrl}}},
-    {"focus_pane_2",             &thor.focus_pane_keys[1],        {key = .Num_2, mods = {.Ctrl}}},
-    {"focus_pane_3",             &thor.focus_pane_keys[2],        {key = .Num_3, mods = {.Ctrl}}},
-    {"focus_pane_4",             &thor.focus_pane_keys[3],        {key = .Num_4, mods = {.Ctrl}}},
-    {"focus_pane_5",             &thor.focus_pane_keys[4],        {key = .Num_5, mods = {.Ctrl}}},
-    {"focus_pane_6",             &thor.focus_pane_keys[5],        {key = .Num_6, mods = {.Ctrl}}},
-    {"file_to_pane_1",           &thor.file_to_pane_keys[0],      {key = .Num_1, mods = {.Ctrl, .Shift}}},
-    {"file_to_pane_2",           &thor.file_to_pane_keys[1],      {key = .Num_2, mods = {.Ctrl, .Shift}}},
-    {"file_to_pane_3",           &thor.file_to_pane_keys[2],      {key = .Num_3, mods = {.Ctrl, .Shift}}},
-    {"file_to_pane_4",           &thor.file_to_pane_keys[3],      {key = .Num_4, mods = {.Ctrl, .Shift}}},
-    {"file_to_pane_5",           &thor.file_to_pane_keys[4],      {key = .Num_5, mods = {.Ctrl, .Shift}}},
-    {"file_to_pane_6",           &thor.file_to_pane_keys[5],      {key = .Num_6, mods = {.Ctrl, .Shift}}},
-    {"focus_next_pane",          &thor.focus_next_pane_key,       {key = .F6}},
-    {"focus_previous_pane",      &thor.focus_previous_pane_key,   {key = .F6, mods = {.Shift}}},
-    {"next_layout",              &thor.next_layout_key,           {key = .F1, mods = {.Ctrl}}},
-    {"close_tab",                &thor.close_tab_key,             {key = .W, mods = {.Ctrl}}},
-    {"next_tab",                 &thor.next_tab_key,              {key = .Page_Down, mods = {.Ctrl}}},
-    {"previous_tab",             &thor.previous_tab_key,          {key = .Page_Up, mods = {.Ctrl}}},
-    {"toggle_explorer",          &thor.toggle_explorer_key,       {key = .B, mods = {.Ctrl}}},
+    keys := [?]App_Key{
+        {"command_palette", &thor.command_palette_key, {key = .Period, mods = {.Ctrl}}},
+        {"quick_open", &thor.quick_open_key, {key = .Tab, mods = {.Ctrl}}},
+        {"toggle_fullscreen", &thor.fullscreen_key, {key = .F12}},
+        {"toggle_console", &thor.console_toggle_key, {key = .T, mods = {.Ctrl}}},
+        {"find", &thor.find_key, {key = .F, mods = {.Ctrl}}},
+        {"replace", &thor.replace_key, {key = .R, mods = {.Ctrl}}},
+        {"focus_editor", &thor.focus_editor_key, {key = .E, mods = {.Ctrl, .Shift}}},
+        {"focus_explorer", &thor.focus_explorer_key, {key = .B, mods = {.Ctrl, .Shift}}},
+        {"focus_terminal", &thor.focus_terminal_key, {key = .T, mods = {.Ctrl, .Shift}}},
+        {"trim_trailing_whitespace", &thor.trim_whitespace_key, {key = .W, mods = {.Ctrl, .Shift}}},
+        {"format_document", &thor.format_key, {key = .L, mods = {.Ctrl, .Alt}}},
+        {"format_selection", &thor.format_selection_key, {key = .L, mods = {.Ctrl, .Alt, .Shift}}},
+        {"align_at_char", &thor.align_char_key, {key = .A, mods = {.Ctrl, .Shift}}},
+        {"goto_line", &thor.goto_line_key, {key = .G, mods = {.Ctrl}}},
+        {"goto_definition", &thor.goto_def_key, {key = .Enter, mods = {.Alt}}},
+        {"goto_type_definition", &thor.goto_type_def_key, {key = .Enter, mods = {.Alt, .Shift}}},
+        {"peek_definition", &thor.peek_def_key, {key = .F12, mods = {.Alt}}},
+        {"goto_symbol", &thor.goto_symbol_key, {key = .O, mods = {.Ctrl, .Shift}}},
+        {"goto_workspace_symbol", &thor.goto_workspace_symbol_key, {key = .Q, mods = {.Ctrl}}},
+        {"find_references", &thor.find_references_key, {key = .F10}},
+        {"signature_help", &thor.signature_help_key, {key = .Space, mods = {.Ctrl, .Shift}}},
+        {"package_doc", &thor.package_doc_key, {key = .F3}},
+        {"code_actions", &thor.code_actions_key, {key = .U, mods = {.Ctrl, .Shift}}},
+        // Ctrl+Alt+Left/Right, not the browsers' plain Alt+Left/Right: those two are
+        // already line_start / line_end.
+        {"jump_back", &thor.jump_back_key, {key = .Left, mods = {.Ctrl, .Alt}}},
+        {"jump_forward", &thor.jump_forward_key, {key = .Right, mods = {.Ctrl, .Alt}}},
+        {"last_file", &thor.last_file_key, {key = .E, mods = {.Ctrl}}},
+        {"toggle_split", &thor.split_key, {}},
+        {"focus_pane_1", &thor.focus_pane_keys[0], {key = .Num_1, mods = {.Ctrl}}},
+        {"focus_pane_2", &thor.focus_pane_keys[1], {key = .Num_2, mods = {.Ctrl}}},
+        {"focus_pane_3", &thor.focus_pane_keys[2], {key = .Num_3, mods = {.Ctrl}}},
+        {"focus_pane_4", &thor.focus_pane_keys[3], {key = .Num_4, mods = {.Ctrl}}},
+        {"focus_pane_5", &thor.focus_pane_keys[4], {key = .Num_5, mods = {.Ctrl}}},
+        {"focus_pane_6", &thor.focus_pane_keys[5], {key = .Num_6, mods = {.Ctrl}}},
+        {"file_to_pane_1", &thor.file_to_pane_keys[0], {key = .Num_1, mods = {.Ctrl, .Shift}}},
+        {"file_to_pane_2", &thor.file_to_pane_keys[1], {key = .Num_2, mods = {.Ctrl, .Shift}}},
+        {"file_to_pane_3", &thor.file_to_pane_keys[2], {key = .Num_3, mods = {.Ctrl, .Shift}}},
+        {"file_to_pane_4", &thor.file_to_pane_keys[3], {key = .Num_4, mods = {.Ctrl, .Shift}}},
+        {"file_to_pane_5", &thor.file_to_pane_keys[4], {key = .Num_5, mods = {.Ctrl, .Shift}}},
+        {"file_to_pane_6", &thor.file_to_pane_keys[5], {key = .Num_6, mods = {.Ctrl, .Shift}}},
+        {"focus_next_pane", &thor.focus_next_pane_key, {key = .F6}},
+        {"focus_previous_pane", &thor.focus_previous_pane_key, {key = .F6, mods = {.Shift}}},
+        {"next_layout", &thor.next_layout_key, {key = .F1, mods = {.Ctrl}}},
+        {"close_tab", &thor.close_tab_key, {key = .W, mods = {.Ctrl}}},
+        {"next_tab", &thor.next_tab_key, {key = .Page_Down, mods = {.Ctrl}}},
+        {"previous_tab", &thor.previous_tab_key, {key = .Page_Up, mods = {.Ctrl}}},
+        {"toggle_explorer", &thor.toggle_explorer_key, {key = .B, mods = {.Ctrl}}},
     }
-    out := make([]App_Key, len(keys), context.temp_allocator)
+    out  := make([]App_Key, len(keys), context.temp_allocator)
     copy(out, keys[:])
     return out
 }
@@ -109,12 +109,12 @@ thor_apply_settings :: proc(thor: ^Thor) {
         if kb, ok := setting.keybind(&thor.config, bind.action); ok {
             bind.key = kb
         } else {
-            bind.key = setting.Keybind {}
+            bind.key = setting.Keybind{}
         }
     }
 
     for &editor in thor.editors {
-        editview.editor_set_font_size(&editor, cast(i32) setting.font_size(&thor.config))
+        editview.editor_set_font_size(&editor, cast(i32)setting.font_size(&thor.config))
         editor.indent_guides = setting.indent_guides(&thor.config)
         editor.relative_lines = setting.relative_line_numbers(&thor.config)
     }
@@ -141,9 +141,9 @@ thor_apply_settings :: proc(thor: ^Thor) {
 // the auto-reload watcher and refreshes the Settings modal if it is open. Shared
 // by the reload command, the Settings modal, and the file-change poll loop.
 thor_reload_settings :: proc(thor: ^Thor) {
-    old_theme := strings.clone(thor.config.general.theme, context.temp_allocator)
-    old_font := strings.clone(thor.config.general.font, context.temp_allocator)
-    old_icon_pack := strings.clone(thor.config.general.icon_pack, context.temp_allocator)
+    old_theme          := strings.clone(thor.config.general.theme, context.temp_allocator)
+    old_font           := strings.clone(thor.config.general.font, context.temp_allocator)
+    old_icon_pack      := strings.clone(thor.config.general.icon_pack, context.temp_allocator)
     old_file_icon_pack := strings.clone(thor.config.general.file_icon_pack, context.temp_allocator)
 
     setting.destroy(&thor.config)
@@ -269,7 +269,7 @@ WORKSPACE_SETTINGS_TEMPLATE :: "-- Settings for this folder. They overlay user/s
 // Promotes the current folder to a workspace: creates <workspace>/.thor/ with a
 // starter settings.lua and reloads so the overlay applies immediately.
 thor_cmd_init_workspace :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor    := cast(^Thor)data
     cfg_dir := thor_workspace_config_dir(thor.workspace_dir)
     if !os.is_dir(cfg_dir) {
         if err := os.make_directory(cfg_dir); err != nil {
@@ -279,7 +279,7 @@ thor_cmd_init_workspace :: proc(data: rawptr) {
     }
     settings_path := strings.concatenate({cfg_dir, "/", setting.SETTINGS_FILE}, context.temp_allocator)
     if !os.exists(settings_path) {
-        if err := os.write_entire_file(settings_path, transmute([]u8) string(WORKSPACE_SETTINGS_TEMPLATE)); err != nil {
+        if err := os.write_entire_file(settings_path, transmute([]u8)string(WORKSPACE_SETTINGS_TEMPLATE)); err != nil {
             log.errorf("Could not write %q: %v", settings_path, err)
         }
     }
@@ -323,7 +323,7 @@ App_Bind :: struct {
 @(private = "file")
 thor_add_bindable_command :: proc(thor: ^Thor, title, action: string, run: proc(data: rawptr), data: rawptr) {
     thor_palette_add(thor, title, run, data, action = action)
-    append(&thor.app_binds, App_Bind {action = action, run = run, data = data})
+    append(&thor.app_binds, App_Bind{action = action, run = run, data = data})
 }
 
 // Runs the app command bound to this chord, if any. Called from thor_global_key
@@ -332,9 +332,7 @@ thor_add_bindable_command :: proc(thor: ^Thor, title, action: string, run: proc(
 // limits the match to the actions it starts.
 thor_dispatch_app_bind :: proc(thor: ^Thor, event: ui.Key_Event, prefix := "") -> bool {
     for bind in thor.app_binds {
-        if bind.key.key != .None &&
-           strings.has_prefix(bind.action, prefix) &&
-           setting.keybind_matches(bind.key, event.key, event.mods) {
+        if bind.key.key != .None && strings.has_prefix(bind.action, prefix) && setting.keybind_matches(bind.key, event.key, event.mods) {
             thor_note_action(thor, bind.action)
             if bind.run != nil {
                 bind.run(bind.data)
@@ -411,20 +409,14 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_palette_add(thor, "Edit: Undo Later", thor_cmd_undo_later, thor, action = "undo_later")
     thor_add_bindable_command(thor, "Edit: Undo History", "undo_history", thor_cmd_undo_history, thor)
     thor_palette_add(thor, "Edit: Toggle Line Comment", thor_cmd_toggle_comment, thor, action = "toggle_line_comment")
-    thor_palette_add(
-        thor, "Edit: Toggle Block Comment", thor_cmd_toggle_block_comment, thor, action = "toggle_block_comment",
-    )
+    thor_palette_add(thor, "Edit: Toggle Block Comment", thor_cmd_toggle_block_comment, thor, action = "toggle_block_comment")
     thor_add_bindable_command(thor, "Edit: Clipboard History...", "clipboard_history", thor_cmd_clipboard_history, thor)
     thor_add_bindable_command(thor, "Edit: Clear Clipboard History", "clear_clipboard_history", thor_cmd_clear_clipboard_history, thor)
     thor_palette_add(thor, "Edit: Select All", thor_cmd_select_all, thor, action = "select_all")
     thor_palette_add(thor, "Edit: Duplicate Line", thor_cmd_duplicate_line, thor, action = "duplicate_line_down")
     thor_palette_add(thor, "Edit: Delete Line", thor_cmd_delete_line, thor, action = "delete_line")
-    thor_palette_add(
-        thor, "Edit: Delete to Line End", thor_cmd_delete_to_line_end, thor, action = "delete_to_line_end",
-    )
-    thor_palette_add(
-        thor, "Edit: Delete to Line Start", thor_cmd_delete_to_line_start, thor, action = "delete_to_line_start",
-    )
+    thor_palette_add(thor, "Edit: Delete to Line End", thor_cmd_delete_to_line_end, thor, action = "delete_to_line_end")
+    thor_palette_add(thor, "Edit: Delete to Line Start", thor_cmd_delete_to_line_start, thor, action = "delete_to_line_start")
     thor_palette_add(thor, "Edit: Join Lines", thor_cmd_join_lines, thor, action = "join_lines")
     thor_palette_add(thor, "Edit: Move Line Up", thor_cmd_move_line_up, thor, action = "move_line_up")
     thor_palette_add(thor, "Edit: Move Line Down", thor_cmd_move_line_down, thor, action = "move_line_down")
@@ -518,45 +510,63 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_add_bindable_command(thor, "Theme: Paste Selected Color", "theme_paste_color", thor_cmd_theme_paste_color, thor)
 }
 
-thor_cmd_toggle_explorer :: proc(data: rawptr) {thor_toggle_explorer(cast(^Thor) data)}
-thor_cmd_toggle_console :: proc(data: rawptr) {thor_toggle_console(cast(^Thor) data)}
-thor_cmd_toggle_maximize :: proc(data: rawptr) {thor_toggle_maximize(cast(^Thor) data)}
-thor_cmd_toggle_fullscreen :: proc(data: rawptr) {thor_toggle_fullscreen(cast(^Thor) data)}
-thor_cmd_toggle_wrap :: proc(data: rawptr) {editview.editor_toggle_wrap(thor_active_editor(cast(^Thor) data))}
+thor_cmd_toggle_explorer   :: proc(data: rawptr) {
+    thor_toggle_explorer(cast(^Thor)data)
+}
+thor_cmd_toggle_console    :: proc(data: rawptr) {
+    thor_toggle_console(cast(^Thor)data)
+}
+thor_cmd_toggle_maximize   :: proc(data: rawptr) {
+    thor_toggle_maximize(cast(^Thor)data)
+}
+thor_cmd_toggle_fullscreen :: proc(data: rawptr) {
+    thor_toggle_fullscreen(cast(^Thor)data)
+}
+thor_cmd_toggle_wrap       :: proc(data: rawptr) {
+    editview.editor_toggle_wrap(thor_active_editor(cast(^Thor)data))
+}
 
 // Both panes, so a split does not end up with one pane marking indentation and
 // the other not.
 thor_cmd_toggle_whitespace :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     for &editor in thor.editors {
         editview.editor_toggle_whitespace(&editor)
     }
 }
-thor_cmd_toggle_split :: proc(data: rawptr) {thor_toggle_split(cast(^Thor) data)}
+thor_cmd_toggle_split      :: proc(data: rawptr) {
+    thor_toggle_split(cast(^Thor)data)
+}
 
 // Flips the rendered markdown preview. Only visibly does anything while a
 // markdown file is active (thor_workspace_view gates the swap).
 thor_cmd_toggle_markdown_preview :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor.markdown_preview = !thor.markdown_preview
 }
-thor_cmd_find :: proc(data: rawptr) {thor_open_find(cast(^Thor) data, false)}
-thor_cmd_replace :: proc(data: rawptr) {thor_open_find(cast(^Thor) data, true)}
-thor_cmd_save :: proc(data: rawptr) {thor_request_save(data)}
+thor_cmd_find                    :: proc(data: rawptr) {
+    thor_open_find(cast(^Thor)data, false)
+}
+thor_cmd_replace                 :: proc(data: rawptr) {
+    thor_open_find(cast(^Thor)data, true)
+}
+thor_cmd_save                    :: proc(data: rawptr) {
+    thor_request_save(data)
+}
 
-thor_cmd_line_endings_lf :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+thor_cmd_line_endings_lf   :: proc(data: rawptr) {
+    thor := cast(^Thor)data
     thor_set_line_ending(thor, thor_active_open_file(thor), .LF)
 }
 thor_cmd_line_endings_crlf :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_set_line_ending(thor, thor_active_open_file(thor), .CRLF)
 }
 
 // Reports the indentation the active file uses, with the count of the lines that
 // disagree so a mixed file is visible.
 thor_cmd_show_indentation :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     file := thor_active_open_file(thor)
     if file == nil || !file.loaded {
         return
@@ -583,40 +593,44 @@ thor_cmd_show_indentation :: proc(data: rawptr) {
 
 // Zoom commands drive both panes so a command-triggered zoom keeps the split in
 // sync (ctrl+scroll still zooms only the hovered pane).
-thor_cmd_zoom_in :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+thor_cmd_zoom_in  :: proc(data: rawptr) {
+    thor := cast(^Thor)data
     for &editor in thor.editors {
         editview.editor_zoom(&editor, 1)
     }
 }
 thor_cmd_zoom_out :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     for &editor in thor.editors {
         editview.editor_zoom(&editor, -1)
     }
 }
 
 thor_cmd_zoom_reset :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     for &editor in thor.editors {
-        editview.editor_set_font_size(&editor, cast(i32) setting.font_size(&thor.config))
+        editview.editor_set_font_size(&editor, cast(i32)setting.font_size(&thor.config))
     }
 }
 
 thor_cmd_close_tab :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_request_close_file(thor, signal_get(&thor.active_file))
 }
 
 thor_cmd_close_all :: proc(data: rawptr) {
-    thor_request_close_all(cast(^Thor) data)
+    thor_request_close_all(cast(^Thor)data)
 }
 
-thor_cmd_next_tab :: proc(data: rawptr) {thor_cycle_tab(cast(^Thor) data, 1)}
-thor_cmd_prev_tab :: proc(data: rawptr) {thor_cycle_tab(cast(^Thor) data, -1)}
+thor_cmd_next_tab :: proc(data: rawptr) {
+    thor_cycle_tab(cast(^Thor)data, 1)
+}
+thor_cmd_prev_tab :: proc(data: rawptr) {
+    thor_cycle_tab(cast(^Thor)data, -1)
+}
 
 thor_cmd_toggle_comment :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     file := thor_active_open_file(thor)
     if file == nil || !file.loaded {
         return
@@ -630,7 +644,7 @@ thor_cmd_toggle_comment :: proc(data: rawptr) {
 }
 
 thor_cmd_toggle_block_comment :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     file := thor_active_open_file(thor)
     if file == nil || !file.loaded {
         return
@@ -643,7 +657,7 @@ thor_cmd_toggle_block_comment :: proc(data: rawptr) {
 // is focused so the palette entries are always safe to invoke.
 @(private = "file")
 thor_edit_state :: proc(data: rawptr) -> ^textedit.State {
-    file := thor_active_open_file(cast(^Thor) data)
+    file := thor_active_open_file(cast(^Thor)data)
     if file == nil || !file.loaded {
         return nil
     }
@@ -653,7 +667,7 @@ thor_edit_state :: proc(data: rawptr) -> ^textedit.State {
 // Undo takes back a cross-file edit set first, the way ctrl + z does (see
 // thor_global_key), then falls back to the focused buffer's own history.
 thor_cmd_undo :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if thor_undo_last_edits(thor) {
         return
     }
@@ -664,7 +678,7 @@ thor_cmd_undo :: proc(data: rawptr) {
 }
 
 thor_cmd_redo :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if thor_redo_last_edits(thor) {
         return
     }
@@ -676,7 +690,7 @@ thor_cmd_redo :: proc(data: rawptr) {
 
 // Moves the focused buffer to the content made before the current one, across undo branches.
 thor_cmd_undo_earlier :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if s := thor_edit_state(data); s != nil && textedit.undo_earlier(s) {
         editview.editor_scroll_to_caret(thor_pane_editor(thor, thor.active_pane))
     }
@@ -684,7 +698,7 @@ thor_cmd_undo_earlier :: proc(data: rawptr) {
 
 // Moves the focused buffer to the content made after the current one, across undo branches.
 thor_cmd_undo_later :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if s := thor_edit_state(data); s != nil && textedit.undo_later(s) {
         editview.editor_scroll_to_caret(thor_pane_editor(thor, thor.active_pane))
     }
@@ -708,37 +722,121 @@ thor_can_redo :: proc(thor: ^Thor) -> bool {
     return file != nil && file.loaded && textedit.can_redo(&file.state)
 }
 
-thor_cmd_select_all :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.select_all(s)}}
-thor_cmd_duplicate_line :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.duplicate_lines(s, 1)}}
-thor_cmd_delete_line :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.delete_lines(s)}}
-thor_cmd_delete_to_line_end :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.delete_to_line_end(s)}}
-thor_cmd_delete_to_line_start :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.delete_to_line_start(s)}}
-thor_cmd_move_line_up :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.move_lines(s, -1)}}
-thor_cmd_move_line_down :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.move_lines(s, 1)}}
-thor_cmd_trim_whitespace :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.trim_trailing_whitespace(s)}}
-thor_cmd_add_cursor_above :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.add_cursor_vertical(s, -1)}}
-thor_cmd_add_cursor_below :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.add_cursor_vertical(s, 1)}}
-thor_cmd_matching_bracket :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.move_to_matching_bracket(s, false)}}
-thor_cmd_goto_symbol :: proc(data: rawptr) {thor_goto_symbol(cast(^Thor) data)}
-thor_cmd_goto_workspace_symbol :: proc(data: rawptr) {thor_goto_workspace_symbol(cast(^Thor) data)}
-thor_cmd_jump_back :: proc(data: rawptr) {thor_jump_back(cast(^Thor) data)}
-thor_cmd_jump_forward :: proc(data: rawptr) {thor_jump_forward(cast(^Thor) data)}
-thor_cmd_goto_definition :: proc(data: rawptr) {thor_goto_definition(cast(^Thor) data)}
-thor_cmd_peek_definition :: proc(data: rawptr) {thor_peek_definition(cast(^Thor) data)}
-thor_cmd_goto_type_definition :: proc(data: rawptr) {thor_goto_type_definition(cast(^Thor) data)}
-thor_cmd_find_references :: proc(data: rawptr) {thor_find_references(cast(^Thor) data)}
-thor_cmd_signature_help :: proc(data: rawptr) {thor_signature_help(cast(^Thor) data)}
-thor_cmd_package_doc :: proc(data: rawptr) {thor_package_doc(cast(^Thor) data)}
-thor_cmd_rename_symbol :: proc(data: rawptr) {_ = thor_rename_symbol(cast(^Thor) data)}
-thor_cmd_code_actions :: proc(data: rawptr) {thor_code_actions(cast(^Thor) data)}
-thor_cmd_join_lines :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.join_lines(s)}}
-thor_cmd_uppercase :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.transform_case(s, .Upper)}}
-thor_cmd_lowercase :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.transform_case(s, .Lower)}}
-thor_cmd_capitalize :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.transform_case(s, .Title)}}
+thor_cmd_select_all            :: proc(data: rawptr) {
+    if s := thor_edit_state(data); s != nil {
+        textedit.select_all(s)
+    }
+}
+thor_cmd_duplicate_line        :: proc(data: rawptr) {
+    if s := thor_edit_state(data); s != nil {
+        textedit.duplicate_lines(s, 1)
+    }
+}
+thor_cmd_delete_line           :: proc(data: rawptr) {
+    if s := thor_edit_state(data); s != nil {
+        textedit.delete_lines(s)
+    }
+}
+thor_cmd_delete_to_line_end    :: proc(data: rawptr) {
+    if s := thor_edit_state(data); s != nil {
+        textedit.delete_to_line_end(s)
+    }
+}
+thor_cmd_delete_to_line_start  :: proc(data: rawptr) {
+    if s := thor_edit_state(data); s != nil {
+        textedit.delete_to_line_start(s)
+    }
+}
+thor_cmd_move_line_up          :: proc(data: rawptr) {
+    if s := thor_edit_state(data); s != nil {
+        textedit.move_lines(s, -1)
+    }
+}
+thor_cmd_move_line_down        :: proc(data: rawptr) {
+    if s := thor_edit_state(data); s != nil {
+        textedit.move_lines(s, 1)
+    }
+}
+thor_cmd_trim_whitespace       :: proc(data: rawptr) {
+    if s := thor_edit_state(data); s != nil {
+        textedit.trim_trailing_whitespace(s)
+    }
+}
+thor_cmd_add_cursor_above      :: proc(data: rawptr) {
+    if s := thor_edit_state(data); s != nil {
+        textedit.add_cursor_vertical(s, -1)
+    }
+}
+thor_cmd_add_cursor_below      :: proc(data: rawptr) {
+    if s := thor_edit_state(data); s != nil {
+        textedit.add_cursor_vertical(s, 1)
+    }
+}
+thor_cmd_matching_bracket      :: proc(data: rawptr) {
+    if s := thor_edit_state(data); s != nil {
+        textedit.move_to_matching_bracket(s, false)
+    }
+}
+thor_cmd_goto_symbol           :: proc(data: rawptr) {
+    thor_goto_symbol(cast(^Thor)data)
+}
+thor_cmd_goto_workspace_symbol :: proc(data: rawptr) {
+    thor_goto_workspace_symbol(cast(^Thor)data)
+}
+thor_cmd_jump_back             :: proc(data: rawptr) {
+    thor_jump_back(cast(^Thor)data)
+}
+thor_cmd_jump_forward          :: proc(data: rawptr) {
+    thor_jump_forward(cast(^Thor)data)
+}
+thor_cmd_goto_definition       :: proc(data: rawptr) {
+    thor_goto_definition(cast(^Thor)data)
+}
+thor_cmd_peek_definition       :: proc(data: rawptr) {
+    thor_peek_definition(cast(^Thor)data)
+}
+thor_cmd_goto_type_definition  :: proc(data: rawptr) {
+    thor_goto_type_definition(cast(^Thor)data)
+}
+thor_cmd_find_references       :: proc(data: rawptr) {
+    thor_find_references(cast(^Thor)data)
+}
+thor_cmd_signature_help        :: proc(data: rawptr) {
+    thor_signature_help(cast(^Thor)data)
+}
+thor_cmd_package_doc           :: proc(data: rawptr) {
+    thor_package_doc(cast(^Thor)data)
+}
+thor_cmd_rename_symbol         :: proc(data: rawptr) {
+    _ = thor_rename_symbol(cast(^Thor)data)
+}
+thor_cmd_code_actions          :: proc(data: rawptr) {
+    thor_code_actions(cast(^Thor)data)
+}
+thor_cmd_join_lines            :: proc(data: rawptr) {
+    if s := thor_edit_state(data); s != nil {
+        textedit.join_lines(s)
+    }
+}
+thor_cmd_uppercase             :: proc(data: rawptr) {
+    if s := thor_edit_state(data); s != nil {
+        textedit.transform_case(s, .Upper)
+    }
+}
+thor_cmd_lowercase             :: proc(data: rawptr) {
+    if s := thor_edit_state(data); s != nil {
+        textedit.transform_case(s, .Lower)
+    }
+}
+thor_cmd_capitalize            :: proc(data: rawptr) {
+    if s := thor_edit_state(data); s != nil {
+        textedit.transform_case(s, .Title)
+    }
+}
 // Prompts for a character, then aligns the first occurrence of it on each
 // selected line into the same column (e.g. line up a block of `=` assignments).
-thor_cmd_align_at_char :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+thor_cmd_align_at_char         :: proc(data: rawptr) {
+    thor := cast(^Thor)data
     thor_palette_prompt(thor, "Align on character", thor_prompt_align_at_char, thor)
 }
 
@@ -754,19 +852,29 @@ thor_prompt_align_at_char :: proc(data: rawptr, text: string) {
 
 // Folding acts on the focused pane's editor (the one whose fold state the user
 // sees), unlike zoom which drives both panes.
-thor_cmd_toggle_fold :: proc(data: rawptr) {editview.editor_toggle_fold(thor_active_editor(cast(^Thor) data))}
-thor_cmd_fold_all :: proc(data: rawptr) {editview.editor_fold_all(thor_active_editor(cast(^Thor) data))}
-thor_cmd_unfold_all :: proc(data: rawptr) {editview.editor_unfold_all(thor_active_editor(cast(^Thor) data))}
+thor_cmd_toggle_fold :: proc(data: rawptr) {
+    editview.editor_toggle_fold(thor_active_editor(cast(^Thor)data))
+}
+thor_cmd_fold_all    :: proc(data: rawptr) {
+    editview.editor_fold_all(thor_active_editor(cast(^Thor)data))
+}
+thor_cmd_unfold_all  :: proc(data: rawptr) {
+    editview.editor_unfold_all(thor_active_editor(cast(^Thor)data))
+}
 
-thor_cmd_recenter :: proc(data: rawptr) {editview.editor_recenter(thor_active_editor(cast(^Thor) data))}
-thor_cmd_last_file :: proc(data: rawptr) {thor_flip_last_file(cast(^Thor) data)}
+thor_cmd_recenter  :: proc(data: rawptr) {
+    editview.editor_recenter(thor_active_editor(cast(^Thor)data))
+}
+thor_cmd_last_file :: proc(data: rawptr) {
+    thor_flip_last_file(cast(^Thor)data)
+}
 
 // Save All: files that don't need formatting save immediately; among files
 // that do, only the first dispatches right away — .Format has one consumer
 // slot like every other kind, so the rest wait in format_save_queue and are
 // formatted and saved one at a time as thor_finish_pending_format_save pops it.
 thor_cmd_save_all :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor               := cast(^Thor)data
     formatting_started := thor.format_request_id != 0 || thor.format_save_pending
     for file in thor.open_files {
         if !file.loaded || file.closed || file.state.revision == file.saved_revision {
@@ -785,7 +893,7 @@ thor_cmd_save_all :: proc(data: rawptr) {
 // outside the workspace) or a conflict prompt that was dismissed. Unsaved edits
 // still raise that prompt rather than being dropped.
 thor_cmd_reload_from_disk :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     file := thor_active_open_file(thor)
     if file == nil {
         return
@@ -795,7 +903,7 @@ thor_cmd_reload_from_disk :: proc(data: rawptr) {
 }
 
 thor_cmd_copy_path :: proc(data: rawptr) {
-    file := thor_active_open_file(cast(^Thor) data)
+    file := thor_active_open_file(cast(^Thor)data)
     if file == nil {
         return
     }
@@ -803,7 +911,7 @@ thor_cmd_copy_path :: proc(data: rawptr) {
 }
 
 thor_cmd_reveal :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     file := thor_active_open_file(thor)
     if file == nil {
         return
@@ -814,7 +922,7 @@ thor_cmd_reveal :: proc(data: rawptr) {
 }
 
 thor_cmd_command_palette :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_palette_open(thor)
 }
 
@@ -827,7 +935,7 @@ USER_FONTS_TEMPLATE :: "{\n    \"fonts\": {}\n}\n"
 
 // Settings: Add Font: opens the user's font manifest, created empty when absent.
 thor_cmd_add_font :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if !os.exists(USER_FONTS_PATH) {
         if !os.exists(setting.USER_DIR) {
             if err := os.make_directory(setting.USER_DIR); err != nil && !os.exists(setting.USER_DIR) {
@@ -849,7 +957,7 @@ thor_cmd_add_font :: proc(data: rawptr) {
 // opens it. assets/themes is replaced by every build and by every update, so a
 // hand-edited theme only survives in the user layer.
 thor_cmd_new_theme :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     path := thor_user_theme_path("custom")
     if !os.exists(path) {
         palette := thor.theme
@@ -878,17 +986,25 @@ thor_open_config_file :: proc(thor: ^Thor, name: string) {
     thor_open_file(thor, path)
 }
 
-thor_cmd_open_keybinds :: proc(data: rawptr) {thor_open_config_file(cast(^Thor) data, setting.KEYBINDS_FILE)}
-thor_cmd_open_comments :: proc(data: rawptr) {thor_open_config_file(cast(^Thor) data, setting.COMMENTS_FILE)}
-thor_cmd_open_settings :: proc(data: rawptr) {thor_open_config_file(cast(^Thor) data, setting.SETTINGS_FILE)}
-thor_cmd_reload_settings :: proc(data: rawptr) {thor_reload_settings(cast(^Thor) data)}
+thor_cmd_open_keybinds   :: proc(data: rawptr) {
+    thor_open_config_file(cast(^Thor)data, setting.KEYBINDS_FILE)
+}
+thor_cmd_open_comments   :: proc(data: rawptr) {
+    thor_open_config_file(cast(^Thor)data, setting.COMMENTS_FILE)
+}
+thor_cmd_open_settings   :: proc(data: rawptr) {
+    thor_open_config_file(cast(^Thor)data, setting.SETTINGS_FILE)
+}
+thor_cmd_reload_settings :: proc(data: rawptr) {
+    thor_reload_settings(cast(^Thor)data)
+}
 
 // The cached index once it has been warmed (thor_refresh_file_index); a
 // synchronous walk before then, so the palette is never empty just because
 // the async warm has not landed yet — the handful of frames after a folder
 // opens, or the same window right after startup.
 thor_palette_list_files :: proc(data: rawptr) -> []string {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if thor.file_index_ready {
         return thor.file_index[:]
     }
@@ -905,12 +1021,7 @@ COLLECT_DEPTH_MAX :: 12
 // stall the palette. Paths are cloned into allocator, so the result outlives
 // the temp arena a worker thread would otherwise be bound by.
 @(private)
-thor_walk_workspace_files :: proc(
-    root: string,
-    allocator: runtime.Allocator,
-    limit := COLLECT_FILE_MAX,
-    max_depth := COLLECT_DEPTH_MAX,
-) -> [dynamic]string {
+thor_walk_workspace_files :: proc(root: string, allocator: runtime.Allocator, limit := COLLECT_FILE_MAX, max_depth := COLLECT_DEPTH_MAX) -> [dynamic]string {
     files := make([dynamic]string, allocator)
     thor_collect_files(root, &files, 0, limit, max_depth)
     return files
@@ -961,11 +1072,11 @@ thor_collect_files :: proc(dir: string, files: ^[dynamic]string, depth: int, lim
 // watcher activity into one more walk instead of one per event.
 File_Index_Job :: struct {
     queue_next: ^File_Index_Job, // link in Thor.finished_file_index
-    owner:     ^Thor,
-    allocator: runtime.Allocator,
-    worker:    ^thread.Thread,
-    root:      string,          // owned snapshot of workspace_dir at launch
-    files:     [dynamic]string, // owned, with the strings in it; moved onto Thor on reap
+    owner:      ^Thor,
+    allocator:  runtime.Allocator,
+    worker:     ^thread.Thread,
+    root:       string,          // owned snapshot of workspace_dir at launch
+    files:      [dynamic]string, // owned, with the strings in it; moved onto Thor on reap
 }
 
 // How long a watcher-driven refresh must wait since the last one, so a build
@@ -1046,11 +1157,11 @@ thor_clear_file_index :: proc(thor: ^Thor) {
 }
 
 thor_palette_open_file :: proc(data: rawptr, path: string) {
-    thor_open_file(cast(^Thor) data, path)
+    thor_open_file(cast(^Thor)data, path)
 }
 
 thor_palette_goto_line :: proc(data: rawptr, line: int) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     file := thor_active_open_file(thor)
     if file == nil || !file.loaded {
         return

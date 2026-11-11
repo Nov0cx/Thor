@@ -34,11 +34,11 @@ Cond_Op :: enum u8 {
     Gt_Eq,
     In,
     Not_In,
-    Set,       // `{.A, .B}`: args are the elements
-    Config,    // `#config(text, args[0])`
-    Defined,   // `#defined(text)`
-    Size_Of,   // `size_of(text)`
-    Feature,   // `intrinsics.has_target_feature(text)`
+    Set,     // `{.A, .B}`: args are the elements
+    Config,  // `#config(text, args[0])`
+    Defined, // `#defined(text)`
+    Size_Of, // `size_of(text)`
+    Feature, // `intrinsics.has_target_feature(text)`
 }
 
 // One node of a compiled `when` condition. It holds no target data, so the item tree stays target-independent.
@@ -93,7 +93,7 @@ cond_compile :: proc(n: odinsyntax.Syntax_Node, alloc: mem.Allocator, out: ^[dyn
             e = {op = .Ident, text = cond_clone(name, alloc, err)}
         }
     case .Literal:
-        l, _ := odinsyntax.as_literal(n)
+        l, _    := odinsyntax.as_literal(n)
         tok, ok := odinsyntax.literal_token(&l)
         if !ok {
             break
@@ -115,8 +115,8 @@ cond_compile :: proc(n: odinsyntax.Syntax_Node, alloc: mem.Allocator, out: ^[dyn
             e = {op = .Enum_Name, text = cond_clone(odinsyntax.node_text(odinsyntax.Syntax_Node(field)), alloc, err)}
         }
     case .Unary_Expr:
-        u, _ := odinsyntax.as_unary_expr(n)
-        op, ook := odinsyntax.unary_expr_op(&u)
+        u, _         := odinsyntax.as_unary_expr(n)
+        op, ook      := odinsyntax.unary_expr_op(&u)
         operand, aok := odinsyntax.unary_expr_operand(&u)
         if !ook || !aok {
             break
@@ -133,24 +133,34 @@ cond_compile :: proc(n: odinsyntax.Syntax_Node, alloc: mem.Allocator, out: ^[dyn
             e.args = cond_args(alloc, err, cond_compile(operand, alloc, out, err))
         }
     case .Binary_Expr:
-        bin, _ := odinsyntax.as_binary_expr(n)
-        op, ook := odinsyntax.binary_expr_op(&bin)
+        bin, _   := odinsyntax.as_binary_expr(n)
+        op, ook  := odinsyntax.binary_expr_op(&bin)
         lhs, lok := odinsyntax.binary_expr_lhs(&bin)
         rhs, rok := odinsyntax.binary_expr_rhs(&bin)
         if !ook || !lok || !rok {
             break
         }
         #partial switch op.green.kind {
-        case .Cmp_And: e.op = .And
-        case .Cmp_Or:  e.op = .Or
-        case .Cmp_Eq:  e.op = .Eq
-        case .Not_Eq:  e.op = .Not_Eq
-        case .Lt:      e.op = .Lt
-        case .Gt:      e.op = .Gt
-        case .Lt_Eq:   e.op = .Lt_Eq
-        case .Gt_Eq:   e.op = .Gt_Eq
-        case .In:      e.op = .In
-        case .Not_In:  e.op = .Not_In
+        case .Cmp_And:
+            e.op = .And
+        case .Cmp_Or:
+            e.op = .Or
+        case .Cmp_Eq:
+            e.op = .Eq
+        case .Not_Eq:
+            e.op = .Not_Eq
+        case .Lt:
+            e.op = .Lt
+        case .Gt:
+            e.op = .Gt
+        case .Lt_Eq:
+            e.op = .Lt_Eq
+        case .Gt_Eq:
+            e.op = .Gt_Eq
+        case .In:
+            e.op = .In
+        case .Not_In:
+            e.op = .Not_In
         }
         if e.op != .Unknown {
             l := cond_compile(lhs, alloc, out, err)
@@ -163,7 +173,7 @@ cond_compile :: proc(n: odinsyntax.Syntax_Node, alloc: mem.Allocator, out: ^[dyn
             break
         }
         elems := make([dynamic]int, alloc)
-        it := odinsyntax.comp_lit_elems(&c)
+        it    := odinsyntax.comp_lit_elems(&c)
         for elem in odinsyntax.child_iter_next(&it) {
             if _, aerr := append(&elems, cond_compile(elem, alloc, out, err)); aerr != nil && err^ == nil {
                 err^ = aerr
@@ -186,15 +196,15 @@ cond_compile :: proc(n: odinsyntax.Syntax_Node, alloc: mem.Allocator, out: ^[dyn
 // anything else is unknown.
 @(private = "file")
 compile_call :: proc(n: odinsyntax.Syntax_Node, alloc: mem.Allocator, out: ^[dynamic]Cond_Expr, err: ^mem.Allocator_Error) -> Cond_Expr {
-    call, _ := odinsyntax.as_call_expr(n)
+    call, _     := odinsyntax.as_call_expr(n)
     callee, cok := odinsyntax.call_expr_callee(&call)
-    list, lok := odinsyntax.call_expr_args(&call)
+    list, lok   := odinsyntax.call_expr_args(&call)
     if !cok || !lok {
         return {}
     }
     args: [3]odinsyntax.Syntax_Node
     count := 0
-    it := odinsyntax.arg_list_args(&list)
+    it    := odinsyntax.arg_list_args(&list)
     for arg in odinsyntax.child_iter_next(&it) {
         if count < len(args) {
             args[count] = arg
@@ -359,8 +369,10 @@ tri_and :: proc(a, b: Tri) -> Tri {
 // The negation of an answer.
 tri_not :: proc(a: Tri) -> Tri {
     switch a {
-    case .True:    return .False
-    case .False:   return .True
+    case .True:
+        return .False
+    case .False:
+        return .True
     case .Unknown:
     }
     return .Unknown
@@ -383,8 +395,10 @@ bool_value :: proc(b: bool) -> Cond_Value {
 @(private = "file")
 tri_value :: proc(t: Tri) -> Cond_Value {
     switch t {
-    case .True:    return bool_value(true)
-    case .False:   return bool_value(false)
+    case .True:
+        return bool_value(true)
+    case .False:
+        return bool_value(false)
     case .Unknown:
     }
     return UNKNOWN_VALUE
@@ -452,7 +466,7 @@ eval :: proc(tree: ^Item_Tree, expr: int, target: Target) -> Cond_Value {
     case .Eq, .Not_Eq, .Lt, .Gt, .Lt_Eq, .Gt_Eq:
         return compare(e.op, eval(tree, arg(e, 0), target), eval(tree, arg(e, 1), target))
     case .In, .Not_In:
-        v := eval(tree, arg(e, 0), target)
+        v   := eval(tree, arg(e, 0), target)
         set := eval(tree, arg(e, 1), target)
         if v.kind == .Unknown || set.kind != .Set {
             return UNKNOWN_VALUE
@@ -474,8 +488,10 @@ eval :: proc(tree: ^Item_Tree, expr: int, target: Target) -> Cond_Value {
         }
         if e.op == .Not_In {
             switch found {
-            case .True:    found = .False
-            case .False:   found = .True
+            case .True:
+                found = .False
+            case .False:
+                found = .True
             case .Unknown:
             }
         }
@@ -508,10 +524,7 @@ eval :: proc(tree: ^Item_Tree, expr: int, target: Target) -> Cond_Value {
 
 // The features of the compiler's default amd64 micro-architecture (x86-64-v2).
 @(private = "file", rodata)
-AMD64_FEATURES := [?]string {
-    "64bit", "cmov", "cx8", "cx16", "fxsr", "mmx", "x87", "sahf", "crc32", "popcnt",
-    "sse", "sse2", "sse3", "ssse3", "sse4.1", "sse4.2",
-}
+AMD64_FEATURES := [?]string{"64bit", "cmov", "cx8", "cx16", "fxsr", "mmx", "x87", "sahf", "crc32", "popcnt", "sse", "sse2", "sse3", "ssse3", "sse4.1", "sse4.2"}
 
 // Whether the target has every feature of the comma-separated list. Known for amd64 on Windows and
 // Linux with no micro-architecture set; unknown elsewhere.
@@ -545,26 +558,40 @@ compare :: proc(op: Cond_Op, l, r: Cond_Value) -> Cond_Value {
         }
         eq := l.kind == .Bool ? l.i == r.i : l.s == r.s
         #partial switch op {
-        case .Eq:     return bool_value(eq)
-        case .Not_Eq: return bool_value(!eq)
+        case .Eq:
+            return bool_value(eq)
+        case .Not_Eq:
+            return bool_value(!eq)
         }
     case .Int:
         #partial switch op {
-        case .Eq:     return bool_value(l.i == r.i)
-        case .Not_Eq: return bool_value(l.i != r.i)
-        case .Lt:     return bool_value(l.i < r.i)
-        case .Gt:     return bool_value(l.i > r.i)
-        case .Lt_Eq:  return bool_value(l.i <= r.i)
-        case .Gt_Eq:  return bool_value(l.i >= r.i)
+        case .Eq:
+            return bool_value(l.i == r.i)
+        case .Not_Eq:
+            return bool_value(l.i != r.i)
+        case .Lt:
+            return bool_value(l.i < r.i)
+        case .Gt:
+            return bool_value(l.i > r.i)
+        case .Lt_Eq:
+            return bool_value(l.i <= r.i)
+        case .Gt_Eq:
+            return bool_value(l.i >= r.i)
         }
     case .String:
         #partial switch op {
-        case .Eq:     return bool_value(l.s == r.s)
-        case .Not_Eq: return bool_value(l.s != r.s)
-        case .Lt:     return bool_value(l.s < r.s)
-        case .Gt:     return bool_value(l.s > r.s)
-        case .Lt_Eq:  return bool_value(l.s <= r.s)
-        case .Gt_Eq:  return bool_value(l.s >= r.s)
+        case .Eq:
+            return bool_value(l.s == r.s)
+        case .Not_Eq:
+            return bool_value(l.s != r.s)
+        case .Lt:
+            return bool_value(l.s < r.s)
+        case .Gt:
+            return bool_value(l.s > r.s)
+        case .Lt_Eq:
+            return bool_value(l.s <= r.s)
+        case .Gt_Eq:
+            return bool_value(l.s >= r.s)
         }
     case .Unknown, .Set:
     }
@@ -574,9 +601,12 @@ compare :: proc(op: Cond_Op, l, r: Cond_Value) -> Cond_Value {
 @(private = "file")
 define_value :: proc(d: Define_Value) -> Cond_Value {
     switch v in d {
-    case bool:   return bool_value(v)
-    case i64:    return {kind = .Int, i = v}
-    case string: return {kind = .String, s = v}
+    case bool:
+        return bool_value(v)
+    case i64:
+        return {kind = .Int, i = v}
+    case string:
+        return {kind = .String, s = v}
     }
     return UNKNOWN_VALUE
 }
@@ -624,8 +654,13 @@ constant_value :: proc(name: string, target: Target) -> Cond_Value {
         return {kind = .String, s = "little"}
     case "ODIN_DEBUG":
         return bool_value(target.debug)
-    case "ODIN_NO_RTTI", "ODIN_DISABLE_ASSERT", "ODIN_NO_BOUNDS_CHECK", "ODIN_NO_TYPE_ASSERT",
-         "ODIN_FOREIGN_ERROR_PROCEDURES", "ODIN_VALGRIND_SUPPORT", "ODIN_USE_SEPARATE_MODULES":
+    case "ODIN_NO_RTTI",
+        "ODIN_DISABLE_ASSERT",
+        "ODIN_NO_BOUNDS_CHECK",
+        "ODIN_NO_TYPE_ASSERT",
+        "ODIN_FOREIGN_ERROR_PROCEDURES",
+        "ODIN_VALGRIND_SUPPORT",
+        "ODIN_USE_SEPARATE_MODULES":
         return bool_value(false)
     case "ODIN_NO_CRT":
         #partial switch target.os {
@@ -639,18 +674,18 @@ constant_value :: proc(name: string, target: Target) -> Cond_Value {
 
 // The member names of `runtime.Odin_OS_Type` for each OS.
 @(private = "file")
-OS_ENUM_NAMES := [Target_OS]string {
-    .Unknown      = "Unknown",
-    .Windows      = "Windows",
-    .Darwin       = "Darwin",
-    .Linux        = "Linux",
-    .FreeBSD      = "FreeBSD",
-    .OpenBSD      = "OpenBSD",
-    .NetBSD       = "NetBSD",
-    .Haiku        = "Haiku",
-    .WASI         = "WASI",
-    .JS           = "JS",
-    .Orca         = "Orca",
+OS_ENUM_NAMES := [Target_OS]string{
+    .Unknown = "Unknown",
+    .Windows = "Windows",
+    .Darwin = "Darwin",
+    .Linux = "Linux",
+    .FreeBSD = "FreeBSD",
+    .OpenBSD = "OpenBSD",
+    .NetBSD = "NetBSD",
+    .Haiku = "Haiku",
+    .WASI = "WASI",
+    .JS = "JS",
+    .Orca = "Orca",
     .Freestanding = "Freestanding",
 }
 

@@ -4,8 +4,8 @@ import "core:os"
 import "core:slice"
 import "core:testing"
 
-import ui "../vendor/loom/loom"
 import "../theme"
+import ui "../vendor/loom/loom"
 // The picker's rows are cached: a second open reuses the parsed labels, and the
 // two slices stay aligned so select_dialog_open can index files by label.
 @(test)
@@ -44,12 +44,12 @@ test_theme_draft_lifecycle :: proc(t: ^testing.T) {
     testing.expect(t, !thor_theme_dirty(&thor), "a fresh draft is clean")
 
     keywords := theme.color_index("keywords")
-    thor_theme_set_color(&thor, keywords, ui.Color {1, 2, 3, 255})
+    thor_theme_set_color(&thor, keywords, ui.Color{1, 2, 3, 255})
     testing.expect(t, thor_theme_dirty(&thor), "an edit marks the draft dirty")
     thor_theme_reset_color(&thor, keywords)
     testing.expect(t, !thor_theme_dirty(&thor), "a per-role reset cleans it")
 
-    thor_theme_set_color(&thor, keywords, ui.Color {1, 2, 3, 255})
+    thor_theme_set_color(&thor, keywords, ui.Color{1, 2, 3, 255})
     thor_theme_revert(&thor)
     testing.expect(t, !thor_theme_dirty(&thor), "Revert cleans it")
     testing.expect_value(t, thor.theme.keywords_color, theme.mjolnir().keywords_color)
@@ -63,11 +63,11 @@ test_theme_draft_lifecycle :: proc(t: ^testing.T) {
 // A pasted color may leave out its "#".
 @(test)
 test_theme_parse_color :: proc(t: ^testing.T) {
-    for text in ([]string {"#112233", "112233", "11223344"}) {
+    for text in ([]string{"#112233", "112233", "11223344"}) {
         _, ok := thor_theme_parse_color(text)
         testing.expectf(t, ok, "%q parses", text)
     }
-    for text in ([]string {"", "#12", "xyzxyz", "##112233"}) {
+    for text in ([]string{"", "#12", "xyzxyz", "##112233"}) {
         _, ok := thor_theme_parse_color(text)
         testing.expectf(t, !ok, "%q does not parse", text)
     }
@@ -77,7 +77,7 @@ test_theme_parse_color :: proc(t: ^testing.T) {
 // that keeps it inside user/themes.
 @(test)
 test_theme_slug :: proc(t: ^testing.T) {
-    cases := [?][2]string {
+    cases := [?][2]string{
         {"My Theme", "my-theme"},
         {"  Deep   Ocean  ", "deep-ocean"},
         {"Solarized_Dark", "solarized-dark"},
@@ -122,5 +122,5 @@ test_user_theme_shadows_shipped :: proc(t: ^testing.T) {
 
     loaded, ok := theme.load(thor_theme_path(DEFAULT_THEME))
     defer theme.destroy(&loaded)
-    testing.expect(t, ok && loaded.background == ui.Color {0x01, 0x02, 0x03, 0xFF}, "the user copy is the one loaded")
+    testing.expect(t, ok && loaded.background == ui.Color{0x01, 0x02, 0x03, 0xFF}, "the user copy is the one loaded")
 }

@@ -8,13 +8,7 @@ import lang ".."
 // Runs a Document_Highlight request at the first occurrence of `needle` in `source`, plus `skip` bytes.
 @(private = "file")
 highlight_at :: proc(e: ^Engine, source, needle: string, skip := 0) -> lang.Result {
-    req := lang.Request {
-        kind   = .Document_Highlight,
-        path   = "buffer.odin",
-        ext    = ".odin",
-        source = source,
-        offset = strings.index(source, needle) + skip,
-    }
+    req := lang.Request{kind = .Document_Highlight, path = "buffer.odin", ext = ".odin", source = source, offset = strings.index(source, needle) + skip}
     res := lang.Result{kind = .Document_Highlight}
     resolve(e, &req, &res)
     return res
@@ -36,10 +30,20 @@ expect_highlights :: proc(t: ^testing.T, src: string, res: ^lang.Result, name: s
         return
     }
     for w, i in want {
-        at := nth_index(src, w.needle, w.skip) + w.shift
-        h := res.highlights[i]
+        at   := nth_index(src, w.needle, w.skip) + w.shift
+        h    := res.highlights[i]
         kind := w.write ? lang.Highlight_Kind.Write : lang.Highlight_Kind.Read
-        testing.expectf(t, h.start == at && h.end == at + len(name), "highlight %d: got [%d, %d), want [%d, %d)", i, h.start, h.end, at, at + len(name), loc = loc)
+        testing.expectf(
+            t,
+            h.start == at && h.end == at + len(name),
+            "highlight %d: got [%d, %d), want [%d, %d)",
+            i,
+            h.start,
+            h.end,
+            at,
+            at + len(name),
+            loc = loc,
+        )
         testing.expectf(t, h.kind == kind, "highlight %d: got %v, want %v", i, h.kind, kind, loc = loc)
     }
 }
@@ -72,7 +76,7 @@ test_highlight_local :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    src := `package demo
+    src  := `package demo
 
 use :: proc() -> int {
 	total := 1
@@ -86,7 +90,7 @@ other :: proc() -> int {
 }
 `
     want := []Want{{"total :=", 0, 0, true}, {"total =", 0, 0, true}, {"total + 2", 0, 0, false}, {"return total", 0, len("return "), false}}
-    res := highlight_at(e, src, "total + 2")
+    res  := highlight_at(e, src, "total + 2")
     defer delete(res.highlights)
     testing.expect(t, res.ok)
     expect_highlights(t, src, &res, "total", want)

@@ -29,7 +29,7 @@ engine_set_target :: proc(e: ^Engine, path, triple: string) -> bool {
         }
         choice = File_Target{os = target_os, arch = arch}
     }
-    key := odinsema.path_key(path)
+    key   := odinsema.path_key(path)
     cache := &e.config
     sync.lock(&cache.mutex)
     defer sync.unlock(&cache.mutex)

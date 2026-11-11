@@ -101,9 +101,9 @@ thor_encode_text :: proc(text: string, encoding: Encoding, bom: bool, allocator:
     units := make([]u16, len(text), allocator)
     defer delete(units, allocator)
     count := utf16.encode_string(units, text)
-    lead := bom ? 2 : 0
-    out := make([]u8, count * 2 + lead, allocator)
-    big := encoding == .UTF16_BE
+    lead  := bom ? 2 : 0
+    out   := make([]u8, count * 2 + lead, allocator)
+    big   := encoding == .UTF16_BE
     if bom {
         out[0], out[1] = big ? 0xFE : 0xFF, big ? 0xFF : 0xFE
     }

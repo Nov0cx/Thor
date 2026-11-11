@@ -69,19 +69,13 @@ probe_extract_command :: proc(extractor: Extractor) -> string {
 // The command that reads the releases API into `dest` and prints the HTTP
 // status code as its last output. `--proto =https` is what stops a redirect to
 // http:, which -L alone would follow.
-api_command :: proc(
-    downloader: Downloader,
-    url: string,
-    dest: string,
-    agent: string,
-    allocator := context.allocator,
-) -> string {
+api_command :: proc(downloader: Downloader, url: string, dest: string, agent: string, allocator := context.allocator) -> string {
     switch downloader {
     case .Curl:
         return fmt.aprintf(
             `curl -sS -L --proto =https --tlsv1.2 --max-time %d -A "%s" ` +
-            `-H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" ` +
-            `-o "%s" -w "%s" "%s"`,
+                `-H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" ` +
+                `-o "%s" -w "%s" "%s"`,
             SLICE_SECONDS,
             agent,
             dest,
@@ -92,9 +86,9 @@ api_command :: proc(
     case .Powershell:
         return fmt.aprintf(
             `powershell -NoProfile -Command "$ProgressPreference='SilentlyContinue'; ` +
-            `try {{ $r = Invoke-WebRequest -Uri '%s' -UserAgent '%s' -Headers @{{Accept='application/vnd.github+json'} ` +
-            `-OutFile '%s' -PassThru -TimeoutSec %d; Write-Output $r.StatusCode } ` +
-            `catch {{ Write-Output $_.Exception.Response.StatusCode.value__ }"`,
+                `try {{ $r = Invoke-WebRequest -Uri '%s' -UserAgent '%s' -Headers @{{Accept='application/vnd.github+json'} ` +
+                `-OutFile '%s' -PassThru -TimeoutSec %d; Write-Output $r.StatusCode } ` +
+                `catch {{ Write-Output $_.Exception.Response.StatusCode.value__ }"`,
             url,
             agent,
             dest,
@@ -110,18 +104,11 @@ api_command :: proc(
 // that times out is retried instead of restarting the transfer, and a shutdown
 // waits out one slice rather than a whole download. PowerShell has no resume,
 // so its slice is the whole file.
-download_command :: proc(
-    downloader: Downloader,
-    url: string,
-    dest: string,
-    agent: string,
-    allocator := context.allocator,
-) -> string {
+download_command :: proc(downloader: Downloader, url: string, dest: string, agent: string, allocator := context.allocator) -> string {
     switch downloader {
     case .Curl:
         return fmt.aprintf(
-            `curl -fsS -L --proto =https --tlsv1.2 -C - --max-time %d ` +
-            `--speed-time %d --speed-limit 1024 -A "%s" -o "%s" "%s"`,
+            `curl -fsS -L --proto =https --tlsv1.2 -C - --max-time %d ` + `--speed-time %d --speed-limit 1024 -A "%s" -o "%s" "%s"`,
             SLICE_SECONDS,
             STALL_SECONDS,
             agent,
@@ -132,7 +119,7 @@ download_command :: proc(
     case .Powershell:
         return fmt.aprintf(
             `powershell -NoProfile -Command "$ProgressPreference='SilentlyContinue'; ` +
-            `Invoke-WebRequest -Uri '%s' -UserAgent '%s' -OutFile '%s' -TimeoutSec %d"`,
+                `Invoke-WebRequest -Uri '%s' -UserAgent '%s' -OutFile '%s' -TimeoutSec %d"`,
             url,
             agent,
             dest,
@@ -149,12 +136,7 @@ downloader_resumes :: proc(downloader: Downloader) -> bool {
 }
 
 // The command that unpacks `archive` into the existing directory `dir`.
-extract_command :: proc(
-    extractor: Extractor,
-    archive: string,
-    dir: string,
-    allocator := context.allocator,
-) -> string {
+extract_command :: proc(extractor: Extractor, archive: string, dir: string, allocator := context.allocator) -> string {
     switch extractor {
     case .Tar:
         return fmt.aprintf(`tar -xf "%s" -C "%s"`, archive, dir, allocator = allocator)
@@ -175,17 +157,15 @@ extract_command :: proc(
 // onto every file it unpacks. Windows only; the string stays assertable
 // elsewhere, as the rest of this file does.
 unblock_command :: proc(dir: string, allocator := context.allocator) -> string {
-    return fmt.aprintf(
-        `powershell -NoProfile -Command "Get-ChildItem -LiteralPath '%s' -Recurse -File | Unblock-File"`,
-        dir,
-        allocator = allocator,
-    )
+    return fmt.aprintf(`powershell -NoProfile -Command "Get-ChildItem -LiteralPath '%s' -Recurse -File | Unblock-File"`, dir, allocator = allocator)
 }
 
 // The extractors that can read a container, best first.
 archive_extractors :: proc(archive: Archive) -> []Extractor {
-    @(static) zip := [?]Extractor{.Tar, .Expand_Archive}
-    @(static) tar := [?]Extractor{.Tar}
+    @(static)
+    zip := [?]Extractor{.Tar, .Expand_Archive}
+    @(static)
+    tar := [?]Extractor{.Tar}
     return archive == .Zip ? zip[:] : tar[:]
 }
 

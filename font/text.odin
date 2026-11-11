@@ -59,7 +59,11 @@ async_jobs: [dynamic]^Font_Load_Job
 // next row or past the buffer entirely. Caller frees atlas_data and recs
 // with rl.MemFree. Returns a nil atlas_data when an allocation fails.
 @(private)
-pack_glyph_atlas :: proc(glyphs: [^]rl.GlyphInfo, count: int, size: i32, family_name: string) -> (atlas_data: [^]u8, atlas_w, atlas_h: c.int, recs: [^]rl.Rectangle) {
+pack_glyph_atlas :: proc(glyphs: [^]rl.GlyphInfo, count: int, size: i32, family_name: string) -> (
+    atlas_data: [^]u8,
+    atlas_w, atlas_h: c.int,
+    recs: [^]rl.Rectangle,
+) {
     PADDING :: 4
 
     total_width: c.int = 0
@@ -67,24 +71,24 @@ pack_glyph_atlas :: proc(glyphs: [^]rl.GlyphInfo, count: int, size: i32, family_
         total_width += glyphs[k].image.width + 2 * PADDING
     }
     padded_font_size := size + 2 * PADDING
-    total_area := cast(f32) total_width * cast(f32) padded_font_size * 1.2
-    image_min_size := math.sqrt(total_area)
-    image_size := cast(c.int) math.pow(2, math.ceil(math.ln(image_min_size) / math.ln(cast(f32) 2)))
+    total_area       := cast(f32)total_width * cast(f32)padded_font_size * 1.2
+    image_min_size   := math.sqrt(total_area)
+    image_size       := cast(c.int)math.pow(2, math.ceil(math.ln(image_min_size) / math.ln(cast(f32)2)))
 
     atlas_w = image_size
     atlas_h = image_size
-    if total_area < cast(f32) ((image_size * image_size) / 2) {
+    if total_area < cast(f32)((image_size * image_size) / 2) {
         atlas_h = image_size / 2
     }
 
     // Zeroed: the padding between packed glyphs stays fully transparent.
-    atlas_data = cast([^]u8) rl.MemAlloc(cast(c.uint) (atlas_w * atlas_h))
+    atlas_data = cast([^]u8)rl.MemAlloc(cast(c.uint)(atlas_w * atlas_h))
     if atlas_data == nil {
         log.errorf("font %s: no memory for a %dx%d atlas", family_name, atlas_w, atlas_h)
         return nil, 0, 0, nil
     }
-    mem.zero(atlas_data, cast(int) (atlas_w * atlas_h))
-    recs = cast([^]rl.Rectangle) rl.MemAlloc(cast(c.uint) (count * size_of(rl.Rectangle)))
+    mem.zero(atlas_data, cast(int)(atlas_w * atlas_h))
+    recs = cast([^]rl.Rectangle)rl.MemAlloc(cast(c.uint)(count * size_of(rl.Rectangle)))
     if recs == nil {
         log.errorf("font %s: no memory for %d glyph rects", family_name, count)
         rl.MemFree(atlas_data)
@@ -121,38 +125,29 @@ pack_glyph_atlas :: proc(glyphs: [^]rl.GlyphInfo, count: int, size: i32, family_
         // Loops since one doubling may still be short for a very tall glyph;
         // checked every row, not only a wrap, so a tall first glyph is covered.
         for offset_y + row_h + PADDING > atlas_h {
-            new_h := atlas_h * 2
-            new_data := cast([^]u8) rl.MemAlloc(cast(c.uint) (atlas_w * new_h))
+            new_h    := atlas_h * 2
+            new_data := cast([^]u8)rl.MemAlloc(cast(c.uint)(atlas_w * new_h))
             if new_data == nil {
                 log.errorf("font %s: no memory to grow the atlas to %dx%d", family_name, atlas_w, new_h)
                 rl.MemFree(atlas_data)
                 rl.MemFree(recs)
                 return nil, 0, 0, nil
             }
-            mem.copy(new_data, atlas_data, cast(int) (atlas_w * atlas_h))
-            mem.zero(&new_data[atlas_w * atlas_h], cast(int) (atlas_w * (new_h - atlas_h)))
+            mem.copy(new_data, atlas_data, cast(int)(atlas_w * atlas_h))
+            mem.zero(&new_data[atlas_w * atlas_h], cast(int)(atlas_w * (new_h - atlas_h)))
             rl.MemFree(atlas_data)
             atlas_data = new_data
             atlas_h = new_h
         }
 
         if glyph.image.data != nil {
-            src := cast([^]u8) glyph.image.data
+            src := cast([^]u8)glyph.image.data
             for row in 0 ..< gh {
-                mem.copy(
-                    &atlas_data[(offset_y + row) * atlas_w + offset_x],
-                    &src[row * gw],
-                    cast(int) gw,
-                )
+                mem.copy(&atlas_data[(offset_y + row) * atlas_w + offset_x], &src[row * gw], cast(int)gw)
             }
         }
 
-        recs[k] = rl.Rectangle {
-            x = cast(f32) offset_x,
-            y = cast(f32) offset_y,
-            width = cast(f32) gw,
-            height = cast(f32) gh,
-        }
+        recs[k] = rl.Rectangle{x = cast(f32)offset_x, y = cast(f32)offset_y, width = cast(f32)gw, height = cast(f32)gh}
         offset_x += gw + 2 * PADDING
     }
 
@@ -185,7 +180,7 @@ font_load_worker :: proc(job: ^Font_Load_Job) {
 // always in `shaped` too — the drawing path skips shaping without it.
 @(private = "file")
 font_job_publish :: proc(job: ^Font_Load_Job) -> rl.Font {
-    font := rl.Font {
+    font := rl.Font{
         baseSize = job.size,
         glyphCount = job.glyph_count,
         glyphPadding = 4,
@@ -215,17 +210,17 @@ font_bake_job :: proc(job: ^Font_Load_Job) {
         return
     }
 
-    scale := stbtt.ScaleForPixelHeight(&info, cast(f32) job.size)
+    scale := stbtt.ScaleForPixelHeight(&info, cast(f32)job.size)
     ascent, descent, line_gap: c.int
     stbtt.GetFontVMetrics(&info, &ascent, &descent, &line_gap)
 
     baked := make([dynamic]Bake_Entry)
-    seen := make(map[u32]bool)
+    seen  := make(map[u32]bool)
     for cp in job.family.codepoints {
         gid := stbtt.FindGlyphIndex(&info, cp)
         if gid != 0 {
-            append(&baked, Bake_Entry {value = cp, gid = cast(u32) gid})
-            seen[cast(u32) gid] = true
+            append(&baked, Bake_Entry{value = cp, gid = cast(u32)gid})
+            seen[cast(u32)gid] = true
         }
     }
     if len(baked) == 0 {
@@ -238,12 +233,12 @@ font_bake_job :: proc(job: ^Font_Load_Job) {
     for gid in job.family.ligature_gids {
         if !seen[gid] {
             seen[gid] = true
-            append(&baked, Bake_Entry {value = -1, gid = gid})
+            append(&baked, Bake_Entry{value = -1, gid = gid})
         }
     }
 
-    count := len(baked)
-    glyphs := cast([^]rl.GlyphInfo) rl.MemAlloc(cast(c.uint) (count * size_of(rl.GlyphInfo)))
+    count  := len(baked)
+    glyphs := cast([^]rl.GlyphInfo)rl.MemAlloc(cast(c.uint)(count * size_of(rl.GlyphInfo)))
     if glyphs == nil {
         log.errorf("font %s: no memory for %d glyphs", job.family.name, count)
         return
@@ -252,13 +247,13 @@ font_bake_job :: proc(job: ^Font_Load_Job) {
     mem.zero(glyphs, count * size_of(rl.GlyphInfo))
 
     for entry, k in baked {
-        cp := entry.value
+        cp    := entry.value
         glyph := &glyphs[k]
         glyph.value = cp
 
         advance: c.int
-        stbtt.GetGlyphHMetrics(&info, cast(c.int) entry.gid, &advance, nil)
-        glyph.advanceX = cast(c.int) (cast(f32) advance * scale)
+        stbtt.GetGlyphHMetrics(&info, cast(c.int)entry.gid, &advance, nil)
+        glyph.advanceX = cast(c.int)(cast(f32)advance * scale)
 
         if cp == 0x20 || cp == 0x3000 {
             // Space has no bitmap; give it a blank image so atlas packing
@@ -266,15 +261,9 @@ font_bake_job :: proc(job: ^Font_Load_Job) {
             if glyph.advanceX > 0 {
                 // Without the image the space keeps its zeroed one and only
                 // loses its reserved atlas width; its advance still counts.
-                if blank := rl.MemAlloc(cast(c.uint) (glyph.advanceX * job.size)); blank != nil {
-                    mem.zero(blank, cast(int) (glyph.advanceX * job.size))
-                    glyph.image = rl.Image {
-                        data = blank,
-                        width = glyph.advanceX,
-                        height = job.size,
-                        mipmaps = 1,
-                        format = .UNCOMPRESSED_GRAYSCALE,
-                    }
+                if blank := rl.MemAlloc(cast(c.uint)(glyph.advanceX * job.size)); blank != nil {
+                    mem.zero(blank, cast(int)(glyph.advanceX * job.size))
+                    glyph.image = rl.Image{data = blank, width = glyph.advanceX, height = job.size, mipmaps = 1, format = .UNCOMPRESSED_GRAYSCALE}
                 }
             } else {
                 glyph.advanceX = 0
@@ -283,22 +272,16 @@ font_bake_job :: proc(job: ^Font_Load_Job) {
         }
 
         width, height, offset_x, offset_y: c.int
-        bitmap := stbtt.GetGlyphBitmap(&info, scale, scale, cast(c.int) entry.gid, &width, &height, &offset_x, &offset_y)
+        bitmap := stbtt.GetGlyphBitmap(&info, scale, scale, cast(c.int)entry.gid, &width, &height, &offset_x, &offset_y)
         glyph.offsetX = offset_x
-        glyph.offsetY = offset_y + cast(c.int) (cast(f32) ascent * scale)
+        glyph.offsetY = offset_y + cast(c.int)(cast(f32)ascent * scale)
 
         if bitmap != nil && width > 0 && height > 0 {
             // A failed copy leaves the zeroed image, so this one glyph draws
             // nothing rather than losing the whole font.
-            if data := rl.MemAlloc(cast(c.uint) (width * height)); data != nil {
-                mem.copy(data, bitmap, cast(int) (width * height))
-                glyph.image = rl.Image {
-                    data = data,
-                    width = width,
-                    height = height,
-                    mipmaps = 1,
-                    format = .UNCOMPRESSED_GRAYSCALE,
-                }
+            if data := rl.MemAlloc(cast(c.uint)(width * height)); data != nil {
+                mem.copy(data, bitmap, cast(int)(width * height))
+                glyph.image = rl.Image{data = data, width = width, height = height, mipmaps = 1, format = .UNCOMPRESSED_GRAYSCALE}
             }
         }
         if bitmap != nil {
@@ -313,8 +296,8 @@ font_bake_job :: proc(job: ^Font_Load_Job) {
     }
 
     // Convert GRAYSCALE to GRAY_ALPHA (gray=255, alpha=coverage).
-    pixel_count := cast(int) (atlas_w * atlas_h)
-    gray_alpha := cast([^]u8) rl.MemAlloc(cast(c.uint) (pixel_count * 2))
+    pixel_count := cast(int)(atlas_w * atlas_h)
+    gray_alpha  := cast([^]u8)rl.MemAlloc(cast(c.uint)(pixel_count * 2))
     if gray_alpha == nil {
         log.errorf("font %s: no memory for the %dx%d gray-alpha atlas", job.family.name, atlas_w, atlas_h)
         rl.MemFree(atlas_data)
@@ -328,25 +311,14 @@ font_bake_job :: proc(job: ^Font_Load_Job) {
     }
     rl.MemFree(atlas_data)
 
-    job.atlas = rl.Image {
-        data = gray_alpha,
-        width = atlas_w,
-        height = atlas_h,
-        mipmaps = 1,
-        format = .UNCOMPRESSED_GRAY_ALPHA,
-    }
+    job.atlas = rl.Image{data = gray_alpha, width = atlas_w, height = atlas_h, mipmaps = 1, format = .UNCOMPRESSED_GRAY_ALPHA}
     job.glyphs = glyphs
     job.recs = recs
-    job.glyph_count = cast(i32) count
+    job.glyph_count = cast(i32)count
 
     job.shaped = make(map[u32]Shaped_Glyph, count)
     for entry, k in baked {
-        job.shaped[entry.gid] = Shaped_Glyph {
-            rect = recs[k],
-            offset_x = glyphs[k].offsetX,
-            offset_y = glyphs[k].offsetY,
-            advance = glyphs[k].advanceX,
-        }
+        job.shaped[entry.gid] = Shaped_Glyph{rect = recs[k], offset_x = glyphs[k].offsetX, offset_y = glyphs[k].offsetY, advance = glyphs[k].advanceX}
     }
 
     job.ok = true
@@ -374,10 +346,10 @@ Bootstrap_Args :: struct {
 
 @(private = "file")
 preload_clone :: proc(preload: Preload, allocator: runtime.Allocator) -> Preload {
-    clone := Preload {
-        families      = make([]string, len(preload.families), allocator),
-        icon_packs    = make([]string, len(preload.icon_packs), allocator),
-        extra_sizes   = slice.clone(preload.extra_sizes, allocator),
+    clone := Preload{
+        families = make([]string, len(preload.families), allocator),
+        icon_packs = make([]string, len(preload.icon_packs), allocator),
+        extra_sizes = slice.clone(preload.extra_sizes, allocator),
         user_manifest = strings.clone(preload.user_manifest, allocator),
     }
     for name, i in preload.families {
@@ -567,7 +539,7 @@ prebake_pending :: proc(family: ^Font_Family, size: i32) -> bool {
 prebake_discard :: proc(job: ^Font_Load_Job) {
     rl.UnloadImage(job.atlas)
     rl.MemFree(job.recs)
-    free_glyphs(job.glyphs, cast(int) job.glyph_count)
+    free_glyphs(job.glyphs, cast(int)job.glyph_count)
 }
 
 // Bakes the missing sizes of `family_names` on worker threads, so a later
@@ -672,7 +644,7 @@ line_cstring :: proc(text: string, buffer: []u8) -> cstring {
     }
     copy(buffer, text)
     buffer[len(text)] = 0
-    return cast(cstring) raw_data(buffer)
+    return cast(cstring)raw_data(buffer)
 }
 
 // Codepoint-path walk of one line, for a family/size with no shaping data.
@@ -680,42 +652,27 @@ line_cstring :: proc(text: string, buffer: []u8) -> cstring {
 // split at the tabs and snap the pen to the next stop between the pieces.
 // Measuring and drawing share this, so the two cannot drift. Returns the width.
 @(private = "file")
-fallback_line :: proc(
-    font: rl.Font,
-    line: string,
-    x, y: f32,
-    origin: f32,
-    font_size: i32,
-    color: rl.Color,
-    draw: bool,
-) -> f32 {
+fallback_line :: proc(font: rl.Font, line: string, x, y: f32, origin: f32, font_size: i32, color: rl.Color, draw: bool) -> f32 {
     scratch: [LINE_SCRATCH]u8
     // No atlas (a headless run): every width is 0, and a 0 cell makes tab_stop
     // a no-op rather than a null dereference.
     cell: f32 = 0
     if font.glyphs != nil && font.glyphCount > 0 {
-        cell = cast(f32) font.glyphs[rl.GetGlyphIndex(font, ' ')].advanceX
+        cell = cast(f32)font.glyphs[rl.GetGlyphIndex(font, ' ')].advanceX
     }
-    pen := origin
+    pen  := origin
     rest := line
     for {
         piece := rest
-        tab := strings.index_byte(rest, '\t')
+        tab   := strings.index_byte(rest, '\t')
         if tab >= 0 {
             piece = rest[:tab]
         }
         if piece != "" {
             if draw {
-                rl.DrawTextEx(
-                    font,
-                    line_cstring(piece, scratch[:]),
-                    rl.Vector2 {x - origin + pen, y},
-                    cast(f32) font_size,
-                    0,
-                    color,
-                )
+                rl.DrawTextEx(font, line_cstring(piece, scratch[:]), rl.Vector2{x - origin + pen, y}, cast(f32)font_size, 0, color)
             }
-            pen += rl.MeasureTextEx(font, line_cstring(piece, scratch[:]), cast(f32) font_size, 0).x
+            pen += rl.MeasureTextEx(font, line_cstring(piece, scratch[:]), cast(f32)font_size, 0).x
         }
         if tab < 0 {
             break
@@ -731,7 +688,7 @@ fallback_line :: proc(
 // line only, so pass single-line text with a non-zero origin.
 measure :: proc(text: string, font_size: i32, family := "", tab_origin: i32 = 0, style: Style = {}) -> i32 {
     face, synthetic := resolve_style(family, style)
-    name := face
+    name            := face
     if name == "" {
         name = default_family_name
     }
@@ -739,7 +696,7 @@ measure :: proc(text: string, font_size: i32, family := "", tab_origin: i32 = 0,
 
     font := get_font(font_size, face)
     max_width: f32 = 0
-    origin := cast(f32) tab_origin
+    origin := cast(f32)tab_origin
     source := text
 
     for line in strings.split_lines_iterator(&source) {
@@ -757,25 +714,18 @@ measure :: proc(text: string, font_size: i32, family := "", tab_origin: i32 = 0,
 
     if max_width == 0 && text != "" {
         scratch: [LINE_SCRATCH]u8
-        size := rl.MeasureTextEx(font, line_cstring(text, scratch[:]), cast(f32) font_size, 0)
+        size := rl.MeasureTextEx(font, line_cstring(text, scratch[:]), cast(f32)font_size, 0)
         max_width = size.x
     }
 
     if max_width > 0 {
         max_width += f32(style_extra(synthetic, font_size))
     }
-    return cast(i32) max_width
+    return cast(i32)max_width
 }
 
 // See measure for `tab_origin`.
-draw :: proc(
-    text: string,
-    x, y, font_size: i32,
-    color: rl.Color,
-    family := "",
-    tab_origin: i32 = 0,
-    style: Style = {},
-) {
+draw :: proc(text: string, x, y, font_size: i32, color: rl.Color, family := "", tab_origin: i32 = 0, style: Style = {}) {
     if text == "" {
         return
     }
@@ -787,22 +737,22 @@ draw :: proc(
     }
     fam := families[name]
 
-    font := get_font(font_size, face)
+    font   := get_font(font_size, face)
     source := text
-    line_y := cast(f32) y
-    origin := cast(f32) tab_origin
+    line_y := cast(f32)y
+    origin := cast(f32)tab_origin
 
     for line in strings.split_lines_iterator(&source) {
         // Shaped path first (ligatures); falls back to raylib's codepoint path
         // for sizes without shaping data.
-        if !draw_line_shaped(fam, font, font_size, line, x, cast(i32) line_y, color, origin, synthetic) {
+        if !draw_line_shaped(fam, font, font_size, line, x, cast(i32)line_y, color, origin, synthetic) {
             // The codepoint path has no glyph quads to shear, so it keeps bold only.
             passes := .Bold in synthetic ? bold_extra(font_size) : 0
             for pass in 0 ..= passes {
                 fallback_line(font, line, f32(x + pass), line_y, origin, font_size, color, true)
             }
         }
-        line_y += cast(f32) line_height(font_size)
+        line_y += cast(f32)line_height(font_size)
         origin = 0
     }
 }
@@ -810,10 +760,10 @@ draw :: proc(
 // The x of byte offset `at` in one line of text. Right across a ligature,
 // where measuring the prefix on its own is not.
 offset_at :: proc(text: string, at: int, font_size: i32, family := "", tab_origin: i32 = 0) -> f32 {
-    i := clamp(at, 0, len(text))
+    i    := clamp(at, 0, len(text))
     name := family != "" ? family : default_family_name
     font := get_font(font_size, family)
-    if x, ok := offset_x_shaped(families[name], font, font_size, text, i, cast(f32) tab_origin); ok {
+    if x, ok := offset_x_shaped(families[name], font, font_size, text, i, cast(f32)tab_origin); ok {
         return x
     }
     return f32(measure(text[:i], font_size, family, tab_origin))
@@ -826,7 +776,7 @@ index_at :: proc(text: string, x: f32, font_size: i32, family := "", tab_origin:
     }
     name := family != "" ? family : default_family_name
     font := get_font(font_size, family)
-    if index, ok := index_at_shaped(families[name], font, font_size, text, x, cast(f32) tab_origin); ok {
+    if index, ok := index_at_shaped(families[name], font, font_size, text, x, cast(f32)tab_origin); ok {
         return index
     }
     prev, prev_w := 0, f32(0)
@@ -842,4 +792,3 @@ index_at :: proc(text: string, x: f32, font_size: i32, family := "", tab_origin:
     }
     return len(text)
 }
-

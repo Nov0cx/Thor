@@ -27,7 +27,7 @@ test_modifier_from_token_reads_every_spelling :: proc(t: ^testing.T) {
 // A key name must not read as a modifier, or the chord would lose its key.
 @(test)
 test_modifier_from_token_refuses_a_key :: proc(t: ^testing.T) {
-    for token in ([?]string {"k", "page_up", "", "ctrl+shift", "CTRL"}) {
+    for token in ([?]string{"k", "page_up", "", "ctrl+shift", "CTRL"}) {
         _, ok := modifier_from_token(token)
         testing.expectf(t, !ok, "%q reads as a modifier", token)
     }

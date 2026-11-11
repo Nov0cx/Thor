@@ -34,11 +34,11 @@ test_utf16_round_trip :: proc(t: ^testing.T) {
         disk := thor_encode_text(strings.clone(source), encoding, true, context.allocator)
         defer delete(disk)
 
-        found, bom := thor_detect_encoding(transmute([]u8) disk)
+        found, bom := thor_detect_encoding(transmute([]u8)disk)
         testing.expect_value(t, found, encoding)
         testing.expect_value(t, bom, 2)
 
-        text, ok := thor_decode_utf16(transmute([]u8) disk[bom:], encoding == .UTF16_BE, context.allocator)
+        text, ok := thor_decode_utf16(transmute([]u8)disk[bom:], encoding == .UTF16_BE, context.allocator)
         defer delete(text)
         testing.expect(t, ok, "the text decodes")
         testing.expect_value(t, text, source)

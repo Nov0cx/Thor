@@ -8,59 +8,59 @@ import "core:sync"
 import "core:thread"
 import rl "vendor:raylib"
 
+import "../lockfree"
+import "../prof"
 import "../setting"
 import "../shell"
 import "../vt"
-import "../lockfree"
-import "../prof"
 
 // One console bound to one shell on a pseudo-terminal. The shell outlives the
 // commands run in it, so a `cd` sticks and a developer environment loaded once
 // stays loaded; a reader thread pushes its output into `pending` and the main
 // thread feeds that to the emulator.
 Terminal :: struct {
-    owner:     ^Thor,
-    console:   Console,        // owned; declared by the console panel while this tab is active
-    profile:   shell.Profile,  // borrowed from owner.shell_profiles
-    task:      string,         // owned; the task this tab runs, "" for a user shell
+    owner:        ^Thor,
+    console:      Console,       // owned; declared by the console panel while this tab is active
+    profile:      shell.Profile, // borrowed from owner.shell_profiles
+    task:         string,        // owned; the task this tab runs, "" for a user shell
     // Owned; set by the reader once the shell runs, nil once it is gone. Guarded by out_mutex.
-    pty:       ^shell.Pty,
+    pty:          ^shell.Pty,
     // The reader and writer threads run. Main thread only.
-    session:   bool,
+    session:      bool,
     // The directory the shell starts in; owned. Read by the reader before it starts the shell.
-    start_cwd: string,
+    start_cwd:    string,
     // The shell could not start. Atomic; set before `ended`.
     start_failed: bool,
     // The grid size the shell must have. Guarded by out_mutex.
-    want_cols: int,
-    want_rows: int,
-    reader:    ^thread.Thread, // owned
-    allocator: runtime.Allocator,
+    want_cols:    int,
+    want_rows:    int,
+    reader:       ^thread.Thread, // owned
+    allocator:    runtime.Allocator,
     // Raw shell output the reader has not handed over. The reader writes, the main thread reads.
-    output:    lockfree.Byte_Ring, // owned
+    output:       lockfree.Byte_Ring, // owned
     // The reader reached the end of the stream. Atomic; set after its last write to `output`.
-    ended:     bool,
+    ended:        bool,
     // The session closes; a reader that waits for room in `output` gives up. Atomic.
-    closing:   bool,
+    closing:      bool,
     // The shell exited and was reported; the tab keeps its scrollback.
-    dead:      bool,
+    dead:         bool,
     // Bytes for the shell, written by `writer`. Guarded by out_mutex.
-    outbox:    [dynamic]u8,
+    outbox:       [dynamic]u8,
     // The bytes the writer is sending. Owned by the writer between swaps.
-    sending:   [dynamic]u8,
-    writer:    ^thread.Thread, // owned
-    out_mutex: sync.Mutex,
-    out_cond:  sync.Cond,
+    sending:      [dynamic]u8,
+    writer:       ^thread.Thread, // owned
+    out_mutex:    sync.Mutex,
+    out_cond:     sync.Cond,
     // The writer must stop. Guarded by out_mutex.
-    out_stop:  bool,
+    out_stop:     bool,
     // The writer could not write to the shell. Atomic.
-    write_error: bool,
+    write_error:  bool,
     // A write to the shell failed and was logged; one log line per session.
     write_failed: bool,
     // When the output that just arrived is taken to have settled. A command that
     // finished may have touched the working tree, and most shells say nothing
     // about it, so the pause after the output is the signal.
-    settle_at: f64,
+    settle_at:    f64,
 }
 
 @(private = "file")
@@ -84,15 +84,10 @@ thor_terminal_create :: proc(thor: ^Thor, profile: shell.Profile) -> ^Terminal {
     term.outbox = make([dynamic]u8)
     term.sending = make([dynamic]u8)
 
-    thor_console_init(&term.console, cast(i32) setting.font_size(&thor.config))
+    thor_console_init(&term.console, cast(i32)setting.font_size(&thor.config))
     thor_console_apply_theme(thor, &term.console)
     thor_console_set_on_link(&term.console, thor_console_link, thor_console_activate, thor)
-    thor_console_set_on_write(
-        &term.console,
-        thor_terminal_write,
-        thor_terminal_resize,
-        term,
-    )
+    thor_console_set_on_write(&term.console, thor_terminal_write, thor_terminal_resize, term)
 
     if !lockfree.ring_init(&term.output, TERMINAL_RING_SIZE) {
         thor_console_append(&term.console, fmt.tprintf("Could not start %s.\n", profile.name))
@@ -188,7 +183,7 @@ thor_terminal_reader :: proc(term: ^Terminal) {
         // A full ring waits for the main thread, so a flood blocks the shell on its write.
         rest := buf[:read]
         for len(rest) > 0 && !sync.atomic_load(&term.closing) {
-            gen := lockfree.ring_space_gen(&term.output)
+            gen   := lockfree.ring_space_gen(&term.output)
             wrote := lockfree.ring_write(&term.output, rest)
             rest = rest[wrote:]
             if wrote == 0 && !sync.atomic_load(&term.closing) {
@@ -233,7 +228,7 @@ thor_terminal_start_shell :: proc(term: ^Terminal) -> ^shell.Pty {
 // Console_Write_Proc: everything the user types, and every answer the emulator
 // owes the shell.
 thor_terminal_write :: proc(data: rawptr, bytes: string) {
-    term := cast(^Terminal) data
+    term := cast(^Terminal)data
     if !term.session {
         return
     }
@@ -263,7 +258,7 @@ thor_terminal_send :: proc(term: ^Terminal, bytes: string) {
 // Console_Resize_Proc: the panel changed size, so the shell re-wraps and a
 // full-screen program redraws.
 thor_terminal_resize :: proc(data: rawptr, cols, rows: int) {
-    term := cast(^Terminal) data
+    term := cast(^Terminal)data
     if !term.session {
         return
     }
@@ -282,10 +277,7 @@ thor_terminal_restart :: proc(term: ^Terminal) {
     thor_terminal_close_session(term)
     thor_console_append(&term.console, "\n")
     if !thor_terminal_open_session(term) {
-        thor_console_append(
-            &term.console,
-            fmt.tprintf("Could not start %s.\n", term.profile.name),
-        )
+        thor_console_append(&term.console, fmt.tprintf("Could not start %s.\n", term.profile.name))
         term.dead = true
     }
 }
@@ -431,10 +423,10 @@ Shell_Choice :: struct {
 // PATH, which is too slow for the frame that starts the editor.
 Shell_Detect_Job :: struct {
     queue_next: ^Shell_Detect_Job, // link in Thor.finished_shells
-    owner:     ^Thor,
-    allocator: runtime.Allocator,
-    worker:    ^thread.Thread,
-    profiles:  []shell.Profile, // owned, taken over by the main thread
+    owner:      ^Thor,
+    allocator:  runtime.Allocator,
+    worker:     ^thread.Thread,
+    profiles:   []shell.Profile, // owned, taken over by the main thread
 }
 
 // Starts the shell detection. Called once the widget tree exists, since the
@@ -609,7 +601,7 @@ thor_terminals_apply_theme :: proc(thor: ^Thor) {
 // Follows the font size setting. The grid refits on the next frame, which tells
 // each shell its new size.
 thor_terminals_apply_font :: proc(thor: ^Thor) {
-    size := max(cast(i32) setting.font_size(&thor.config), 8)
+    size := max(cast(i32)setting.font_size(&thor.config), 8)
     for term in thor.terminals {
         term.console.font_size = size
     }
@@ -674,7 +666,7 @@ thor_terminal_tab_add :: proc(thor: ^Thor) {
 
 @(private = "file")
 thor_menu_open_shell :: proc(data: rawptr) {
-    choice := cast(^Shell_Choice) data
+    choice := cast(^Shell_Choice)data
     thor_terminal_open(choice.thor, choice.thor.shell_profiles[choice.index])
 }
 
@@ -739,7 +731,7 @@ thor_show_console :: proc(thor: ^Thor) {
 }
 
 thor_cmd_new_terminal :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if len(thor.shell_profiles) == 0 {
         thor_flash_status(thor, "No shell was found", true)
         return
@@ -749,19 +741,19 @@ thor_cmd_new_terminal :: proc(data: rawptr) {
 }
 
 thor_cmd_close_terminal :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_terminal_close(thor, thor.active_terminal)
 }
 
 thor_cmd_close_all_terminals :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     for len(thor.terminals) > 0 {
         thor_terminal_close(thor, 0)
     }
 }
 
 thor_cmd_next_terminal :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if len(thor.terminals) < 2 {
         return
     }
@@ -770,7 +762,7 @@ thor_cmd_next_terminal :: proc(data: rawptr) {
 }
 
 thor_cmd_restart_shell :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if term := thor_active_terminal(thor); term != nil {
         thor_terminal_restart(term)
     }
@@ -778,38 +770,28 @@ thor_cmd_restart_shell :: proc(data: rawptr) {
 
 // Picks the shell new terminals start on, and opens one on it right away.
 thor_cmd_select_shell :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if len(thor.shell_profiles) == 0 {
         thor_flash_status(thor, "No shell was found", true)
         return
     }
     labels := make([]string, len(thor.shell_profiles), context.temp_allocator)
-    ids := make([]string, len(thor.shell_profiles), context.temp_allocator)
+    ids    := make([]string, len(thor.shell_profiles), context.temp_allocator)
     for profile, i in thor.shell_profiles {
         labels[i] = profile.name
         ids[i] = profile.id
     }
-    thor_select_open(
-        thor,
-        "Select Shell",
-        labels,
-        thor_terminal_default_profile(thor).name,
-        thor_shell_preview,
-        thor_shell_commit,
-        thor,
-        ids,
-    )
+    thor_select_open(thor, "Select Shell", labels, thor_terminal_default_profile(thor).name, thor_shell_preview, thor_shell_commit, thor, ids)
 }
 
 // Select_Choice_Proc: nothing to preview, since a shell only starts on commit.
 @(private = "file")
-thor_shell_preview :: proc(data: rawptr, choice: string) {
-}
+thor_shell_preview :: proc(data: rawptr, choice: string) {}
 
 // Select_Choice_Proc: stores the shell as the default and opens a terminal on it.
 @(private = "file")
 thor_shell_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor) data
+    thor        := cast(^Thor)data
     profile, ok := shell.profile_find(thor.shell_profiles, choice)
     if !ok {
         return

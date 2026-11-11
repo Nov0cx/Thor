@@ -17,15 +17,15 @@ dangling_place :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) ->
     #partial switch n.green.kind {
     case .Unary_Expr:
         u, _ := odinsyntax.as_unary_expr(n)
-        op := odinsyntax.unary_expr_op(&u) or_return
+        op   := odinsyntax.unary_expr_op(&u) or_return
         if op.green.kind != .And {
             return
         }
         operand := odinsyntax.unary_expr_operand(&u) or_return
-        root := by_value_root(c, file, operand) or_return
+        root    := by_value_root(c, file, operand) or_return
         return int(n.offset), root_name(root), true
     case .Slice_Expr:
-        se, _ := odinsyntax.as_slice_expr(n)
+        se, _   := odinsyntax.as_slice_expr(n)
         operand := odinsyntax.slice_expr_operand(&se) or_return
         if !fixed_array(c, file, operand) {
             return
@@ -40,7 +40,7 @@ dangling_place :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) ->
 // named result, or what a pointer or slice parameter points at.
 // A named result counts only when `results` is set.
 outliving_store :: proc(c: ^Checker, file: File_Id, lhs: odinsyntax.Syntax_Node, results := true) -> bool {
-    n := lhs
+    n               := lhs
     through_pointer := false
     for {
         #partial switch n.green.kind {
@@ -52,7 +52,7 @@ outliving_store :: proc(c: ^Checker, file: File_Id, lhs: odinsyntax.Syntax_Node,
             n = odinsyntax.deref_expr_operand(&d) or_return
             through_pointer = true
         case .Selector_Expr:
-            sel, _ := odinsyntax.as_selector_expr(n)
+            sel, _   := odinsyntax.as_selector_expr(n)
             _, arrow := odinsyntax.selector_expr_arrow(&sel)
             n = odinsyntax.selector_expr_operand(&sel) or_return
             through_pointer ||= arrow || !inline_record(c, file, n)
@@ -112,8 +112,8 @@ points_outliving :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, 
     if !found || !has_body || is_constant_decl(decl) {
         return false
     }
-    vd, _ := odinsyntax.as_value_decl(decl)
-    names := odinsyntax.value_decl_names(&vd) or_return
+    vd, _  := odinsyntax.as_value_decl(decl)
+    names  := odinsyntax.value_decl_names(&vd) or_return
     values := odinsyntax.value_decl_values(&vd) or_return
     name_items, value_items := odinsyntax.name_list_names(&names), nil_items(values)
     _, first := odinsyntax.child_iter_next(&name_items)
@@ -123,14 +123,14 @@ points_outliving :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, 
     init := strip_parens(value_items[0])
     #partial switch init.green.kind {
     case .Ident:
-        r := lookup_name(c, file, odinsyntax.node_text(init), int(init.offset))
+        r  := lookup_name(c, file, odinsyntax.node_text(init), int(init.offset))
         ok := r.kind == .Item || r.kind == .Local && r.local.kind == .Param
         if !ok {
             return false
         }
     case .Unary_Expr:
-        u, _ := odinsyntax.as_unary_expr(init)
-        op := odinsyntax.unary_expr_op(&u) or_return
+        u, _    := odinsyntax.as_unary_expr(init)
+        op      := odinsyntax.unary_expr_op(&u) or_return
         operand := odinsyntax.unary_expr_operand(&u) or_return
         if op.green.kind != .And || !outliving_store(c, file, operand, false) {
             return false
@@ -148,7 +148,7 @@ reassigned :: proc(n: odinsyntax.Syntax_Node, name: string) -> bool {
     n := n
     #partial switch n.green.kind {
     case .Proc_Lit:
-        // The body the walk starts at is the literal itself.
+    // The body the walk starts at is the literal itself.
     case .Assign_Stmt:
         a, _ := odinsyntax.as_assign_stmt(n)
         if lhs, has := odinsyntax.assign_stmt_lhs(&a); has {
@@ -182,7 +182,7 @@ temp_call :: proc(n: odinsyntax.Syntax_Node) -> bool {
         }
     }
     list := odinsyntax.call_expr_args(&ce) or_return
-    it := odinsyntax.arg_list_args(&list)
+    it   := odinsyntax.arg_list_args(&list)
     for arg in odinsyntax.child_iter_next(&it) {
         if strings.has_suffix(odinsyntax.node_text(arg), "context.temp_allocator") {
             return true
@@ -198,7 +198,7 @@ temp_helper :: proc(n: odinsyntax.Syntax_Node) -> bool {
         if p.green.kind != .Value_Decl {
             continue
         }
-        v, _ := odinsyntax.as_value_decl(p^)
+        v, _       := odinsyntax.as_value_decl(p^)
         names, has := odinsyntax.value_decl_names(&v)
         if !has {
             return false
@@ -216,7 +216,7 @@ cleared_by_defer :: proc(stmt, target: odinsyntax.Syntax_Node) -> bool {
         return false
     }
     want := odinsyntax.node_text(target)
-    it := odinsyntax.child_iter(p, {kinds = ~odinsyntax.Kind_Set{}})
+    it   := odinsyntax.child_iter(p, {kinds = ~odinsyntax.Kind_Set{}})
     for sibling in odinsyntax.child_iter_next(&it) {
         if sibling.green.kind == .Defer_Stmt && strings.contains(odinsyntax.node_text(sibling), want) {
             return true
@@ -263,7 +263,7 @@ by_value_root :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> 
             }
             n = operand
         case .Index_Expr:
-            ie, _ := odinsyntax.as_index_expr(n)
+            ie, _   := odinsyntax.as_index_expr(n)
             operand := odinsyntax.index_expr_operand(&ie) or_return
             if !fixed_array(c, file, operand) {
                 return
@@ -318,7 +318,7 @@ static_local :: proc(c: ^Checker, file: File_Id, name_offset: int) -> bool {
         if d.green.kind != .Value_Decl {
             continue
         }
-        v, _ := odinsyntax.as_value_decl(d)
+        v, _  := odinsyntax.as_value_decl(d)
         attrs := odinsyntax.value_decl_attributes(&v)
         for attr in odinsyntax.child_iter_next(&attrs) {
             if contains_static(attr) {
@@ -333,8 +333,8 @@ static_local :: proc(c: ^Checker, file: File_Id, name_offset: int) -> bool {
 // True when the attribute `n` names or sets `static`.
 @(private = "file")
 contains_static :: proc(n: odinsyntax.Syntax_Node) -> bool {
-    n := n
-    a, _ := odinsyntax.as_attribute(n)
+    n     := n
+    a, _  := odinsyntax.as_attribute(n)
     elems := odinsyntax.attribute_elems(&a)
     for e in odinsyntax.child_iter_next(&elems) {
         text := odinsyntax.node_text(e)

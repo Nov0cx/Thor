@@ -11,33 +11,33 @@ import "../textedit"
 import ui "../vendor/loom/loom"
 
 FIND_WIDTH :: f32(520)
-FIND_TOP :: f32(90)
+FIND_TOP   :: f32(90)
 // Inset from the top right corner of the pane the bar searches.
-FIND_GAP :: f32(12)
+FIND_GAP   :: f32(12)
 
 Find_Replace :: struct {
     // The pane the bar searches. Borrowed; re-taken on every open.
-    editor:         ^editview.Editor,
-    find:           [dynamic]u8, // owned; ui.input edits it in place
-    replace:        [dynamic]u8, // owned
-    matches:        [dynamic]search.Match, // owned
+    editor:        ^editview.Editor,
+    find:          [dynamic]u8,           // owned; ui.input edits it in place
+    replace:       [dynamic]u8,           // owned
+    matches:       [dynamic]search.Match, // owned
     // The capture groups of the regular-expression matches. Owned.
-    captures:       [dynamic][2]int,
-    current:        int,
+    captures:      [dynamic][2]int,
+    current:       int,
     // Buffer the offsets in `matches` were scanned from. `set_text` puts the
     // revision back to 0, so the pointer and the length are part of the identity.
-    match_state:    ^textedit.State, // borrowed
-    match_rev:      u64,
-    match_size:     int,
+    match_state:   ^textedit.State, // borrowed
+    match_rev:     u64,
+    match_size:    int,
     // Search modifiers. They survive a close, so the next open keeps them.
-    options:        search.Options,
+    options:       search.Options,
     // The pattern does not compile. Reported in place of the match count.
-    regex_bad:      bool,
+    regex_bad:     bool,
     // Set by an open, consumed by the view: the query field takes the keyboard
     // on the frame it first appears.
-    focus_pending:  bool,
+    focus_pending: bool,
     // Pane key the focus goes back to when the bar closes.
-    return_focus:   string,
+    return_focus:  string,
 }
 
 thor_find_init :: proc(thor: ^Thor) {
@@ -105,7 +105,7 @@ find_recompute :: proc(f: ^Find_Replace) {
         return
     }
 
-    text := textedit.text(state)
+    text    := textedit.text(state)
     from, _ := textedit.selection_range(textedit.primary_cursor(state))
     if !search.scan(text, string(f.find[:]), f.options, &f.matches, &f.captures) {
         f.regex_bad = true
@@ -131,9 +131,7 @@ find_sync :: proc(f: ^Find_Replace) {
         }
         return
     }
-    if f.match_state != state ||
-       f.match_rev != state.revision ||
-       f.match_size != textedit.length(state) {
+    if f.match_state != state || f.match_rev != state.revision || f.match_size != textedit.length(state) {
         find_recompute(f)
     }
 }
@@ -165,7 +163,7 @@ find_do_replace :: proc(f: ^Find_Replace) {
     if f.editor == nil || f.editor.state == nil || len(f.matches) == 0 {
         return
     }
-    match := f.matches[f.current]
+    match       := f.matches[f.current]
     replacement := find_replacement(f, textedit.text(f.editor.state), match)
     if err := textedit.replace_range(f.editor.state, match.start, match.end - match.start, replacement); err != .None {
         return
@@ -208,12 +206,9 @@ find_do_replace_all :: proc(f: ^Find_Replace) {
         return
     }
     ranges := make([dynamic]textedit.Replace, 0, len(f.matches), context.temp_allocator)
-    text := textedit.text(f.editor.state)
+    text   := textedit.text(f.editor.state)
     for match in f.matches {
-        append(
-            &ranges,
-            textedit.Replace{start = match.start, end = match.end, text = find_replacement(f, text, match)},
-        )
+        append(&ranges, textedit.Replace{start = match.start, end = match.end, text = find_replacement(f, text, match)})
     }
     // The sync above scanned this revision, so replace_ranges keeps every range.
     textedit.replace_ranges(f.editor.state, ranges[:])
@@ -298,12 +293,7 @@ find_flip :: proc(f: ^Find_Replace, option: ^bool) {
 find_query_row :: proc(thor: ^Thor) {
     f := &thor.find
 
-    ui.scope(
-        {
-            key = "query-row",
-            props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {6, 0}},
-        },
-    )
+    ui.scope({key = "query-row", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {6, 0}}})
 
     it := ui.input(
         &f.find,
@@ -330,15 +320,7 @@ find_query_row :: proc(thor: ^Thor) {
 
     ui.label(
         find_count_label(f),
-        {
-            key = "count",
-            props = {
-                w = ui.Px(96),
-                text_align = .Center,
-                color = f.regex_bad ? thor.theme.error_color : thor.theme.muted_color,
-                text_wrap = .None,
-            },
-        },
+        {key = "count", props = {w = ui.Px(96), text_align = .Center, color = f.regex_bad ? thor.theme.error_color : thor.theme.muted_color, text_wrap = .None}},
     )
 
     if find_toggle(thor, "case", "Aa", f.options.case_sensitive) {
@@ -366,12 +348,7 @@ find_query_row :: proc(thor: ^Thor) {
 find_replace_row :: proc(thor: ^Thor) {
     f := &thor.find
 
-    ui.scope(
-        {
-            key = "replace-row",
-            props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {6, 0}},
-        },
-    )
+    ui.scope({key = "replace-row", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {6, 0}}})
     ui.input(
         &f.replace,
         {
@@ -424,17 +401,7 @@ find_toggle :: proc(thor: ^Thor, key, label: string, on: bool) -> bool {
             hover = {bg = on ? thor.theme.selection_background : thor.theme.buttons},
         },
     )
-    ui.label(
-        label,
-        {
-            key = "text",
-            props = {
-                color = on ? thor.theme.accent_color : thor.theme.muted_color,
-                font = thor.font_mono,
-                text_wrap = .None,
-            },
-        },
-    )
+    ui.label(label, {key = "text", props = {color = on ? thor.theme.accent_color : thor.theme.muted_color, font = thor.font_mono, text_wrap = .None}})
     return it.clicked
 }
 
@@ -444,15 +411,7 @@ find_icon_button :: proc(thor: ^Thor, key, icon: string) -> bool {
         {
             key = key,
             flags = {.Clickable},
-            props = {
-                w = ui.Px(26),
-                h = ui.Px(26),
-                dir = .Row,
-                justify = .Center,
-                align = .Center,
-                radius = ui.rad(4),
-                cursor = .Pointer,
-            },
+            props = {w = ui.Px(26), h = ui.Px(26), dir = .Row, justify = .Center, align = .Center, radius = ui.rad(4), cursor = .Pointer},
             hover = {bg = thor.theme.buttons},
         },
     )
@@ -466,15 +425,7 @@ find_text_button :: proc(thor: ^Thor, key, label: string) -> bool {
         {
             key = key,
             flags = {.Clickable},
-            props = {
-                h = ui.Px(26),
-                dir = .Row,
-                align = .Center,
-                pad = ui.xy(10, 0),
-                radius = ui.rad(4),
-                bg = thor.theme.buttons,
-                cursor = .Pointer,
-            },
+            props = {h = ui.Px(26), dir = .Row, align = .Center, pad = ui.xy(10, 0), radius = ui.rad(4), bg = thor.theme.buttons, cursor = .Pointer},
             hover = {bg = thor.theme.active},
         },
     )

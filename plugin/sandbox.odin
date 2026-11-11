@@ -47,12 +47,12 @@ MIN_NATIVE_BUDGET :: 100 * time.Millisecond
 // Base library functions dropped from the shared globals: each one either runs
 // code the sandbox never saw (load/dofile/loadfile) or reaches the collector.
 @(private)
-UNSAFE_BASE := []cstring {"load", "loadstring", "dofile", "loadfile", "collectgarbage"}
+UNSAFE_BASE := []cstring{"load", "loadstring", "dofile", "loadfile", "collectgarbage"}
 
 // The only `os` entries a plugin keeps. execute/remove/rename/exit/getenv and
 // tmpname all reach past the sandbox.
 @(private)
-OS_KEPT := []cstring {"clock", "date", "difftime", "time"}
+OS_KEPT := []cstring{"clock", "date", "difftime", "time"}
 
 // A loaded plugin: the folder it came from, what it may do, and the environment
 // its chunk runs in.
@@ -60,9 +60,9 @@ Plugin :: struct {
     id:         string, // owned; the folder name
     dir:        string, // owned; absolute plugin folder
     perms:      Permissions,
-    env_ref:    int,    // registry ref of the _ENV table, or NOREF
-    module_ref: int,    // registry ref of the require() cache, or NOREF
-    tick_ref:   int,    // registry ref of the thor.on_tick handler, or NOREF
+    env_ref:    int, // registry ref of the _ENV table, or NOREF
+    module_ref: int, // registry ref of the require() cache, or NOREF
+    tick_ref:   int, // registry ref of the thor.on_tick handler, or NOREF
 }
 
 // A Lua callback plus the plugin that registered it, so a failure is reported
@@ -117,14 +117,14 @@ guard_base :: proc(L: ^lua.State) {
 
 // True once the running call has overrun CALL_BUDGET.
 @(private)
-budget_is_spent :: proc "c" (L: ^lua.State) -> bool {
+budget_is_spent :: proc "c"(L: ^lua.State) -> bool {
     m := (^Manager)((^rawptr)(lua.getextraspace(L))^)
     return m != nil && m.budget_spent
 }
 
 // pcall(f, ...): the stock body, but a spent budget is raised again.
 @(private)
-sb_pcall :: proc "c" (L: ^lua.State) -> c.int {
+sb_pcall :: proc "c"(L: ^lua.State) -> c.int {
     lua.L_checkany(L, 1)
     lua.pushboolean(L, true)
     lua.insert(L, 1)
@@ -134,7 +134,7 @@ sb_pcall :: proc "c" (L: ^lua.State) -> c.int {
 
 // xpcall(f, msgh, ...): the stock body, but a spent budget is raised again.
 @(private)
-sb_xpcall :: proc "c" (L: ^lua.State) -> c.int {
+sb_xpcall :: proc "c"(L: ^lua.State) -> c.int {
     n := lua.gettop(L)
     lua.L_checktype(L, 2, c.int(lua.TFUNCTION))
     lua.pushboolean(L, true)
@@ -147,7 +147,7 @@ sb_xpcall :: proc "c" (L: ^lua.State) -> c.int {
 // Ends a protected call, also as the continuation after a yield. `extra` is the
 // count of stack slots below the results.
 @(private)
-sb_pcall_done :: proc "c" (L: ^lua.State, status: c.int, extra: lua.KContext) -> c.int {
+sb_pcall_done :: proc "c"(L: ^lua.State, status: c.int, extra: lua.KContext) -> c.int {
     if status != c.int(lua.Status.OK) && status != c.int(lua.Status.YIELD) {
         if budget_is_spent(L) {
             return c.int(lua.error(L))
@@ -163,7 +163,7 @@ sb_pcall_done :: proc "c" (L: ^lua.State, status: c.int, extra: lua.KContext) ->
 // stock one. Lua marks an object for finalisation only at this call, and any
 // value counts, since it can become a function later.
 @(private)
-sb_setmetatable :: proc "c" (L: ^lua.State) -> c.int {
+sb_setmetatable :: proc "c"(L: ^lua.State) -> c.int {
     if lua.type(L, 2) == .TABLE {
         lua.pushstring(L, "__gc")
         lua.rawget(L, 2)
@@ -194,7 +194,7 @@ trim_os :: proc(L: ^lua.State) {
         lua.setfield(L, kept, name)
     }
     lua.setglobal(L, "os") // pops the trimmed table
-    lua.pop(L, 1)          // the original
+    lua.pop(L, 1) // the original
 }
 
 // Locks the metatable every string shares, so one plugin cannot redefine
@@ -281,8 +281,8 @@ push_closure :: proc(L: ^lua.State, m: ^Manager, index: int, fn: lua.CFunction) 
 
 // The manager and plugin index behind the running API call.
 @(private)
-caller :: proc "c" (L: ^lua.State) -> (m: ^Manager, index: int) {
-    m = cast(^Manager) lua.touserdata(L, upvalueindex(1))
+caller :: proc "c"(L: ^lua.State) -> (m: ^Manager, index: int) {
+    m = cast(^Manager)lua.touserdata(L, upvalueindex(1))
     index = int(lua.tointeger(L, upvalueindex(2)))
     return
 }
@@ -309,7 +309,7 @@ plugin_id :: proc(m: ^Manager, index: int) -> string {
 // through the Lua hook signature, so the manager is read back from the state's
 // extraspace (set once in manager_init; a coroutine's state inherits it).
 @(private)
-budget_hook :: proc "c" (L: ^lua.State, _: ^lua.Debug) {
+budget_hook :: proc "c"(L: ^lua.State, _: ^lua.Debug) {
     context = runtime.default_context()
     m := (^Manager)((^rawptr)(lua.getextraspace(L))^)
     if time.tick_since(m.active_start) < CALL_BUDGET {
@@ -350,7 +350,7 @@ guard_coroutines :: proc(L: ^lua.State) {
 // coroutine.resume(co, ...): the stock body, but a spent budget is raised again
 // and not returned as `false, message`.
 @(private)
-co_resume :: proc "c" (L: ^lua.State) -> c.int {
+co_resume :: proc "c"(L: ^lua.State) -> c.int {
     co := lua.tothread(L, 1)
     if co == nil {
         return lua.L_typeerror(L, 1, "coroutine")
@@ -387,7 +387,7 @@ co_resume :: proc "c" (L: ^lua.State) -> c.int {
 
 // coroutine.create(f): the stock body, plus the budget hook on the new thread.
 @(private)
-co_create :: proc "c" (L: ^lua.State) -> c.int {
+co_create :: proc "c"(L: ^lua.State) -> c.int {
     lua.L_checktype(L, 1, c.int(lua.TFUNCTION))
     co := lua.newthread(L)
     lua.sethook(co, budget_hook, lua.MASKCOUNT, HOOK_STEP)
@@ -398,7 +398,7 @@ co_create :: proc "c" (L: ^lua.State) -> c.int {
 
 // coroutine.wrap(f): a hooked thread behind a closure that resumes it.
 @(private)
-co_wrap :: proc "c" (L: ^lua.State) -> c.int {
+co_wrap :: proc "c"(L: ^lua.State) -> c.int {
     co_create(L)
     lua.pushcclosure(L, co_wrap_resume, 1)
     return 1
@@ -407,7 +407,7 @@ co_wrap :: proc "c" (L: ^lua.State) -> c.int {
 // The function coroutine.wrap returns: resumes the thread it carries and raises
 // what the thread failed with, budget errors included.
 @(private)
-co_wrap_resume :: proc "c" (L: ^lua.State) -> c.int {
+co_wrap_resume :: proc "c"(L: ^lua.State) -> c.int {
     co := lua.tothread(L, upvalueindex(1))
     if co == nil {
         return c.int(lua.L_error(L, "cannot resume dead coroutine"))
@@ -449,7 +449,7 @@ call_guarded :: proc(m: ^Manager, L: ^lua.State, owner: int, nargs, nres: c.int,
     }
     status := lua.pcall(L, nargs, nres, 0)
     if !nested {
-        lua.sethook(L, nil, lua.HookMask {}, 0)
+        lua.sethook(L, nil, lua.HookMask{}, 0)
     }
     if status != 0 {
         log.warnf("plugin %s: %s failed: %s", plugin_id(m, owner), what, lua.tostring(L, -1))
@@ -482,7 +482,7 @@ call_callback :: proc(m: ^Manager, cb: Callback, nargs, nres: c.int, what: strin
 // thor.print(text) and the sandbox's `print`: appends a line to the host's
 // output. Accepts any value, like Lua's own print.
 @(private)
-api_print :: proc "c" (L: ^lua.State) -> c.int {
+api_print :: proc "c"(L: ^lua.State) -> c.int {
     context = runtime.default_context()
     m, _ := caller(L)
     if m == nil || m.print_proc == nil {
@@ -501,10 +501,10 @@ api_print :: proc "c" (L: ^lua.State) -> c.int {
 // caches its result, so a plugin can span several files. Only plain names
 // resolve — no separators, no `..`, nothing outside the plugin's own folder.
 @(private)
-api_require :: proc "c" (L: ^lua.State) -> c.int {
+api_require :: proc "c"(L: ^lua.State) -> c.int {
     context = runtime.default_context()
     m, index := caller(L)
-    p := caller_plugin(m, index)
+    p        := caller_plugin(m, index)
     if p == nil || lua.type(L, 1) != .STRING {
         return 0
     }
@@ -570,12 +570,18 @@ is_module_name :: proc(name: string) -> bool {
 // The name a permission goes by in manifest.lua and in the console.
 permission_name :: proc(perm: Permission) -> string {
     switch perm {
-    case .Exec:  return "exec"
-    case .Read:  return "read"
-    case .Write: return "write"
-    case .Ui:    return "ui"
-    case .Keys:  return "keys"
-    case .Tick:  return "tick"
+    case .Exec:
+        return "exec"
+    case .Read:
+        return "read"
+    case .Write:
+        return "write"
+    case .Ui:
+        return "ui"
+    case .Keys:
+        return "keys"
+    case .Tick:
+        return "tick"
     }
     return ""
 }
@@ -661,7 +667,7 @@ manifest_info :: proc(dir: string) -> (version: string, source: string) {
         return "", ""
     }
     parsed, status, _ := luaconf.eval_file(path)
-    root, is_object := parsed.(json.Object)
+    root, is_object   := parsed.(json.Object)
     if status != .Ok || !is_object {
         return "", ""
     }
@@ -746,11 +752,7 @@ resolve_path :: proc(m: ^Manager, index: int, path: string) -> (resolved: string
         }
     }
     if !found {
-        log.warnf(
-            "plugin %s: %q is outside the workspace, the plugin folder and the plugin data folder",
-            p.id,
-            path,
-        )
+        log.warnf("plugin %s: %q is outside the workspace, the plugin folder and the plugin data folder", p.id, path)
         return "", false
     }
     if has_link_below(clean, root) {

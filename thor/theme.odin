@@ -6,11 +6,11 @@ import "core:path/filepath"
 import "core:slice"
 import "core:strings"
 
-import "../setting"
 import "../font"
+import "../prof"
+import "../setting"
 import "../theme"
 import ui "../vendor/loom/loom"
-import "../prof"
 // Built-in theme used when none is configured or the configured one fails to load.
 DEFAULT_THEME :: "mjolnir"
 
@@ -19,9 +19,9 @@ DEFAULT_THEME :: "mjolnir"
 SHIPPED_THEME_DIR :: "assets/themes"
 // User themes: what the theme editor writes, beside setting.USER_DIR. Gitignored,
 // never staged, never swapped by an update.
-USER_THEME_DIR :: "user/themes"
+USER_THEME_DIR    :: "user/themes"
 // File extension of a theme.
-THEME_EXT :: ".lua"
+THEME_EXT         :: ".lua"
 
 // The file `name` resolves to: the user copy shadows the shipped one. Falls back
 // to the shipped path when neither exists, so a failure names the shipped file.
@@ -81,9 +81,9 @@ thor_theme_file_sig :: proc(name: string) -> i64 {
 // one entry, the user's.
 thor_available_themes :: proc(allocator := context.temp_allocator) -> []string {
     names := make([dynamic]string, allocator)
-    seen := make(map[string]bool, 16, context.temp_allocator)
-    for dir in ([]string {USER_THEME_DIR, SHIPPED_THEME_DIR}) {
-        pattern := strings.concatenate({dir, "/*", THEME_EXT}, context.temp_allocator)
+    seen  := make(map[string]bool, 16, context.temp_allocator)
+    for dir in ([]string{USER_THEME_DIR, SHIPPED_THEME_DIR}) {
+        pattern      := strings.concatenate({dir, "/*", THEME_EXT}, context.temp_allocator)
         // A fresh install has no user/themes; that is not a failure of the listing.
         matches, err := filepath.glob(pattern, context.temp_allocator)
         if err != nil {
@@ -127,9 +127,9 @@ thor_available_theme_choices :: proc(thor: ^Thor) -> (labels, files: []string) {
 
     thor_free_theme_choices(thor)
     labels_out := make([dynamic]string)
-    files_out := make([dynamic]string)
+    files_out  := make([dynamic]string)
     for file in names {
-        path := thor_theme_path(file)
+        path      := thor_theme_path(file)
         loaded, _ := theme.load(path)
         append(&labels_out, strings.clone(loaded.name))
         append(&files_out, strings.clone(file))
@@ -171,7 +171,7 @@ thor_apply_theme :: proc(thor: ^Thor) {
 // Preferences: Change Theme -> pick from the installed themes in a dialog that
 // previews each one live as the selection moves.
 thor_cmd_change_theme :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor          := cast(^Thor)data
     labels, files := thor_available_theme_choices(thor)
     if len(files) == 0 {
         thor_plugin_print(thor, "\nNo themes are installed.\n")
@@ -185,28 +185,19 @@ thor_cmd_change_theme :: proc(data: rawptr) {
     for label, i in labels {
         shown[i] = thor_ext_theme_pending(thor, files[i]) ? strings.concatenate({label, " — update available"}, context.temp_allocator) : label
     }
-    thor_select_open(
-        thor,
-        "Change Theme",
-        shown,
-        current,
-        thor_theme_preview,
-        thor_theme_commit,
-        thor,
-        files,
-    )
+    thor_select_open(thor, "Change Theme", shown, current, thor_theme_preview, thor_theme_commit, thor, files)
 }
 
 // Loads the theme and applies it live (no persistence): the dialog's preview.
 thor_theme_preview :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_load_theme_by_name(thor, choice)
     thor_apply_theme(thor)
 }
 
 // Applies the chosen theme and persists it as the new default.
 thor_theme_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_theme_preview(thor, choice)
     // The generator seeds follow the palette the user just chose.
     thor_reset_theme_seeds(thor)
@@ -216,7 +207,7 @@ thor_theme_commit :: proc(data: rawptr, choice: string) {
 // Preferences: Change Font -> pick from the registered text families in a dialog
 // that previews each one live as the selection moves.
 thor_cmd_change_font :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor     := cast(^Thor)data
     families := font.family_names()
     if len(families) == 0 {
         thor_plugin_print(thor, "\nNo font families are registered.\n")
@@ -224,17 +215,9 @@ thor_cmd_change_font :: proc(data: rawptr) {
     }
     // Warm the unbaked families off-thread, so moving the selection previews
     // without a main-thread bake.
-    sizes := [2]i32 {cast(i32) setting.font_size(&thor.config), WELCOME_TITLE_FONT_SIZE}
+    sizes := [2]i32{cast(i32)setting.font_size(&thor.config), WELCOME_TITLE_FONT_SIZE}
     font.prebake_async(families, sizes[:])
-    thor_select_open(
-        thor,
-        "Change Font",
-        families,
-        font.default_family(),
-        thor_font_preview,
-        thor_font_commit,
-        thor,
-    )
+    thor_select_open(thor, "Change Font", families, font.default_family(), thor_font_preview, thor_font_commit, thor)
 }
 
 // Makes `name` the default text family. The UI and editor handles name the
@@ -255,7 +238,7 @@ thor_font_preview :: proc(_: rawptr, choice: string) {
 
 // Applies the chosen font and persists it as the new default.
 thor_font_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     if !thor_set_font(choice) {
         thor_plugin_print(thor, strings.concatenate({"\nFont ", choice, " is not available.\n"}, context.temp_allocator))
         return
@@ -265,7 +248,7 @@ thor_font_commit :: proc(data: rawptr, choice: string) {
 
 // Picker rows for the ligatures setting.
 @(private = "file")
-LIGATURE_LABELS := [?]string {"On", "Off"}
+LIGATURE_LABELS := [?]string{"On", "Off"}
 
 // The ligatures setting as its picker row.
 thor_ligatures_label :: proc(config: ^setting.Settings) -> string {
@@ -275,16 +258,8 @@ thor_ligatures_label :: proc(config: ^setting.Settings) -> string {
 // Preferences: Ligatures -> draw the font's ligatures ("->" as one glyph), or
 // the plain glyphs. Shaping runs per frame, so the choice shows at once.
 thor_cmd_change_ligatures :: proc(data: rawptr) {
-    thor := cast(^Thor) data
-    thor_select_open(
-        thor,
-        "Ligatures",
-        LIGATURE_LABELS[:],
-        thor_ligatures_label(&thor.config),
-        thor_ligatures_preview,
-        thor_ligatures_commit,
-        thor,
-    )
+    thor := cast(^Thor)data
+    thor_select_open(thor, "Ligatures", LIGATURE_LABELS[:], thor_ligatures_label(&thor.config), thor_ligatures_preview, thor_ligatures_commit, thor)
 }
 
 // Switches ligatures live (no persistence): the dialog's preview.
@@ -294,7 +269,7 @@ thor_ligatures_preview :: proc(_: rawptr, choice: string) {
 
 // Applies the choice and persists it.
 thor_ligatures_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor) data
+    thor    := cast(^Thor)data
     enabled := choice == LIGATURE_LABELS[0]
     font.set_ligatures(enabled)
     if err := setting.persist_bool(thor_active_settings_path(thor), "ligatures", enabled); err != .None {
@@ -309,10 +284,10 @@ thor_ligatures_commit :: proc(data: rawptr, choice: string) {
 // statusbar, tree chevrons/folder); the file group backs the tree's `filetype-`
 // names, one glyph per language.
 PRIMARY_ICON_PACK_GROUP :: "primary"
-FILE_ICON_PACK_GROUP :: "files"
+FILE_ICON_PACK_GROUP    :: "files"
 
 // Pack each group falls back to when settings.lua names none.
-DEFAULT_ICON_PACK :: "material"
+DEFAULT_ICON_PACK      :: "material"
 DEFAULT_FILE_ICON_PACK :: "mdi"
 
 // Makes `configured` the active pack for `group`, falling back to `fallback`
@@ -332,11 +307,7 @@ thor_activate_icon_pack :: proc(group, configured, fallback: string) {
 // Opens a live-preview picker over the packs installed in `group`. `current` is
 // the configured pack, empty when unset — the active one is the default then.
 @(private = "file")
-thor_open_icon_pack_dialog :: proc(
-    thor: ^Thor,
-    group, title, current: string,
-    preview, commit: Select_Choice_Proc,
-) {
+thor_open_icon_pack_dialog :: proc(thor: ^Thor, group, title, current: string, preview, commit: Select_Choice_Proc) {
     labels, names := font.icon_pack_choices(group)
     if len(names) == 0 {
         thor_plugin_print(thor, "\nNo icon packs are installed.\n")
@@ -348,16 +319,7 @@ thor_open_icon_pack_dialog :: proc(
     if active == "" {
         active = font.icon_active_pack(group)
     }
-    thor_select_open(
-        thor,
-        title,
-        labels,
-        active,
-        preview,
-        commit,
-        thor,
-        names,
-    )
+    thor_select_open(thor, title, labels, active, preview, commit, thor, names)
 }
 
 // Applies `choice` to `group` and persists it under `key`; the reload writes it
@@ -386,10 +348,14 @@ thor_persist_string_setting :: proc(thor: ^Thor, key, value: string) {
 // Preferences: Change Icon Pack -> pick from the installed primary icon packs
 // (e.g. Tabler Icons, Material Icons) in a dialog that previews each one live.
 thor_cmd_change_icon_pack :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_open_icon_pack_dialog(
-        thor, PRIMARY_ICON_PACK_GROUP, "Change Icon Pack", setting.icon_pack_name(&thor.config),
-        thor_icon_pack_preview, thor_icon_pack_commit,
+        thor,
+        PRIMARY_ICON_PACK_GROUP,
+        "Change Icon Pack",
+        setting.icon_pack_name(&thor.config),
+        thor_icon_pack_preview,
+        thor_icon_pack_commit,
     )
 }
 
@@ -401,17 +367,21 @@ thor_icon_pack_preview :: proc(_: rawptr, choice: string) {
 
 // Applies the chosen icon pack and persists it as the new default.
 thor_icon_pack_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_icon_pack_apply(thor, PRIMARY_ICON_PACK_GROUP, "icon_pack", choice)
 }
 
 // Preferences: Change File Icon Pack -> pick which pack draws the file tree's
 // per-language icons (e.g. Devicon brand logos, Material Design Icons).
 thor_cmd_change_file_icon_pack :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_open_icon_pack_dialog(
-        thor, FILE_ICON_PACK_GROUP, "Change File Icon Pack", setting.file_icon_pack_name(&thor.config),
-        thor_file_icon_pack_preview, thor_file_icon_pack_commit,
+        thor,
+        FILE_ICON_PACK_GROUP,
+        "Change File Icon Pack",
+        setting.file_icon_pack_name(&thor.config),
+        thor_file_icon_pack_preview,
+        thor_file_icon_pack_commit,
     )
 }
 
@@ -420,6 +390,6 @@ thor_file_icon_pack_preview :: proc(_: rawptr, choice: string) {
 }
 
 thor_file_icon_pack_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor) data
+    thor := cast(^Thor)data
     thor_icon_pack_apply(thor, FILE_ICON_PACK_GROUP, "file_icon_pack", choice)
 }

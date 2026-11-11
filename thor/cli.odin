@@ -10,8 +10,7 @@ import "core:fmt"
 // heading carries.
 VERSION :: "2026.11.3"
 
-USAGE ::
-`Usage: thor [path...]
+USAGE :: `Usage: thor [path...]
        thor [option]
        thor fmt [-w|--check] path...   Format Odin files; see thor fmt --help.
 

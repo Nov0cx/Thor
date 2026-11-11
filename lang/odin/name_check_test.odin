@@ -8,13 +8,17 @@ import odinsema "sema"
 
 @(test)
 test_live_redeclared_in_package :: proc(t: ^testing.T) {
-    root := fixture(t, "live_redeclared_package", {
-        {"app/other.odin", "package app\n\nshared :: proc() {}\n"},
-        {"app/other_linux.odin", "package app\n\nposix_only :: 1\n"},
-        {"app/hidden.odin", "#+private file\npackage app\n\nhidden :: 1\n"},
-        {"app/flags.odin", "package app\n\nOTHER :: true\n\nwhen OTHER {\n\tcross :: 1\n}\n"},
-    })
-    e := engine_create()
+    root := fixture(
+        t,
+        "live_redeclared_package",
+        {
+            {"app/other.odin", "package app\n\nshared :: proc() {}\n"},
+            {"app/other_linux.odin", "package app\n\nposix_only :: 1\n"},
+            {"app/hidden.odin", "#+private file\npackage app\n\nhidden :: 1\n"},
+            {"app/flags.odin", "package app\n\nOTHER :: true\n\nwhen OTHER {\n\tcross :: 1\n}\n"},
+        },
+    )
+    e    := engine_create()
     defer engine_destroy(e)
 
     src := `package app
@@ -57,19 +61,24 @@ main :: proc() {}
 `
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
     defer free_live(&res)
-    expect_errors(t, &res, src, {
-        {"g ::", "Redeclaration of 'g' in this scope", 1},
-        {"shared ::", "Redeclaration of 'shared' in this scope", 0},
-        {"flagged :: 2", "Redeclaration of 'flagged' in this scope", 0},
-        {"cross ::", "Redeclaration of 'cross' in this scope", 0},
-        {"both ::", "Redeclaration of 'both' in this scope", 0},
-    })
+    expect_errors(
+        t,
+        &res,
+        src,
+        {
+            {"g ::", "Redeclaration of 'g' in this scope", 1},
+            {"shared ::", "Redeclaration of 'shared' in this scope", 0},
+            {"flagged :: 2", "Redeclaration of 'flagged' in this scope", 0},
+            {"cross ::", "Redeclaration of 'cross' in this scope", 0},
+            {"both ::", "Redeclaration of 'both' in this scope", 0},
+        },
+    )
 }
 
 @(test)
 test_live_redeclared_import :: proc(t: ^testing.T) {
     root := fixture(t, "live_redeclared_import", {{"app/a.odin", "package app\n"}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     src := `package app
@@ -91,7 +100,7 @@ main :: proc() { fmt.println("a") }
 @(test)
 test_live_redeclared_locals :: proc(t: ^testing.T) {
     root := fixture(t, "live_redeclared_locals", {{"app/a.odin", "package app\n"}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     src := `package app
@@ -151,21 +160,26 @@ main :: proc() {}
 `
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
     defer free_live(&res)
-    expect_errors(t, &res, src, {
-        {"x: int) {", "Redeclaration of 'x' in this scope", 0},
-        {"y := 2", "Redeclaration of 'y' in this scope", 0},
-        {"y := 3", "Redeclaration of 'y' in this scope", 0},
-        {"A :: 2", "Redeclaration of 'A' in this scope", 0},
-        {"r := 1", "Direct shadowing of the named return value 'r' in this scope", 0},
-        {"v := v", "Redeclaration of 'v' in this scope", 0},
-    })
+    expect_errors(
+        t,
+        &res,
+        src,
+        {
+            {"x: int) {", "Redeclaration of 'x' in this scope", 0},
+            {"y := 2", "Redeclaration of 'y' in this scope", 0},
+            {"y := 3", "Redeclaration of 'y' in this scope", 0},
+            {"A :: 2", "Redeclaration of 'A' in this scope", 0},
+            {"r := 1", "Direct shadowing of the named return value 'r' in this scope", 0},
+            {"v := v", "Redeclaration of 'v' in this scope", 0},
+        },
+    )
 }
 
 // A file with syntax errors reports only those.
 @(test)
 test_live_syntax_errors_first :: proc(t: ^testing.T) {
     root := fixture(t, "live_syntax_first", {{"app/a.odin", "package app\n"}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     src := "package app\n\ng :: proc() {}\ng :: proc() {}\nmain :: proc() {\n    foo(1,\n}\n"
@@ -179,15 +193,19 @@ test_live_syntax_errors_first :: proc(t: ^testing.T) {
 
 @(test)
 test_live_undeclared_names :: proc(t: ^testing.T) {
-    root := fixture(t, "live_undeclared", {
-        {".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`},
-        {"app/other.odin", "package app\n\nsibling :: proc() -> int { return 1 }\n"},
-        {"app/other_linux.odin", "package app\n\nposix_only :: 1\n"},
-        {"app/q/q.odin", "package q\n\nopen :: proc() {}\n@(private) hidden :: proc() {}\n@(private = \"file\") secret :: proc() {}\n"},
-        {"app/q/q_private.odin", "#+private\npackage q\n\ntagged :: proc() {}\n"},
-        {"app/lib.odin", "package app\n\nforeign import syslib \"system:foo\"\n"},
-    })
-    e := engine_create()
+    root := fixture(
+        t,
+        "live_undeclared",
+        {
+            {".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`},
+            {"app/other.odin", "package app\n\nsibling :: proc() -> int { return 1 }\n"},
+            {"app/other_linux.odin", "package app\n\nposix_only :: 1\n"},
+            {"app/q/q.odin", "package q\n\nopen :: proc() {}\n@(private) hidden :: proc() {}\n@(private = \"file\") secret :: proc() {}\n"},
+            {"app/q/q_private.odin", "#+private\npackage q\n\ntagged :: proc() {}\n"},
+            {"app/lib.odin", "package app\n\nforeign import syslib \"system:foo\"\n"},
+        },
+    )
+    e    := engine_create()
     defer engine_destroy(e)
 
     src := `package app
@@ -223,20 +241,25 @@ main :: proc() {
 `
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
     defer free_live(&res)
-    expect_errors(t, &res, src, {
-        {"zork", "Undeclared name: zork", 0},
-        {"posix_only +", "Undeclared name: posix_only", 0},
-        {"q.hidden", "'hidden' is not exported by 'q'", 0},
-        {"q.secret", "'secret' is not declared by 'q'", 0},
-        {"q.tagged", "'tagged' is not exported by 'q'", 0},
-        {"q.missing", "'missing' is not declared by 'q'", 0},
-        {"intrinsics.nope_zq", "'nope_zq' is not declared by 'intrinsics'", 0},
-        {"ODIN_NOPE", "Undeclared name: ODIN_NOPE", 0},
-    })
+    expect_errors(
+        t,
+        &res,
+        src,
+        {
+            {"zork", "Undeclared name: zork", 0},
+            {"posix_only +", "Undeclared name: posix_only", 0},
+            {"q.hidden", "'hidden' is not exported by 'q'", 0},
+            {"q.secret", "'secret' is not declared by 'q'", 0},
+            {"q.tagged", "'tagged' is not exported by 'q'", 0},
+            {"q.missing", "'missing' is not declared by 'q'", 0},
+            {"intrinsics.nope_zq", "'nope_zq' is not declared by 'intrinsics'", 0},
+            {"ODIN_NOPE", "Undeclared name: ODIN_NOPE", 0},
+        },
+    )
 
     // A file out of the build sees the other files out of the build.
     linux := "package app\n\nuse_posix :: proc() -> int { return posix_only }\n"
-    lres := live_check(e, linux, root, fixture_path(root, "app/use_linux.odin"))
+    lres  := live_check(e, linux, root, fixture_path(root, "app/use_linux.odin"))
     defer free_live(&lres)
     expect_errors(t, &lres, linux, {})
 }
@@ -244,7 +267,7 @@ main :: proc() {
 @(test)
 test_live_unresolved_imports :: proc(t: ^testing.T) {
     root := fixture(t, "live_imports", {{"app/q/q.odin", "package q\n"}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     src := `package app
@@ -259,11 +282,16 @@ main :: proc() {}
 `
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
     defer free_live(&res)
-    expect_errors(t, &res, src, {
-        {"import \"nothere\"", "Path does not exist: nothere", 0},
-        {"import \"core:fmt/", "Path does not exist: core:fmt/nothere", 0},
-        {"import \"nope", "Unknown library collection: 'nope'", 0},
-    })
+    expect_errors(
+        t,
+        &res,
+        src,
+        {
+            {"import \"nothere\"", "Path does not exist: nothere", 0},
+            {"import \"core:fmt/", "Path does not exist: core:fmt/nothere", 0},
+            {"import \"nope", "Unknown library collection: 'nope'", 0},
+        },
+    )
 }
 
 // No live error over the packages of the repository, which compile clean.
@@ -273,12 +301,39 @@ test_live_clean_sources :: proc(t: ^testing.T) {
     defer engine_destroy(e)
 
     checked := 0
-    for dir in ([]string {
-            "atomicfile", "editview", "font", "input", "lang", "lang/lsp", "lang/odin", "lang/odin/format",
-            "lang/odin/sema", "lang/odin/syntax", "lang/odin/syntax/gen", "lockfree", "luaconf", "main", "markdown",
-            "msvc", "piecetable", "plugin", "render", "search", "setting", "shell", "snippet", "syntax", "textedit",
-            "theme", "thor", "treecache", "update", "vt", "watch",
-        }) {
+    for dir in ([]string{
+        "atomicfile",
+        "editview",
+        "font",
+        "input",
+        "lang",
+        "lang/lsp",
+        "lang/odin",
+        "lang/odin/format",
+        "lang/odin/sema",
+        "lang/odin/syntax",
+        "lang/odin/syntax/gen",
+        "lockfree",
+        "luaconf",
+        "main",
+        "markdown",
+        "msvc",
+        "piecetable",
+        "plugin",
+        "render",
+        "search",
+        "setting",
+        "shell",
+        "snippet",
+        "syntax",
+        "textedit",
+        "theme",
+        "thor",
+        "treecache",
+        "update",
+        "vt",
+        "watch",
+    }) {
         files, err := odinsema.package_dir_files(dir)
         if !testing.expectf(t, err == nil, "%s: could not list", dir) {
             continue
@@ -308,7 +363,7 @@ test_live_clean_sources :: proc(t: ^testing.T) {
     }
     defer delete(src)
     probe := strings.concatenate({src, "\nzz_probe :: proc() { _ = zz_not_declared }\n"}, context.temp_allocator)
-    res := live_check(e, probe, ".", "thor/view.odin")
+    res   := live_check(e, probe, ".", "thor/view.odin")
     defer free_live(&res)
     testing.expect_value(t, len(res.report.items), 1)
     if len(res.report.items) == 1 {
@@ -319,11 +374,12 @@ test_live_clean_sources :: proc(t: ^testing.T) {
 // A local in a `when` branch counts when the configured target surely takes the branch.
 @(test)
 test_live_redeclared_under_when :: proc(t: ^testing.T) {
-    root := fixture(t, "live_redeclared_when", {
-        {".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`},
-        {"app/a.odin", "package app\n"},
-    })
-    e := engine_create()
+    root := fixture(
+        t,
+        "live_redeclared_when",
+        {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}, {"app/a.odin", "package app\n"}},
+    )
+    e    := engine_create()
     defer engine_destroy(e)
 
     src := `package app
@@ -405,19 +461,24 @@ main :: proc() {}
 `
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
     defer free_live(&res)
-    expect_errors(t, &res, src, {
-        {"w := 3", "Redeclaration of 'w' in this scope", 0},
-        {"r := 4", "Redeclaration of 'r' in this scope", 0},
-        {"u := 2", "Redeclaration of 'u' in this scope", 0},
-        {"j := 2", "Redeclaration of 'j' in this scope", 0},
-        {"v := 2", "Redeclaration of 'v' in this scope", 0},
-    })
+    expect_errors(
+        t,
+        &res,
+        src,
+        {
+            {"w := 3", "Redeclaration of 'w' in this scope", 0},
+            {"r := 4", "Redeclaration of 'r' in this scope", 0},
+            {"u := 2", "Redeclaration of 'u' in this scope", 0},
+            {"j := 2", "Redeclaration of 'j' in this scope", 0},
+            {"v := 2", "Redeclaration of 'v' in this scope", 0},
+        },
+    )
 }
 
 @(test)
 test_live_duplicate_labels_and_members :: proc(t: ^testing.T) {
     root := fixture(t, "live_duplicate_members", {{"app/a.odin", "package app\n"}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     src := `package app
@@ -470,20 +531,25 @@ main :: proc() {
 `
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
     defer free_live(&res)
-    expect_errors(t, &res, src, {
-        {"x: f32", "Redeclaration of 'x' in this scope", 0},
-        {"A,", "'A' is already declared in this enumeration", 1},
-        {"T: typeid) {}", "Redeclaration of 'T' in this scope", 0},
-        {"a: u8", "'a' is already declared in this bit_field", 1},
-        {"L: for", "Duplicate label with the name 'L'", 1},
-        {"M: {", "Duplicate label with the name 'M'", 1},
-    })
+    expect_errors(
+        t,
+        &res,
+        src,
+        {
+            {"x: f32", "Redeclaration of 'x' in this scope", 0},
+            {"A,", "'A' is already declared in this enumeration", 1},
+            {"T: typeid) {}", "Redeclaration of 'T' in this scope", 0},
+            {"a: u8", "'a' is already declared in this bit_field", 1},
+            {"L: for", "Duplicate label with the name 'L'", 1},
+            {"M: {", "Duplicate label with the name 'M'", 1},
+        },
+    )
 }
 
 @(test)
 test_live_codes_and_ignores :: proc(t: ^testing.T) {
     root := fixture(t, "live_ignores", {{"app/q/q.odin", "package q\n\n@(private) hidden :: 1\n"}})
-    e := engine_create()
+    e    := engine_create()
     defer engine_destroy(e)
 
     src := `package app
@@ -509,14 +575,19 @@ main :: proc() {
 `
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
     defer free_live(&res)
-    expect_errors(t, &res, src, {
-        {"g ::", "Redeclaration of 'g' in this scope", 1},
-        {"zork", "Undeclared name: zork", 0},
-        {"q.hidden", "'hidden' is not exported by 'q'", 0},
-        {"name/bogus", "Unknown diagnostic id 'name/bogus'", 0},
-        {"zork_four", "Undeclared name: zork_four", 0},
-        {"zork_five", "Undeclared name: zork_five", 0},
-    })
+    expect_errors(
+        t,
+        &res,
+        src,
+        {
+            {"g ::", "Redeclaration of 'g' in this scope", 1},
+            {"zork", "Undeclared name: zork", 0},
+            {"q.hidden", "'hidden' is not exported by 'q'", 0},
+            {"name/bogus", "Unknown diagnostic id 'name/bogus'", 0},
+            {"zork_four", "Undeclared name: zork_four", 0},
+            {"zork_five", "Undeclared name: zork_five", 0},
+        },
+    )
     codes := []string{"name/redeclared", "name/undeclared", "name/private", "", "name/undeclared", "name/undeclared"}
     for d, i in res.report.items {
         if i < len(codes) {
@@ -530,12 +601,16 @@ main :: proc() {
 
 @(test)
 test_live_import_cycles :: proc(t: ^testing.T) {
-    root := fixture(t, "live_import_cycles", {
-        {"app/b/b.odin", "package b\n\nimport \"../c\"\n\nf :: proc() { c.g() }\n"},
-        {"app/c/c.odin", "package c\n\nimport app \"..\"\n\ng :: proc() { app.main() }\n"},
-        {"app/d/d.odin", "package d\n\nh :: proc() {}\n"},
-    })
-    e := engine_create()
+    root := fixture(
+        t,
+        "live_import_cycles",
+        {
+            {"app/b/b.odin", "package b\n\nimport \"../c\"\n\nf :: proc() { c.g() }\n"},
+            {"app/c/c.odin", "package c\n\nimport app \"..\"\n\ng :: proc() { app.main() }\n"},
+            {"app/d/d.odin", "package d\n\nh :: proc() {}\n"},
+        },
+    )
+    e    := engine_create()
     defer engine_destroy(e)
 
     src := "package app\n\nimport \"b\"\nimport \"d\"\n\nmain :: proc() {\n\tb.f()\n\td.h()\n}\n"

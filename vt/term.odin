@@ -41,7 +41,7 @@ Attr :: enum u16 {
     Protected,
 }
 
-Attr_Set :: bit_set[Attr;u16]
+Attr_Set :: bit_set[Attr; u16]
 
 Underline :: enum u8 {
     None,
@@ -52,14 +52,13 @@ Underline :: enum u8 {
     Dashed,
 }
 
-Cell_Flag :: enum u8 {
-    // The left half of a double-width character.
+Cell_Flag :: enum u8 { // The left half of a double-width character.
     Wide,
     // The column a double-width character covers but does not draw in.
     Spacer,
 }
 
-Cell_Flags :: bit_set[Cell_Flag;u8]
+Cell_Flags :: bit_set[Cell_Flag; u8]
 
 // One grid cell. `grapheme` is 0 for a lone rune and otherwise indexes the
 // term's grapheme pool, which holds base plus combining marks.
@@ -93,8 +92,8 @@ Line :: struct {
 }
 
 Cursor :: struct {
-    x, y: int,
-    pen:  Pen,
+    x, y:         int,
+    pen:          Pen,
     // The cursor sits past the last column: the next printable rune wraps
     // before it is written. Deferred so a write into the last column does not
     // scroll on its own.
@@ -126,18 +125,18 @@ Cursor_Style :: enum u8 {
 // What the shell asked to be told about the mouse.
 Mouse_Track :: enum u8 {
     Off,
-    X10,     // press only
-    Normal,  // press and release
-    Button,  // press, release and drag
-    Any,     // every move
+    X10,    // press only
+    Normal, // press and release
+    Button, // press, release and drag
+    Any,    // every move
 }
 
 // How a mouse report is spelled.
 Mouse_Encoding :: enum u8 {
-    X10,  // the original 32-offset bytes
-    Utf8, // mode 1005
-    Sgr,  // mode 1006
-    Urxvt,// mode 1015
+    X10,   // the original 32-offset bytes
+    Utf8,  // mode 1005
+    Sgr,   // mode 1006
+    Urxvt, // mode 1015
 }
 
 // The one shell-integration mark the editor acts on: a command finished, with
@@ -148,100 +147,96 @@ Command_End :: struct {
 }
 
 DEFAULT_SCROLLBACK :: 5000
-MAX_PARAMS :: 32
-MAX_OSC :: 1 << 20
-MAX_GRAPHEMES :: 1 << 14
-MAX_LINKS :: 1 << 12
+MAX_PARAMS         :: 32
+MAX_OSC            :: 1 << 20
+MAX_GRAPHEMES      :: 1 << 14
+MAX_LINKS          :: 1 << 12
 
 Term :: struct {
-    allocator:        runtime.Allocator,
-    cols, rows:       int,
-    primary:          [dynamic]Line, // owned
-    alt:              [dynamic]Line, // owned
-    alt_active:       bool,
-    scrollback:       [dynamic]Line, // owned ring, oldest at scrollback_head once full
-    scrollback_head:  int,
-    scrollback_limit: int,
-    cur:              Cursor,
-    saved:            Saved_Cursor,
-    saved_alt:        Saved_Cursor,
+    allocator:         runtime.Allocator,
+    cols, rows:        int,
+    primary:           [dynamic]Line, // owned
+    alt:               [dynamic]Line, // owned
+    alt_active:        bool,
+    scrollback:        [dynamic]Line, // owned ring, oldest at scrollback_head once full
+    scrollback_head:   int,
+    scrollback_limit:  int,
+    cur:               Cursor,
+    saved:             Saved_Cursor,
+    saved_alt:         Saved_Cursor,
     // Scroll region, 0-based rows, both ends inside it.
-    top, bottom:      int,
-    tabs:             [dynamic]bool, // owned
-    charsets:         [4]Charset,
-    gl, gr:           int,
-    single_shift:     int, // 0 when none is armed, else the Gn slot for one rune
+    top, bottom:       int,
+    tabs:              [dynamic]bool, // owned
+    charsets:          [4]Charset,
+    gl, gr:            int,
+    single_shift:      int, // 0 when none is armed, else the Gn slot for one rune
     // Modes.
-    app_cursor:       bool,
-    app_keypad:       bool,
-    origin:           bool,
-    autowrap:         bool,
-    reverse_wrap:     bool,
-    insert:           bool,
-    newline_mode:     bool,
-    reverse_video:    bool,
-    cursor_visible:   bool,
-    cursor_blink:     bool,
-    cursor_style:     Cursor_Style,
-    bracketed_paste:  bool,
-    focus_events:     bool,
-    sync_output:      bool,
-    mouse_track:      Mouse_Track,
-    mouse_encoding:   Mouse_Encoding,
+    app_cursor:        bool,
+    app_keypad:        bool,
+    origin:            bool,
+    autowrap:          bool,
+    reverse_wrap:      bool,
+    insert:            bool,
+    newline_mode:      bool,
+    reverse_video:     bool,
+    cursor_visible:    bool,
+    cursor_blink:      bool,
+    cursor_style:      Cursor_Style,
+    bracketed_paste:   bool,
+    focus_events:      bool,
+    sync_output:       bool,
+    mouse_track:       Mouse_Track,
+    mouse_encoding:    Mouse_Encoding,
     // Colours. The palette starts as the xterm 256 and OSC 4 can move it.
-    palette:          [256][3]u8,
-    default_palette:  [256][3]u8,
+    palette:           [256][3]u8,
+    default_palette:   [256][3]u8,
     // Titles, owned. `title_stack` is what XTWINOPS 22/23 pushes and pops.
-    title:            string,
-    icon_title:       string,
-    title_stack:      [dynamic]string, // owned
+    title:             string,
+    icon_title:        string,
+    title_stack:       [dynamic]string, // owned
     // The working directory OSC 7 reported, owned and "" until one arrives.
-    cwd:              string,
+    cwd:               string,
     // OSC 8 targets, index 0 unused so a cell's 0 means "no link". owned
-    links:            [dynamic]string,
-    link_ids:         map[string]u32, // owned; keys borrow `links`
+    links:             [dynamic]string,
+    link_ids:          map[string]u32, // owned; keys borrow `links`
     // Base plus combining marks for the cells that need more than one rune,
     // index 0 unused. owned
-    graphemes:        [dynamic]string,
-    grapheme_ids:     map[string]u32, // owned; keys borrow `graphemes`
+    graphemes:         [dynamic]string,
+    grapheme_ids:      map[string]u32, // owned; keys borrow `graphemes`
     // What the host sets so the pixel and cell reports can answer.
-    cell_w, cell_h:   int,
+    cell_w, cell_h:    int,
     // The two colours a Default cell resolves to and the cursor's, seeded from
     // the theme and moved by OSC 10, 11 and 12.
-    default_fg:       [3]u8,
-    default_bg:       [3]u8,
-    cursor_color:     [3]u8,
+    default_fg:        [3]u8,
+    default_bg:        [3]u8,
+    cursor_color:      [3]u8,
     // OSC 52 asked for this text to go on the clipboard. owned
-    clipboard:        string,
-    clipboard_ready:  bool,
+    clipboard:         string,
+    clipboard_ready:   bool,
     // Counters the host reads and clears.
-    bell:             int,
-    command_end:      Command_End,
+    bell:              int,
+    command_end:       Command_End,
     command_end_ready: bool,
     // Bytes owed to the shell: device reports and clipboard answers.
-    reply:            [dynamic]u8, // owned
+    reply:             [dynamic]u8, // owned
     // Parser state.
-    state:            Parser_State,
-    params:           Params,
-    private:          u8,
-    inter:            [2]u8,
-    inter_n:          int,
-    osc:              [dynamic]u8, // owned
-    dcs_final:        u8,
-    utf8:             [4]u8,
-    utf8_len:         int,
-    utf8_need:        int,
+    state:             Parser_State,
+    params:            Params,
+    private:           u8,
+    inter:             [2]u8,
+    inter_n:           int,
+    osc:               [dynamic]u8, // owned
+    dcs_final:         u8,
+    utf8:              [4]u8,
+    utf8_len:          int,
+    utf8_need:         int,
     // The last rune printed, which REP repeats.
-    last_rune:        rune,
+    last_rune:         rune,
 }
 
 // Makes a terminal of `cols` x `rows`, with `scrollback` lines of history on the
 // primary screen.
-term_make :: proc(
-    cols, rows: int,
-    scrollback := DEFAULT_SCROLLBACK,
-    allocator := context.allocator,
-) -> ^Term {
+term_make :: proc(cols, rows: int, scrollback := DEFAULT_SCROLLBACK, allocator := context.allocator) -> ^Term {
     context.allocator = allocator
     t := new(Term)
     t.allocator = allocator
@@ -314,7 +309,7 @@ term_line :: proc(t: ^Term, index: int) -> ^Line {
         return &t.scrollback[(t.scrollback_head + index) % len(t.scrollback)]
     }
     row := index - len(t.scrollback)
-    g := grid(t)
+    g   := grid(t)
     if row >= len(g) {
         return nil
     }
@@ -416,8 +411,8 @@ term_resize :: proc(t: ^Term, cols, rows: int) {
     // prompt after a resize expects to find.
     if rows < t.rows && !t.alt_active {
         excess := t.rows - rows
-        keep := max(t.cur.y - (rows - 1), 0)
-        move := min(excess, keep)
+        keep   := max(t.cur.y - (rows - 1), 0)
+        move   := min(excess, keep)
         for _ in 0 ..< move {
             line := t.primary[0]
             ordered_remove(&t.primary, 0)
@@ -517,9 +512,7 @@ blank_cell :: proc(pen: Pen) -> Cell {
 
 @(private)
 line_make :: proc(cols: int) -> Line {
-    line := Line {
-        cells = make([dynamic]Cell, cols),
-    }
+    line := Line{cells = make([dynamic]Cell, cols)}
     for i in 0 ..< cols {
         line.cells[i] = {ch = ' '}
     }

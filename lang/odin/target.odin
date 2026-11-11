@@ -13,9 +13,9 @@ import odinsyntax "syntax"
 // The buffer of the request, which replaces its file on disk.
 @(private)
 Live_File :: struct {
-    path:     string, // "" for a buffer with no file
-    key:      string, // path_key of the path; "" when no path
-    dir_key:  string, // path_key of the directory, "." for a buffer with no file
+    path:     string,           // "" for a buffer with no file
+    key:      string,           // path_key of the path; "" when no path
+    dir_key:  string,           // path_key of the directory, "." for a buffer with no file
     id:       odinsema.File_Id, // ANON_FILE for a buffer with no file
     tree:     ^odinsema.Item_Tree,
     lines:    []int,
@@ -25,22 +25,22 @@ Live_File :: struct {
 // The state of one request on the buffer. Do not move it after request_open: `snap` holds its own arena.
 @(private)
 Request_Context :: struct {
-    e:           ^Engine,
-    req:         ^lang.Request,
-    target:      odinsema.Target,
-    snap:        odinsema.Snapshot, // owned; ended by request_close
-    parsed:      odinsyntax.Parse,  // borrowed from `snap`
-    live:        Live_File,
-    checker:     odinsema.Checker,  // owned when checker_state is .Ready; ends before `snap`
-    checker_state: Checker_State,
-    universe:    [2]odinsema.Universe_Package, // directories in the arena of `snap`
-    naming:      odinsema.Naming_Rules, // set by the live body check
-    vet:         odinsema.Vet_Flags,    // set by the live body check
-    own_leak, own_double, own_after: bool, // the ownership lints the config turns on; set by the live body check
-    formatters:       odinsema.User_Formatters, // the user formatters of the buffer's package; read when first asked
-    formatters_known: bool,
-    workspace_formatters:       odinsema.User_Formatters, // those of the workspace; read when a named type needs them
-    workspace_formatters_known: bool
+    e:                               ^Engine,
+    req:                             ^lang.Request,
+    target:                          odinsema.Target,
+    snap:                            odinsema.Snapshot, // owned; ended by request_close
+    parsed:                          odinsyntax.Parse,  // borrowed from `snap`
+    live:                            Live_File,
+    checker:                         odinsema.Checker, // owned when checker_state is .Ready; ends before `snap`
+    checker_state:                   Checker_State,
+    universe:                        [2]odinsema.Universe_Package, // directories in the arena of `snap`
+    naming:                          odinsema.Naming_Rules,        // set by the live body check
+    vet:                             odinsema.Vet_Flags,           // set by the live body check
+    own_leak, own_double, own_after: bool,                         // the ownership lints the config turns on; set by the live body check
+    formatters:                      odinsema.User_Formatters,     // the user formatters of the buffer's package; read when first asked
+    formatters_known:                bool,
+    workspace_formatters:            odinsema.User_Formatters, // those of the workspace; read when a named type needs them
+    workspace_formatters_known:      bool,
 }
 
 // The state of the checker of a request.
@@ -67,51 +67,42 @@ Ref_Target_Kind :: enum u8 {
 @(private)
 Ref_Target :: struct {
     kind:       Ref_Target_Kind,
-    name:       string, // the name every reference spells
-    path:       string, // the file of the declaration
-    decl:       int,    // the name offset of the declaration; -1 when not known
-    dir:        string, // Package_Item, Member and Builtin: the package directory
-    owner:      string, // Member: the type that declares it; "" when it is not a file-scope type
+    name:       string,              // the name every reference spells
+    path:       string,              // the file of the declaration
+    decl:       int,                 // the name offset of the declaration; -1 when not known
+    dir:        string,              // Package_Item, Member and Builtin: the package directory
+    owner:      string,              // Member: the type that declares it; "" when it is not a file-scope type
     visibility: odinsema.Visibility, // Package_Item: of the item; Member: of its type
-    explicit:   bool,   // Import_Alias: the alias is written in the source
-    symbol:     odinsema.Symbol, // Member and Param: when `typed`
+    explicit:   bool,                // Import_Alias: the alias is written in the source
+    symbol:     odinsema.Symbol,     // Member and Param: when `typed`
     typed:      bool,
 }
 
 // Opens a snapshot on the request's buffer and fills `ctx`. Close it with request_close, also on false.
 @(private)
 request_open :: proc(e: ^Engine, req: ^lang.Request, ctx: ^Request_Context) -> bool {
-    ctx^ = Request_Context {
-        e      = e,
-        req    = req,
-        target = config_target(e, req.workspace, req.path),
-    }
+    ctx^ = Request_Context{e = e, req = req, target = config_target(e, req.workspace, req.path)}
     collections := workspace_collections(e, req.workspace)
     tree_cache_ensure(e)
-    input := odinsema.Snapshot_Input {
-        target      = ctx.target,
+    input := odinsema.Snapshot_Input{
+        target = ctx.target,
         collections = &collections,
-        has_live    = true,
-        live_path   = req.path,
-        live_text   = req.source,
-        cancel      = req.cancel,
+        has_live = true,
+        live_path = req.path,
+        live_text = req.source,
+        cancel = req.cancel,
     }
     if !odinsema.snapshot_begin(&e.db, &ctx.snap, input) {
         return false
     }
-    id := odinsema.snapshot_live_file(&ctx.snap)
-    data := odinsema.db_file(&ctx.snap, id)
+    id     := odinsema.snapshot_live_file(&ctx.snap)
+    data   := odinsema.db_file(&ctx.snap, id)
     parsed := odinsema.db_parse(&ctx.snap, id)
     if data == nil || parsed == nil {
         return false
     }
     ctx.parsed = parsed^
-    ctx.live = Live_File {
-        path  = req.path,
-        id    = id,
-        tree  = data.tree,
-        lines = data.lines,
-    }
+    ctx.live = Live_File{path = req.path, id = id, tree = data.tree, lines = data.lines}
     if req.path != "" {
         ctx.live.key = odinsema.path_key(req.path)
         ctx.live.in_build = odinsema.db_in_build(&ctx.snap, id)
@@ -213,7 +204,7 @@ typed_symbol :: proc(ctx: ^Request_Context, offset: int) -> (odinsema.Symbol, bo
 // The declaration the identifier at req.offset names.
 @(private)
 ref_target :: proc(ctx: ^Request_Context) -> Ref_Target {
-    req := ctx.req
+    req     := ctx.req
     unbound := Ref_Target{decl = -1}
     m, merr := odinsema.scope_map_range(ctx.parsed, req.offset, req.offset)
     if merr != nil {
@@ -224,7 +215,7 @@ ref_target :: proc(ctx: ^Request_Context) -> Ref_Target {
     if !found {
         return unbound
     }
-    name := strings.clone(ref.name, context.temp_allocator)
+    name    := strings.clone(ref.name, context.temp_allocator)
     own_dir := live_dir(ctx)
     switch ref.kind {
     case .None:
@@ -319,13 +310,13 @@ typed_target :: proc(ctx: ^Request_Context, offset: int, name: string) -> (Ref_T
     if !found {
         return {}, false
     }
-    c := request_checker(ctx)
+    c                  := request_checker(ctx)
     file, start, _, ok := odinsema.symbol_range(c, sym)
     if !ok {
         return {}, false
     }
     path := strings.clone(snapshot_path(ctx, file), context.temp_allocator)
-    dir := file == ctx.live.id ? live_dir(ctx) : filepath.dir(path)
+    dir  := file == ctx.live.id ? live_dir(ctx) : filepath.dir(path)
     if sym.item != odinsema.LOCAL_ITEM {
         owner := odinsema.checker_item(c, odinsema.Symbol{file = sym.file, item = sym.item, child = -1})
         if owner == nil {
@@ -370,15 +361,15 @@ typed_target :: proc(ctx: ^Request_Context, offset: int, name: string) -> (Ref_T
 @(private = "file")
 param_target :: proc(ctx: ^Request_Context, file: odinsema.File_Id, path: string, decl: int, name: string) -> Ref_Target {
     dir := file == ctx.live.id ? live_dir(ctx) : filepath.dir(path)
-    t := Ref_Target {
-        kind       = .Param,
-        name       = name,
-        path       = path,
-        decl       = decl,
-        dir        = dir,
+    t   := Ref_Target{
+        kind = .Param,
+        name = name,
+        path = path,
+        decl = decl,
+        dir = dir,
         visibility = .File,
-        symbol     = odinsema.local_symbol(file, decl),
-        typed      = true,
+        symbol = odinsema.local_symbol(file, decl),
+        typed = true,
     }
     if data := odinsema.db_file(&ctx.snap, file); data != nil {
         for item in data.tree.items {
@@ -416,7 +407,7 @@ alias_target :: proc(ctx: ^Request_Context, name: string) -> (Ref_Target, bool) 
         if (item.kind != .Import && item.kind != .Foreign_Import) || item.name != name {
             continue
         }
-        t := Ref_Target{kind = .Import_Alias, name = name, path = ctx.req.path, decl = -1}
+        t       := Ref_Target{kind = .Import_Alias, name = name, path = ctx.req.path, decl = -1}
         imports := odinsema.db_imports(&ctx.snap, ctx.live.id)
         if imports != nil {
             if imp, found := odinsema.lookup_import(imports, name); found {
@@ -441,12 +432,12 @@ candidate_target :: proc(ctx: ^Request_Context, dir, name, member: string, own: 
         return Ref_Target{decl = -1}
     }
     c := first_candidate(cands[:])
-    t := Ref_Target {
-        kind       = .Package_Item,
-        name       = c.name,
-        path       = c.path,
-        decl       = c.offset,
-        dir        = strings.clone(dir, context.temp_allocator),
+    t := Ref_Target{
+        kind = .Package_Item,
+        name = c.name,
+        path = c.path,
+        decl = c.offset,
+        dir = strings.clone(dir, context.temp_allocator),
         visibility = c.visibility,
     }
     if member != "" {
@@ -461,7 +452,7 @@ candidate_target :: proc(ctx: ^Request_Context, dir, name, member: string, own: 
 @(private = "file")
 builtin_target :: proc(ctx: ^Request_Context, name: string) -> Ref_Target {
     cands := make([dynamic]Def_Candidate, context.temp_allocator)
-    dir := builtin_candidates(ctx, name, &cands)
+    dir   := builtin_candidates(ctx, name, &cands)
     if len(cands) == 0 {
         return Ref_Target{decl = -1}
     }
@@ -491,7 +482,7 @@ qualified_type_operand :: proc(source: string, m: ^odinsema.Scope_Map, ref: odin
         return
     }
     text := source[ref.operand_start:ref.operand_end]
-    dot := strings.index_byte(text, '.')
+    dot  := strings.index_byte(text, '.')
     if dot < 0 {
         return
     }
@@ -519,7 +510,7 @@ item_reaches :: proc(item: ^odinsema.Item, own: bool) -> bool {
 @(private)
 workspace_collections :: proc(e: ^Engine, workspace: string) -> odinsema.Collections {
     configured := config_collections(e, workspace)
-    custom := make([]odinsema.Collection, len(configured), context.temp_allocator)
+    custom     := make([]odinsema.Collection, len(configured), context.temp_allocator)
     for c, i in configured {
         custom[i] = {name = c.name, root = c.dir}
     }

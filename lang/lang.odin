@@ -7,7 +7,8 @@
 package lang
 
 import "base:runtime"
-@(require) import "core:fmt"
+@(require)
+import "core:fmt"
 import "core:os"
 import "core:reflect"
 import "core:strings"
@@ -135,7 +136,7 @@ Doc_Info :: struct {
 // currently on, so the editor can emphasize the active argument.
 Signature_Entry :: struct {
     label:        string, // owned; "add :: proc(a: int, b: int) -> int"
-    active_start: int,     // [active_start, active_end) within label; empty when unknown
+    active_start: int,    // [active_start, active_end) within label; empty when unknown
     active_end:   int,
 }
 
@@ -184,24 +185,24 @@ Text_Edit :: struct {
 // needs, such as an import line. The last four are a deferring backend's
 // round-trip payloads and are empty for an in-client one.
 Completion_Item :: struct {
-    label:       string, // owned; the row text
-    kind:        string, // owned; drives the row color, the vocabulary Symbol.kind uses
-    detail:      string, // owned; the signature shown beside the row
-    note:        string, // owned; the labelDetails text shown after the label, "" when none
-    documentation: string, // owned; markdown, "" until the list or a resolve reply carries it
-    resolved:    bool,   // a resolve for the docs has answered, so it is not asked again
-    insert:      string, // owned; "" inserts the label
-    filter:      string, // owned; what the editor's prefix filter matches, "" the label
-    sort:        string, // owned; the backend's ordering key, "" the label
-    start:       int,    // byte offset the insert replaces; -1 when unset
-    end:         int,    // one past it; -1 when unset
-    snippet:     bool,   // `insert` is a snippet template, not literal text
-    preselect:   bool,   // the backend's own pick for the initially selected row
-    extra_edits: [dynamic]Text_Edit, // owned; applied after the insert lands
-    command:     string, // owned; run after the edits, "" when none
-    arguments:   string, // owned; the command's arguments as raw JSON array text
-    raw:         string, // owned; the candidate verbatim as JSON text, echoed back on resolve
-    origin:      string, // owned; the backend that produced it, echoed in Request.backend on resolve
+    label:         string,             // owned; the row text
+    kind:          string,             // owned; drives the row color, the vocabulary Symbol.kind uses
+    detail:        string,             // owned; the signature shown beside the row
+    note:          string,             // owned; the labelDetails text shown after the label, "" when none
+    documentation: string,             // owned; markdown, "" until the list or a resolve reply carries it
+    resolved:      bool,               // a resolve for the docs has answered, so it is not asked again
+    insert:        string,             // owned; "" inserts the label
+    filter:        string,             // owned; what the editor's prefix filter matches, "" the label
+    sort:          string,             // owned; the backend's ordering key, "" the label
+    start:         int,                // byte offset the insert replaces; -1 when unset
+    end:           int,                // one past it; -1 when unset
+    snippet:       bool,               // `insert` is a snippet template, not literal text
+    preselect:     bool,               // the backend's own pick for the initially selected row
+    extra_edits:   [dynamic]Text_Edit, // owned; applied after the insert lands
+    command:       string,             // owned; run after the edits, "" when none
+    arguments:     string,             // owned; the command's arguments as raw JSON array text
+    raw:           string,             // owned; the candidate verbatim as JSON text, echoed back on resolve
+    origin:        string,             // owned; the backend that produced it, echoed in Request.backend on resolve
 }
 
 // A formatter's opinion on a file's line ending, read from its own config
@@ -239,23 +240,23 @@ Resource_Op :: struct {
 
 // One fix offered at the caret: a title and the edits that apply it, computed up front.
 Code_Action :: struct {
-    title:         string,              // owned; "Import core:fmt"
-    kind:          string,              // owned; "quickfix" / "refactor" — drives the row color
-    edits:         [dynamic]Text_Edit,  // owned; same ordering contract as Result.edits
-    resource_ops:  [dynamic]Resource_Op, // owned; same fixed-phase-order contract as Result.resource_ops
+    title:          string,               // owned; "Import core:fmt"
+    kind:           string,               // owned; "quickfix" / "refactor" — drives the row color
+    edits:          [dynamic]Text_Edit,   // owned; same ordering contract as Result.edits
+    resource_ops:   [dynamic]Resource_Op, // owned; same fixed-phase-order contract as Result.resource_ops
     // The one exception to "computed up front": an LSP server may offer a fix as
     // a command it runs itself. Picking it dispatches Execute_Command, and the
     // changes arrive later as a pushed Apply_Edit. Both empty for an in-client
     // backend, and an action may carry edits *and* a command — LSP applies the
     // edits first, then runs it.
-    command:       string, // owned; "" when the action carries its own edits
-    arguments:     string, // owned; the command's arguments as raw JSON array text
+    command:        string,               // owned; "" when the action carries its own edits
+    arguments:      string,               // owned; the command's arguments as raw JSON array text
     // An action that needs a value from the user first: the host asks for it with
     // `prompt` as the label and `prompt_default` filled in, then dispatches
     // Resolve_Action with `command` and the answer. Its edits are empty.
-    prompt:         string, // owned; "" when the action needs no input
-    prompt_default: string, // owned
-    origin:         string, // owned; the backend that produced it, echoed in Request.backend
+    prompt:         string,               // owned; "" when the action needs no input
+    prompt_default: string,               // owned
+    origin:         string,               // owned; the backend that produced it, echoed in Request.backend
 }
 
 // What a classified identifier turned out to be — what the analyzer proved, not
@@ -283,7 +284,7 @@ Token_Modifier :: enum u8 {
     Mutable,    // declared with `:=`, or a field
 }
 
-Token_Modifiers :: bit_set[Token_Modifier;u8]
+Token_Modifiers :: bit_set[Token_Modifier; u8]
 
 // One classified identifier: a byte range and what the analyzer proved it to be.
 // Carries no owned strings, unlike every other payload here — a file is
@@ -367,8 +368,8 @@ Diagnostic :: struct {
 // the editor whose old squiggles to retire. Empty `items` with a scope set means
 // the scope is clean, not that nothing was checked — `ok` distinguishes those.
 Diagnostic_Report :: struct {
-    scope: string, // owned, absolute directory or file path
-    items: [dynamic]Diagnostic,
+    scope:        string, // owned, absolute directory or file path
+    items:        [dynamic]Diagnostic,
     // A file scope: the items also cover the other files of its directory, each by `path`.
     package_wide: bool,
 }
@@ -409,29 +410,29 @@ free_diagnostic_refs :: proc(diags: []Diagnostic_Ref) {
 // made, so the worker never races the live buffer; `revision` lets the editor
 // drop a result a later edit has already invalidated.
 Request :: struct {
-    id:        u64,
-    kind:      Request_Kind,
-    path:      string, // owned, absolute
-    ext:       string, // owned, e.g. ".odin"
-    source:    string, // owned snapshot of the buffer
-    offset:    int,     // byte offset of the caret, or a selection's low end
-    end:       int,     // byte offset of a selection's high end; == offset outside a selection
-    revision:  u64,
-    workspace: string, // owned, absolute
-    new_name:  string, // owned; the request's argument — Rename's replacement identifier, "" otherwise
-    query:     string, // owned; Workspace_Symbols' filter text, "" otherwise (an unfiltered scan)
+    id:           u64,
+    kind:         Request_Kind,
+    path:         string, // owned, absolute
+    ext:          string, // owned, e.g. ".odin"
+    source:       string, // owned snapshot of the buffer
+    offset:       int,    // byte offset of the caret, or a selection's low end
+    end:          int,    // byte offset of a selection's high end; == offset outside a selection
+    revision:     u64,
+    workspace:    string, // owned, absolute
+    new_name:     string, // owned; the request's argument — Rename's replacement identifier, "" otherwise
+    query:        string, // owned; Workspace_Symbols' filter text, "" otherwise (an unfiltered scan)
     // owned (each message cloned); Code_Actions' diagnostics overlapping the
     // caret/selection, empty otherwise and for every other kind.
-    diagnostics: []Diagnostic_Ref,
+    diagnostics:  []Diagnostic_Ref,
     // Format / Format_Range / Format_On_Type: spaces per indent level of the
     // request's buffer. 0 means unset — a backend falls back to its own default.
-    tab_size: int,
+    tab_size:     int,
     // The buffer indents with a literal tab.
-    use_tabs: bool,
+    use_tabs:     bool,
     // Format_On_Type and Completion; owned. The character just typed, as UTF-8,
     // "" when the request was not driven by one. A backend uses it to tell an
     // explicitly opened list from one a character asked for.
-    trigger:  string,
+    trigger:      string,
     // Execute_Command and Resolve_Action; owned. The command identifier, and its arguments as
     // the raw JSON array text the offer carried — kept verbatim rather than
     // decoded, since the seam never reads them and the server round-trips its
@@ -441,10 +442,10 @@ Request :: struct {
     // Resolve_Completion only; owned. The candidate the user picked, verbatim as
     // the raw JSON text the offer carried — kept undecoded for the same reason
     // command_args is.
-    item:      string,
+    item:         string,
     // Owned; the `origin` of the offer being resolved or run. "" lets every backend of the key answer.
-    backend:   string,
-    cancel:    ^bool,  // Job-owned cancellation flag; read via request_cancelled, nil when hand-built
+    backend:      string,
+    cancel:       ^bool, // Job-owned cancellation flag; read via request_cancelled, nil when hand-built
 }
 
 // True once the request has been abandoned (a newer one superseded it, or the
@@ -463,62 +464,62 @@ request_cancelled :: proc(req: ^Request) -> bool {
 // names instead. `id` is 0 on a result no request asked for (see Backend.poll),
 // which a consumer matching a stored id must tolerate.
 Result :: struct {
-    id:        u64,
-    kind:      Request_Kind,
-    revision:  u64,
-    ok:        bool,
-    cancelled: bool,
+    id:           u64,
+    kind:         Request_Kind,
+    revision:     u64,
+    ok:           bool,
+    cancelled:    bool,
     // The Manager answered this itself: no backend was left to take the request
     // by the time its debounce slot flushed. Nothing was computed, so a consumer
     // must not record it as an answer.
     undispatched: bool,
-    location:  Location,        // Definition
-    hover:     Hover_Info,      // Hover
-    doc:       Doc_Info,        // Package_Doc
-    signature: Signature_Info,  // Signature_Help
-    symbols:   [dynamic]Symbol, // Document_Symbols / Workspace_Symbols / References; owned, freed in job_free
+    location:     Location,        // Definition
+    hover:        Hover_Info,      // Hover
+    doc:          Doc_Info,        // Package_Doc
+    signature:    Signature_Info,  // Signature_Help
+    symbols:      [dynamic]Symbol, // Document_Symbols / Workspace_Symbols / References; owned, freed in job_free
     // Completion; owned, freed in job_free. In the order the editor lists them —
     // a backend that has an opinion sorts before it answers.
-    completions: [dynamic]Completion_Item,
+    completions:  [dynamic]Completion_Item,
     // Completion. True when the backend answered only the candidates it could
     // find quickly, so the editor must ask again as the word grows instead of
     // narrowing the list it has.
-    incomplete:  bool,
+    incomplete:   bool,
     // Rename; owned, freed in job_free. Sorted ascending by (path, start), so an
     // applier walks one file's edits back-to-front to keep the offsets valid.
-    edits:     [dynamic]Text_Edit,
+    edits:        [dynamic]Text_Edit,
     // Rename; owned, freed in job_free. See Resource_Op for the apply order.
     resource_ops: [dynamic]Resource_Op,
-    report:    Diagnostic_Report, // Diagnostics; owned, freed in job_free
+    report:       Diagnostic_Report, // Diagnostics; owned, freed in job_free
     // Code_Actions; owned, freed in job_free. Each carries its own edit set, so
     // the editor applies exactly the one the user picked.
-    actions:   [dynamic]Code_Action,
+    actions:      [dynamic]Code_Action,
     // Semantic_Tokens; owned, freed in job_free. Ascending by `start` and
     // non-overlapping, so the editor can merge them against its syntax spans in
     // one pass. Sparse by design: an identifier the backend could not classify
     // is simply absent, and keeps whatever color the grammar gave it.
-    tokens:    [dynamic]Semantic_Token,
+    tokens:       [dynamic]Semantic_Token,
     // Inlay_Hints; owned, freed in job_free. Ascending by `offset`.
-    inlays:    [dynamic]Inlay_Hint,
+    inlays:       [dynamic]Inlay_Hint,
     // Document_Highlight; owned, freed in job_free. Ascending by `start`.
-    highlights: [dynamic]Document_Highlight,
+    highlights:   [dynamic]Document_Highlight,
     // Selection_Range; owned, freed in job_free. Innermost first, each range holds the one before.
-    ranges: [dynamic]Text_Range,
+    ranges:       [dynamic]Text_Range,
     // Code_Lens; owned, freed in job_free. Ascending by `start`.
-    lenses: [dynamic]Code_Lens_Item,
+    lenses:       [dynamic]Code_Lens_Item,
     // Format only. Set from the workspace's odin-formatter.lua newline_style
     // key, and only when that key is actually present — an absent key must
     // never flip a repo's line endings on the first format. Unspecified means
     // the applier leaves the file's line ending untouched.
-    newline:   Newline_Preference,
-    progress:  Progress_Info, // Progress; owned message, freed in result_free
-    message:   Server_Message, // Message; owned text, freed in result_free
+    newline:      Newline_Preference,
+    progress:     Progress_Info,  // Progress; owned message, freed in result_free
+    message:      Server_Message, // Message; owned text, freed in result_free
     // Apply_Edit only. `edits` (above) carries the decoded WorkspaceEdit. Not
     // owned strings — job_free/result_free must not touch them — but the
     // handler must call `on_applied(token, ok)` exactly once, since it is the
     // reply a server is blocked waiting on.
-    token:      rawptr,
-    on_applied: proc(token: rawptr, applied: bool),
+    token:        rawptr,
+    on_applied:   proc(token: rawptr, applied: bool),
 }
 
 // What a buffer did, for a backend that must track document state rather than
@@ -537,28 +538,28 @@ Doc_Event :: enum {
 // owned output. `handles` gates routing by file extension. The last three are
 // optional — nil is what an in-client engine leaves them.
 Backend :: struct {
-    data:    rawptr,
-    name:    string,
+    data:            rawptr,
+    name:            string,
     // Stable key for routing an offer back to its producer; "" means `name`. A backend that
     // hosts several producers writes `<id>:<producer>` into `origin`.
-    id:      string,
-    handles: proc(data: rawptr, ext: string) -> bool,
-    resolve: proc(data: rawptr, req: ^Request, res: ^Result),
-    destroy: proc(data: rawptr),
+    id:              string,
+    handles:         proc(data: rawptr, ext: string) -> bool,
+    resolve:         proc(data: rawptr, req: ^Request, res: ^Result),
+    destroy:         proc(data: rawptr),
     // True when the backend can answer `kind` for `ext`; nil means every kind it
     // claims by extension. Lets manager_allows tell a caller with a fallback
     // (rename -> find and replace) which one to run. Called on the main thread
     // while a worker may be inside resolve, so it must read only atomically
     // published data and must not lock.
-    supports: proc(data: rawptr, ext: string, kind: Request_Kind) -> bool,
+    supports:        proc(data: rawptr, ext: string, kind: Request_Kind) -> bool,
     // Takes the next result the backend produced without being asked (a server
     // pushing diagnostics). Called on the main thread once per frame until it
     // answers false. Owned strings use the Manager's allocator.
-    poll:     proc(data: rawptr, res: ^Result) -> bool,
+    poll:            proc(data: rawptr, res: ^Result) -> bool,
     // Tells the backend a buffer changed state. Main thread, must not block: a
     // subprocess backend queues a notification and returns. `source` is
     // borrowed for the call.
-    notify:   proc(data: rawptr, event: Doc_Event, path, ext, source: string, revision: u64),
+    notify:          proc(data: rawptr, event: Doc_Event, path, ext, source: string, revision: u64),
     // True when typing `char` in a file of `ext` should trigger on-type
     // formatting — an LSP backend answers from the server's advertised trigger
     // characters. nil (the in-client engine's default) means never; a caller
@@ -568,19 +569,19 @@ Backend :: struct {
     // The registry hooks. A backend that has settings of its own lists its gate ids
     // (an in-client engine one, a subprocess client one per server), and the host
     // pushes the admin gate of each through `set_gate`. All optional.
-    gate_ids:      proc(data: rawptr, allocator: runtime.Allocator) -> []string,
-    set_gate:      proc(data: rawptr, id: string, enabled: bool, features: bit_set[Request_Kind]) -> bool,
+    gate_ids:        proc(data: rawptr, allocator: runtime.Allocator) -> []string,
+    set_gate:        proc(data: rawptr, id: string, enabled: bool, features: bit_set[Request_Kind]) -> bool,
     // The gate `id` starts at when the settings state nothing for it.
-    gate_defaults: proc(data: rawptr, id: string) -> (enabled: bool, features: bit_set[Request_Kind], ok: bool),
+    gate_defaults:   proc(data: rawptr, id: string) -> (enabled: bool, features: bit_set[Request_Kind], ok: bool),
     // The Settings row title of gate `id`. Set only by a backend whose rows the
     // Language category lists itself; a server has its own category.
-    gate_label:    proc(data: rawptr, id: string) -> string,
+    gate_label:      proc(data: rawptr, id: string) -> string,
 }
 
 // How long a debounced request waits for the input to settle. Hover is already
 // dwell-gated, so its delay is only a floor.
 DEBOUNCE_TYPING :: 50 * time.Millisecond
-DEBOUNCE_HOVER :: 150 * time.Millisecond
+DEBOUNCE_HOVER  :: 150 * time.Millisecond
 
 // The delay for save-driven checks, long enough that a save-all costs one compiler run.
 DEBOUNCE_CHECK :: 400 * time.Millisecond
@@ -603,14 +604,14 @@ POLL_MAX_PER_FRAME :: 64
 
 @(private)
 Job :: struct {
-    manager:   ^Manager,
-    chain:     [MAX_CHAIN]Backend, // copied so a later append to `backends` can't dangle
-    chain_len: int,
-    request:   Request,
-    result:    Result,
-    cancelled: bool, // written by the main thread, read atomically by the worker
-    queue_next: ^Job, // link in Manager.finished
-    queued:    time.Tick, // when the job entered the queue
+    manager:    ^Manager,
+    chain:      [MAX_CHAIN]Backend, // copied so a later append to `backends` can't dangle
+    chain_len:  int,
+    request:    Request,
+    result:     Result,
+    cancelled:  bool,      // written by the main thread, read atomically by the worker
+    queue_next: ^Job,      // link in Manager.finished
+    queued:     time.Tick, // when the job entered the queue
 }
 
 // Most jobs that wait for a worker. A request past it is answered as found nothing.
@@ -624,11 +625,11 @@ QUEUE_SLOTS :: 1024
 // slot on it before a worker exists.
 @(private)
 Pending :: struct {
-    active:    bool,
-    id:        u64,
-    path:      string,
-    ext:       string,
-    source:    string,
+    active:      bool,
+    id:          u64,
+    path:        string,
+    ext:         string,
+    source:      string,
     offset:      int,
     end:         int,
     revision:    u64,
@@ -746,7 +747,7 @@ MAX_CHAIN :: 4
 
 // Kinds whose answers from several backends are combined into one result. Every
 // other kind takes the first backend that answers.
-MERGE_KINDS :: bit_set[Request_Kind] {
+MERGE_KINDS :: bit_set[Request_Kind]{
     .Completion,
     .Code_Actions,
     .Document_Symbols,
@@ -1018,26 +1019,26 @@ dispatch_owned :: proc(
     job.manager = m
     job.chain = chain
     job.chain_len = chain_len
-    job.request = Request {
-        id          = id,
-        kind        = kind,
-        path        = path,
-        ext         = ext,
-        source      = source,
-        offset      = offset,
-        end         = end,
-        revision    = revision,
-        workspace   = workspace,
-        new_name    = new_name,
-        query       = query,
+    job.request = Request{
+        id = id,
+        kind = kind,
+        path = path,
+        ext = ext,
+        source = source,
+        offset = offset,
+        end = end,
+        revision = revision,
+        workspace = workspace,
+        new_name = new_name,
+        query = query,
         diagnostics = diagnostics,
-        tab_size    = tab_size,
-        use_tabs    = use_tabs,
-        trigger     = trigger,
-        command      = command,
+        tab_size = tab_size,
+        use_tabs = use_tabs,
+        trigger = trigger,
+        command = command,
         command_args = command_args,
-        item         = item,
-        backend      = only,
+        item = item,
+        backend = only,
     }
     job.request.cancel = &job.cancelled // stable for the job's lifetime
     job.result.id = id
@@ -1227,23 +1228,23 @@ manager_request_debounced :: proc(
     context.allocator = m.allocator
     id := m.next_id
     m.next_id += 1
-    m.pending[kind] = Pending {
-        active      = true,
-        id          = id,
-        path        = strings.clone(path),
-        ext         = strings.clone(ext),
-        source      = strings.clone(source),
-        offset      = offset,
-        end         = end < 0 ? offset : end,
-        revision    = revision,
-        workspace   = strings.clone(workspace),
-        new_name    = strings.clone(new_name),
-        query       = strings.clone(query),
+    m.pending[kind] = Pending{
+        active = true,
+        id = id,
+        path = strings.clone(path),
+        ext = strings.clone(ext),
+        source = strings.clone(source),
+        offset = offset,
+        end = end < 0 ? offset : end,
+        revision = revision,
+        workspace = strings.clone(workspace),
+        new_name = strings.clone(new_name),
+        query = strings.clone(query),
         diagnostics = clone_diagnostic_refs(diagnostics, m.allocator),
-        tab_size    = tab_size,
-        use_tabs    = use_tabs,
-        trigger     = strings.clone(trigger),
-        due         = time.time_add(time.now(), delay),
+        tab_size = tab_size,
+        use_tabs = use_tabs,
+        trigger = strings.clone(trigger),
+        due = time.time_add(time.now(), delay),
     }
     return id
 }

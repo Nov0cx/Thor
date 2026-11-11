@@ -11,8 +11,8 @@ import ui "../vendor/loom/loom"
 test_inlays_rebase_onto_an_edit :: proc(t: ^testing.T) {
     old_text := "g(1)\nf(ab)\nh(2)"
     new_text := "g(1)\nf(xyz)\nh(2)"
-    inlays := []editview.Inlay{{offset = 2}, {offset = 7}, {offset = 8}, {offset = 12}}
-    out := make([dynamic]editview.Inlay, context.temp_allocator)
+    inlays   := []editview.Inlay{{offset = 2}, {offset = 7}, {offset = 8}, {offset = 12}}
+    out      := make([dynamic]editview.Inlay, context.temp_allocator)
     thor_rebase_inlays(&out, inlays, old_text, new_text)
 
     testing.expect_value(t, len(out), 3)

@@ -7,13 +7,59 @@ import odinsyntax "../syntax"
 // The builtin procedures builtin_call types with no declaration. The magic ones of base:builtin come
 // first; the rest are base:runtime procedures it falls back to when no universe package gives them.
 @(private)
-BUILTIN_PROCS := [?]string {
-    "len", "cap", "size_of", "align_of", "offset_of", "offset_of_selector", "offset_of_member", "offset_of_by_string",
-    "type_of", "typeid_of", "type_info_of", "swizzle", "complex", "quaternion", "real", "imag", "jmag", "kmag",
-    "conj", "expand_values", "compress_values", "min", "max", "abs", "clamp", "soa_zip", "soa_unzip",
-    "unreachable", "raw_data", "transpose", "outer_product", "hadamard_product", "matrix_flatten",
-    "make", "new", "new_clone", "append", "delete", "free", "free_all", "clear", "resize", "reserve", "copy", "card",
-    "panic", "assert", "unimplemented", "pop", "inject_at", "ordered_remove", "unordered_remove",
+BUILTIN_PROCS := [?]string{
+    "len",
+    "cap",
+    "size_of",
+    "align_of",
+    "offset_of",
+    "offset_of_selector",
+    "offset_of_member",
+    "offset_of_by_string",
+    "type_of",
+    "typeid_of",
+    "type_info_of",
+    "swizzle",
+    "complex",
+    "quaternion",
+    "real",
+    "imag",
+    "jmag",
+    "kmag",
+    "conj",
+    "expand_values",
+    "compress_values",
+    "min",
+    "max",
+    "abs",
+    "clamp",
+    "soa_zip",
+    "soa_unzip",
+    "unreachable",
+    "raw_data",
+    "transpose",
+    "outer_product",
+    "hadamard_product",
+    "matrix_flatten",
+    "make",
+    "new",
+    "new_clone",
+    "append",
+    "delete",
+    "free",
+    "free_all",
+    "clear",
+    "resize",
+    "reserve",
+    "copy",
+    "card",
+    "panic",
+    "assert",
+    "unimplemented",
+    "pop",
+    "inject_at",
+    "ordered_remove",
+    "unordered_remove",
 }
 
 // True for a builtin procedure builtin_call knows.
@@ -213,8 +259,10 @@ complex_of :: proc(c: ^Checker, f: Type_Id) -> Type_Id {
         return type_untyped(.Complex)
     }
     #partial switch b.kind {
-    case .F16, .F16le, .F16be: return type_basic(.Complex32)
-    case .F32, .F32le, .F32be: return type_basic(.Complex64)
+    case .F16, .F16le, .F16be:
+        return type_basic(.Complex32)
+    case .F32, .F32le, .F32be:
+        return type_basic(.Complex64)
     }
     return type_basic(.Complex128)
 }
@@ -227,8 +275,10 @@ quaternion_of :: proc(c: ^Checker, f: Type_Id) -> Type_Id {
         return type_untyped(.Quaternion)
     }
     #partial switch b.kind {
-    case .F16, .F16le, .F16be: return type_basic(.Quaternion64)
-    case .F32, .F32le, .F32be: return type_basic(.Quaternion128)
+    case .F16, .F16le, .F16be:
+        return type_basic(.Quaternion64)
+    case .F32, .F32le, .F32be:
+        return type_basic(.Quaternion128)
     }
     return type_basic(.Quaternion256)
 }
@@ -239,9 +289,12 @@ component_of :: proc(c: ^Checker, t: Type_Id) -> Type_Id {
     #partial switch v in type_get(&c.table, type_base(&c.table, t)) {
     case Basic_Type:
         #partial switch v.kind {
-        case .Complex32, .Quaternion64:  return type_basic(.F16)
-        case .Complex64, .Quaternion128: return type_basic(.F32)
-        case .Complex128, .Quaternion256: return type_basic(.F64)
+        case .Complex32, .Quaternion64:
+            return type_basic(.F16)
+        case .Complex64, .Quaternion128:
+            return type_basic(.F32)
+        case .Complex128, .Quaternion256:
+            return type_basic(.F64)
         }
     case Untyped_Type:
         return type_untyped(.Float)
@@ -293,9 +346,12 @@ soa_zip :: proc(c: ^Checker, file: File_Id, args: []odinsyntax.Syntax_Node) -> O
     for arg, i in args {
         elem := INVALID_TYPE
         #partial switch v in type_get(&c.table, type_base(&c.table, expr_type(c, file, arg).type)) {
-        case Slice_Type:         elem = v.elem
-        case Dynamic_Array_Type: elem = v.elem
-        case Array_Type:         elem = v.elem
+        case Slice_Type:
+            elem = v.elem
+        case Dynamic_Array_Type:
+            elem = v.elem
+        case Array_Type:
+            elem = v.elem
         }
         name := strings.concatenate({"_", soa_index(i)}, c.tmp)
         if _, err := append(&fields, Struct_Field{name = name, type = elem, name_offset = -1}); !note_alloc(c, err) {
@@ -385,7 +441,7 @@ min_max_call :: proc(c: ^Checker, file: File_Id, greatest: bool, args: []odinsyn
         }
         return {mode = .Const, type = first.type, value = greatest ? hi : lo}
     }
-    best := first
+    best  := first
     typed := !type_is_untyped(&c.table, first.type) ? first.type : INVALID_TYPE
     for arg in args[1:] {
         op := expr_type(c, file, arg)
@@ -397,7 +453,7 @@ min_max_call :: proc(c: ^Checker, file: File_Id, greatest: bool, args: []odinsyn
             best.value = nil
             continue
         }
-        cmp, cok := const_binary(c, .Lt, op.value, best.value)
+        cmp, cok      := const_binary(c, .Lt, op.value, best.value)
         less, is_bool := cmp.(bool)
         if !cok || !is_bool {
             best.value = nil
@@ -445,7 +501,7 @@ offset_of_call :: proc(c: ^Checker, file: File_Id, name: string, args: []odinsyn
         if !ok {
             return 0, false
         }
-        lhs, has_lhs := odinsyntax.selector_expr_operand(&sel)
+        lhs, has_lhs     := odinsyntax.selector_expr_operand(&sel)
         field, has_field := odinsyntax.selector_expr_field(&sel)
         if !has_lhs || !has_field {
             return 0, false
@@ -457,7 +513,7 @@ offset_of_call :: proc(c: ^Checker, file: File_Id, name: string, args: []odinsyn
             return 0, false
         }
         if name == "offset_of_by_string" {
-            v, ok := const_eval(c, file, args[1])
+            v, ok            := const_eval(c, file, args[1])
             field, is_string := v.(string)
             if !ok || !is_string {
                 return 0, false
@@ -479,9 +535,12 @@ directive_call :: proc(c: ^Checker, file: File_Id, name: string, args: []odinsyn
         }
         if d, ok := target_define(c.snap.target, odinsyntax.node_text(args[0])); ok {
             switch v in d {
-            case bool:   return {mode = .Const, type = type_untyped(.Bool), value = v}
-            case i64:    return {mode = .Const, type = type_untyped(.Int), value = v}
-            case string: return {mode = .Const, type = type_untyped(.String), value = v}
+            case bool:
+                return {mode = .Const, type = type_untyped(.Bool), value = v}
+            case i64:
+                return {mode = .Const, type = type_untyped(.Int), value = v}
+            case string:
+                return {mode = .Const, type = type_untyped(.String), value = v}
             }
         }
         return expr_type(c, file, args[1])
@@ -512,20 +571,42 @@ Compiler_Type :: struct {
     constant: string,
     name:     string, // the base:runtime declaration that names it; "" when none
     backing:  Basic_Kind,
-    first:    i64, // the value of the first member
+    first:    i64,      // the value of the first member
     members:  []string, // "_" holds a value with no name
-    is_set:   bool, // a bit_set of the enum
+    is_set:   bool,     // a bit_set of the enum
 }
 
 @(private)
-COMPILER_TYPES := [?]Compiler_Type {
+COMPILER_TYPES := [?]Compiler_Type{
     {"ODIN_OS", "Odin_OS_Type", .Int, 0, {"Unknown", "Windows", "Darwin", "Linux", "FreeBSD", "OpenBSD", "NetBSD", "WASI", "JS", "Orca", "Freestanding"}, false},
     {"ODIN_ARCH", "Odin_Arch_Type", .Int, 0, {"Unknown", "amd64", "i386", "arm32", "arm64", "wasm32", "wasm64p32", "riscv64"}, false},
     {"ODIN_BUILD_MODE", "Odin_Build_Mode_Type", .Int, 0, {"Executable", "Dynamic", "Static", "Object", "Assembly", "LLVM_IR"}, false},
     {"ODIN_ENDIAN", "Odin_Endian_Type", .Int, 0, {"Little", "Big"}, false},
     {"ODIN_PLATFORM_SUBTARGET", "Odin_Platform_Subtarget_Type", .Int, 0, {"Default", "iPhone", "iPhoneSimulator", "Android"}, false},
     {"ODIN_OPTIMIZATION_MODE", "Odin_Optimization_Mode", .Int, -1, {"None", "Minimal", "Size", "Speed", "Aggressive"}, false},
-    {"ODIN_DEFAULT_CALLING_CONVENTION", "Calling_Convention", .U8, 0, {"Invalid", "Odin", "Contextless", "CDecl", "Std_Call", "Fast_Call", "None", "Naked", "_", "Win64", "SysV", "Preserve_None", "Preserve_Most", "Preserve_All"}, false},
+    {
+        "ODIN_DEFAULT_CALLING_CONVENTION",
+        "Calling_Convention",
+        .U8,
+        0,
+        {
+            "Invalid",
+            "Odin",
+            "Contextless",
+            "CDecl",
+            "Std_Call",
+            "Fast_Call",
+            "None",
+            "Naked",
+            "_",
+            "Win64",
+            "SysV",
+            "Preserve_None",
+            "Preserve_Most",
+            "Preserve_All",
+        },
+        false,
+    },
     {"ODIN_ERROR_POS_STYLE", "", .Int, 0, {"Default", "Unix"}, false},
     {"ODIN_WINDOWS_SUBSYSTEM", "", .Int, 0, {"Unknown", "Console", "Windows"}, false},
     {"ODIN_SANITIZER_FLAGS", "Odin_Sanitizer_Flags", .U32, 0, {"Address", "Memory", "Thread"}, true},

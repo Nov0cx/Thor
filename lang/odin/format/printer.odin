@@ -102,7 +102,7 @@ format_window :: proc(source: string, lo, hi: int, opts: Options, allocator := c
     clear(&pr.comment_cols)
 
     start := decls[first].start
-    end := decls[last].end
+    end   := decls[last].end
     for pr.comment_idx < len(pr.comments) && pr.comments[pr.comment_idx].start < start {
         pr.comment_idx += 1
     }
@@ -110,7 +110,7 @@ format_window :: proc(source: string, lo, hi: int, opts: Options, allocator := c
     body: [dynamic]Doc
     last_line, _ := print_stmt_list(&pr, &body, decls[first:last + 1], 0, false)
     // The last declaration's trailing comment is part of its comment column.
-    taken := pr.comment_idx
+    taken        := pr.comment_idx
     flush_trailing(&pr, &body, last_line)
     if pr.comment_idx > taken {
         tail := pr.comments[pr.comment_idx - 1].list

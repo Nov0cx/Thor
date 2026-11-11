@@ -13,11 +13,11 @@ test_plugin_exec_async_reaps_output :: proc(t: ^testing.T) {
     defer free(thor)
     thor.workspace_dir = "."
 
-    first := thor_plugin_exec_async(thor, "echo thor-exec")
+    first  := thor_plugin_exec_async(thor, "echo thor-exec")
     second := thor_plugin_exec_async(thor, "echo again")
     testing.expect(t, first != second, "two calls got the same id")
 
-    jobs := make([dynamic]^Plugin_Exec_Job, context.temp_allocator)
+    jobs     := make([dynamic]^Plugin_Exec_Job, context.temp_allocator)
     deadline := time.tick_now()
     for len(jobs) < 2 && time.tick_since(deadline) < 30 * time.Second {
         for job := lockfree.stack_take(&thor.finished_plugin_execs); job != nil; job = job.queue_next {

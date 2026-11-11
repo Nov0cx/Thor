@@ -40,15 +40,15 @@ report_flush :: proc(path: string) {
 }
 
 // Runs the tests that compare the live report with `odin check`. Off in CI.
-LIVE_ORACLE :: #config(LIVE_ORACLE, false)
+LIVE_ORACLE      :: #config(LIVE_ORACLE, false)
 // Limits the oracle to the source directories that contain this text.
 LIVE_ORACLE_ONLY :: #config(LIVE_ORACLE_ONLY, "")
 
-ORACLE_ROOT :: "bin/test/oracle"
+ORACLE_ROOT    :: "bin/test/oracle"
 ORACLE_TIMEOUT :: 2 * time.Minute
 // Most mutants per operator in one source directory.
-ORACLE_PER_OP :: #config(LIVE_ORACLE_PER_OP, 8)
-ORACLE_SEED :: #config(LIVE_ORACLE_SEED, 0x5eed_0d1)
+ORACLE_PER_OP  :: #config(LIVE_ORACLE_PER_OP, 8)
+ORACLE_SEED    :: #config(LIVE_ORACLE_SEED, 0x5eed_0d1)
 
 @(private = "file")
 Oracle_Op :: enum {
@@ -72,9 +72,12 @@ Oracle_Op :: enum {
 @(private = "file")
 op_vet :: proc(op: Oracle_Op) -> (flag: string, code: string) {
     #partial switch op {
-    case .Unused_Var:    return "-vet-unused-variables", CODE_UNUSED_VAR
-    case .Shadow_Var:    return "-vet-shadowing", CODE_SHADOWING
-    case .Unused_Import: return "-vet-unused-imports", CODE_UNUSED_IMPORT
+    case .Unused_Var:
+        return "-vet-unused-variables", CODE_UNUSED_VAR
+    case .Shadow_Var:
+        return "-vet-shadowing", CODE_SHADOWING
+    case .Unused_Import:
+        return "-vet-unused-imports", CODE_UNUSED_IMPORT
     }
     return "", ""
 }
@@ -116,7 +119,7 @@ Oracle_Source :: struct {
 
 // Repo packages the seeded suite mutates.
 @(private = "file", rodata)
-oracle_repo := []Oracle_Source {
+oracle_repo := []Oracle_Source{
     {dir = "vt"},
     {dir = "lang/odin/syntax"},
     {dir = "search"},
@@ -129,7 +132,7 @@ oracle_repo := []Oracle_Source {
 
 // Odin root packages the seeded suite mutates.
 @(private = "file", rodata)
-oracle_core := []string {
+oracle_core := []string{
     "core/strings",
     "core/slice",
     "core/path/slashpath",
@@ -219,7 +222,7 @@ compiler_errors :: proc(dir: string, flags: ..string, allocator := context.temp_
         return nil, false
     }
     out := make([dynamic]Oracle_Error_At, allocator)
-    it := output
+    it  := output
     for line in strings.split_lines_iterator(&it) {
         p, pok := parse_diagnostic_line(line)
         if !pok || p.severity != .Error {
@@ -253,25 +256,28 @@ mutation_sites :: proc(src: string, out: ^[dynamic]Mutation) {
 // A block at the head of the body of `for v in x` that declares `v` again.
 @(private = "file")
 shadow_site :: proc(n: odinsyntax.Syntax_Node, out: ^[dynamic]Mutation) {
-    r, _ := odinsyntax.as_range_stmt(n)
+    r, _           := odinsyntax.as_range_stmt(n)
     vars, has_vars := odinsyntax.range_stmt_vars(&r)
     body, has_body := odinsyntax.range_stmt_body(&r)
     if !has_vars || !has_body || body.green.kind != .Block {
         return
     }
-    it := odinsyntax.expr_list_items(&vars)
+    it        := odinsyntax.expr_list_items(&vars)
     first, ok := odinsyntax.child_iter_next(&it)
     if !ok || first.green.kind != .Ident || odinsyntax.node_text(first) == "_" {
         return
     }
     name := odinsyntax.node_text(first)
-    at := int(body.offset) + 1
+    at   := int(body.offset) + 1
     append(out, Mutation{op = .Shadow_Var, start = at, end = at, text = fmt.tprintf(" {{ %s := 0; _ = %s }}; ", name, name)})
 }
 
 @(private = "file")
-// Sites in a polymorphic procedure are left out: the compiler checks its body only per instance.
-sites_walk :: proc(n: odinsyntax.Syntax_Node, out: ^[dynamic]Mutation) {
+sites_walk :: proc(
+    // Sites in a polymorphic procedure are left out: the compiler checks its body only per instance.
+    n: odinsyntax.Syntax_Node,
+    out: ^[dynamic]Mutation,
+) {
     n := n
     if poly_node(n) {
         return
@@ -326,11 +332,13 @@ sites_walk :: proc(n: odinsyntax.Syntax_Node, out: ^[dynamic]Mutation) {
 }
 
 @(private = "file")
-// A procedure or record with `$` parameters, which the compiler checks only per instance.
-poly_node :: proc(n: odinsyntax.Syntax_Node) -> bool {
+poly_node :: proc(
+    // A procedure or record with `$` parameters, which the compiler checks only per instance.
+    n: odinsyntax.Syntax_Node,
+) -> bool {
     #partial switch n.green.kind {
     case .Proc_Lit:
-        pl, _ := odinsyntax.as_proc_lit(n)
+        pl, _  := odinsyntax.as_proc_lit(n)
         pt, ok := odinsyntax.proc_lit_type(&pl)
         return ok && strings.contains(odinsyntax.node_text(odinsyntax.Syntax_Node(pt)), "$")
     case .Struct_Type, .Union_Type:
@@ -389,7 +397,7 @@ literal_site :: proc(n: odinsyntax.Syntax_Node) -> bool {
 
 @(private = "file")
 call_sites :: proc(n: odinsyntax.Syntax_Node, out: ^[dynamic]Mutation) {
-    ce, _ := odinsyntax.as_call_expr(n)
+    ce, _    := odinsyntax.as_call_expr(n)
     list, ok := odinsyntax.call_expr_args(&ce)
     if !ok {
         return
@@ -399,7 +407,7 @@ call_sites :: proc(n: odinsyntax.Syntax_Node, out: ^[dynamic]Mutation) {
         return
     }
     args := make([dynamic]odinsyntax.Syntax_Node, context.temp_allocator)
-    it := odinsyntax.arg_list_args(&list)
+    it   := odinsyntax.arg_list_args(&list)
     for a in odinsyntax.child_iter_next(&it) {
         append(&args, a)
     }
@@ -427,14 +435,14 @@ switch_site :: proc(n: odinsyntax.Syntax_Node, out: ^[dynamic]Mutation) {
     if strings.has_prefix(odinsyntax.node_text(n), "#partial") {
         return
     }
-    n := n
+    n        := n
     body, ok := odinsyntax.find_child_node(&n, {kinds = {.Block}})
     if !ok {
         return
     }
     first: odinsyntax.Syntax_Node
     clauses := 0
-    it := odinsyntax.child_iter(&body, {kinds = {.Case_Clause}})
+    it      := odinsyntax.child_iter(&body, {kinds = {.Case_Clause}})
     for clause in odinsyntax.child_iter_next(&it) {
         cl := odinsyntax.Case_Clause(clause)
         if _, has := odinsyntax.case_clause_values(&cl); !has {
@@ -454,7 +462,7 @@ switch_site :: proc(n: odinsyntax.Syntax_Node, out: ^[dynamic]Mutation) {
 
 @(private = "file")
 return_site :: proc(n: odinsyntax.Syntax_Node, out: ^[dynamic]Mutation) {
-    pl, _ := odinsyntax.as_proc_lit(n)
+    pl, _  := odinsyntax.as_proc_lit(n)
     pt, ok := odinsyntax.proc_lit_type(&pl)
     if !ok {
         return
@@ -468,8 +476,8 @@ return_site :: proc(n: odinsyntax.Syntax_Node, out: ^[dynamic]Mutation) {
     }
     last: odinsyntax.Syntax_Node
     found := false
-    blk := odinsyntax.Block(body)
-    it := odinsyntax.block_stmts(&blk)
+    blk   := odinsyntax.Block(body)
+    it    := odinsyntax.block_stmts(&blk)
     for s in odinsyntax.child_iter_next(&it) {
         last = s
         found = true
@@ -483,7 +491,7 @@ return_site :: proc(n: odinsyntax.Syntax_Node, out: ^[dynamic]Mutation) {
 
 @(private = "file")
 assign_site :: proc(n: odinsyntax.Syntax_Node, out: ^[dynamic]Mutation) {
-    as, _ := odinsyntax.as_assign_stmt(n)
+    as, _  := odinsyntax.as_assign_stmt(n)
     op, ok := odinsyntax.assign_stmt_op(&as)
     if !ok || odinsyntax.syntax_token_text(op) != "=" {
         return
@@ -494,7 +502,7 @@ assign_site :: proc(n: odinsyntax.Syntax_Node, out: ^[dynamic]Mutation) {
         return
     }
     count :: proc(l: ^odinsyntax.Expr_List) -> int {
-        k := 0
+        k  := 0
         it := odinsyntax.expr_list_items(l)
         for _ in odinsyntax.child_iter_next(&it) {
             k += 1
@@ -521,7 +529,7 @@ line_of :: proc(src: string, offset: int) -> int {
 @(private = "file")
 line_text :: proc(src: string, line: int) -> string {
     it := src
-    k := 0
+    k  := 0
     for l in strings.split_lines_iterator(&it) {
         k += 1
         if k == line {
@@ -578,9 +586,9 @@ run_mutant :: proc(t: ^testing.T, e: ^Engine, dest, path, src: string, m: Mutati
         testing.expectf(t, false, "%s: could not write", path)
         return
     }
-    flag, _ := op_vet(m.op)
+    flag, _   := op_vet(m.op)
     errs, ran := compiler_errors(dest, flag)
-    res := live_check(e, mutated, ORACLE_ROOT, path)
+    res       := live_check(e, mutated, ORACLE_ROOT, path)
     defer free_live(&res)
     if os.write_entire_file(path, src) != nil {
         testing.fail_now(t, "could not restore a mutated file")
@@ -589,9 +597,9 @@ run_mutant :: proc(t: ^testing.T, e: ^Engine, dest, path, src: string, m: Mutati
         note("NO RUN %v %s:%d `%s`", m.op, path, line_of(mutated, m.start), line_text(mutated, line_of(mutated, m.start)))
         return
     }
-    name := filepath.base(path)
-    first := -1
-    lines := make(map[int]string, context.temp_allocator)
+    name     := filepath.base(path)
+    first    := -1
+    lines    := make(map[int]string, context.temp_allocator)
     messages := make(map[string]bool, context.temp_allocator)
     for x in errs {
         messages[strings.trim_space(x.message)] = true
@@ -669,7 +677,7 @@ test_oracle_seeded :: proc(t: ^testing.T) {
             continue
         }
         dest := oracle_dest(source.dir, keep)
-        ok := copy_package(source.dir, dest)
+        ok   := copy_package(source.dir, dest)
         for dep in source.deps {
             ok = ok && copy_package(dep, oracle_dest(dep, context.temp_allocator))
         }
@@ -690,7 +698,7 @@ test_oracle_seeded :: proc(t: ^testing.T) {
             if !rok {
                 continue
             }
-            res := live_check(e, src, ORACLE_ROOT, path)
+            res  := live_check(e, src, ORACLE_ROOT, path)
             poly := poly_ranges(src)
             for d in res.report.items {
                 if !d.lint && !is_vet_code(d.code) && !in_ranges(poly, d.line) {
@@ -746,7 +754,15 @@ test_oracle_seeded :: proc(t: ^testing.T) {
     for c, op in counts {
         seeded += c.seeded
         matched += c.matched
-        note("%-15v seeded %3d matched %3d (%5.1f%%) compiler silent %3d, in an instance %d", op, c.seeded, c.matched, 100 * f64(c.matched) / f64(max(c.seeded, 1)), c.silent, c.instance)
+        note(
+            "%-15v seeded %3d matched %3d (%5.1f%%) compiler silent %3d, in an instance %d",
+            op,
+            c.seeded,
+            c.matched,
+            100 * f64(c.matched) / f64(max(c.seeded, 1)),
+            c.silent,
+            c.instance,
+        )
     }
     rate := 100 * f64(matched) / f64(max(seeded, 1))
     note("total: seeded %d matched %d (%.1f%%), false errors %d", seeded, matched, rate, false_errors)
@@ -785,7 +801,7 @@ test_oracle_clean_corpus :: proc(t: ^testing.T) {
     packages, files_checked, skipped, found, in_poly, lints, lines := 0, 0, 0, 0, 0, 0, 0
     vet_matched, vet_false, vet_missed := 0, 0, 0
     by_message := make(map[string]int, keep)
-    by_lint := make(map[string]int, keep)
+    by_lint    := make(map[string]int, keep)
     for dir in dirs {
         if !oracle_only(dir) {
             continue
@@ -799,14 +815,14 @@ test_oracle_clean_corpus :: proc(t: ^testing.T) {
         packages += 1
         // What `-vet` adds to a clean package is its vet output, by file and line.
         vet_errs, vet_ran := compiler_errors(dir, "-vet", allocator = keep)
-        vet_lines := make(map[Vet_Key]string, keep)
+        vet_lines         := make(map[Vet_Key]string, keep)
         if vet_ran {
             for x in vet_errs {
                 vet_lines[Vet_Key{x.file, x.line}] = x.message
             }
         }
-        vet_seen := make(map[Vet_Key]bool, keep)
-        vet_dirs := make(map[string]string, keep) // file name -> path
+        vet_seen   := make(map[Vet_Key]bool, keep)
+        vet_dirs   := make(map[string]string, keep) // file name -> path
         files, err := odinsema.package_dir_files(dir, keep)
         if err != nil {
             continue
@@ -888,7 +904,14 @@ test_oracle_clean_corpus :: proc(t: ^testing.T) {
     for msg, n in by_message {
         note("%4d x %s", n, msg)
     }
-    note("corpus: %d packages clean under odin check (%d skipped), %d files checked, %d live errors, %d in polymorphic bodies", packages, skipped, files_checked, found, in_poly)
+    note(
+        "corpus: %d packages clean under odin check (%d skipped), %d files checked, %d live errors, %d in polymorphic bodies",
+        packages,
+        skipped,
+        files_checked,
+        found,
+        in_poly,
+    )
     note("lints: %d over %d lines", lints, lines)
     for code, n in by_lint {
         note("%6d x %s", n, code)
@@ -933,4 +956,3 @@ package_dirs :: proc(dir: string, out: ^[dynamic]string, allocator: mem.Allocato
         append(out, strings.clone(dir, allocator))
     }
 }
-

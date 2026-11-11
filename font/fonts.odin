@@ -23,9 +23,9 @@ font_allocator: runtime.Allocator
 Font_Family :: struct {
     name:          string,
     path:          string,
-    file_data:     []u8, // owned
+    file_data:     []u8,   // owned
     codepoints:    []rune, // owned
-    preload_sizes: []i32, // owned
+    preload_sizes: []i32,  // owned
     // Icon fonts have no ligatures, so the shaping probes skip them.
     icon_font:     bool,
     // The family names of this family's own bold, italic and bold italic faces,
@@ -45,16 +45,16 @@ Font_Family :: struct {
     pack_group:    string,
     // Icon families only: every name this family defines, independent of
     // `preload` — the source icon_set_active_pack repoints icon_map from.
-    own_icons:     map[string]rune, // owned
-    cache:         map[i32]rl.Font, // owned
+    own_icons:     map[string]rune,              // owned
+    cache:         map[i32]rl.Font,              // owned
     // Per preloaded size: glyph index -> atlas entry, for the HarfBuzz
     // shaped draw path (includes ligature glyphs, which have no codepoint).
     shaped:        map[i32]map[u32]Shaped_Glyph, // owned
     // Persistent HarfBuzz objects for main-thread shaping at draw time;
     // created in finish_async_load, destroyed in shutdown.
-    hb_blob:       ^hb.blob_t, // owned
-    hb_face:       ^hb.face_t, // owned
-    hb_font:       ^hb.font_t, // owned
+    hb_blob:       ^hb.blob_t,                   // owned
+    hb_face:       ^hb.face_t,                   // owned
+    hb_font:       ^hb.font_t,                   // owned
     // Ascent minus descent in font units: the em stb_truetype scales a pixel size by.
     hb_em_height:  f32,
     // Per size: the characters the atlas lacks, taken from fallback faces.
@@ -94,7 +94,7 @@ build_codepoint_list :: proc(allocator := context.temp_allocator) -> [dynamic]ru
     for c: rune = 0x00A0; c <= 0x017F; c += 1 {
         append(&codepoints, c)
     }
-    extras := [?]rune {'€', '–', '—', '‘', '’', '“', '”', '…'}
+    extras := [?]rune{'€', '–', '—', '‘', '’', '“', '”', '…'}
     for c in extras {
         append(&codepoints, c)
     }
@@ -132,11 +132,7 @@ register_family :: proc(name, ttf_path: string, codepoints: []rune, preload_size
 VARIANT_KEYS := [?]struct {
     key:   string,
     style: Style,
-} {
-    {"bold", {.Bold}},
-    {"italic", {.Italic}},
-    {"bold_italic", {.Bold, .Italic}},
-}
+}{{"bold", {.Bold}}, {"italic", {.Italic}}, {"bold_italic", {.Bold, .Italic}}}
 
 // Registers the style faces a manifest entry names as families of their own,
 // read on first use.
@@ -175,7 +171,7 @@ resolve_style :: proc(family: string, style: Style) -> (string, Style) {
     if style == {} {
         return family, style
     }
-    name := family != "" ? family : default_family_name
+    name       := family != "" ? family : default_family_name
     fam, found := families[name]
     if !found {
         return family, style
@@ -227,7 +223,7 @@ manifest_parse :: proc(path: string) -> (json.Object, bool) {
 
 @(private = "file")
 manifest_sizes :: proc(entry: json.Object, key: string) -> [dynamic]i32 {
-    sizes := make([dynamic]i32, context.temp_allocator)
+    sizes     := make([dynamic]i32, context.temp_allocator)
     array, ok := entry[key].(json.Array)
     if !ok {
         return sizes
@@ -235,9 +231,9 @@ manifest_sizes :: proc(entry: json.Object, key: string) -> [dynamic]i32 {
     for value in array {
         #partial switch v in value {
         case json.Integer:
-            append(&sizes, cast(i32) v)
+            append(&sizes, cast(i32)v)
         case json.Float:
-            append(&sizes, cast(i32) v)
+            append(&sizes, cast(i32)v)
         }
     }
     return sizes
@@ -287,7 +283,7 @@ load_font_manifest :: proc(manifest_path: string, wanted: []string = nil, option
     }
 
     text_codepoints := build_codepoint_list(context.temp_allocator)
-    registered := 0
+    registered      := 0
     for name, value in fonts {
         entry, entry_ok := value.(json.Object)
         if !entry_ok {
@@ -300,13 +296,13 @@ load_font_manifest :: proc(manifest_path: string, wanted: []string = nil, option
             continue
         }
 
-        sizes := manifest_sizes(entry, "preload_sizes")
+        sizes     := manifest_sizes(entry, "preload_sizes")
         full_path := string(rel)
         if !filepath.is_abs(full_path) {
             full_path = strings.concatenate({dir, strings.trim_prefix(full_path, "./")}, context.temp_allocator)
         }
         read_data := len(wanted) == 0 || name == default_family_name || slice.contains(wanted, name)
-        family := register_family(name, full_path, text_codepoints[:], sizes[:], read_data)
+        family    := register_family(name, full_path, text_codepoints[:], sizes[:], read_data)
         if family == nil {
             continue
         }
@@ -364,7 +360,7 @@ load_icon_manifest :: proc(manifest_path: string, wanted: []string = nil) -> boo
         }
 
         family_key := strings.clone(family_name)
-        own_icons := make(map[string]rune)
+        own_icons  := make(map[string]rune)
         for name, glyph_value in icons {
             glyph, glyph_ok := glyph_value.(json.String)
             if !glyph_ok || len(glyph) == 0 {
@@ -378,7 +374,7 @@ load_icon_manifest :: proc(manifest_path: string, wanted: []string = nil) -> boo
             }
             // One clone backs both maps; neither frees entries individually.
             name_key := strings.clone(name)
-            icon_map[name_key] = Icon_Glyph {family = family_key, codepoint = codepoint}
+            icon_map[name_key] = Icon_Glyph{family = family_key, codepoint = codepoint}
             own_icons[name_key] = codepoint
         }
 
@@ -464,7 +460,7 @@ icon_set_active_pack :: proc(pack_group, family_name: string) -> bool {
         return false
     }
     for name, codepoint in family.own_icons {
-        icon_map[name] = Icon_Glyph {family = family.name, codepoint = codepoint}
+        icon_map[name] = Icon_Glyph{family = family.name, codepoint = codepoint}
     }
     active_pack[pack_group] = family.name
     return true

@@ -19,13 +19,7 @@ main :: proc() {
 
 @(private = "file")
 cache_hover :: proc(e: ^Engine) -> lang.Result {
-    req := lang.Request {
-        kind   = .Hover,
-        path   = "buffer.odin",
-        ext    = ".odin",
-        source = CACHE_SRC,
-        offset = strings.index(CACHE_SRC, "clone"),
-    }
+    req := lang.Request{kind = .Hover, path = "buffer.odin", ext = ".odin", source = CACHE_SRC, offset = strings.index(CACHE_SRC, "clone")}
     res := lang.Result{kind = .Hover}
     resolve(e, &req, &res)
     return res
@@ -65,7 +59,7 @@ test_tree_cache_across_engines :: proc(t: ^testing.T) {
 
     first := engine_create()
     engine_set_cache_dir(first, dir)
-    res := cache_hover(first)
+    res  := cache_hover(first)
     want := strings.clone(res.hover.text, context.temp_allocator)
     delete(res.hover.text)
     if !testing.expect(t, res.ok, "expected a hover over strings.clone") {

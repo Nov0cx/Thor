@@ -6,7 +6,8 @@ package update
 
 import "core:fmt"
 // Used on POSIX only.
-@(require) import "core:os"
+@(require)
+import "core:os"
 import "core:strings"
 
 // A published release archive, one per build job of the release workflow.

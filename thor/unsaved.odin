@@ -43,7 +43,7 @@ thor_write_backup :: proc(file: ^Open_File) -> bool {
         }
     }
     target := thor_backup_file(file.path)
-    if err := atomicfile.write(target, transmute([]byte) textedit.text(&file.state)); err != nil {
+    if err := atomicfile.write(target, transmute([]byte)textedit.text(&file.state)); err != nil {
         log.warnf("Cannot keep the unsaved edits of %q: %v", file.path, err)
         return false
     }
@@ -129,7 +129,7 @@ thor_request_close_file :: proc(thor: ^Thor, index: int, ask := true) -> bool {
 // The confirm of thor_request_close_file: the tab closes with its edits.
 @(private = "file")
 thor_confirm_close_discard :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+    thor   := cast(^Thor)data
     target := thor.close_prompt_file
     thor.close_prompt_file = nil
     for file, index in thor.open_files {

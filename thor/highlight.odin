@@ -2,13 +2,13 @@ package thor
 
 import "core:time"
 
+import "../editview"
 import "../lang"
 import "../plugin"
-import "../textedit"
-import ui "../vendor/loom/loom"
-import "../theme"
-import "../editview"
 import "../prof"
+import "../textedit"
+import "../theme"
+import ui "../vendor/loom/loom"
 // Byte window to highlight `file` over: what the pane showing it displays, plus
 // a screen of margin on each side so a small scroll does not re-run the query.
 // ok is false when no pane shows the file, or its rows are not built yet.
@@ -62,16 +62,8 @@ thor_update_highlights :: proc(thor: ^Thor, file: ^Open_File) {
         win_end = clamp(win_end, win_start, len(source))
         // The buffer's path lets a grammar-backed language re-parse only what
         // this revision changed, off the tree it kept from the last one.
-        grammar := make([dynamic]editview.Highlight_Span, context.temp_allocator)
-        spans, covered_start, covered_end := plugin.highlight_range(
-            &thor.plugins,
-            file.path,
-            source,
-            key,
-            win_start,
-            win_end,
-            context.temp_allocator,
-        )
+        grammar                           := make([dynamic]editview.Highlight_Span, context.temp_allocator)
+        spans, covered_start, covered_end := plugin.highlight_range(&thor.plugins, file.path, source, key, win_start, win_end, context.temp_allocator)
         // What the language answered for, which is wider than the window asked
         // for when a pure-Lua lexer reads the whole buffer. Recording the window
         // instead would re-highlight a buffer already covered on every scroll.
@@ -152,13 +144,7 @@ thor_update_folds :: proc(thor: ^Thor, file: ^Open_File) {
 // foreground. A classification behind the buffer is rebased onto it first, so
 // the overlay survives an edit without coloring bytes it never classified.
 @(private)
-thor_merge_semantic :: proc(
-    thor: ^Thor,
-    file: ^Open_File,
-    key, source: string,
-    grammar: []editview.Highlight_Span,
-    win_start, win_end: int,
-) {
+thor_merge_semantic :: proc(thor: ^Thor, file: ^Open_File, key, source: string, grammar: []editview.Highlight_Span, win_start, win_end: int) {
     if len(file.semantic) == 0 {
         append(&file.highlights, ..grammar)
         return
@@ -207,14 +193,10 @@ thor_merge_semantic :: proc(
 // span reaches into is dropped: the bytes it classified are gone, and a trimmed
 // one colors part of a name. Ascending, non-overlapping input stays so.
 @(private)
-thor_rebase_semantic :: proc(
-    out: ^[dynamic]lang.Semantic_Token,
-    tokens: []lang.Semantic_Token,
-    old_text, new_text: string,
-) {
+thor_rebase_semantic :: proc(out: ^[dynamic]lang.Semantic_Token, tokens: []lang.Semantic_Token, old_text, new_text: string) {
     prefix, suffix := thor_common_affixes(old_text, new_text)
-    tail := len(old_text) - suffix
-    delta := len(new_text) - len(old_text)
+    tail           := len(old_text) - suffix
+    delta          := len(new_text) - len(old_text)
     for token in tokens {
         if token.end <= prefix {
             append(out, token)
@@ -262,7 +244,7 @@ thor_semantic_spans :: proc(
         }
         cut = token.end
         start := max(token.start, win_start)
-        end := min(token.end, win_end)
+        end   := min(token.end, win_end)
         if start < end {
             append(out, editview.Highlight_Span{start, end, color})
         }
@@ -276,7 +258,7 @@ thor_semantic_spans :: proc(
 // single cursor that only ever moves forward.
 @(private)
 thor_overlay_spans :: proc(out: ^[dynamic]editview.Highlight_Span, base, over: []editview.Highlight_Span) {
-    b := 0
+    b   := 0
     // Where base[b] still has ink: an earlier overlay span may have covered its
     // opening bytes.
     cut := 0
@@ -285,7 +267,7 @@ thor_overlay_spans :: proc(out: ^[dynamic]editview.Highlight_Span, base, over: [
         // one trimmed to where the overlay begins.
         for b < len(base) {
             under := base[b]
-            from := max(under.start, cut)
+            from  := max(under.start, cut)
             if under.end <= span.start {
                 if from < under.end {
                     append(out, editview.Highlight_Span{from, under.end, under.color})
@@ -308,7 +290,7 @@ thor_overlay_spans :: proc(out: ^[dynamic]editview.Highlight_Span, base, over: [
 
     for ; b < len(base); b += 1 {
         under := base[b]
-        from := max(under.start, cut)
+        from  := max(under.start, cut)
         if from < under.end {
             append(out, editview.Highlight_Span{from, under.end, under.color})
         }
@@ -325,15 +307,24 @@ thor_overlay_spans :: proc(out: ^[dynamic]editview.Highlight_Span, base, over: [
 @(private = "file")
 thor_token_capture :: proc(kind: lang.Token_Kind) -> string {
     switch kind {
-    case .Parameter:   return "parameter"
-    case .Local:       return "variable"
-    case .Field:       return "field"
-    case .Procedure:   return "function"
-    case .Type:        return "type"
-    case .Enum_Member: return "constant"
-    case .Package:     return "namespace"
-    case .Unresolved:  return "unresolved"
-    case .Inactive:    return "inactive"
+    case .Parameter:
+        return "parameter"
+    case .Local:
+        return "variable"
+    case .Field:
+        return "field"
+    case .Procedure:
+        return "function"
+    case .Type:
+        return "type"
+    case .Enum_Member:
+        return "constant"
+    case .Package:
+        return "namespace"
+    case .Unresolved:
+        return "unresolved"
+    case .Inactive:
+        return "inactive"
     }
     return ""
 }
@@ -342,10 +333,14 @@ thor_token_capture :: proc(kind: lang.Token_Kind) -> string {
 @(private = "file")
 thor_modifier_capture :: proc(mod: lang.Token_Modifier) -> string {
     switch mod {
-    case .Deprecated: return "deprecated"
-    case .Distinct:   return "type.distinct"
-    case .Constant:   return "constant"
-    case .Mutable:    return "variable.mutable"
+    case .Deprecated:
+        return "deprecated"
+    case .Distinct:
+        return "type.distinct"
+    case .Constant:
+        return "constant"
+    case .Mutable:
+        return "variable.mutable"
     }
     return ""
 }
@@ -362,4 +357,3 @@ thor_highlight_key :: proc(plugins: ^plugin.Manager, name: string) -> string {
     }
     return thor_file_extension(name)
 }
-

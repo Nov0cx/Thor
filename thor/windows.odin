@@ -87,11 +87,7 @@ thor_register_window :: proc(thor: ^Thor) {
         }
     }
 
-    record := Window_Record {
-        workspace = thor.workspace_dir,
-        pid       = os.get_pid(),
-        hwnd      = thor_native_window(),
-    }
+    record    := Window_Record{workspace = thor.workspace_dir, pid = os.get_pid(), hwnd = thor_native_window()}
     data, err := json.marshal(record, {pretty = true}, context.temp_allocator)
     if err != nil {
         log.errorf("Could not marshal window record: %v", err)
@@ -172,7 +168,7 @@ thor_read_window_record :: proc(path: string) -> (Window_Record, bool) {
 // record whose window is gone (or now belongs to another process, the handle
 // having been recycled) is stale and removed here, so the folder frees itself.
 thor_workspace_window :: proc(workspace: string) -> (Window_Ref, bool) {
-    path := thor_window_file(workspace)
+    path            := thor_window_file(workspace)
     record, read_ok := thor_read_window_record(path)
     if !read_ok {
         return {}, false
@@ -184,7 +180,7 @@ thor_workspace_window :: proc(workspace: string) -> (Window_Ref, bool) {
     handle, state := thor_window_live(record.hwnd, record.pid)
     switch state {
     case .Live:
-        return Window_Ref {handle = handle, pid = record.pid}, true
+        return Window_Ref{handle = handle, pid = record.pid}, true
     case .Unknown:
         return {}, false
     case .Gone:

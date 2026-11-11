@@ -15,19 +15,16 @@ LINE :: f32(20)
 
 @(private = "file")
 fake_metrics :: proc() -> Metrics {
-    return Metrics {
-        measure = proc(text: string, size: i32, style: Style, user: rawptr) -> f32 {
-            return f32(len(text)) * CELL
-        },
-        line_height = proc(size: i32, user: rawptr) -> f32 {
-            return LINE
-        },
-    }
+    return Metrics{measure = proc(text: string, size: i32, style: Style, user: rawptr) -> f32 {
+        return f32(len(text)) * CELL
+    }, line_height = proc(size: i32, user: rawptr) -> f32 {
+        return LINE
+    }}
 }
 
 @(private = "file")
 test_palette :: proc() -> Palette {
-    return Palette {
+    return Palette{
         text = {1, 0, 0, 255},
         strong = {2, 0, 0, 255},
         heading = {3, 0, 0, 255},
@@ -159,7 +156,7 @@ test_heading_steps_the_size_and_rules :: proc(t: ^testing.T) {
     lay(&page, "# Title\n")
 
     text_size := i32(0)
-    rules := 0
+    rules     := 0
     for item in page.items {
         switch item.kind {
         case .Text:
@@ -557,7 +554,7 @@ test_table_columns_and_alignment :: proc(t: ^testing.T) {
 
     // Columns: 6, 5 and 3 characters wide, each inside 10 px of padding.
     name, _ := text_named(&page, "name")
-    ab, _ := text_named(&page, "ab")
+    ab, _   := text_named(&page, "ab")
     testing.expect_value(t, name.x, f32(10))
     testing.expect_value(t, ab.x, f32(10))
     testing.expect_value(t, name.color, pal.strong)
@@ -565,13 +562,13 @@ test_table_columns_and_alignment :: proc(t: ^testing.T) {
     testing.expect(t, ab.y > name.y, "a body row is under the header")
 
     // Right: the cell ends where the column ends.
-    one, _ := text_named(&page, "1")
+    one, _  := text_named(&page, "1")
     wide, _ := text_named(&page, "12345")
     testing.expect_value(t, wide.x, f32(80 + 10))
     testing.expect_value(t, one.x + one.w, wide.x + wide.w)
 
     // Center: one character in a three character column.
-    x, _ := text_named(&page, "x")
+    x, _   := text_named(&page, "x")
     xyz, _ := text_named(&page, "xyz")
     testing.expect_value(t, xyz.x, f32(80 + 70 + 10))
     testing.expect_value(t, x.x, xyz.x + CELL)
@@ -584,7 +581,7 @@ test_table_wraps_its_cells :: proc(t: ^testing.T) {
     defer page_destroy(&page)
     lay(&page, "| a | b |\n|---|---|\n| one two three four | five six seven eight |\n", 240)
 
-    one, _ := text_named(&page, "one")
+    one, _  := text_named(&page, "one")
     four, _ := text_named(&page, "four")
     five, _ := text_named(&page, "five")
     testing.expect(t, four.y > one.y, "the cell wraps")
@@ -596,7 +593,7 @@ test_table_wraps_its_cells :: proc(t: ^testing.T) {
 
     // A cell that cannot break keeps its column as wide as it is.
     lay(&page, "| a | b |\n|---|---|\n| `unbreakable_name` | one two three four five six |\n", 300)
-    name, _ := text_named(&page, "unbreakable_name")
+    name, _  := text_named(&page, "unbreakable_name")
     first, _ := text_named(&page, "one")
     testing.expect(t, first.x >= name.x + name.w + 10, "the next column starts after it")
 }
@@ -654,7 +651,7 @@ test_image_fits_the_column :: proc(t: ^testing.T) {
     testing.expect(t, found, "the page holds the image")
 
     before, _ := text_named(&page, "before")
-    after, _ := text_named(&page, "after")
+    after, _  := text_named(&page, "after")
     testing.expect(t, after.y >= before.y + LINE + 100, "the text goes on under the image")
 }
 
@@ -698,9 +695,9 @@ test_emphasis_takes_its_style :: proc(t: ^testing.T) {
     pal := test_palette()
     lay(&page, "*it* **bo** ***both*** plain\n")
 
-    it, _ := text_named(&page, "it")
-    bo, _ := text_named(&page, "bo")
-    both, _ := text_named(&page, "both")
+    it, _    := text_named(&page, "it")
+    bo, _    := text_named(&page, "bo")
+    both, _  := text_named(&page, "both")
     plain, _ := text_named(&page, "plain")
     testing.expect_value(t, it.style, Style{.Italic})
     testing.expect_value(t, it.color, pal.text)
@@ -727,7 +724,7 @@ test_blocks_nest_in_a_list_item :: proc(t: ^testing.T) {
     defer page_destroy(&page)
     lay(&page, "- item\n\n  ```\n  code\n  ```\n\n  > quoted\n- next\n")
 
-    item, _ := text_named(&page, "item")
+    item, _  := text_named(&page, "item")
     code, ok := text_named(&page, "code")
     testing.expect(t, ok, "the code line is drawn")
     testing.expect_value(t, item.x, f32(24))
@@ -904,9 +901,9 @@ test_code_block_highlight :: proc(t: ^testing.T) {
     }
     layout(&page, "```odin\nx := 1\ny\n```\n", 600, 16, test_palette(), m)
 
-    x, _ := text_named(&page, "x")
+    x, _     := text_named(&page, "x")
     rest, ok := text_named(&page, " := 1")
-    y, _ := text_named(&page, "y")
+    y, _     := text_named(&page, "y")
     testing.expect_value(t, x.color, ui.Color{77, 0, 0, 255})
     testing.expect(t, ok, "the rest of the row is its own item")
     testing.expect_value(t, rest.color, test_palette().code)
@@ -936,14 +933,14 @@ test_selection_round_trip :: proc(t: ^testing.T) {
     lay(&page, source)
 
     beta, _ := text_named(&page, "beta")
-    at := offset_at(&page, fake_metrics(), beta.x + 2 * CELL, beta.y + 1)
+    at      := offset_at(&page, fake_metrics(), beta.x + 2 * CELL, beta.y + 1)
     testing.expect_value(t, at, strings.index(source, "beta") + 2)
 
     lo, hi := word_range(source, at)
     testing.expect_value(t, source[lo:hi], "beta")
 
     all_lo, all_hi := source_extent(&page)
-    text := selection_text(&page, all_lo, all_hi, context.temp_allocator)
+    text           := selection_text(&page, all_lo, all_hi, context.temp_allocator)
     testing.expect_value(t, text, "alpha beta gamma\nnext line")
 
     part := selection_text(&page, strings.index(source, "pha"), strings.index(source, "gam") + 3, context.temp_allocator)

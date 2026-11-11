@@ -50,12 +50,7 @@ test_editor_menu_language_items :: proc(t: ^testing.T) {
     defer lang.manager_destroy(&thor.lang_manager)
     lang.manager_register(
         &thor.lang_manager,
-        lang.Backend {
-            name = "stub",
-            handles = menu_stub_handles,
-            resolve = menu_stub_resolve,
-            supports = menu_stub_supports,
-        },
+        lang.Backend{name = "stub", handles = menu_stub_handles, resolve = menu_stub_resolve, supports = menu_stub_supports},
     )
     thor.open_files = make([dynamic]^Open_File)
     defer delete(thor.open_files)

@@ -2,8 +2,8 @@ package thor
 
 import "core:testing"
 
-import "../textedit"
 import "../editview"
+import "../textedit"
 
 // A right-click into the split pane focuses it, but the menu takes the focus
 // straight after, so the frame's own sync would read the menu instead. The
@@ -15,7 +15,9 @@ test_active_pane_follows_focus :: proc(t: ^testing.T) {
     defer free(thor)
     thor.active_file = make_signal(-1)
     thor.pane_file = -1
-    defer for &editor in thor.editors {editview.editor_destroy(&editor)}
+    defer for &editor in thor.editors {
+        editview.editor_destroy(&editor)
+    }
 
     thor.focus_request = "pane1"
     thor_sync_active_pane(thor)

@@ -15,10 +15,10 @@ self_assign :: proc(stmt: odinsyntax.Syntax_Node) -> bool {
     }
     lhs := odinsyntax.assign_stmt_lhs(&as) or_return
     rhs := odinsyntax.assign_stmt_rhs(&as) or_return
-    li := odinsyntax.expr_list_items(&lhs)
-    ri := odinsyntax.expr_list_items(&rhs)
-    a := odinsyntax.child_iter_next(&li) or_return
-    b := odinsyntax.child_iter_next(&ri) or_return
+    li  := odinsyntax.expr_list_items(&lhs)
+    ri  := odinsyntax.expr_list_items(&rhs)
+    a   := odinsyntax.child_iter_next(&li) or_return
+    b   := odinsyntax.child_iter_next(&ri) or_return
     if _, more := odinsyntax.child_iter_next(&li); more {
         return false
     }
@@ -42,7 +42,7 @@ if_problems :: proc(c: ^Checker, file: File_Id, stmt: odinsyntax.Syntax_Node) ->
             constant, value = int(cond.offset), v
         }
     }
-    body, has_body := odinsyntax.if_stmt_body(&is_)
+    body, has_body  := odinsyntax.if_stmt_body(&is_)
     other, has_else := odinsyntax.if_stmt_else_branch(&is_)
     if !has_body || !has_else || body.green.kind != .Block || other.green.kind != .Block {
         return
@@ -178,10 +178,10 @@ const_value_node :: proc(c: ^Checker, sym: Symbol) -> (file: File_Id, value: odi
     if !is_decl {
         return
     }
-    names := odinsyntax.value_decl_names(&v) or_return
+    names  := odinsyntax.value_decl_names(&v) or_return
     values := odinsyntax.value_decl_values(&v) or_return
-    index := -1
-    ni := odinsyntax.name_list_names(&names)
+    index  := -1
+    ni     := odinsyntax.name_list_names(&names)
     for i := 0; ; i += 1 {
         name := odinsyntax.child_iter_next(&ni) or_break
         if int(name.offset) == name_offset {

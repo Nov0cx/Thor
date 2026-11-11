@@ -43,21 +43,15 @@ Row_Marker :: struct {
 // from `thor_row_x`, so a marker sits under the column it stands for even on a
 // row that reserves a swatch gap. Indentation only: the scan stops at the first
 // character that is not a space or a tab.
-thor_row_markers :: proc(
-    editor: ^editview.Editor,
-    text: string,
-    row: editview.Visual_Row,
-    spans: []ui.Text_Span,
-    text_x: f32,
-) -> []Row_Marker {
-    out := make([dynamic]Row_Marker, 0, 16, context.temp_allocator)
+thor_row_markers :: proc(editor: ^editview.Editor, text: string, row: editview.Visual_Row, spans: []ui.Text_Span, text_x: f32) -> []Row_Marker {
+    out  := make([dynamic]Row_Marker, 0, 16, context.temp_allocator)
     prev := text_x
     for pos := row.start; pos < row.end && pos < len(text); pos += 1 {
         b := text[pos]
         if b != ' ' && b != '\t' {
             break
         }
-        rel := pos - row.start
+        rel  := pos - row.start
         next := text_x + thor_row_x(editor, text, row.start, row.end, pos + 1, spans)
         // A gap opening before the next byte sits after this character, not
         // across it, so the marker keeps the character's own advance.
@@ -73,31 +67,19 @@ thor_row_markers :: proc(
 
 // Marks the leading whitespace of one row: a dot per space, an arrow per tab.
 @(private)
-thor_paint_row_whitespace :: proc(
-    thor: ^Thor,
-    editor: ^editview.Editor,
-    text: string,
-    row: editview.Visual_Row,
-    spans: []ui.Text_Span,
-    text_x, row_y: f32,
-) {
+thor_paint_row_whitespace :: proc(thor: ^Thor, editor: ^editview.Editor, text: string, row: editview.Visual_Row, spans: []ui.Text_Span, text_x, row_y: f32) {
     color := thor.theme.disabled
     color.a = WHITESPACE_ALPHA
-    size := f32(editor.font_size)
+    size  := f32(editor.font_size)
     mid_y := row_y + render.half_leading(size) + size * 0.5
-    dot := max(1, size * WHITESPACE_DOT_SCALE)
+    dot   := max(1, size * WHITESPACE_DOT_SCALE)
 
     for marker in thor_row_markers(editor, text, row, spans, text_x) {
         if marker.tab {
             thor_paint_tab_arrow(marker.x0, marker.x1, mid_y, dot, color)
             continue
         }
-        ui.paint_rect(
-            {marker.x0 + (marker.x1 - marker.x0 - dot) * 0.5, mid_y - dot * 0.5, dot, dot},
-            color,
-            {},
-            true,
-        )
+        ui.paint_rect({marker.x0 + (marker.x1 - marker.x0 - dot) * 0.5, mid_y - dot * 0.5, dot, dot}, color, {}, true)
     }
 }
 
@@ -105,7 +87,7 @@ thor_paint_row_whitespace :: proc(
 // font that gives it almost no advance) gets the shaft only.
 @(private = "file")
 thor_paint_tab_arrow :: proc(x0, x1, y, size: f32, color: ui.Color) {
-    left := x0 + size
+    left  := x0 + size
     right := x1 - size
     if right <= left {
         return
@@ -152,7 +134,7 @@ thor_paint_row_link :: proc(
         return
     }
     size := f32(editor.font_size)
-    y := row_y + render.half_leading(size) + size - 1
+    y    := row_y + render.half_leading(size) + size - 1
     ui.paint_rect({x0, y, x1 - x0, 1}, thor.theme.foreground, {}, true)
 }
 
@@ -171,7 +153,7 @@ thor_row_stops :: proc(editor: ^editview.Editor, row: editview.Visual_Row) -> []
         return nil
     }
     active := editor.snippet_stops[editor.snippet_at].index
-    out := make([dynamic]Row_Stop, 0, len(editor.snippet_stops), context.temp_allocator)
+    out    := make([dynamic]Row_Stop, 0, len(editor.snippet_stops), context.temp_allocator)
     for stop in editor.snippet_stops {
         if stop.end > stop.start {
             if start, end, ok := thor_row_link_bytes(row, stop.start, stop.end); ok {
@@ -199,20 +181,13 @@ thor_row_stops :: proc(editor: ^editview.Editor, row: editview.Visual_Row) -> []
 // in the accent, the ones tab still reaches dim. An empty stop is a tick, having
 // no width to box.
 @(private)
-thor_paint_row_snippet_stops :: proc(
-    thor: ^Thor,
-    editor: ^editview.Editor,
-    text: string,
-    row: editview.Visual_Row,
-    spans: []ui.Text_Span,
-    text_x, row_y: f32,
-) {
+thor_paint_row_snippet_stops :: proc(thor: ^Thor, editor: ^editview.Editor, text: string, row: editview.Visual_Row, spans: []ui.Text_Span, text_x, row_y: f32) {
     size := f32(editor.font_size)
-    y := row_y + render.half_leading(size)
+    y    := row_y + render.half_leading(size)
     for stop in thor_row_stops(editor, row) {
         color := stop.active ? thor.theme.accent_color : thor.theme.disabled
-        x0 := text_x + thor_row_x(editor, text, row.start, row.end, stop.start, spans)
-        x1 := text_x + thor_row_x(editor, text, row.start, row.end, stop.end, spans)
+        x0    := text_x + thor_row_x(editor, text, row.start, row.end, stop.start, spans)
+        x1    := text_x + thor_row_x(editor, text, row.start, row.end, stop.end, spans)
         if x1 - x0 < 1 {
             ui.paint_line({x0, y}, {x0, y + size}, 1, color)
             continue
@@ -254,35 +229,33 @@ thor_completion_card :: proc(thor: ^Thor, editor: ^editview.Editor) {
         return
     }
 
-    ui.scope(
-        {
-            key = "completion",
-            // Clipped: the box is capped at 420px, so a long candidate would
-            // otherwise run out past the border.
-            flags = {.Floating, .Pass_Through, .Clip},
-            props = {
-                position = .Fixed,
-                inset = {l = box.x, t = box.y},
-                w = ui.Px(box.w),
-                h = ui.Px(box.h),
-                bg = thor.theme.second_background,
-                radius = ui.rad(6),
-                border = {width = ui.all(1), color = thor.theme.border},
-                shadow = {offset = {0, 4}, blur = 16, color = thor.theme.contrast},
-            },
+    ui.scope({
+        key = "completion",
+        // Clipped: the box is capped at 420px, so a long candidate would
+        // otherwise run out past the border.
+        flags = {.Floating, .Pass_Through, .Clip},
+        props = {
+            position = .Fixed,
+            inset = {l = box.x, t = box.y},
+            w = ui.Px(box.w),
+            h = ui.Px(box.h),
+            bg = thor.theme.second_background,
+            radius = ui.rad(6),
+            border = {width = ui.all(1), color = thor.theme.border},
+            shadow = {offset = {0, 4}, blur = 16, color = thor.theme.contrast},
         },
-    )
+    })
 
     visible := min(len(editor.completion_rows) - top, editview.COMPLETION_MAX_ROWS)
     for i in 0 ..< visible {
         index := top + i
-        y := 2 + f32(i) * row_h
+        y     := 2 + f32(i) * row_h
         if index == editor.completion_selected {
             ui.paint_rect({0, y, box.w, row_h}, thor.theme.selection_background)
         }
         candidate := editor.completion_rows[index]
         // A buffer word carries no tint of its own.
-        color := candidate.color.a == 0 ? thor.theme.foreground : candidate.color
+        color     := candidate.color.a == 0 ? thor.theme.foreground : candidate.color
         ui.push_id_int(i64(i))
         ui.leaf(
             {
@@ -360,7 +333,7 @@ thor_completion_doc_card :: proc(thor: ^Thor, editor: ^editview.Editor) {
     thor_markdown_set_source(view, source, 0, nil)
     thor_markdown_ensure(thor, view, avail, thor_markdown_base(thor))
     content := max(view.page.content_height - markdown.PAD_TOP - markdown.PAD_BOTTOM, 0)
-    height := min(content + CARD_PAD_Y * 2, editor.view.h)
+    height  := min(content + CARD_PAD_Y * 2, editor.view.h)
 
     x := box.x + box.w + CARD_GAP
     if x + width > editor.view.x + editor.view.w {
@@ -386,14 +359,7 @@ thor_completion_doc_card :: proc(thor: ^Thor, editor: ^editview.Editor) {
         },
     )
     view.hovered = -1
-    thor_markdown_draw(
-        thor,
-        view,
-        {x, y, width, height},
-        CARD_PAD_X,
-        CARD_PAD_Y - markdown.PAD_TOP,
-        false,
-    )
+    thor_markdown_draw(thor, view, {x, y, width, height}, CARD_PAD_X, CARD_PAD_Y - markdown.PAD_TOP, false)
 }
 
 // What a dwell resolved, over the symbol it describes. A diagnostic tints the
@@ -416,14 +382,7 @@ thor_signature_card :: proc(thor: ^Thor, editor: ^editview.Editor) {
     if !editor.signature_active || editor.signature_text == "" {
         return
     }
-    thor_editor_card(
-        thor,
-        editor,
-        "signature",
-        editor.signature_text,
-        editor.signature_anchor,
-        thor.theme.accent_color,
-    )
+    thor_editor_card(thor, editor, "signature", editor.signature_text, editor.signature_anchor, thor.theme.accent_color)
 }
 
 // One card of monospaced lines, anchored above byte `anchor` and flipped below it
@@ -431,13 +390,7 @@ thor_signature_card :: proc(thor: ^Thor, editor: ^editview.Editor) {
 // measured here rather than fitted by Loom, so its place is right on the frame it
 // appears rather than the one after.
 @(private = "file")
-thor_editor_card :: proc(
-    thor: ^Thor,
-    editor: ^editview.Editor,
-    key, text: string,
-    anchor: int,
-    border: ui.Color,
-) {
+thor_editor_card :: proc(thor: ^Thor, editor: ^editview.Editor, key, text: string, anchor: int, border: ui.Color) {
     x, y, line_h, ok := editview.editor_screen_at(editor, anchor)
     if !ok || line_h <= 0 {
         return
@@ -457,7 +410,7 @@ thor_editor_card :: proc(
     // A word wider than the wrap budget keeps its own line, and a pane too narrow
     // to wrap in leaves the text whole, so the box is capped at the pane and the
     // node clips what does not fit rather than hanging over the explorer.
-    width := min(text_w + CARD_PAD_X * 2, editor.view.w)
+    width  := min(text_w + CARD_PAD_X * 2, editor.view.w)
     height := f32(lines) * line_h + CARD_PAD_Y * 2
 
     box_x := x
@@ -474,14 +427,7 @@ thor_editor_card :: proc(
 
 // The card itself: `text` as one monospaced node per line inside `box`.
 @(private = "file")
-thor_card_draw :: proc(
-    thor: ^Thor,
-    editor: ^editview.Editor,
-    key, text: string,
-    box: ui.Rect,
-    line_h: f32,
-    border: ui.Color,
-) {
+thor_card_draw :: proc(thor: ^Thor, editor: ^editview.Editor, key, text: string, box: ui.Rect, line_h: f32, border: ui.Color) {
     box_x, box_y, width, height := box.x, box.y, box.w, box.h
     ui.scope(
         {
@@ -503,7 +449,7 @@ thor_card_draw :: proc(
     )
 
     index := 0
-    rest := text
+    rest  := text
     for line in strings.split_lines_iterator(&rest) {
         ui.push_id_int(i64(index))
         ui.leaf(

@@ -20,9 +20,9 @@ merge :: proc(texts: ..string) -> Config {
 // The same, against a workspace root the ${workspace} variable can expand to.
 @(private = "file")
 merge_in :: proc(workspace: string, texts: ..string) -> Config {
-    cfg := Config {
-        servers   = make([dynamic]Server_Config),
-        problems  = make([dynamic]Config_Problem),
+    cfg := Config{
+        servers = make([dynamic]Server_Config),
+        problems = make([dynamic]Config_Problem),
         workspace = strings.clone(workspace),
         allocator = context.allocator,
     }
@@ -36,7 +36,7 @@ merge_in :: proc(workspace: string, texts: ..string) -> Config {
 // A JSON fixture as the Lua config it converts to; any other text unchanged.
 @(private = "file")
 lua_of :: proc(text: string) -> string {
-    value, err := json.parse(transmute([]u8) text, parse_integers = true, allocator = context.temp_allocator)
+    value, err := json.parse(transmute([]u8)text, parse_integers = true, allocator = context.temp_allocator)
     if err != .None {
         return text
     }
@@ -68,7 +68,7 @@ find :: proc(cfg: ^Config, id: string) -> (^Server_Config, bool) {
 @(test)
 test_config_gates_the_workspace_file :: proc(t: ^testing.T) {
     root := "thor_lsp_trust_ws"
-    dir := strings.concatenate({root, "/", WORKSPACE_CONFIG_DIR}, context.temp_allocator)
+    dir  := strings.concatenate({root, "/", WORKSPACE_CONFIG_DIR}, context.temp_allocator)
     path := strings.concatenate({dir, "/", WORKSPACE_CONFIG}, context.temp_allocator)
     _ = os.make_directory(root)
     _ = os.make_directory(dir)
@@ -229,8 +229,8 @@ test_config_drops_entries_that_start_nothing :: proc(t: ^testing.T) {
 // it: a broken workspace file must leave the shipped servers standing.
 @(test)
 test_config_survives_malformed_files :: proc(t: ^testing.T) {
-    good := `{"servers": [{"id": "gopls", "extensions": [".go"], "command": ["gopls"]}]}`
-    cases := []string {
+    good  := `{"servers": [{"id": "gopls", "extensions": [".go"], "command": ["gopls"]}]}`
+    cases := []string{
         "",
         "not json at all",
         `{"servers": {}}`,
@@ -388,7 +388,7 @@ test_config_reports_broken_files :: proc(t: ^testing.T) {
     cases := []struct {
         text:   string,
         needle: string,
-    } {
+    }{
         {"not lua at all", "test.lua:1"},
         {"return 1", "must return a table"},
         {`return { other = 1 }`, `no "servers" list`},
@@ -407,10 +407,8 @@ test_config_reports_broken_files :: proc(t: ^testing.T) {
 // written for a later version still loads here.
 @(test)
 test_config_reports_unknown_and_mistyped_keys :: proc(t: ^testing.T) {
-    cfg := merge(
-        `{"servers": [{"id": "s", "extensions": [".s"], "command": ["s"],
-            "init_optionz": {}, "root_markers": "not-an-array"}]}`,
-    )
+    cfg := merge(`{"servers": [{"id": "s", "extensions": [".s"], "command": ["s"],
+            "init_optionz": {}, "root_markers": "not-an-array"}]}`)
     defer config_destroy(&cfg)
 
     testing.expect_value(t, len(cfg.servers), 1)
@@ -469,10 +467,8 @@ test_config_parses_setup_fields :: proc(t: ^testing.T) {
 // A platform the entry says nothing about falls back to "any".
 @(test)
 test_config_install_falls_back_to_any :: proc(t: ^testing.T) {
-    cfg := merge(
-        `{"servers": [{"id": "s", "extensions": [".s"], "command": ["s"],
-            "install": {"any": "go install example.invalid/s@latest"}}]}`,
-    )
+    cfg := merge(`{"servers": [{"id": "s", "extensions": [".s"], "command": ["s"],
+            "install": {"any": "go install example.invalid/s@latest"}}]}`)
     defer config_destroy(&cfg)
 
     testing.expect_value(t, len(cfg.servers), 1)
@@ -495,7 +491,7 @@ test_config_name_falls_back_to_id :: proc(t: ^testing.T) {
 @(test)
 test_config_expands_variables :: proc(t: ^testing.T) {
     home := config_home()
-    cfg := merge_in(
+    cfg  := merge_in(
         "ws",
         `{"servers": [{"id": "s", "extensions": [".s"], "command": ["${workspace}/.venv/bin/s", "--home=${userHome}"],
             "cwd": "${workspace}/sub", "env": {"TOOL": "${nope}"}}]}`,
@@ -529,7 +525,7 @@ test_config_expands_environment :: proc(t: ^testing.T) {
         return
     }
     text := fmt.tprintf(`{{"servers": [{{"id": "s", "extensions": [".s"], "command": ["s", "${{env:%s}}"]}}]}}`, KEY)
-    set := merge(text)
+    set  := merge(text)
     defer config_destroy(&set)
     testing.expect_value(t, len(set.servers), 1)
     testing.expect_value(t, set.servers[0].command[1], value)
