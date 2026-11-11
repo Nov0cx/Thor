@@ -1068,6 +1068,10 @@ test_stacked_attributes_keep_their_order :: proc(t: ^testing.T) {
 test_comment_before_first_member_keeps_its_line :: proc(t: ^testing.T) {
     expect_keeps(t, "package p\nFoo :: struct {\n\t// first\n\tx: int,\n}\n", "struct {\n\t// first\n\tx: int,")
     expect_keeps(t, "package p\nFoo :: struct { // note\n\tx: int,\n}\n", "struct { // note\n\tx: int,")
+    expect_keeps(t, "package p\nE :: enum u8 {\n\t// first\n\tX,\n}\n", "enum u8 {\n\t// first\n\tX,")
+    expect_keeps(t, "package p\nE :: enum { // note\n\tX,\n}\n", "enum { // note\n\tX,")
+    expect_keeps(t, "package p\nU :: union {\n\t// first\n\tint,\n}\n", "union {\n\t// first\n\tint,")
+    expect_keeps(t, "package p\nB :: bit_field u8 {\n\t// first\n\tx: u8 | 4,\n}\n", "bit_field u8 {\n\t// first\n\tx: u8 | 4,")
 }
 
 @(test)

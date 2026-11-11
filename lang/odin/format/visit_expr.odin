@@ -601,9 +601,9 @@ print_union_type :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: Node) {
     }
     open := tok_index(ks, .Open_Brace)
     variants := expr_kids(ks[open + 1:]) if open >= 0 else []Node{}
-    _, close_line := brace_lines(pr, ks, e)
+    open_line, close_line := brace_lines(pr, ks, e)
     print_brace_lead(pr, out, false, len(variants) == 0)
-    print_expr_brace_body(pr, out, close_line, variants)
+    print_expr_brace_body(pr, out, open_line, close_line, variants)
 }
 
 @(private)
@@ -616,9 +616,9 @@ print_enum_type :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: Node) {
         print_expr(pr, out, backing)
     }
     members := expr_kids(ks[open + 1:]) if open >= 0 else []Node{}
-    _, close_line := brace_lines(pr, ks, e)
+    open_line, close_line := brace_lines(pr, ks, e)
     print_brace_lead(pr, out, false, len(members) == 0)
-    print_expr_brace_body(pr, out, close_line, members)
+    print_expr_brace_body(pr, out, open_line, close_line, members)
 }
 
 @(private)
@@ -635,9 +635,9 @@ print_bit_field_type :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: Node) {
             append(&fields, k)
         }
     }
-    _, close_line := brace_lines(pr, ks, e)
+    open_line, close_line := brace_lines(pr, ks, e)
     print_brace_lead(pr, out, false, len(fields) == 0)
-    print_bit_field_brace_body(pr, out, close_line, fields[:])
+    print_bit_field_brace_body(pr, out, open_line, close_line, fields[:])
 }
 
 @(private)

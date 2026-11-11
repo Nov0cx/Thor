@@ -243,7 +243,7 @@ print_field_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, open_line, clos
     }
     body: [dynamic]Doc
     first_line := start_line(pr, fields[0])
-    prev_line, has_prev := flush_before(pr, &body, open_line, true, first_line, true)
+    prev_line, has_prev := flush_before(pr, &body, open_line, true, first_line, true, fields[0].start)
     append(&body, hard_line(0))
     for f, i in fields {
         if i > 0 {
@@ -309,7 +309,7 @@ is_flat_field_value :: proc(pr: ^Printer, ex: Node) -> bool {
 // One bare expression per line, comma-terminated — union variants and enum
 // fields.
 @(private)
-print_expr_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, close_line: int, exprs: []Node) {
+print_expr_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, open_line, close_line: int, exprs: []Node) {
     assign_field_value_align_ids(pr, exprs)
     assign_comment_cols(pr, exprs)
     append(out, text("{"))
@@ -320,7 +320,7 @@ print_expr_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, close_line: int,
         return
     }
     body: [dynamic]Doc
-    prev_line, has_prev := flush_before(pr, &body, 0, false, start_line(pr, exprs[0]), true)
+    prev_line, has_prev := flush_before(pr, &body, open_line, true, start_line(pr, exprs[0]), true, exprs[0].start)
     append(&body, hard_line(0))
     for ex, i in exprs {
         if i > 0 {
@@ -419,7 +419,7 @@ assign_bit_field_align_ids :: proc(pr: ^Printer, fields: []Node) {
 }
 
 @(private)
-print_bit_field_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, close_line: int, fields: []Node) {
+print_bit_field_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, open_line, close_line: int, fields: []Node) {
     assign_bit_field_align_ids(pr, fields)
     assign_comment_cols(pr, fields)
     append(out, text("{"))
@@ -430,7 +430,7 @@ print_bit_field_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, close_line:
         return
     }
     body: [dynamic]Doc
-    prev_line, has_prev := flush_before(pr, &body, 0, false, start_line(pr, fields[0]), true)
+    prev_line, has_prev := flush_before(pr, &body, open_line, true, start_line(pr, fields[0]), true, fields[0].start)
     append(&body, hard_line(0))
     for f, i in fields {
         if i > 0 {
