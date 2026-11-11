@@ -674,7 +674,7 @@ settings_content :: proc(thor: ^Thor) {
 settings_workspace_prompt :: proc(thor: ^Thor) {
     ui.label("This folder has no workspace settings yet.", {key = "msg", props = {pad = ui.xy(4, 10), color = thor.theme.foreground}})
     ui.label("Workspace settings live in .thor/ and override the general ones.", {key = "hint", props = {pad = ui.xy(4, 2), color = thor.theme.muted_color}})
-    if settings_button(thor, "cta", "Create Workspace Settings", thor.theme.accent_color) {
+    if settings_button(thor, "cta", "Create Workspace Settings", thor.theme.accent_color, outlined = true) {
         thor_cmd_init_workspace(thor)
     }
 }
@@ -861,7 +861,13 @@ settings_keybind_control :: proc(thor: ^Thor, row: ^Settings_Row, row_index: int
 }
 
 @(private = "file")
-settings_button :: proc(thor: ^Thor, key, label: string, color: ui.Color) -> bool {
+settings_button :: proc(
+    // A row button looks like the choice chips; an `outlined` one is a call to action.
+    thor: ^Thor,
+    key, label: string,
+    color: ui.Color,
+    outlined := false,
+) -> bool {
     it := ui.scope(
         {
             key = key,
@@ -870,11 +876,11 @@ settings_button :: proc(thor: ^Thor, key, label: string, color: ui.Color) -> boo
                 h = ui.Px(26),
                 dir = .Row,
                 align = .Center,
-                pad = ui.xy(12, 0),
-                margin = {t = 8},
+                pad = ui.xy(outlined ? 12 : 10, 0),
+                margin = {t = outlined ? 8 : 0},
                 radius = ui.rad(6),
                 bg = thor.theme.buttons,
-                border = {width = ui.all(1), color = color},
+                border = {width = ui.all(outlined ? 1 : 0), color = color},
                 cursor = .Pointer,
             },
             hover = {bg = thor.theme.active},

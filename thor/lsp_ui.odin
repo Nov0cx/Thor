@@ -161,8 +161,8 @@ thor_lsp_problem_names :: proc(problems: []lsp.Config_Problem, path: string) -> 
     return false
 }
 
-// One server: a fold group of what it is and what to do about it, then the
-// feature group settings_ui.odin's own row ids drive.
+// One server: a fold group of what it is, what to do about it, and its features,
+// whose row ids settings_ui.odin drives.
 @(private = "file")
 thor_lsp_populate_server :: proc(thor: ^Thor, id: string) {
     view          := &thor.settings
@@ -220,20 +220,11 @@ thor_lsp_populate_server :: proc(thor: ^Thor, id: string) {
     if status.docs_url != "" {
         thor_settings_add_action(view, thor_lsp_action_id(.Docs, id), "Documentation", "Open")
     }
-    thor_settings_end_group(view)
-
-    if !on {
-        return
-    }
-    thor_settings_begin_group(
-        view,
-        thor_language_backend_feature_group(id),
-        fmt.tprintf("%s Features", status.name),
-        collapsed = true,
-        value = fmt.tprintf("%d of %d on", card(features), len(lang.Request_Kind)),
-    )
-    for kind in lang.Request_Kind {
-        thor_settings_add_choice(view, thor_language_backend_feature_id(id, kind), LANGUAGE_FEATURE_LABELS[kind], thor_on_off_label(kind in features))
+    if on {
+        info(view, id, "features", "Features", fmt.tprintf("%d of %d on", card(features), len(lang.Request_Kind)))
+        for kind in lang.Request_Kind {
+            thor_settings_add_choice(view, thor_language_backend_feature_id(id, kind), LANGUAGE_FEATURE_LABELS[kind], thor_on_off_label(kind in features))
+        }
     }
     thor_settings_end_group(view)
 }
