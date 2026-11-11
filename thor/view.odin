@@ -454,7 +454,12 @@ thor_workspace :: proc(thor: ^Thor) {
     thor.explorer_open = signal_get(&thor.explorer_visible)
     thor.console_open = signal_get(&thor.console_visible)
 
-    if ui.panel(dock, EXPLORER_PANEL, &thor.explorer_open) {
+    // A narrow window hides the explorer and leaves the user's choice as it is.
+    narrow := ui.viewport().x < EXPLORER_HIDE_W
+    if narrow {
+        hidden := false
+        ui.panel(dock, EXPLORER_PANEL, &hidden)
+    } else if ui.panel(dock, EXPLORER_PANEL, &thor.explorer_open) {
         thor_explorer_view(thor)
         ui.end_panel()
     }
@@ -498,6 +503,8 @@ thor_workspace :: proc(thor: ^Thor) {
 }
 
 EXPLORER_PANEL      :: "Explorer"
+// Below this window width the explorer is hidden.
+EXPLORER_HIDE_W     :: f32(800)
 EDITOR_PANEL        :: "Editor"
 CONSOLE_PANEL       :: "Terminal"
 PLUGIN_RIGHT_PANEL  :: "Panels"
