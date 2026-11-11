@@ -12,6 +12,7 @@ import ui "../vendor/loom/loom"
 SETTINGS_WIDTH        :: f32(940)
 SETTINGS_HEIGHT       :: f32(620)
 SETTINGS_SIDEBAR_W    :: f32(210)
+SETTINGS_CHORD_W      :: f32(170)
 // Corner radius of the box, and the radius its edge children take: the same
 // curve one border width in.
 SETTINGS_RADIUS       :: f32(10)
@@ -357,7 +358,7 @@ settings_toggle_group :: proc(s: ^Settings_State, id: string) {
 }
 
 // The rows the list shows: the selected category with its folded groups hidden,
-// or every label match when the search box is not empty.
+// or every label match when the search box is not empty. A keybind row also matches its action id.
 @(private = "file")
 settings_recompute_visible :: proc(s: ^Settings_State) {
     clear(&s.visible_rows)
@@ -383,7 +384,7 @@ settings_recompute_visible :: proc(s: ^Settings_State) {
             continue
         }
         label := strings.to_lower(row.label, context.temp_allocator)
-        if strings.contains(label, query) {
+        if strings.contains(label, query) || (row.kind == .Keybind && strings.contains(row.id, query)) {
             append(&s.visible_rows, i)
         }
     }
@@ -825,34 +826,37 @@ settings_keybind_control :: proc(thor: ^Thor, row: ^Settings_Row, row_index: int
             key = "chord",
             flags = {.Clickable},
             props = {
+                w = ui.Px(SETTINGS_CHORD_W),
                 h = ui.Px(26),
-                min_w = 120,
                 dir = .Row,
                 justify = .Center,
                 align = .Center,
                 pad = ui.xy(10, 0),
                 radius = ui.rad(6),
-                bg = capturing ? thor.theme.selection_background : thor.theme.buttons,
+                bg = capturing ? thor.theme.selection_background : (bound ? thor.theme.buttons : nil),
                 border = {width = ui.all(1), color = capturing ? thor.theme.accent_color : thor.theme.border},
                 cursor = .Pointer,
             },
             hover = {bg = capturing ? thor.theme.selection_background : thor.theme.active},
         },
     )
-    text := capturing ? "Press shortcut..." : (bound ? row.value : "Unbound")
+    text := capturing ? "Press shortcut..." : (bound ? row.value : "Add shortcut")
     ui.label(
         text,
-        {key = "text", props = {color = capturing ? thor.theme.accent_color : (bound ? thor.theme.foreground : thor.theme.disabled), text_wrap = .None}},
+        {key = "text", props = {color = capturing ? thor.theme.accent_color : (bound ? thor.theme.foreground : thor.theme.disabled), text_wrap = .Ellipsis}},
     )
     if it.clicked && !capturing {
         settings_begin_capture(s, row_index)
     }
 
     // Clearing a binding is the same commit with no key.
+    // An unbound row keeps the slot, so every chip starts at one x.
     if bound && !capturing {
         if settings_step_button(thor, "clear", "x", true) {
             thor_on_setting_keybind(thor, row.id, .None, {})
         }
+    } else {
+        ui.leaf({key = "clear", props = {w = ui.Px(24), h = ui.Px(24)}})
     }
 }
 

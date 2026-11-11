@@ -310,6 +310,27 @@ thor_action_shortcut :: proc(thor: ^Thor, action: string) -> string {
     return ""
 }
 
+// The name a keybind action shows in the UI: its palette title, else the id in
+// sentence case ("add_cursor_above" -> "Add cursor above"). Temp-allocated.
+thor_action_title :: proc(thor: ^Thor, action: string) -> string {
+    for cmd in thor.palette.commands {
+        if cmd.action == action {
+            return cmd.title
+        }
+    }
+    for cmd in thor.plugin_commands {
+        if cmd.action == action {
+            return cmd.title
+        }
+    }
+    words, _ := strings.replace_all(action, "_", " ", context.temp_allocator)
+    if words == "" {
+        return words
+    }
+    head := strings.to_upper(words[:1], context.temp_allocator)
+    return strings.concatenate({head, words[1:]}, context.temp_allocator)
+}
+
 // A palette command that is also globally keybindable by its config action
 // name. Only commands with no editor-local key belong here (see app_binds).
 App_Bind :: struct {

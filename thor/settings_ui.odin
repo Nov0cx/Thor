@@ -199,11 +199,21 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
             append(&actions, action)
         }
     }
-    slice.sort(actions[:])
-    for action in actions {
-        kb    := config.keybinds[action] or_else {}
+    Keybind_Entry :: struct {
+        action, title: string,
+    }
+    entries := make([]Keybind_Entry, len(actions), context.temp_allocator)
+    for action, i in actions {
+        entries[i] = {action, thor_action_title(thor, action)}
+    }
+    slice.sort_by(entries, proc(a, b: Keybind_Entry) -> bool {
+        return a.title < b.title
+    })
+    thor_settings_add_info(view, "keybind_help", "Click a shortcut, then press the new chord. Esc cancels.", "")
+    for entry in entries {
+        kb    := config.keybinds[entry.action] or_else {}
         chord := setting.keybind_to_string(kb, context.temp_allocator)
-        thor_settings_add_keybind(view, action, action, chord)
+        thor_settings_add_keybind(view, entry.action, entry.title, chord)
     }
 }
 
