@@ -15,6 +15,10 @@ GIT_SIDEBAR_W    :: f32(180)
 GIT_FILES_W      :: f32(340)
 GIT_COMMIT_BOX_H :: f32(150)
 GIT_ROW_H        :: f32(26)
+GIT_HASH_W       :: f32(64)
+GIT_AUTHOR_W     :: f32(130)
+GIT_DATE_W       :: f32(90)
+GIT_REFS_MAX_W   :: f32(200)
 GIT_DIFF_ROW_H   :: f32(18)
 
 Git_View_Kind :: enum {
@@ -653,6 +657,7 @@ git_view_sidebar :: proc(thor: ^Thor) {
             flags = {.Clip, .Scroll_Y},
             props = {
                 w = ui.Px(GIT_SIDEBAR_W),
+                min_w = GIT_SIDEBAR_W,
                 h = ui.Grow(1),
                 dir = .Column,
                 pad = {l = 8, r = 8, t = 10, b = 8},
@@ -1027,13 +1032,23 @@ git_view_history :: proc(thor: ^Thor) {
                     hover = {bg = on ? thor.theme.selection_background : thor.theme.buttons},
                 },
             )
-            ui.label(commit.short, {key = "hash", props = {color = thor.theme.accent_color, font = thor.font_mono, text_wrap = .None}})
-            ui.label(commit.subject, {key = "subject", props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .Ellipsis}})
+            // Fixed columns, so a long subject or author does not move the others.
+            ui.label(
+                commit.short,
+                {key = "hash", props = {w = ui.Px(GIT_HASH_W), min_w = GIT_HASH_W, color = thor.theme.accent_color, font = thor.font_mono, text_wrap = .None}},
+            )
+            ui.label(commit.subject, {key = "subject", props = {w = ui.Grow(1), min_w = 0, color = thor.theme.foreground, text_wrap = .Ellipsis}})
             if commit.refs != "" {
-                ui.label(commit.refs, {key = "refs", props = {color = thor.theme.info_color, text_wrap = .None}})
+                ui.label(commit.refs, {key = "refs", props = {max_w = GIT_REFS_MAX_W, color = thor.theme.info_color, text_wrap = .Ellipsis}})
             }
-            ui.label(commit.author, {key = "author", props = {color = thor.theme.muted_color, text_wrap = .None}})
-            ui.label(commit.date, {key = "date", props = {color = thor.theme.disabled, text_wrap = .None}})
+            ui.label(
+                commit.author,
+                {key = "author", props = {w = ui.Px(GIT_AUTHOR_W), min_w = GIT_AUTHOR_W, color = thor.theme.muted_color, text_wrap = .Ellipsis}},
+            )
+            ui.label(
+                commit.date,
+                {key = "date", props = {w = ui.Px(GIT_DATE_W), min_w = GIT_DATE_W, color = thor.theme.disabled, text_align = .End, text_wrap = .Ellipsis}},
+            )
         }
         ui.pop_id()
 
