@@ -12,6 +12,22 @@
 - `escape` on the completion popup closes only the popup. Before, the editor also lost the keyboard focus.
 - `ctrl+r` in a string or a comment opens replace, not the rename prompt. A palette prompt shows what it asks above its input.
 - Each find-in-files result shows its file name and line.
+- Go to symbol and the references list show each location at the right of its row, relative to the workspace.
+- Go to line shows the line range of the file and the current line.
+- The Problems icon takes the color of the worst problem, a green check when there is none. An empty list is a small box.
+- The find bar marks every match in view and outlines the current one. The `Aa`, `ab` and `.*` buttons show when they are on, and say their chord in a tooltip. "All" reads "Replace All".
+- The hex view status bar shows **Read-only** and **Hex**, not the caret, save state and indentation. A binary file has its own tab icon.
+- **File** holds Settings, Language Servers, Open Settings File and Open Keybinds File. The Help documentation items read "Documentation", "Go to Documentation Page..." and "Open Documentation in Browser".
+- The panel is called Terminal everywhere: **View > Toggle Terminal**, "View: Toggle Terminal".
+- The terminal panel starts taller. The new-terminal menu opens above its `+` button.
+- A window narrower than 800 pixels hides the explorer. It comes back when the window is wide again.
+- Git History keeps its sidebar width and shows hash, author and date in fixed columns.
+- Git Changes shows Stage and Discard on the row under the mouse and on the selected row. Discard is red.
+- Settings: an on/off setting is a switch, and each setting has a line that says what it does. The search matches that line.
+- Settings: Format on Save, Format on Type and Right Alt Key are on the Editor page, Tip of the Day on Windows. Theme Colors and Check Now are buttons.
+- Settings: each language server is one group, with its feature switches inside.
+- Settings: the Keybindings page shows the command names the palette uses.
+- The lists in Settings, Problems, Git and the theme editor show a scrollbar.
 - 2026.11.3 was not published; its changes ship in this version.
 
 # 2026.11.3
