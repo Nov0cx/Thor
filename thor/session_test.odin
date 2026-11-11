@@ -87,9 +87,13 @@ test_recent_workspaces :: proc(t: ^testing.T) {
 // session file. Run from the repository root: odin test thor
 @(test)
 test_restore_drops_a_directory :: proc(t: ^testing.T) {
-    workspace := test_fixture_name("thor_session_dir_test")
-    sub       := fmt.tprintf("%s/sub", workspace)
-    note      := fmt.tprintf("%s/note.txt", workspace)
+    // Heap paths: thor_drain_io frees the temp allocator before the deferred removes run.
+    workspace := strings.clone(test_fixture_name("thor_session_dir_test"))
+    defer delete(workspace)
+    sub := fmt.aprintf("%s/sub", workspace)
+    defer delete(sub)
+    note := fmt.aprintf("%s/note.txt", workspace)
+    defer delete(note)
 
     testing.expect(t, os.make_directory(workspace) == nil, "could not create test workspace")
     defer os.remove(workspace)
