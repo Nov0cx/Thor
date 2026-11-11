@@ -40,6 +40,7 @@ Status_Info :: struct {
     line_ending:   string,
     encoding:      string,
     file_open:     bool,
+    read_only:     bool, // a hex view: no caret, save state or indentation
     modified:      bool,
     saving:        bool,
     busy:          bool,
@@ -61,6 +62,7 @@ Tab_Info :: struct {
     tooltip:  string,
     modified: bool,
     loading:  bool,
+    binary:   bool,
 }
 
 // Thor's palette drives Loom's, so a themed control needs no colour of its own.
@@ -856,7 +858,11 @@ thor_tabbar :: proc(thor: ^Thor) {
         // whole.
         text := on ? thor.theme.foreground : thor.theme.muted_color
         base := thor_file_base(info.path)
-        thor_icon_label(thor, thor_file_icon(base), thor_file_icon_tint(base, text), 14, "ficon")
+        if info.binary {
+            thor_icon_label(thor, "binary", text, 14, "ficon")
+        } else {
+            thor_icon_label(thor, thor_file_icon(base), thor_file_icon_tint(base, text), 14, "ficon")
+        }
         // Ellipsis, not None: a full strip squeezes every tab, and a label that
         // cannot shrink runs under its own close button.
         ui.label(info.name, {props = {color = text, text_wrap = .Ellipsis}})
@@ -1855,6 +1861,8 @@ thor_statusbar :: proc(thor: ^Thor) {
         thor_status_segment(thor, "file", "file", info.file_name, text, path)
 
         switch {
+        case info.read_only:
+            thor_status_segment(thor, "save", "lock", "Read-only", dim, "The hex view shows the bytes and does not edit them")
         case info.saving:
             thor_status_segment(thor, "save", "device-floppy", "Saving...", dim, "The file is being written to disk")
         case info.modified:
@@ -1889,6 +1897,10 @@ thor_statusbar :: proc(thor: ^Thor) {
     ui.spacer()
 
     if !info.file_open {
+        return
+    }
+    if info.read_only {
+        thor_status_segment(thor, "hex", "binary", "Hex", dim, "The file is not text, so it shows as bytes")
         return
     }
 

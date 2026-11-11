@@ -325,6 +325,10 @@ thor_status_info :: proc(data: rawptr) -> Status_Info {
     info.file_open = true
     info.file_name = file.name
     info.file_path = file.path
+    if file.is_binary {
+        info.read_only = true
+        return info
+    }
     info.language = thor_language_name(thor, file)
     info.build_target, info.own_target = thor_file_build_target(thor, file)
     thor_refresh_indent(file)
@@ -553,5 +557,6 @@ thor_tab_info :: proc(data: rawptr, index: int) -> Tab_Info {
         tooltip = file.path,
         modified = file.loaded && file.state.revision != file.saved_revision,
         loading = !thor_file_ready(file) && !file.load_failed,
+        binary = file.is_binary,
     }
 }
