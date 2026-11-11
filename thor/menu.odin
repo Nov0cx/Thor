@@ -25,6 +25,8 @@ Menu_Item :: struct {
 Menu :: struct {
     items:         [dynamic]Menu_Item,
     anchor:        ui.Vec2,
+    // The control the menu drops from; a zero rect for a menu at a point.
+    from:          ui.Rect,
     // Box size of the last frame, zero until the first layout.
     size:          ui.Vec2,
     // Pane key the focus goes back to when the menu closes.
@@ -53,12 +55,14 @@ thor_menu_add_separator :: proc(thor: ^Thor) {
     append(&thor.menu.items, Menu_Item{separator = true})
 }
 
-// Shows the filled list with its top left corner at `position`.
-thor_menu_open :: proc(thor: ^Thor, position: ui.Vec2) {
+// Shows the filled list with its top left corner at `position`. A menu that
+// flips at the window edge does not cover `from`, the control it drops from.
+thor_menu_open :: proc(thor: ^Thor, position: ui.Vec2, from := ui.Rect{}) {
     if !thor.menu_open {
         thor.menu.return_focus = thor.focus_owner
     }
     thor.menu.anchor = position
+    thor.menu.from = from
     thor.menu.size = {}
     thor.menu.focus_pending = true
     thor.menu_open = true
@@ -99,11 +103,13 @@ thor_menu_view :: proc(thor: ^Thor) {
     vp := ui.viewport()
     x, y := m.anchor.x, m.anchor.y
     if m.size.x > 0 {
+        has_from := m.from.w > 0 && m.from.h > 0
         if x + m.size.x > vp.x {
-            x = max(vp.x - m.size.x, 0)
+            x = has_from ? m.from.x + m.from.w - m.size.x : vp.x - m.size.x
+            x = max(x, 0)
         }
         if y + m.size.y > vp.y {
-            y = max(m.anchor.y - m.size.y, 0)
+            y = max((has_from ? m.from.y : m.anchor.y) - m.size.y, 0)
         }
     }
     picked: Menu_Item

@@ -12,6 +12,7 @@ import "../lockfree"
 import "../prof"
 import "../setting"
 import "../shell"
+import ui "../vendor/loom/loom"
 import "../vt"
 
 // One console bound to one shell on a pseudo-terminal. The shell outlives the
@@ -653,7 +654,7 @@ thor_terminals_shutdown :: proc(thor: ^Thor) {
 
 // Opens the list of installed shells under the add button; picking one opens a
 // terminal on it.
-thor_terminal_tab_add :: proc(thor: ^Thor) {
+thor_terminal_tab_add :: proc(thor: ^Thor, from := ui.Rect{}) {
     if len(thor.shell_profiles) == 0 {
         return
     }
@@ -661,7 +662,7 @@ thor_terminal_tab_add :: proc(thor: ^Thor) {
     for profile, i in thor.shell_profiles {
         thor_menu_add(thor, profile.name, thor_menu_open_shell, &thor.shell_choices[i])
     }
-    thor_menu_open(thor, thor.menu_anchor)
+    thor_menu_open(thor, thor.menu_anchor, from)
 }
 
 @(private = "file")

@@ -653,7 +653,7 @@ thor_terminal_strip :: proc(thor: ^Thor) {
     } else if add.clicked {
         // The shell list drops out of the button, as a titlebar menu does.
         thor.menu_anchor = {add.rect.x, add.rect.y + add.rect.h}
-        thor_terminal_tab_add(thor)
+        thor_terminal_tab_add(thor, add.rect)
     }
 }
 

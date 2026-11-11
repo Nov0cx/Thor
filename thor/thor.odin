@@ -791,7 +791,7 @@ init :: proc() -> ^Thor {
     signal_set_listener(&thor.explorer_visible, thor_on_visibility_changed, thor)
     signal_set_listener(&thor.console_visible, thor_on_visibility_changed, thor)
     thor.explorer_width = 250
-    thor.console_height = 190
+    thor.console_height = 280
     thor.last_multi_layout = .Columns2
     thor_pane_reset_weights(thor)
     thor.pane_file = -1
