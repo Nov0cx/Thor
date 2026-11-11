@@ -1,3 +1,19 @@
+# 2026.11.4
+
+- Odin: the formatter keeps a comment above the first member of an `enum`, `union` or `bit_field` on its own line. Before, it moved the comment onto the `{` line.
+- Odin: a trailing comment after a member on the `{` line stays after that member. Before, the formatter moved it to the `{`.
+- A binary file opens in a read-only hex view with offset, hex and ASCII columns. Before, Thor refused to open it.
+- In the hex view, a click, a drag or `shift` + arrow keys select bytes, `ctrl+c` copies them as hex and `ctrl+a` selects all.
+- An image or 3D model that does not decode opens in the hex view.
+- Quick open and find in files leave out the files `.gitignore` names. Before, quick open listed build output such as `bin/`.
+- Quick open lists the open files first when the query is empty.
+- The palette and quick open rank a query that appears whole in a row above a scattered match, so `fold` finds the Fold commands first.
+- Find in files, the find bar and the rename prompt select their prefilled text, so the first key typed replaces it.
+- `escape` on the completion popup closes only the popup. Before, the editor also lost the keyboard focus.
+- `ctrl+r` in a string or a comment opens replace, not the rename prompt. A palette prompt shows what it asks above its input.
+- Each find-in-files result shows its file name and line.
+- 2026.11.3 was not published; its changes ship in this version.
+
 # 2026.11.3
 
 - Odin: the formatter keeps the braces of a `foreign import` whose path is an expression. Before, the result did not parse.
