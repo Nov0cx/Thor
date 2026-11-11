@@ -13,6 +13,7 @@ import "../editview"
 import "../lang"
 import "../lang/lsp"
 import "../lang/odin"
+import "../plugin"
 import "../prof"
 import "../setting"
 import "../textedit"
@@ -691,7 +692,7 @@ thor_rename_symbol :: proc(thor: ^Thor) -> bool {
     cursor     := textedit.primary_cursor(&file.state)
     source     := textedit.text(&file.state)
     lo, hi, ok := textedit.word_range_at(source, cursor.caret)
-    if !ok {
+    if !ok || thor_offset_in_literal(thor, file, source, lo, hi) {
         return false
     }
     // A selection that is not exactly this word — part of one, or a span across
@@ -706,6 +707,22 @@ thor_rename_symbol :: proc(thor: ^Thor) -> bool {
     }
     thor_palette_prompt(thor, "Rename symbol", thor_confirm_symbol_rename, thor, source[lo:hi])
     return true
+}
+
+// True when the highlighter marks byte `lo` as part of a string or a comment.
+@(private = "file")
+thor_offset_in_literal :: proc(thor: ^Thor, file: ^Open_File, source: string, lo, hi: int) -> bool {
+    key := thor_file_highlight_key(thor, file)
+    if !plugin.supports(&thor.plugins, key) {
+        return false
+    }
+    spans, _, _ := plugin.highlight_range(&thor.plugins, file.path, source, key, lo, hi, context.temp_allocator)
+    for span in spans {
+        if span.start <= lo && lo < span.end && (span.role == "strings" || span.role == "comments") {
+            return true
+        }
+    }
+    return false
 }
 
 // Dispatches the Rename request once the user confirms a new name. The caret is

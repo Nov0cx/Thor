@@ -672,6 +672,10 @@ palette_box :: proc(thor: ^Thor) {
         ui.label(p.prompt_label, {key = "msg", props = {pad = ui.xy(8, 10), color = thor.theme.foreground}})
         ui.label("Enter to confirm, Escape to cancel", {key = "hint", props = {pad = ui.xy(8, 2), color = thor.theme.muted_color}})
     } else {
+        // A prefilled prompt hides its placeholder, so the title says what it asks.
+        if (p.mode == .Prompt || p.mode == .Pick) && p.prompt_label != "" {
+            ui.label(p.prompt_label, {key = "title", props = {pad = ui.xy(8, 2), color = thor.theme.muted_color, text_wrap = .Ellipsis}})
+        }
         it := ui.input(
             &p.query,
             {key = "query", props = {h = ui.Px(PALETTE_INPUT_H - 12), align = .Center, bg = thor.theme.background, color = thor.theme.foreground}},
