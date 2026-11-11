@@ -10,10 +10,12 @@ import "../search"
 import "../textedit"
 import ui "../vendor/loom/loom"
 
-FIND_WIDTH :: f32(520)
-FIND_TOP   :: f32(90)
+FIND_WIDTH   :: f32(520)
+// The width of the controls after the find field: the count, six 26 px buttons and their gaps.
+FIND_TRAIL_W :: f32(96 + 6 * 26 + 6 * 6)
+FIND_TOP     :: f32(90)
 // Inset from the top right corner of the pane the bar searches.
-FIND_GAP   :: f32(12)
+FIND_GAP     :: f32(12)
 
 Find_Replace :: struct {
     // The pane the bar searches. Borrowed; re-taken on every open.
@@ -324,13 +326,13 @@ find_query_row :: proc(thor: ^Thor) {
         {key = "count", props = {w = ui.Px(96), text_align = .Center, color = f.regex_bad ? thor.theme.error_color : thor.theme.muted_color, text_wrap = .None}},
     )
 
-    if find_toggle(thor, "case", "Aa", f.options.case_sensitive) {
+    if find_toggle(thor, "case", "Aa", f.options.case_sensitive, "Match Case", "Alt+C") {
         find_flip(f, &f.options.case_sensitive)
     }
-    if find_toggle(thor, "word", "ab", f.options.whole_word) {
+    if find_toggle(thor, "word", "ab", f.options.whole_word, "Whole Word", "Alt+W") {
         find_flip(f, &f.options.whole_word)
     }
-    if find_toggle(thor, "regex", ".*", f.options.use_regex) {
+    if find_toggle(thor, "regex", ".*", f.options.use_regex, "Regular Expression", "Alt+R") {
         find_flip(f, &f.options.use_regex)
     }
 
@@ -364,10 +366,12 @@ find_replace_row :: proc(thor: ^Thor) {
         },
         "Replace",
     )
+    // As wide as the controls after the find field, so both fields end at one x.
+    ui.scope({key = "actions", props = {w = ui.Px(FIND_TRAIL_W), h = ui.FIT, dir = .Row, align = .Center, gap = {6, 0}}})
     if find_text_button(thor, "one", "Replace") {
         find_do_replace(f)
     }
-    if find_text_button(thor, "all", "All") {
+    if find_text_button(thor, "all", "Replace All") {
         find_do_replace_all(f)
     }
 }
@@ -384,7 +388,7 @@ find_count_label :: proc(f: ^Find_Replace) -> string {
 }
 
 @(private = "file")
-find_toggle :: proc(thor: ^Thor, key, label: string, on: bool) -> bool {
+find_toggle :: proc(thor: ^Thor, key, label: string, on: bool, tip, chord: string) -> bool {
     it := ui.scope(
         {
             key = key,
@@ -397,12 +401,14 @@ find_toggle :: proc(thor: ^Thor, key, label: string, on: bool) -> bool {
                 align = .Center,
                 radius = ui.rad(4),
                 bg = on ? thor.theme.selection_background : nil,
+                border = {width = ui.all(1), color = on ? thor.theme.accent_color : ui.Color{}},
                 cursor = .Pointer,
             },
             hover = {bg = on ? thor.theme.selection_background : thor.theme.buttons},
         },
     )
-    ui.label(label, {key = "text", props = {color = on ? thor.theme.accent_color : thor.theme.muted_color, font = thor.font_mono, text_wrap = .None}})
+    ui.label(label, {key = "text", props = {color = on ? thor.theme.foreground : thor.theme.muted_color, font = thor.font_mono, text_wrap = .None}})
+    thor_tip(thor, it.id, on ? fmt.tprintf("%s: on", tip) : fmt.tprintf("%s: off", tip), chord)
     return it.clicked
 }
 

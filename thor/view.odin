@@ -1085,6 +1085,7 @@ thor_editor_view :: proc(thor: ^Thor, editor: ^editview.Editor, file: ^Open_File
 
     thor_paint_indent_guides(thor, editor, text, rows, first, last, line_h, text_x)
     thor_paint_occurrences(thor, editor, text, rows, first, last, line_h, text_x)
+    thor_paint_find_matches(thor, editor, text, rows, first, last, line_h, text_x)
     thor_paint_selections(thor, editor, text, rows, first, last, line_h, text_x)
     thor_paint_diagnostics(thor, editor, text, rows, first, last, line_h, text_x)
 
@@ -1659,6 +1660,59 @@ thor_paint_occurrences :: proc(thor: ^Thor, editor: ^editview.Editor, text: stri
             ui.paint_rect({text_x + x0, y, max(x1 - x0, 2), line_h}, fill)
             if occ.write {
                 ui.paint_rect({text_x + x0, y + line_h - 1, max(x1 - x0, 2), 1}, thor.theme.accent_color)
+            }
+        }
+    }
+}
+
+// Marks the find bar's matches in the pane it searches, and outlines the current one.
+@(private = "file")
+thor_paint_find_matches :: proc(thor: ^Thor, editor: ^editview.Editor, text: string, rows: []editview.Visual_Row, first, last: int, line_h, text_x: f32) {
+    f := &thor.find
+    if !thor.find_open || f.editor != editor || len(f.matches) == 0 || first >= last {
+        return
+    }
+    if f.match_state != editor.state || f.match_rev != editor.state.revision {
+        return
+    }
+    lo_byte, hi_byte := rows[first].start, rows[last - 1].end
+    // The matches are in byte order: the first one that can be visible is found by bisection.
+    lo, hi := 0, len(f.matches)
+    for lo < hi {
+        mid := (lo + hi) / 2
+        if f.matches[mid].end < lo_byte {
+            lo = mid + 1
+        } else {
+            hi = mid
+        }
+    }
+    fill := thor.theme.selection_background
+    fill.a /= 2
+    for i in lo ..< len(f.matches) {
+        m := f.matches[i]
+        if m.start > hi_byte {
+            break
+        }
+        for index in first ..< last {
+            if rows[index].spacer {
+                continue
+            }
+            row := rows[index]
+            a   := max(m.start, row.start)
+            b   := min(m.end, row.end)
+            if b <= a {
+                continue
+            }
+            x0 := thor_row_x(editor, text, row.start, row.end, a)
+            x1 := thor_row_x(editor, text, row.start, row.end, b)
+            r  := ui.Rect{text_x + x0, f32(index) * line_h - editor.scroll_y, max(x1 - x0, 2), line_h}
+            ui.paint_rect(r, fill)
+            if i == f.current {
+                accent := thor.theme.accent_color
+                ui.paint_rect({r.x, r.y, r.w, 1}, accent)
+                ui.paint_rect({r.x, r.y + r.h - 1, r.w, 1}, accent)
+                ui.paint_rect({r.x, r.y, 1, r.h}, accent)
+                ui.paint_rect({r.x + r.w - 1, r.y, 1, r.h}, accent)
             }
         }
     }
