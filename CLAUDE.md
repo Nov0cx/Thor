@@ -591,6 +591,13 @@ Dont do segment comments. Dont write comments like a story, only describe featur
 Indentation is four spaces, not tabs — which is why `-strict-style` is deliberately absent from the
 build flags (`-vet` is available via `build.odin -- -vet`).
 
+Always format Odin code with Thor's own formatter before a commit: `bin/debug/thor.exe fmt -w <file>...`
+(build first). It reads `.thor/odin-formatter.lua` (160 columns, aligned declarations, sorted
+imports). `--check` names the files that differ. Do not format `vendor/`, `testdata/` inputs or the
+files `gen_syntax` writes (`lang/odin/syntax/kind.odin`, `views.odin`, `views_table_test.odin`; a test
+compares them to the generator). When
+the output is wrong, fix the formatter (`lang/odin/format`) and add a test, never hand-format around it.
+
 Always handle errors.
 
 Do if (cheap && expensive) and if (likelytofail && unlikelytofail).
