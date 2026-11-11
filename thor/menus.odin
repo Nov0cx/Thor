@@ -453,7 +453,7 @@ thor_open_view_menu :: proc(data: rawptr) {
     thor := cast(^Thor)data
     thor_menu_clear(thor)
     thor_menu_add(thor, "Toggle Explorer", thor_cmd_toggle_explorer, thor, action = "toggle_explorer")
-    thor_menu_add(thor, "Toggle Console", thor_cmd_toggle_console, thor, action = "toggle_console")
+    thor_menu_add(thor, "Toggle Terminal", thor_cmd_toggle_console, thor, action = "toggle_console")
     thor_menu_add(thor, "Problems", thor_cmd_open_problems, thor, action = "open_problems")
     thor_menu_add_separator(thor)
     thor_menu_add(thor, "Zoom In", thor_cmd_zoom_in, thor, action = "zoom_in")

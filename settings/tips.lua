@@ -31,12 +31,12 @@ return {
         {
             title = "Name your build commands",
             action = "run_selected_task",
-            body = "Put the commands you run often in .thor/tasks.json. Each one gets a name in the title bar selector, and the chord below runs the selected one in the console.",
+            body = "Put the commands you run often in .thor/tasks.lua. Each one gets a name in the title bar selector, and the chord below runs the selected one in the terminal.",
         },
         {
-            title = "One shell per console tab",
+            title = "One shell per terminal tab",
             action = "toggle_console",
-            body = "The + in the console opens another terminal, from every shell found on the machine. Each shell stays alive between commands, so cd and environment variables persist.",
+            body = "The + in the terminal panel opens another terminal, from every shell found on the machine. Each shell stays alive between commands, so cd and environment variables persist.",
         },
         {
             title = "Go to the definition",

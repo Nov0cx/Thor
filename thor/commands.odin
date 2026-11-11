@@ -349,7 +349,7 @@ thor_dispatch_app_bind :: proc(thor: ^Thor, event: ui.Key_Event, prefix := "") -
 // so fuzzy search on the category works too.
 thor_register_commands :: proc(thor: ^Thor) {
     thor_palette_add(thor, "View: Toggle Explorer", thor_cmd_toggle_explorer, thor, action = "toggle_explorer")
-    thor_palette_add(thor, "View: Toggle Console", thor_cmd_toggle_console, thor, action = "toggle_console")
+    thor_palette_add(thor, "View: Toggle Terminal", thor_cmd_toggle_console, thor, action = "toggle_console")
     thor_palette_add(thor, "View: Zoom In", thor_cmd_zoom_in, thor, action = "zoom_in")
     thor_palette_add(thor, "View: Zoom Out", thor_cmd_zoom_out, thor, action = "zoom_out")
     thor_add_bindable_command(thor, "View: Reset Zoom", "reset_zoom", thor_cmd_zoom_reset, thor)
