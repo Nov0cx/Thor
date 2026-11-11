@@ -2249,7 +2249,7 @@ thor_update_references :: proc(thor: ^Thor, res: ^lang.Result) {
 }
 
 // Builds the references picker rows: each is the source line the usage sits on,
-// with a "path:line" preview under the selected row. Rebuilds the jump targets
+// with its "path:line" at the right of the row. Rebuilds the jump targets
 // in the same order, so the shared pick callback maps a row to file and offset.
 @(private = "file")
 thor_build_reference_items :: proc(thor: ^Thor, res: ^lang.Result) -> []Pick_Item {
@@ -2257,7 +2257,7 @@ thor_build_reference_items :: proc(thor: ^Thor, res: ^lang.Result) -> []Pick_Ite
     items := make([dynamic]Pick_Item, context.temp_allocator)
     for sym in res.symbols {
         append(&thor.doc_symbols, Doc_Symbol{path = strings.clone(sym.path), offset = sym.offset})
-        append(&items, Pick_Item{text = sym.signature, name_len = 0, color = thor.theme.primary_text_color, detail = thor_symbol_detail(thor, sym)})
+        append(&items, Pick_Item{text = sym.signature, name_len = 0, color = thor.theme.primary_text_color, note = thor_symbol_location(thor, sym)})
     }
     return items[:]
 }
@@ -2326,7 +2326,7 @@ thor_build_symbol_items :: proc(thor: ^Thor, res: ^lang.Result) -> []Pick_Item {
         text := sym.signature != "" ? sym.signature : sym.name
         append(
             &items,
-            Pick_Item{text = text, name_len = min(len(sym.name), len(text)), color = thor_symbol_color(thor, sym.kind), detail = thor_symbol_detail(thor, sym)},
+            Pick_Item{text = text, name_len = min(len(sym.name), len(text)), color = thor_symbol_color(thor, sym.kind), note = thor_symbol_location(thor, sym)},
         )
     }
     return items[:]
@@ -2343,14 +2343,15 @@ thor_pick_symbol :: proc(data: rawptr, index: int) {
     thor_goto_location(thor, sym.path, sym.offset)
 }
 
-// The preview line for a symbol row: its file path (workspace-relative, forward
-// slashes) and 1-based line. Temp-allocated; the palette copies it.
+// The longest path a symbol row's note shows before it is cut in the middle.
+SYMBOL_PATH_MAX :: 40
+
+// The location note of a symbol row: its workspace-relative path, cut in the
+// middle, and 1-based line. Temp-allocated; the palette copies it.
 @(private = "file")
-thor_symbol_detail :: proc(thor: ^Thor, sym: lang.Symbol) -> string {
-    rel := strings.trim_prefix(sym.path, thor.workspace_dir)
-    rel = strings.trim_left(rel, "/\\")
-    slash, _ := strings.replace_all(rel, "\\", "/", context.temp_allocator)
-    return fmt.tprintf("%s:%d", slash, sym.line)
+thor_symbol_location :: proc(thor: ^Thor, sym: lang.Symbol) -> string {
+    rel := thor_path_middle(thor_relative_path(sym.path, thor.workspace_dir), SYMBOL_PATH_MAX)
+    return fmt.tprintf("%s:%d", rel, sym.line)
 }
 
 // Tints a symbol name by its kind, reusing the theme's syntax colors so the

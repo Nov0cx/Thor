@@ -1,5 +1,6 @@
 package thor
 
+import "core:path/filepath"
 import "core:testing"
 
 // The same file reached through either separator spelling is one file.
@@ -48,4 +49,19 @@ test_file_extension_and_base :: proc(t: ^testing.T) {
     testing.expect_value(t, thor_file_base("app/Dockerfile"), "Dockerfile")
     testing.expect_value(t, thor_file_base("app\\Dockerfile"), "Dockerfile")
     testing.expect_value(t, thor_file_base("Dockerfile"), "Dockerfile")
+}
+
+@(test)
+test_relative_path :: proc(t: ^testing.T) {
+    sep :: filepath.SEPARATOR_STRING
+    testing.expect_value(t, thor_relative_path("ws/sub/x.odin", "ws"), "sub" + sep + "x.odin")
+    testing.expect_value(t, thor_relative_path("ws\\sub/x.odin", "ws/"), "sub" + sep + "x.odin")
+    testing.expect(t, thor_relative_path("other/x.odin", "ws") != "x.odin")
+}
+
+@(test)
+test_path_middle :: proc(t: ^testing.T) {
+    testing.expect_value(t, thor_path_middle("a/b.odin", 40), "a/b.odin")
+    testing.expect_value(t, thor_path_middle("aaaaaaaaaa/bbbbbbbbbb/c.odin", 16), "aaaaaaa…/c.odin")
+    testing.expect_value(t, thor_path_middle("verylongname.odin", 5), "verylongname.odin")
 }

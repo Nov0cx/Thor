@@ -3,10 +3,12 @@
 // lives on `Thor`; `thor_palette_view` declares it from that state each frame.
 package thor
 
+import "core:fmt"
 import "core:slice"
 import "core:strconv"
 import "core:strings"
 
+import "../textedit"
 import ui "../vendor/loom/loom"
 
 // Palette entry. Mode-switching entries (Go to File/Line) pass `thor` as `data`
@@ -599,14 +601,20 @@ palette_activate :: proc(thor: ^Thor) {
 }
 
 @(private = "file")
-palette_placeholder :: proc(p: ^Palette) -> string {
+palette_placeholder :: proc(thor: ^Thor, p: ^Palette) -> string {
     switch p.mode {
     case .Commands:
         return "Type a command"
     case .Files:
         return "Go to file"
     case .Line:
-        return "Go to line"
+        file := thor_active_open_file(thor)
+        if file == nil || !file.loaded {
+            return "Go to line"
+        }
+        caret := textedit.primary_cursor(&file.state).caret
+        line  := textedit.state_line_index(&file.state, caret) + 1
+        return fmt.tprintf("Go to line 1 to %d (current %d)", textedit.state_line_count(&file.state), line)
     case .Prompt, .Pick:
         return p.prompt_label
     case .Confirm:
@@ -684,7 +692,7 @@ palette_box :: proc(thor: ^Thor) {
         it := ui.input(
             &p.query,
             {key = "query", props = {h = ui.Px(PALETTE_INPUT_H - 12), align = .Center, bg = thor.theme.background, color = thor.theme.foreground}},
-            palette_placeholder(p),
+            palette_placeholder(thor, p),
         )
         if p.focus_pending {
             ui.set_focus(it.id)

@@ -6,6 +6,7 @@ package thor
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
+import "core:unicode/utf8"
 
 // `path` made absolute, on scratch. filepath.abs opens the file on POSIX, so it
 // fails for one not created yet; a lexical join with the working directory then
@@ -98,4 +99,36 @@ thor_file_extension :: proc(name: string) -> string {
 thor_file_base :: proc(path: string) -> string {
     slash := max(strings.last_index_byte(path, '/'), strings.last_index_byte(path, '\\'))
     return path[slash + 1:]
+}
+
+// `path` relative to `root` with the native separator. Case and separator
+// spelling do not matter. A path outside `root` is returned whole. Temp-allocated.
+thor_relative_path :: proc(path, root: string) -> string {
+    a := thor_canon_path(path)
+    if root != "" && thor_path_within(path, root) {
+        a = strings.trim_left(a[len(thor_canon_path(root)):], "/\\")
+    }
+    when ODIN_OS == .Windows {
+        native, _ := strings.replace_all(a, "/", "\\", context.temp_allocator)
+        return native
+    } else {
+        return a
+    }
+}
+
+// `path` cut in the middle to at most `max_len` bytes, so the file name stays.
+// Temp-allocated when cut.
+thor_path_middle :: proc(path: string, max_len: int) -> string {
+    if len(path) <= max_len {
+        return path
+    }
+    base := thor_file_base(path)
+    keep := max_len - len(base) - len("…")
+    if keep <= 0 {
+        return base
+    }
+    for keep > 0 && !utf8.rune_start(path[keep]) {
+        keep -= 1
+    }
+    return strings.concatenate({path[:keep], "…", path[len(path) - len(base) - 1:]}, context.temp_allocator)
 }

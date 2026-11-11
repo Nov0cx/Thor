@@ -253,15 +253,14 @@ thor_apply_file_search :: proc(thor: ^Thor, job: ^File_Search_Job) {
     items := make([dynamic]Pick_Item, 0, len(job.hits), context.temp_allocator)
     for hit in job.hits {
         append(&thor.doc_symbols, Doc_Symbol{path = strings.clone(hit.path), offset = hit.offset})
-        rel      := strings.trim_left(strings.trim_prefix(hit.path, thor.workspace_dir), "/\\")
-        slash, _ := strings.replace_all(rel, "\\", "/", context.temp_allocator)
+        rel := thor_relative_path(hit.path, thor.workspace_dir)
         append(
             &items,
             Pick_Item{
                 text = hit.preview,
                 color = thor.theme.primary_text_color,
-                detail = fmt.tprintf("%s:%d", slash, hit.line),
-                note = fmt.tprintf("%s:%d", thor_file_base(slash), hit.line),
+                detail = fmt.tprintf("%s:%d", rel, hit.line),
+                note = fmt.tprintf("%s:%d", thor_file_base(rel), hit.line),
             },
         )
     }
