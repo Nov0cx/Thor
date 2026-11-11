@@ -668,6 +668,7 @@ palette_box :: proc(thor: ^Thor) {
         )
         if p.focus_pending {
             ui.set_focus(it.id)
+            ui.input_select_all(it.id)
             p.focus_pending = false
         }
         if it.changed {

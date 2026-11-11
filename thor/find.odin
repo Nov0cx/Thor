@@ -311,6 +311,7 @@ find_query_row :: proc(thor: ^Thor) {
     )
     if f.focus_pending {
         ui.set_focus(it.id)
+        ui.input_select_all(it.id)
         f.focus_pending = false
     }
     if it.changed {
