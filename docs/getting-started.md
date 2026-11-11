@@ -159,7 +159,8 @@ in PowerShell, when a script needs the exit code. A debug build has no such limi
 
 Not every file is text. An image opens in a view that fits it to the pane, with
 a checkerboard behind its transparent pixels; a 3D model opens on a ground grid,
-orbited and zoomed with the mouse; and `f4` renders a markdown file beside its source.
+orbited and zoomed with the mouse; any other binary file opens in a read-only hex
+view; and `f4` renders a markdown file beside its source.
 Each is an ordinary tab, so the explorer and the terminal stay where they are.
 See [Previews](keybindings.md#previews).
 

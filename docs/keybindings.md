@@ -273,11 +273,30 @@ pixels; the name, pixel size and zoom sit in the bottom-left corner.
 the model. The mesh, vertex and triangle counts sit in the bottom-left corner,
 and the button in the top-right corner spins the model.
 
+**Binary files** — any other file with a NUL byte near its start, and an image or
+model that does not decode — open in a read-only hex view: the offset, sixteen
+bytes in hex and the same bytes as ASCII on each row. The name, the size, the
+caret offset and the byte under the caret sit in the bottom-left corner. A
+binary file that is changed on disk into text opens in the editor.
+
 | Binding | Action |
 | --- | --- |
 | wheel | image: zoom toward the cursor; model: zoom the camera |
 | click + drag | image: pan; model: orbit |
 | shift + drag, or right button + drag | model: pan |
+
+In the hex view:
+
+| Binding | Action |
+| --- | --- |
+| wheel, scrollbar | scroll |
+| click, click + drag | put the caret on a byte, select bytes |
+| shift + click | extend the selection |
+| arrows, `pageup` / `pagedown` | move the caret (`shift` extends the selection) |
+| `home` / `end` | start / end of the row |
+| `ctrl + home` / `ctrl + end` | first / last byte |
+| `ctrl + a` | select all bytes |
+| `ctrl + c` | copy the selection as hex (`4d 5a 90`) |
 
 The zoom, pan and camera reset when the tab changes file, and a file edited
 outside Thor is reloaded into its view.
