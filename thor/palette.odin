@@ -381,8 +381,19 @@ palette_reset :: proc(thor: ^Thor, mode: Palette_Mode) {
 palette_enter_files :: proc(thor: ^Thor) {
     p := &thor.palette
     palette_clear_files(p)
+    // Open files lead the list, so an empty query offers them first.
+    seen := make(map[string]bool, allocator = context.temp_allocator)
+    for file in thor.open_files {
+        if file.path == "" || file.path in seen || !strings.has_prefix(file.path, thor.workspace_prefix) {
+            continue
+        }
+        seen[file.path] = true
+        append(&p.files, strings.clone(file.path))
+    }
     for path in thor_palette_list_files(thor) {
-        append(&p.files, strings.clone(path))
+        if path not_in seen {
+            append(&p.files, strings.clone(path))
+        }
     }
     palette_reset(thor, .Files)
 }
@@ -872,16 +883,94 @@ fuzzy_score :: proc(query, text: string) -> (score: int, ok: bool) {
 
 // fuzzy_score, plus the byte offset of every matched character written into
 // `out` in ascending order. `count` is what `out` took; a nil `out` scores only,
-// which is what the filter over every source row wants.
+// which is what the filter over every source row wants. A substring match ranks
+// above every scattered one; a scattered one takes its best start.
 fuzzy_match :: proc(query, text: string, out: []int) -> (score: int, count: int, ok: bool) {
     if len(query) == 0 {
         return 0, 0, true
     }
+    if len(query) > len(text) {
+        return 0, 0, false
+    }
+    // Prefer tighter matches (less trailing text).
+    penalty := (len(text) - len(query)) / 8
 
+    if at, word := fuzzy_substring(query, text); at >= 0 {
+        score = 100 + 16 * len(query)
+        if word {
+            score += 40
+        }
+        if at == 0 {
+            score += 20
+        }
+        count = min(len(query), len(out))
+        for i in 0 ..< count {
+            out[i] = at + i
+        }
+        return score - penalty, count, true
+    }
+
+    best       := -1
+    best_count := 0
+    hits, best_hits: [PALETTE_MARK_MAX]int
+    first := ascii_lower(query[0])
+    for start in 0 ..= len(text) - len(query) {
+        if ascii_lower(text[start]) != first {
+            continue
+        }
+        run_score, run_count, matched := fuzzy_greedy(query, text, start, hits[:])
+        if !matched {
+            // A later start sees less of the text, so it cannot match either.
+            break
+        }
+        if run_score > best {
+            best = run_score
+            best_hits = hits
+            best_count = run_count
+        }
+    }
+    if best < 0 {
+        return 0, 0, false
+    }
+    count = min(best_count, len(out))
+    copy(out[:count], best_hits[:count])
+    return best - penalty, count, true
+}
+
+// The first case-insensitive occurrence of `query` in `text` that starts a word,
+// else the first one; -1 when there is none.
+@(private = "file")
+fuzzy_substring :: proc(query, text: string) -> (at: int, word: bool) {
+    at = -1
+    for start in 0 ..= len(text) - len(query) {
+        hit := true
+        for i in 0 ..< len(query) {
+            if ascii_lower(text[start + i]) != ascii_lower(query[i]) {
+                hit = false
+                break
+            }
+        }
+        if !hit {
+            continue
+        }
+        if start == 0 || is_separator(text[start - 1]) {
+            return start, true
+        }
+        if at < 0 {
+            at = start
+        }
+    }
+    return at, false
+}
+
+// Greedy subsequence match of `query` from byte `start`, scoring consecutive runs
+// and word starts. Writes the matched offsets into `out` as far as it holds.
+@(private = "file")
+fuzzy_greedy :: proc(query, text: string, start: int, out: []int) -> (score: int, count: int, ok: bool) {
     qi       := 0
     streak   := 0
-    prev_sep := true
-    for i in 0 ..< len(text) {
+    prev_sep := start == 0 || is_separator(text[start - 1])
+    for i in start ..< len(text) {
         if qi >= len(query) {
             break
         }
@@ -907,12 +996,7 @@ fuzzy_match :: proc(query, text: string, out: []int) -> (score: int, count: int,
         }
         prev_sep = is_separator(text[i])
     }
-    if qi < len(query) {
-        return 0, 0, false
-    }
-    // Prefer tighter matches (less trailing text).
-    score -= (len(text) - len(query)) / 8
-    return score, count, true
+    return score, count, qi == len(query)
 }
 
 // Colour runs over the characters `query` matched in `text`, adjacent ones

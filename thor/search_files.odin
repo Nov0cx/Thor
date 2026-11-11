@@ -16,7 +16,6 @@ import "../lang"
 import "../lockfree"
 import "../prof"
 import "../search"
-import "../shell"
 import "../textedit"
 
 // Rows the picker takes; a scan stops when it has this many.
@@ -182,28 +181,11 @@ file_search_worker :: proc(job: ^File_Search_Job) {
     lockfree.stack_push(&job.owner.finished_file_searches, job)
 }
 
-// The files to scan, as absolute paths in the temp allocator. A git work tree
-// gives its tracked and untracked files, so what .gitignore names is left out;
-// any other folder is walked.
+// The files to scan, as absolute paths in the temp allocator.
 @(private = "file")
 file_search_list :: proc(root: string) -> []string {
-    output, status, _ := shell.run_status("git ls-files -z --cached --others --exclude-standard", root)
-    defer delete(output)
-    if status == 0 && len(output) > 0 {
-        files := make([dynamic]string, context.temp_allocator)
-        rest  := output
-        for len(rest) > 0 && len(files) < FILE_SEARCH_FILE_MAX {
-            end := strings.index_byte(rest, 0)
-            rel := end < 0 ? rest : rest[:end]
-            rest = end < 0 ? "" : rest[end + 1:]
-            if rel != "" {
-                append(&files, strings.concatenate({root, "/", rel}, context.temp_allocator))
-            }
-        }
-        return files[:]
-    }
-    walked := thor_walk_workspace_files(root, context.temp_allocator, FILE_SEARCH_FILE_MAX)
-    return walked[:]
+    files := thor_list_workspace_files(root, context.temp_allocator, FILE_SEARCH_FILE_MAX)
+    return files[:]
 }
 
 // The text of one file with CRLF as LF, in the temp allocator. False for a file

@@ -4,6 +4,7 @@ import "base:runtime"
 import "core:fmt"
 import "core:log"
 import "core:os"
+import "core:path/filepath"
 import "core:strings"
 import "core:thread"
 import "core:time"
@@ -17,6 +18,7 @@ import "../lockfree"
 import "../luaconf"
 import "../prof"
 import "../setting"
+import "../shell"
 import "../textedit"
 import "../theme"
 import ui "../vendor/loom/loom"
@@ -1008,8 +1010,33 @@ thor_palette_list_files :: proc(data: rawptr) -> []string {
     if thor.file_index_ready {
         return thor.file_index[:]
     }
-    files := thor_walk_workspace_files(thor.workspace_dir, context.temp_allocator)
+    files := thor_list_workspace_files(thor.workspace_dir, context.temp_allocator)
     return files[:]
+}
+
+// The files of the workspace, as absolute paths with the OS separator. A git work
+// tree gives its tracked and untracked files, so what .gitignore names is left
+// out; any other folder is walked.
+@(private)
+thor_list_workspace_files :: proc(root: string, allocator: runtime.Allocator, limit := COLLECT_FILE_MAX) -> [dynamic]string {
+    output, status, ran := shell.run_status("git ls-files -z --cached --others --exclude-standard", root)
+    defer delete(output)
+    if !ran || status != 0 || len(output) == 0 {
+        return thor_walk_workspace_files(root, allocator, limit)
+    }
+    files := make([dynamic]string, allocator)
+    rest  := output
+    for len(rest) > 0 && len(files) < limit {
+        end := strings.index_byte(rest, 0)
+        rel := end < 0 ? rest : rest[:end]
+        rest = end < 0 ? "" : rest[end + 1:]
+        if rel == "" {
+            continue
+        }
+        native, _ := strings.replace_all(rel, "/", filepath.SEPARATOR_STRING, context.temp_allocator)
+        append(&files, strings.concatenate({root, filepath.SEPARATOR_STRING, native}, allocator))
+    }
+    return files
 }
 
 @(private)
@@ -1112,7 +1139,7 @@ file_index_worker :: proc(job: ^File_Index_Job) {
     context.allocator = job.allocator
     defer free_all(context.temp_allocator)
 
-    job.files = thor_walk_workspace_files(job.root, job.allocator)
+    job.files = thor_list_workspace_files(job.root, job.allocator)
 
     lockfree.stack_push(&job.owner.finished_file_index, job)
 }

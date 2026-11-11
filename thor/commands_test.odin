@@ -35,6 +35,38 @@ test_collect_files_stops_at_the_cap :: proc(t: ^testing.T) {
     testing.expect_value(t, len(files), 5)
 }
 
+@(private = "file")
+list_fixture_write :: proc(t: ^testing.T, parts: []string, data: string) {
+    path, _ := filepath.join(parts, context.temp_allocator)
+    testing.expect(t, os.write_entire_file(path, data) == nil, "could not create test file")
+}
+
+// Inside a git work tree the list leaves out what .gitignore names, and every
+// path uses the OS separator under the root.
+@(test)
+test_list_workspace_files_skips_ignored :: proc(t: ^testing.T) {
+    root :: "thor_list_files.fixture"
+    out, _ := filepath.join({root, "out"}, context.temp_allocator)
+    defer os.remove_all(root)
+
+    testing.expect(t, os.make_directory(root) == nil, "could not create test root")
+    testing.expect(t, os.make_directory(out) == nil, "could not create test subdir")
+    list_fixture_write(t, {root, ".gitignore"}, "out/\n")
+    list_fixture_write(t, {root, "keep.txt"}, "")
+    list_fixture_write(t, {out, "built.txt"}, "")
+
+    files   := thor_list_workspace_files(root, context.temp_allocator)
+    keep, _ := filepath.join({root, "keep.txt"}, context.temp_allocator)
+    found   := false
+    for path in files {
+        testing.expectf(t, !strings.contains(path, "built.txt"), "an ignored file is listed: %s", path)
+        if path == keep {
+            found = true
+        }
+    }
+    testing.expectf(t, found, "keep.txt is missing from %v", files)
+}
+
 // A finished job built the way thor_refresh_file_index builds one, so the
 // join, the free and the inflight count stay valid — matches the
 // Shell_Detect_Job stub in terminal_test.odin.

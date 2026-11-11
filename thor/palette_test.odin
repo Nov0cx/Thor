@@ -93,8 +93,44 @@ test_palette_match_spans_stay_on_runes :: proc(t: ^testing.T) {
     testing.expect_value(t, len(joined), 1)
     testing.expect_value(t, joined[0].start, 6)
     testing.expect_value(t, joined[0].end, 9)
-    split := palette_match_spans("odin", "thor.odin", {})
+    split := palette_match_spans("hd", "thor.odin", {})
     testing.expect_value(t, len(split), 2)
+    // A substring marks one run, even where a scattered match would come first.
+    whole := palette_match_spans("odin", "thor.odin", {})
+    testing.expect_value(t, len(whole), 1)
+    testing.expect_value(t, whole[0].start, 5)
+    testing.expect_value(t, whole[0].end, 9)
+}
+
+// A prefix outranks a word-start substring, which outranks a substring inside a
+// word, which outranks a scattered match.
+@(test)
+test_fuzzy_ranks_substrings_first :: proc(t: ^testing.T) {
+    prefix, prefix_ok := fuzzy_score("fold", "Fold: Toggle Fold")
+    word, word_ok     := fuzzy_score("fold", "File: Open Folder")
+    inner, inner_ok   := fuzzy_score("fold", "Fold: Unfold All")
+    middle, middle_ok := fuzzy_score("fold", "Unfold All")
+    loose, loose_ok   := fuzzy_score("fold", "Check for Plugin and Theme Updates")
+    testing.expect(t, prefix_ok && word_ok && inner_ok && middle_ok && loose_ok, "every row must match")
+    testing.expect(t, prefix > word, "a prefix must outrank a later word start")
+    testing.expect(t, inner > word, "a category prefix must outrank a later word start")
+    testing.expect(t, word > middle, "a word start must outrank a substring inside a word")
+    testing.expect(t, middle > loose, "a substring must outrank a scattered match")
+}
+
+// A scattered match takes its best start, so a short path that holds the query
+// near together outranks a long one that holds it far apart.
+@(test)
+test_fuzzy_takes_the_best_start :: proc(t: ^testing.T) {
+    near, near_ok := fuzzy_score("edview", "editview/editor.odin")
+    far, far_ok   := fuzzy_score("edview", "bin/deps/harfbuzz/test/subset/data/expected/fvar/index-wide.ttf")
+    testing.expect(t, near_ok && far_ok, "both paths must match")
+    testing.expect(t, near > far, "the near match must rank first")
+
+    hits: [8]int
+    _, count, ok := fuzzy_match("ed", "xed_ed", hits[:])
+    testing.expect(t, ok && count == 2, "the query must match")
+    testing.expect_value(t, hits[0], 4) // the word start after the separator
 }
 
 // A confirmation that another palette mode replaces reports itself dismissed.
