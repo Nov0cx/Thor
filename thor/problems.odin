@@ -271,14 +271,15 @@ thor_problems_view :: proc(thor: ^Thor) {
 
 @(private = "file")
 problems_box :: proc(thor: ^Thor) {
-    box := ui.scope(
+    groups := thor_problem_groups(thor)
+    box    := ui.scope(
         {
             key = "problems-box",
             flags = {.Clickable, .Focusable},
             props = {
                 w = ui.Px(PROBLEMS_WIDTH),
                 max_w = ui.viewport().x - 80,
-                h = ui.Px(PROBLEMS_HEIGHT),
+                h = len(groups) == 0 ? ui.FIT : ui.Px(PROBLEMS_HEIGHT),
                 max_h = ui.viewport().y - 80,
                 dir = .Column,
                 bg = thor.theme.background,
@@ -293,14 +294,13 @@ problems_box :: proc(thor: ^Thor) {
         thor.problems.focus_pending = false
     }
 
-    groups := thor_problem_groups(thor)
     problems_header(thor, groups)
 
-    ui.scope({key = "list", flags = {.Clip, .Scroll_Y}, props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column, pad = ui.xy(8, 8), gap = {0, 2}}})
     if len(groups) == 0 {
-        ui.label("No problems.", {key = "none", props = {color = thor.theme.muted_color, pad = ui.xy(8, 8)}})
+        ui.label("No problems.", {key = "none", props = {color = thor.theme.muted_color, pad = ui.xy(16, 14)}})
         return
     }
+    ui.scope({key = "list", flags = {.Clip, .Scroll_Y}, props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column, pad = ui.xy(8, 8), gap = {0, 2}}})
     for g, gi in groups {
         ui.push_id_int(i64(gi))
         defer ui.pop_id()
@@ -322,7 +322,14 @@ problems_header :: proc(thor: ^Thor, groups: []Problem_Group) {
             props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {10, 0}, pad = ui.xy(14, 12), bg = thor.theme.second_background},
         },
     )
-    thor_icon_label(thor, "alert-circle", thor.theme.error_color)
+    icon, color := "circle-check", thor.theme.success_color
+    for sev in editview.Diagnostic_Severity {
+        if problem_count(groups, sev) > 0 {
+            icon, color = "alert-circle", problem_color(thor, sev)
+            break
+        }
+    }
+    thor_icon_label(thor, icon, color)
     ui.label("Problems", {key = "title", props = {color = thor.theme.foreground, text_wrap = .None}})
     ui.label(
         fmt.tprintf(
