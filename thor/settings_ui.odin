@@ -185,6 +185,12 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
         }
     }
 
+    for &row in view.rows {
+        if desc := thor_setting_description(row.id); desc != "" && row.desc == "" {
+            row.desc = strings.clone(desc)
+        }
+    }
+
     thor_settings_begin_category(view, "keybindings", "Keybindings", "keyboard")
     actions := make([dynamic]string, context.temp_allocator)
     for action in config.keybinds {
@@ -671,4 +677,66 @@ thor_on_setting_keybind :: proc(data: rawptr, id: string, key: ui.Key, mods: inp
         return
     }
     thor_reload_settings(thor)
+}
+
+// The line a settings row shows under its label; "" for none.
+@(private = "file")
+thor_setting_description :: proc(id: string) -> string {
+    switch id {
+    case "tab_width":
+        return "Spaces per indent level, and the width of a tab character."
+    case "font_size":
+        return "Editor text size in points. The terminal follows it."
+    case "autosave_delay_ms":
+        return "Time after the last edit before the file is saved."
+    case "peek_height":
+        return "Rows of the peek definition box, 4 to 40."
+    case "insert_spaces":
+        return "The Tab key types spaces. Off types a tab character."
+    case "detect_indentation":
+        return "Take the indent style and width from the text of each file."
+    case "indent_guides":
+        return "Draw a vertical line at each indent stop."
+    case "relative_line_numbers":
+        return "Number lines by distance from the caret, the count Alt + digit jumps by."
+    case "format_on_save":
+        return "Format the file before Ctrl+S or Save All. Never before an autosave."
+    case "format_on_type":
+        return "Format as you type a trigger character, such as } in Odin."
+    case "right_alt":
+        return "Auto: AltGr when the keyboard layout types characters with it, else Alt."
+    case "theme":
+        return "The color theme. User themes come first, then the shipped ones."
+    case "font":
+        return "The text font family."
+    case "icon_pack":
+        return "The icons of the title bar, the menus and the panels."
+    case "file_icon_pack":
+        return "The icons of files in the explorer and the tabs."
+    case "ligatures":
+        return "Draw programming ligatures, such as -> as one glyph."
+    case "tooltips":
+        return "Explain a control when the mouse stays on it."
+    case "open_folder_in":
+        return "What Open Folder does: ask, replace this workspace, or open a window."
+    case "pane_layout":
+        return "The pane layout a folder opens with. Remember keeps the saved one."
+    case "clipboard_history_save":
+        return "Keep the clipboard history between sessions, encrypted on disk."
+    case "tip_of_the_day":
+        return "Show a tip on the welcome page and on the first start of each day."
+    case "shell_menu":
+        return "An 'Open with Thor' entry in the file manager's context menu."
+    case "default_shell":
+        return "The shell a new terminal starts. Empty takes the best one installed."
+    case "terminal_clipboard":
+        return "Let a program in the terminal set the clipboard (OSC 52)."
+    case "check_for_updates":
+        return "Look for a new release after start, at most once a day."
+    case "check_for_plugin_updates":
+        return "Look for plugin and theme updates after start, at most once a day."
+    case setting.LANGUAGE_SETTING:
+        return "Hover, go to definition, completion and the other language features."
+    }
+    return ""
 }

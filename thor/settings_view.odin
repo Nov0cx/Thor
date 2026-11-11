@@ -18,6 +18,7 @@ SETTINGS_CHORD_W      :: f32(170)
 SETTINGS_RADIUS       :: f32(10)
 SETTINGS_INNER_RADIUS :: SETTINGS_RADIUS - 1
 SETTINGS_ROW_H        :: f32(34)
+SETTINGS_ROW_DESC_H   :: f32(56)
 SETTINGS_CATEGORY_H   :: f32(32)
 
 Settings_Row_Kind :: enum {
@@ -49,7 +50,8 @@ Settings_Row :: struct {
     tone:           Settings_Tone,
     number:         int,
     min, max, step: int,
-    on:             bool, // a Toggle row's state
+    on:             bool,   // a Toggle row's state
+    desc:           string, // owned; a muted line under the label, "" for none
 }
 
 // A sidebar entry. The host registers one with thor_settings_begin_category
@@ -140,6 +142,7 @@ thor_settings_clear :: proc(s: ^Settings_State) {
         delete(row.value)
         delete(row.category)
         delete(row.group)
+        delete(row.desc)
     }
     clear(&s.rows)
     for cat in s.categories {
@@ -376,7 +379,7 @@ settings_toggle_group :: proc(s: ^Settings_State, id: string) {
 }
 
 // The rows the list shows: the selected category with its folded groups hidden,
-// or every label match when the search box is not empty. A keybind row also matches its action id.
+// or every label or description match when the search box is not empty. A keybind row also matches its action id.
 @(private = "file")
 settings_recompute_visible :: proc(s: ^Settings_State) {
     clear(&s.visible_rows)
@@ -402,7 +405,8 @@ settings_recompute_visible :: proc(s: ^Settings_State) {
             continue
         }
         label := strings.to_lower(row.label, context.temp_allocator)
-        if strings.contains(label, query) || (row.kind == .Keybind && strings.contains(row.id, query)) {
+        desc  := strings.to_lower(row.desc, context.temp_allocator)
+        if strings.contains(label, query) || strings.contains(desc, query) || (row.kind == .Keybind && strings.contains(row.id, query)) {
             append(&s.visible_rows, i)
         }
     }
@@ -617,6 +621,7 @@ settings_sidebar :: proc(thor: ^Thor) {
             props = {
                 position = .Relative,
                 w = ui.Px(SETTINGS_SIDEBAR_W),
+                min_w = SETTINGS_SIDEBAR_W,
                 h = ui.Grow(1),
                 dir = .Column,
                 pad = {l = 8, r = 8, t = 10, b = 8},
@@ -719,12 +724,27 @@ settings_row :: proc(thor: ^Thor, row_index: int) {
     ui.scope(
         {
             key = "row",
-            props = {w = ui.Grow(1), h = ui.Px(SETTINGS_ROW_H), dir = .Row, align = .Center, gap = {12, 0}, pad = {l = 8 + indent, r = 8}, radius = ui.rad(6)},
+            props = {
+                w = ui.Grow(1),
+                h = ui.Px(row.desc != "" ? SETTINGS_ROW_DESC_H : SETTINGS_ROW_H),
+                dir = .Row,
+                align = .Center,
+                gap = {12, 0},
+                pad = {l = 8 + indent, r = 8},
+                radius = ui.rad(6),
+            },
             hover = {bg = thor.theme.second_background},
         },
     )
 
-    ui.label(row.label, {key = "label", props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .Ellipsis}})
+    if row.desc == "" {
+        ui.label(row.label, {key = "label", props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .Ellipsis}})
+    } else {
+        text := ui.scope({key = "text", props = {w = ui.Grow(1), min_w = 0, h = ui.FIT, dir = .Column, gap = {0, 1}}})
+        _ = text
+        ui.label(row.label, {key = "label", props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .Ellipsis}})
+        ui.label(row.desc, {key = "desc", props = {w = ui.Grow(1), color = thor.theme.muted_color, text_wrap = .Ellipsis}})
+    }
 
     switch row.kind {
     case .Number:
@@ -905,13 +925,10 @@ settings_keybind_control :: proc(thor: ^Thor, row: ^Settings_Row, row_index: int
     }
 
     // Clearing a binding is the same commit with no key.
-    // An unbound row keeps the slot, so every chip starts at one x.
     if bound && !capturing {
         if settings_step_button(thor, "clear", "x", true) {
             thor_on_setting_keybind(thor, row.id, .None, {})
         }
-    } else {
-        ui.leaf({key = "clear", props = {w = ui.Px(24), h = ui.Px(24)}})
     }
 }
 
