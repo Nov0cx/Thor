@@ -957,3 +957,67 @@ test_retarget_moves_tabs_under_a_folder :: proc(t: ^testing.T) {
     testing.expect(t, thor_same_path(inside.path, "proj/lib/a.odin"), inside.path)
     testing.expect(t, thor_same_path(sibling.path, "proj/srcs/b.odin"), sibling.path)
 }
+
+@(private = "file")
+pump_until_ready :: proc(thor: ^Thor, file: ^Open_File) {
+    for _ in 0 ..< 500 {
+        thor_update_files(thor)
+        if (thor_file_ready(file) || file.load_failed) && file.pending_jobs == 0 {
+            return
+        }
+        time.sleep(2 * time.Millisecond)
+    }
+}
+
+@(test)
+test_binary_file_opens_in_hex_view :: proc(t: ^testing.T) {
+    TEST_PATH :: "thor_binary_open.tmp"
+    bytes := []u8{0x7f, 'E', 'L', 'F', 0, 1, 2, 0xff}
+    testing.expect(t, os.write_entire_file(TEST_PATH, bytes) == nil, "could not create test file")
+    defer os.remove(TEST_PATH)
+
+    thor := test_make_thor()
+    defer test_free_thor(thor)
+
+    thor_open_file(thor, TEST_PATH)
+    file := thor.open_files[0]
+    pump_until_ready(thor, file)
+
+    testing.expect(t, file.is_binary, "a file with NUL bytes must open as binary")
+    testing.expect(t, !file.load_failed, "a binary file must not read as failed")
+    testing.expect(t, !file.loaded, "a binary file must not get a text buffer")
+    testing.expect_value(t, string(file.binary_bytes), string(bytes))
+    testing.expect(t, !thor_tab_info(thor, 0).loading, "a binary tab must not read as loading")
+
+    // A reload that finds text again switches to the editor.
+    testing.expect(t, os.write_entire_file(TEST_PATH, "text now\n") == nil, "could not rewrite test file")
+    thor_reload_file(thor, file)
+    pump_until_ready(thor, file)
+    testing.expect(t, !file.is_binary, "a file that turned to text must leave the hex view")
+    testing.expect(t, file.binary_bytes == nil, "the bytes must be freed")
+    testing.expect(t, file.loaded, "the text must load")
+    testing.expect_value(t, textedit.text(&file.state), "text now\n")
+    testing.expect(t, !file.reloading, "the reload must finish")
+
+    thor_close_file(thor, 0)
+}
+
+@(test)
+test_undecodable_image_falls_back_to_hex :: proc(t: ^testing.T) {
+    TEST_PATH :: "thor_broken_image.png"
+    testing.expect(t, os.write_entire_file(TEST_PATH, []u8{'n', 'o', 0, 'p', 'n', 'g'}) == nil, "could not create test file")
+    defer os.remove(TEST_PATH)
+
+    thor := test_make_thor()
+    defer test_free_thor(thor)
+
+    thor_open_file(thor, TEST_PATH)
+    file := thor.open_files[0]
+    pump_until_ready(thor, file)
+
+    testing.expect(t, !file.is_image, "a broken image must drop the image view")
+    testing.expect(t, file.is_binary, "a broken image must open in the hex view")
+    testing.expect(t, !file.load_failed, "the fallback must not read as failed")
+
+    thor_close_file(thor, 0)
+}

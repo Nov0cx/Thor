@@ -157,6 +157,10 @@ Open_File :: struct {
     model:                rl.Model,
     model_bounds:         rl.BoundingBox,
     model_loaded:         bool,
+    // Any other file with a NUL in its head: the raw bytes show in the hex view. `loaded` stays false.
+    is_binary:            bool,
+    binary_bytes:         []u8, // owned
+    binary_allocator:     mem.Allocator,
 }
 
 // Loaded via a memory mapping on a worker thread, which copies the view out and
@@ -358,6 +362,7 @@ load_worker :: proc(job: ^Load_Job) {
     if encoding != .UTF8 {
         text, decode_ok := thor_decode_utf16(bytes, encoding == .UTF16_BE, job.text_allocator)
         if !decode_ok {
+            job.binary = true
             return
         }
         content, decoded = text, true
@@ -731,6 +736,9 @@ thor_open_file_tab :: proc(thor: ^Thor, path: string, activate: bool) -> ^Open_F
     } else if thor_is_model_path(file.name) {
         file.is_model = true
         thor_load_model(file)
+        if file.load_failed {
+            thor_fall_back_to_bytes(thor, file)
+        }
     } else {
         thor_start_load(thor, file, image = false, reload = false, force = false)
     }
@@ -780,6 +788,10 @@ thor_reload_file :: proc(thor: ^Thor, file: ^Open_File, force := false) {
     if file.is_image {
         if !file.texture_loaded {
             return // initial async load still in flight; it will bring the current bytes
+        }
+    } else if file.is_binary {
+        if file.binary_bytes == nil {
+            return
         }
     } else if !file.loaded {
         return // initial load still in flight; it will bring the current bytes
@@ -1082,10 +1094,10 @@ thor_apply_image :: proc(thor: ^Thor, job: ^Load_Job) {
         return
     }
     if !job.ok {
-        if !job.reload {
+        log.warnf("Failed to load image %q", job.path)
+        if !job.reload && !thor_fall_back_to_bytes(thor, file) {
             file.load_failed = true
         }
-        log.warnf("Failed to load image %q", job.path)
         return
     }
     // A texture id can be reused, so the draw list alone may not show the new image.
@@ -1106,6 +1118,45 @@ thor_apply_image :: proc(thor: ^Thor, job: ^Load_Job) {
     if old_loaded {
         rl.UnloadTexture(old)
     }
+}
+
+// Moves a binary job's raw bytes into the file for the hex view.
+@(private = "file")
+thor_apply_binary :: proc(thor: ^Thor, job: ^Load_Job) {
+    file := job.file
+    if file.closed {
+        return
+    }
+    thor_drop_binary(file)
+    file.is_binary = true
+    file.load_failed = false
+    file.binary_bytes = job.buffer
+    file.binary_allocator = job.buffer_allocator
+    job.buffer = nil
+    thor.redraw = true
+}
+
+// Frees the hex view's bytes of a file.
+@(private = "file")
+thor_drop_binary :: proc(file: ^Open_File) {
+    if file.binary_bytes != nil {
+        delete(file.binary_bytes, file.binary_allocator)
+    }
+    file.binary_bytes = nil
+    file.is_binary = false
+}
+
+// An image or model that does not decode opens as plain bytes instead.
+@(private = "file")
+thor_fall_back_to_bytes :: proc(thor: ^Thor, file: ^Open_File) -> bool {
+    if !os.exists(file.path) {
+        return false
+    }
+    file.is_image = false
+    file.is_model = false
+    file.load_failed = false
+    thor_start_load(thor, file, image = false, reload = false, force = false)
+    return true
 }
 
 thor_close_file :: proc(thor: ^Thor, index: int) {
@@ -1365,14 +1416,24 @@ thor_process_io :: proc(thor: ^Thor) {
         thread.join(job.worker)
         thread.destroy(job.worker)
 
-        file   := job.file
-        reload := job.reload
+        file      := job.file
+        reload    := job.reload
         // Read before the free below; job is gone by the time these decide
         // the .Opened notify and the re-bind.
-        image  := job.image
+        image     := job.image
+        reloading := reload
+        // A text buffer that turned binary on disk keeps its text; a hex view
+        // that turned to text takes the fresh-open path.
+        binary    := job.binary && (!reload || file.is_binary)
+        if reload && job.ok && file.is_binary {
+            thor_drop_binary(file)
+            reload = false
+        }
         opened ||= !reload && !image && job.ok
         if image {
             thor_apply_image(thor, job)
+        } else if binary {
+            thor_apply_binary(thor, job)
         } else if reload {
             thor_apply_reload(thor, job)
         } else if job.ok {
@@ -1395,11 +1456,7 @@ thor_process_io :: proc(thor: ^Thor) {
             }
         } else {
             file.load_failed = true
-            if job.binary {
-                log.warnf("Refusing to open binary file %q", job.path)
-            } else {
-                log.warnf("Failed to load %q", job.path)
-            }
+            log.warnf("Failed to load %q", job.path)
         }
 
         file_map_close(&job.mapping)
@@ -1418,7 +1475,7 @@ thor_process_io :: proc(thor: ^Thor) {
 
         file.pending_jobs -= 1
         thor.inflight_jobs -= 1
-        if reload {
+        if reloading {
             file.reloading = false
             // The file changed again while this read ran (or it ran mid-write and
             // read a half-written file), so read once more.
@@ -1428,7 +1485,7 @@ thor_process_io :: proc(thor: ^Thor) {
             }
         }
 
-        if image {
+        if image || binary {
             // thor_update_editor_view already swaps the image view in per
             // frame from texture_loaded; binding here is what settles the
             // editor's placeholder text underneath it, on both an open and a
@@ -1544,6 +1601,7 @@ thor_free_open_file :: proc(file: ^Open_File, thor: ^Thor = nil) {
     if file.model_loaded {
         rl.UnloadModel(file.model)
     }
+    thor_drop_binary(file)
     textedit.destroy(&file.state)
     delete(file.highlights)
     delete(file.folds)

@@ -114,6 +114,7 @@ Thor :: struct {
     // each keeps its own camera.
     image_view:                    [MAX_PANES]Image_View,
     model_view:                    [MAX_PANES]Model_View,
+    hex_view:                      [MAX_PANES]Hex_View,
     // Rendered markdown preview, shown in place of whichever pane is not
     // focused while preview is on and the active file is markdown. Toggled by
     // "View: Toggle Markdown Preview".

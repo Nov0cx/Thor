@@ -810,6 +810,8 @@ thor_workspace_pane :: proc(thor: ^Thor, view: Workspace_View, pane: int, key: s
         thor_image_view(thor, &thor.image_view[pane], view.files[pane], key)
     case .Model:
         thor_model_view(thor, &thor.model_view[pane], view.files[pane], key)
+    case .Hex:
+        thor_hex_view(thor, &thor.hex_view[pane], view.files[pane], key)
     case .Editor:
         thor_editor_pane(thor, thor_pane_editor(thor, pane), pane, key)
     }

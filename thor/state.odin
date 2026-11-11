@@ -96,6 +96,8 @@ thor_bind_editor :: proc(thor: ^Thor, editor: ^editview.Editor, file: ^Open_File
                 editor.placeholder = file.texture_loaded ? "Image" : "Loading image..."
             case file.is_model:
                 editor.placeholder = "3D Model"
+            case file.is_binary:
+                editor.placeholder = "Binary file"
             case:
                 editor.placeholder = "Loading..."
             }
@@ -186,6 +188,7 @@ Pane_Content :: enum {
     Markdown,
     Image,
     Model,
+    Hex,
 }
 
 // What the workspace area shows this frame: the welcome page when no folder is
@@ -251,6 +254,8 @@ thor_pane_content :: proc(file: ^Open_File) -> Pane_Content {
         return .Image
     case file.is_model && file.model_loaded:
         return .Model
+    case file.is_binary && file.binary_bytes != nil:
+        return .Hex
     }
     return .Editor
 }
@@ -533,10 +538,10 @@ thor_builtin_language_name :: proc(name: string) -> (string, bool) {
 
 // Whether a file has something to show: a loaded text buffer, an uploaded
 // image texture, or an uploaded model. `loaded` alone is never true for an
-// image or a model — they bypass the text pipeline entirely — so a caller
-// asking "is there anything to draw yet" must check all three, not `loaded`.
+// image, a model or a binary file — they bypass the text pipeline entirely — so a
+// caller asking "is there anything to draw yet" must check all four, not `loaded`.
 thor_file_ready :: proc(file: ^Open_File) -> bool {
-    return file.loaded || file.texture_loaded || file.model_loaded
+    return file.loaded || file.texture_loaded || file.model_loaded || file.binary_bytes != nil
 }
 
 thor_tab_info :: proc(data: rawptr, index: int) -> Tab_Info {
