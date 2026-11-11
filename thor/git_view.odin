@@ -845,8 +845,9 @@ git_view_file_row :: proc(thor: ^Thor, file: Git_View_File, staged: bool, index:
     }
     thor_tip(thor, it.id, file.path, detail)
 
+    // The buttons show on the selected row and under the mouse, so the list stays quiet.
     action := Git_File_Action.None
-    if !v.busy {
+    if !v.busy && (on || ui.rect_contains(it.rect, ui.mouse_pos())) {
         if git_view_button(
             thor,
             "stage",
@@ -856,7 +857,7 @@ git_view_file_row :: proc(thor: ^Thor, file: Git_View_File, staged: bool, index:
         ) {
             action = .Stage
         }
-        if !staged && git_view_button(thor, "discard", "Discard", true, "Throw the changes to the file away") {
+        if !staged && git_view_button(thor, "discard", "Discard", true, "Throw the changes to the file away", danger = true) {
             action = .Discard
         }
     }
@@ -1439,8 +1440,15 @@ git_view_row_button :: proc(thor: ^Thor, key, label: string) -> bool {
 }
 
 @(private = "file")
-git_view_button :: proc(thor: ^Thor, key, label: string, enabled: bool, tip := "") -> bool {
-    it := ui.scope(
+git_view_button :: proc(
+    // A `danger` button does something that cannot be undone: red text, and a red fill on hover.
+    thor: ^Thor,
+    key, label: string,
+    enabled: bool,
+    tip := "",
+    danger := false,
+) -> bool {
+    it    := ui.scope(
         {
             key = key,
             flags = enabled ? {.Clickable} : {},
@@ -1450,13 +1458,18 @@ git_view_button :: proc(thor: ^Thor, key, label: string, enabled: bool, tip := "
                 align = .Center,
                 pad = ui.xy(10, 0),
                 radius = ui.rad(4),
-                bg = thor.theme.buttons,
+                bg = danger ? nil : thor.theme.buttons,
+                border = danger ? {width = ui.all(1), color = thor.theme.border} : {},
                 cursor = enabled ? .Pointer : .Not_Allowed,
             },
-            hover = {bg = enabled ? thor.theme.active : nil},
+            hover = {bg = enabled ? (danger ? thor.theme.danger_color : thor.theme.active) : nil},
         },
     )
-    ui.label(label, {key = "text", props = {color = enabled ? thor.theme.foreground : thor.theme.disabled, text_wrap = .None}})
+    color := enabled ? (danger ? thor.theme.danger_color : thor.theme.foreground) : thor.theme.disabled
+    if danger && enabled && it.hovered {
+        color = thor.theme.foreground
+    }
+    ui.label(label, {key = "text", props = {color = color, text_wrap = .None}})
     // A disabled button is no hit target, so it explains itself only while it
     // can be pressed.
     thor_tip(thor, it.id, tip)
