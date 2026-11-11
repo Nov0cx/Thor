@@ -255,7 +255,15 @@ thor_apply_file_search :: proc(thor: ^Thor, job: ^File_Search_Job) {
         append(&thor.doc_symbols, Doc_Symbol{path = strings.clone(hit.path), offset = hit.offset})
         rel      := strings.trim_left(strings.trim_prefix(hit.path, thor.workspace_dir), "/\\")
         slash, _ := strings.replace_all(rel, "\\", "/", context.temp_allocator)
-        append(&items, Pick_Item{text = hit.preview, color = thor.theme.primary_text_color, detail = fmt.tprintf("%s:%d", slash, hit.line)})
+        append(
+            &items,
+            Pick_Item{
+                text = hit.preview,
+                color = thor.theme.primary_text_color,
+                detail = fmt.tprintf("%s:%d", slash, hit.line),
+                note = fmt.tprintf("%s:%d", thor_file_base(slash), hit.line),
+            },
+        )
     }
     thor_palette_pick_rich_set(thor, items[:])
     if job.capped {

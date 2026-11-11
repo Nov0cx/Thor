@@ -40,6 +40,7 @@ Pick_Item :: struct {
     name_len: int,
     color:    ui.Color,
     detail:   string, // owned
+    note:     string, // owned; dim text at the right end of the row, "" for none
 }
 
 Palette_Mode :: enum {
@@ -417,6 +418,7 @@ palette_set_pick_items :: proc(p: ^Palette, items: []Pick_Item) {
                 name_len = item.name_len,
                 color = item.color,
                 detail = item.detail == "" ? "" : strings.clone(item.detail),
+                note = item.note == "" ? "" : strings.clone(item.note),
             },
         )
     }
@@ -428,6 +430,9 @@ palette_clear_pick_items :: proc(p: ^Palette) {
         delete(item.text)
         if len(item.detail) > 0 {
             delete(item.detail)
+        }
+        if len(item.note) > 0 {
+            delete(item.note)
         }
     }
     clear(&p.pick_items)
@@ -843,6 +848,9 @@ palette_row :: proc(thor: ^Thor, index: int) -> bool {
         item  := p.pick_items[source]
         spans := palette_split_spans(item.text, item.name_len, item.color, query, mark)
         ui.leaf({key = "text", text = item.text, spans = spans, props = {w = ui.Grow(1), color = thor.theme.muted_color, text_wrap = .Ellipsis}})
+        if item.note != "" {
+            ui.label(item.note, {key = "note", props = {color = thor.theme.disabled, text_wrap = .None}})
+        }
         return it.clicked
     }
 
