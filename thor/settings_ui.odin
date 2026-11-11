@@ -1,6 +1,7 @@
 package thor
 
 import "core:fmt"
+import "core:log"
 import "core:slice"
 import "core:strings"
 
@@ -80,12 +81,12 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
         setting.PEEK_HEIGHT_MAX,
         1,
     )
-    thor_settings_add_choice(view, "insert_spaces", "Insert Spaces", thor_on_off_label(setting.insert_spaces(config)))
-    thor_settings_add_choice(view, "detect_indentation", "Detect Indentation", thor_on_off_label(setting.detect_indentation(config)))
-    thor_settings_add_choice(view, "indent_guides", "Indent Guides", thor_on_off_label(setting.indent_guides(config)))
-    thor_settings_add_choice(view, "relative_line_numbers", "Relative Line Numbers", thor_on_off_label(setting.relative_line_numbers(config)))
-    thor_settings_add_choice(view, "format_on_save", "Format on Save", thor_on_off_label(setting.format_on_save(config)))
-    thor_settings_add_choice(view, "format_on_type", "Format on Type", thor_on_off_label(setting.format_on_type(config)))
+    thor_settings_add_toggle(view, "insert_spaces", "Insert Spaces", setting.insert_spaces(config))
+    thor_settings_add_toggle(view, "detect_indentation", "Detect Indentation", setting.detect_indentation(config))
+    thor_settings_add_toggle(view, "indent_guides", "Indent Guides", setting.indent_guides(config))
+    thor_settings_add_toggle(view, "relative_line_numbers", "Relative Line Numbers", setting.relative_line_numbers(config))
+    thor_settings_add_toggle(view, "format_on_save", "Format on Save", setting.format_on_save(config))
+    thor_settings_add_toggle(view, "format_on_type", "Format on Type", setting.format_on_type(config))
     thor_settings_add_choice(view, "right_alt", "Right Alt Key", thor_right_alt_label(config))
 
     thor_settings_begin_category(view, "appearance", "Appearance", "palette")
@@ -107,23 +108,23 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     }
     thor_settings_add_choice(view, "file_icon_pack", "File Icon Pack", file_icon_pack)
     thor_settings_add_choice(view, "ligatures", "Ligatures", thor_ligatures_label(config))
-    thor_settings_add_choice(view, "tooltips", "Tooltips", thor_on_off_label(setting.tooltips(config)))
+    thor_settings_add_toggle(view, "tooltips", "Tooltips", setting.tooltips(config))
 
     thor_settings_begin_category(view, "windows", "Windows", "window")
     thor_settings_add_choice(view, "open_folder_in", "Open Folder In", thor_open_folder_in_label(config))
     thor_settings_add_choice(view, "pane_layout", "Editor Pane Layout", thor_pane_layout_label(config))
-    thor_settings_add_choice(view, "clipboard_history_save", "Save Clipboard History", thor_on_off_label(setting.clipboard_history_save(config)))
-    thor_settings_add_choice(view, "tip_of_the_day", "Tip of the Day", thor_on_off_label(setting.tip_of_the_day(config)))
+    thor_settings_add_toggle(view, "clipboard_history_save", "Save Clipboard History", setting.clipboard_history_save(config))
+    thor_settings_add_toggle(view, "tip_of_the_day", "Tip of the Day", setting.tip_of_the_day(config))
     if thor_shell_menu_supported() {
-        thor_settings_add_choice(view, "shell_menu", "Explorer Menu Entry", thor_on_off_label(thor_shell_menu_registered()))
+        thor_settings_add_toggle(view, "shell_menu", "Explorer Menu Entry", thor_shell_menu_registered())
     }
 
     thor_settings_begin_category(view, "terminal", "Terminal", "terminal-2")
     thor_settings_add_choice(view, "default_shell", "Default Shell", thor_default_shell_label(thor, config))
-    thor_settings_add_choice(view, "terminal_clipboard", "Programs Set Clipboard", thor_on_off_label(setting.terminal_clipboard(config)))
+    thor_settings_add_toggle(view, "terminal_clipboard", "Programs Set Clipboard", setting.terminal_clipboard(config))
 
     thor_settings_begin_category(view, "updates", "Updates", "download")
-    thor_settings_add_choice(view, "check_for_updates", "Check for Updates", thor_on_off_label(setting.check_for_updates(config)))
+    thor_settings_add_toggle(view, "check_for_updates", "Check for Updates", setting.check_for_updates(config))
     if scope == .General {
         thor_populate_ext_category(thor, config)
     }
@@ -134,7 +135,7 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     // Servers category owns (thor/lsp_ui.odin) so its state and setup have room.
     thor_settings_begin_category(view, "language", "Language", "brain")
     language_on := setting.language_enabled(config)
-    thor_settings_add_choice(view, setting.LANGUAGE_SETTING, "Language Intelligence", thor_on_off_label(language_on))
+    thor_settings_add_toggle(view, setting.LANGUAGE_SETTING, "Language Intelligence", language_on)
     if language_on {
         for id in lang.manager_gate_ids(&thor.lang_manager) {
             label := lang.manager_gate_label(&thor.lang_manager, id)
@@ -142,7 +143,7 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
                 continue
             }
             backend_on, backend_features := thor_backend_gate(thor, config, id)
-            thor_settings_add_choice(view, thor_language_backend_id(id), label, thor_on_off_label(backend_on))
+            thor_settings_add_toggle(view, thor_language_backend_id(id), label, backend_on)
             if !backend_on {
                 continue
             }
@@ -153,12 +154,7 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
                 collapsed = true,
             )
             for kind in lang.Request_Kind {
-                thor_settings_add_choice(
-                    view,
-                    thor_language_backend_feature_id(id, kind),
-                    LANGUAGE_FEATURE_LABELS[kind],
-                    thor_on_off_label(kind in backend_features),
-                )
+                thor_settings_add_toggle(view, thor_language_backend_feature_id(id, kind), LANGUAGE_FEATURE_LABELS[kind], kind in backend_features)
             }
             thor_settings_end_group(view)
         }
@@ -237,19 +233,7 @@ thor_on_setting_choice :: proc(data: rawptr, id: string) {
         thor_cmd_change_plugin_permission(thor, source, plugin_id)
         return
     }
-    if backend_id, kind, is_backend_feature := thor_language_backend_feature_name(id); is_backend_feature {
-        thor_cmd_change_language_backend_feature(thor, backend_id, kind)
-        return
-    }
-    if backend_id, is_backend := thor_language_backend_name(id); is_backend {
-        thor_cmd_change_language_backend(thor, backend_id)
-        return
-    }
     if thor_ext_on_setting_choice(thor, id) {
-        return
-    }
-    if id == setting.LANGUAGE_SETTING {
-        thor_cmd_change_language_master(thor)
         return
     }
     switch id {
@@ -263,38 +247,6 @@ thor_on_setting_choice :: proc(data: rawptr, id: string) {
         thor_cmd_change_file_icon_pack(thor)
     case "ligatures":
         thor_cmd_change_ligatures(thor)
-    case "indent_guides":
-        thor_cmd_change_indent_guides(thor)
-    case "insert_spaces":
-        thor_select_open(
-            thor,
-            "Insert Spaces",
-            ON_OFF_LABELS[:],
-            thor_on_off_label(setting.insert_spaces(&thor.config)),
-            thor_no_preview,
-            thor_insert_spaces_commit,
-            thor,
-        )
-    case "detect_indentation":
-        thor_select_open(
-            thor,
-            "Detect Indentation",
-            ON_OFF_LABELS[:],
-            thor_on_off_label(setting.detect_indentation(&thor.config)),
-            thor_no_preview,
-            thor_detect_indentation_commit,
-            thor,
-        )
-    case "relative_line_numbers":
-        thor_cmd_change_relative_line_numbers(thor)
-    case "tooltips":
-        thor_cmd_change_tooltips(thor)
-    case "tip_of_the_day":
-        thor_cmd_change_tip_of_the_day(thor)
-    case "format_on_save":
-        thor_cmd_change_format_on_save(thor)
-    case "format_on_type":
-        thor_cmd_change_format_on_type(thor)
     case "open_folder_in":
         thor_cmd_change_open_folder_in(thor)
     case "pane_layout":
@@ -309,32 +261,8 @@ thor_on_setting_choice :: proc(data: rawptr, id: string) {
         )
     case "right_alt":
         thor_cmd_change_right_alt(thor)
-    case "clipboard_history_save":
-        thor_select_open(
-            thor,
-            "Save Clipboard History",
-            ON_OFF_LABELS[:],
-            thor_on_off_label(setting.clipboard_history_save(&thor.config)),
-            thor_no_preview,
-            thor_clipboard_history_save_commit,
-            thor,
-        )
-    case "terminal_clipboard":
-        thor_select_open(
-            thor,
-            "Programs Set Clipboard",
-            ON_OFF_LABELS[:],
-            thor_on_off_label(setting.terminal_clipboard(&thor.config)),
-            thor_no_preview,
-            thor_terminal_clipboard_commit,
-            thor,
-        )
     case "default_shell":
         thor_cmd_select_shell(thor)
-    case "check_for_updates":
-        thor_cmd_change_check_for_updates(thor)
-    case "shell_menu":
-        thor_cmd_toggle_shell_menu(thor)
     }
 }
 
@@ -488,13 +416,6 @@ thor_right_alt_commit :: proc(data: rawptr, choice: string) {
     }
 }
 
-// Picker rows for every on/off setting in the modal.
-ON_OFF_LABELS := [?]string{"On", "Off"}
-
-thor_on_off_label :: proc(on: bool) -> string {
-    return on ? ON_OFF_LABELS[0] : ON_OFF_LABELS[1]
-}
-
 // Fold group holding the Odin analyzer's feature rows. One group per analyzer;
 // the id only has to be stable, it is never persisted.
 @(private = "file")
@@ -597,198 +518,57 @@ LANGUAGE_FEATURE_LABELS := [lang.Request_Kind]string{
     .Message = "Server Messages",
 }
 
-// Settings row: turn language intelligence on or off, whole-seam. Nothing to
-// preview — the gate only shows in what the next request does. The per-kind
-// gate underneath it (setting.language_features) has no UI of its own any
-// more: a backend's own feature group (thor_cmd_change_language_backend_feature)
-// is the precise version of the same idea, scoped to one backend instead of
-// cutting across all of them at once.
-@(private = "file")
-thor_cmd_change_language_master :: proc(thor: ^Thor) {
-    on := setting.language_enabled(&thor.config)
-    thor_select_open(thor, "Language Intelligence", ON_OFF_LABELS[:], thor_on_off_label(on), thor_language_master_preview, thor_language_master_commit, thor)
-}
-
-@(private = "file")
-thor_language_master_preview :: proc(_: rawptr, _: string) {}
-
-@(private = "file")
-thor_language_master_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor)data
-    on   := choice == ON_OFF_LABELS[0]
-    if err := setting.persist_nested_bool(thor_active_settings_path(thor), setting.LANGUAGE_SETTING, setting.LANGUAGE_ENABLED_KEY, on); err != .None {
-        thor_settings_save_failed(thor, thor_active_settings_path(thor), err)
-        return
-    }
-    thor_reload_settings(thor)
-}
-
 // Preview of a setting that shows nothing until it is committed.
 thor_no_preview :: proc(_: rawptr, _: string) {}
 
-@(private = "file")
-thor_insert_spaces_commit :: proc(data: rawptr, choice: string) {
-    thor_persist_bool_setting(cast(^Thor)data, "insert_spaces", choice == ON_OFF_LABELS[0])
-}
-
-@(private = "file")
-thor_detect_indentation_commit :: proc(data: rawptr, choice: string) {
-    thor_persist_bool_setting(cast(^Thor)data, "detect_indentation", choice == ON_OFF_LABELS[0])
-}
-
-@(private = "file")
-thor_clipboard_history_save_commit :: proc(data: rawptr, choice: string) {
-    thor_persist_bool_setting(cast(^Thor)data, "clipboard_history_save", choice == ON_OFF_LABELS[0])
-}
-
-@(private = "file")
-thor_terminal_clipboard_commit :: proc(data: rawptr, choice: string) {
-    thor_persist_bool_setting(cast(^Thor)data, "terminal_clipboard", choice == ON_OFF_LABELS[0])
-}
-
-// Settings row: the indentation guides. Both panes preview at once, so a split
-// never shows one pane with them and the other without.
-@(private = "file")
-thor_cmd_change_indent_guides :: proc(thor: ^Thor) {
-    thor_select_open(
-        thor,
-        "Indent Guides",
-        ON_OFF_LABELS[:],
-        thor_on_off_label(setting.indent_guides(&thor.config)),
-        thor_indent_guides_preview,
-        thor_indent_guides_commit,
-        thor,
-    )
-}
-
-@(private = "file")
-thor_indent_guides_preview :: proc(data: rawptr, choice: string) {
+// A switch row was flipped to `on`. Each write reloads, which re-applies the
+// setting and refreshes the modal.
+thor_on_setting_toggle :: proc(data: rawptr, id: string, on: bool) {
     thor := cast(^Thor)data
-    for &editor in thor.editors {
-        editor.indent_guides = choice == ON_OFF_LABELS[0]
+    if backend_id, kind, is_feature := thor_language_backend_feature_name(id); is_feature {
+        thor_persist_backend_key(thor, backend_id, lang.feature_name(kind), on)
+        return
     }
-}
-
-@(private = "file")
-thor_indent_guides_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor)data
-    thor_indent_guides_preview(data, choice)
-    thor_persist_bool_setting(thor, "indent_guides", choice == ON_OFF_LABELS[0])
-}
-
-// Settings row: gutter numbering. Relative counts from the caret line, which is
-// the count alt + <digit> jumps by; off numbers the lines from 1.
-@(private = "file")
-thor_cmd_change_relative_line_numbers :: proc(thor: ^Thor) {
-    thor_select_open(
-        thor,
-        "Relative Line Numbers",
-        ON_OFF_LABELS[:],
-        thor_on_off_label(setting.relative_line_numbers(&thor.config)),
-        thor_relative_lines_preview,
-        thor_relative_lines_commit,
-        thor,
-    )
-}
-
-@(private = "file")
-thor_relative_lines_preview :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor)data
-    for &editor in thor.editors {
-        editor.relative_lines = choice == ON_OFF_LABELS[0]
+    if backend_id, is_backend := thor_language_backend_name(id); is_backend {
+        thor_persist_backend_key(thor, backend_id, setting.LANGUAGE_ENABLED_KEY, on)
+        return
     }
-}
-
-@(private = "file")
-thor_relative_lines_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor)data
-    thor_relative_lines_preview(data, choice)
-    thor_persist_bool_setting(thor, "relative_line_numbers", choice == ON_OFF_LABELS[0])
-}
-
-// Settings row: the hover explanations. Nothing to preview — the dialog covers
-// the controls they would appear over.
-@(private = "file")
-thor_cmd_change_tooltips :: proc(thor: ^Thor) {
-    on := setting.tooltips(&thor.config)
-    thor_select_open(thor, "Tooltips", ON_OFF_LABELS[:], thor_on_off_label(on), thor_tooltips_preview, thor_tooltips_commit, thor)
-}
-
-@(private = "file")
-thor_tooltips_preview :: proc(_: rawptr, _: string) {}
-
-@(private = "file")
-thor_tooltips_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor)data
-    thor_persist_bool_setting(thor, "tooltips", choice == ON_OFF_LABELS[0])
-}
-
-// Settings row: the tip of the day. Off hides the welcome page card and keeps
-// the card over the editor closed. Nothing to preview — the next start shows it.
-@(private = "file")
-thor_cmd_change_tip_of_the_day :: proc(thor: ^Thor) {
-    on := setting.tip_of_the_day(&thor.config)
-    thor_select_open(thor, "Tip of the Day", ON_OFF_LABELS[:], thor_on_off_label(on), thor_tip_of_the_day_preview, thor_tip_of_the_day_commit, thor)
-}
-
-@(private = "file")
-thor_tip_of_the_day_preview :: proc(_: rawptr, _: string) {}
-
-@(private = "file")
-thor_tip_of_the_day_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor)data
-    thor_persist_bool_setting(thor, "tip_of_the_day", choice == ON_OFF_LABELS[0])
-}
-
-// Settings row: format the active buffer before every explicit save. Nothing
-// to preview — the effect only shows on the next save.
-@(private = "file")
-thor_cmd_change_format_on_save :: proc(thor: ^Thor) {
-    on := setting.format_on_save(&thor.config)
-    thor_select_open(thor, "Format on Save", ON_OFF_LABELS[:], thor_on_off_label(on), thor_format_on_save_preview, thor_format_on_save_commit, thor)
-}
-
-@(private = "file")
-thor_format_on_save_preview :: proc(_: rawptr, _: string) {}
-
-@(private = "file")
-thor_format_on_save_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor)data
-    thor_persist_bool_setting(thor, "format_on_save", choice == ON_OFF_LABELS[0])
-}
-
-// Settings row: the background update check. Off leaves Help > Check for
-// Updates working, which asks whatever this holds.
-@(private = "file")
-thor_cmd_change_check_for_updates :: proc(thor: ^Thor) {
-    on := setting.check_for_updates(&thor.config)
-    thor_select_open(thor, "Check for Updates", ON_OFF_LABELS[:], thor_on_off_label(on), thor_check_for_updates_preview, thor_check_for_updates_commit, thor)
-}
-
-@(private = "file")
-thor_check_for_updates_preview :: proc(_: rawptr, _: string) {}
-
-@(private = "file")
-thor_check_for_updates_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor)data
-    thor_persist_bool_setting(thor, "check_for_updates", choice == ON_OFF_LABELS[0])
-}
-
-// Settings row: dispatch Format_On_Type as a trigger character is typed.
-// Nothing to preview — the effect only shows on the next keystroke.
-@(private = "file")
-thor_cmd_change_format_on_type :: proc(thor: ^Thor) {
-    on := setting.format_on_type(&thor.config)
-    thor_select_open(thor, "Format on Type", ON_OFF_LABELS[:], thor_on_off_label(on), thor_format_on_type_preview, thor_format_on_type_commit, thor)
-}
-
-@(private = "file")
-thor_format_on_type_preview :: proc(_: rawptr, _: string) {}
-
-@(private = "file")
-thor_format_on_type_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor)data
-    thor_persist_bool_setting(thor, "format_on_type", choice == ON_OFF_LABELS[0])
+    switch id {
+    case setting.LANGUAGE_SETTING:
+        path := thor_active_settings_path(thor)
+        if err := setting.persist_nested_bool(path, setting.LANGUAGE_SETTING, setting.LANGUAGE_ENABLED_KEY, on); err != .None {
+            thor_settings_save_failed(thor, path, err)
+            return
+        }
+        thor_reload_settings(thor)
+    case "shell_menu":
+        if on != thor_shell_menu_registered() {
+            thor_cmd_toggle_shell_menu(thor)
+        }
+    case "indent_guides":
+        for &editor in thor.editors {
+            editor.indent_guides = on
+        }
+        thor_persist_bool_setting(thor, id, on)
+    case "relative_line_numbers":
+        for &editor in thor.editors {
+            editor.relative_lines = on
+        }
+        thor_persist_bool_setting(thor, id, on)
+    case "insert_spaces",
+        "detect_indentation",
+        "format_on_save",
+        "format_on_type",
+        "tooltips",
+        "clipboard_history_save",
+        "tip_of_the_day",
+        "terminal_clipboard",
+        "check_for_updates",
+        "check_for_plugin_updates":
+        thor_persist_bool_setting(thor, id, on)
+    case:
+        log.warnf("No handler for the settings switch %q", id)
+    }
 }
 
 // Writes one boolean settings key to the active layer and reloads, which is what
@@ -803,64 +583,12 @@ thor_persist_bool_setting :: proc(thor: ^Thor, key: string, on: bool) {
     thor_reload_settings(thor)
 }
 
-// Settings row: turn one backend (the Odin analyzer, or an lsp.lua server) on
-// or off. Nothing to preview — the gate only shows in what the next request
-// does; an already-running LSP server process is left running idle rather than
-// stopped, same as blocking a running plugin waits for a restart.
+// Writes one key of a backend's language_backends entry to the active layer and
+// reloads. `key` is either LANGUAGE_ENABLED_KEY or a feature name.
 @(private = "file")
-thor_cmd_change_language_backend :: proc(thor: ^Thor, backend_id: string) {
-    delete(thor.language_backend_target)
-    thor.language_backend_target = strings.clone(backend_id)
-    on, _ := thor_backend_gate(thor, &thor.config, backend_id)
-    thor_select_open(thor, backend_id, ON_OFF_LABELS[:], thor_on_off_label(on), thor_language_backend_preview, thor_language_backend_commit, thor)
-}
-
-@(private = "file")
-thor_language_backend_preview :: proc(_: rawptr, _: string) {}
-
-@(private = "file")
-thor_language_backend_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor)data
-    if thor.language_backend_target == "" {
-        return
-    }
-    thor_persist_backend_key(thor, setting.LANGUAGE_ENABLED_KEY, choice == ON_OFF_LABELS[0])
-}
-
-// Settings row: turn one feature on or off for one backend specifically (as
-// opposed to the top-level Language Intelligence group, which gates that
-// feature for every backend at once). Nothing to preview, same as every other
-// on/off row here.
-@(private = "file")
-thor_cmd_change_language_backend_feature :: proc(thor: ^Thor, backend_id: string, kind: lang.Request_Kind) {
-    delete(thor.language_backend_target)
-    thor.language_backend_target = strings.clone(backend_id)
-    thor.language_backend_feature_kind = kind
-    _, features := thor_backend_gate(thor, &thor.config, backend_id)
-    on          := kind in features
-    title       := fmt.tprintf("%s — %s", backend_id, LANGUAGE_FEATURE_LABELS[kind])
-    thor_select_open(thor, title, ON_OFF_LABELS[:], thor_on_off_label(on), thor_language_backend_feature_preview, thor_language_backend_feature_commit, thor)
-}
-
-@(private = "file")
-thor_language_backend_feature_preview :: proc(_: rawptr, _: string) {}
-
-@(private = "file")
-thor_language_backend_feature_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor)data
-    if thor.language_backend_target == "" {
-        return
-    }
-    thor_persist_backend_key(thor, lang.feature_name(thor.language_backend_feature_kind), choice == ON_OFF_LABELS[0])
-}
-
-// Writes one key of the target backend's language_backends entry to the active
-// layer and reloads. `key` is either LANGUAGE_ENABLED_KEY or a feature name —
-// the two share a shape, and both need the reload to reach the seam.
-@(private = "file")
-thor_persist_backend_key :: proc(thor: ^Thor, key: string, on: bool) {
+thor_persist_backend_key :: proc(thor: ^Thor, backend_id, key: string, on: bool) {
     path := thor_active_settings_path(thor)
-    err  := setting.persist_double_nested_bool(path, setting.LANGUAGE_BACKENDS_SETTING, thor.language_backend_target, key, on)
+    err  := setting.persist_double_nested_bool(path, setting.LANGUAGE_BACKENDS_SETTING, backend_id, key, on)
     if err != .None {
         thor_settings_save_failed(thor, path, err)
         return

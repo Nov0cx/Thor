@@ -246,12 +246,6 @@ Thor :: struct {
     // Plugin whose permission row opened the picker (see settings_ui.odin).
     plugin_setting_target:         string, // owned
     plugin_setting_source:         Plugin_Source,
-    // Backend id ("odin", or an lsp.lua server id) whose on/off picker is open;
-    // see thor_cmd_change_language_backend. Shared with
-    // thor_cmd_change_language_backend_feature, which additionally sets
-    // language_backend_feature_kind — the two never have a picker open at once.
-    language_backend_target:       string, // owned
-    language_backend_feature_kind: lang.Request_Kind,
     should_close:                  bool,
     // Set once an update started the new build: the session file belongs to that
     // process now, so this one must not write over it on the way out.
@@ -1202,7 +1196,6 @@ shutdown :: proc(thor: ^Thor) {
     thor_clear_plugin_requests(thor)
     delete(thor.plugin_requests)
     delete(thor.plugin_setting_target)
-    delete(thor.language_backend_target)
     setting.destroy(&thor.config)
     plugin.manager_destroy(&thor.plugins)
 

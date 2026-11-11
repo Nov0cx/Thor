@@ -57,3 +57,28 @@ test_settings_open_selects_named_category :: proc(t: ^testing.T) {
     thor_open_settings_view(thor, "no-such-category")
     testing.expect_value(t, s.selected_category, 0)
 }
+
+// On/off settings are switches on the page they belong to, and a keybind row
+// shows a readable name, not the action id.
+@(test)
+test_settings_rows_toggle_and_keybind_names :: proc(t: ^testing.T) {
+    thor := settings_test_thor()
+    defer settings_test_destroy(thor)
+
+    thor_open_settings_view(thor)
+    found_toggle, found_keybind := false, false
+    for row in thor.settings.rows {
+        switch row.id {
+        case "format_on_save":
+            found_toggle = true
+            testing.expect_value(t, row.kind, Settings_Row_Kind.Toggle)
+            testing.expect_value(t, row.category, "editor")
+        case "add_cursor_above":
+            found_keybind = true
+            testing.expect_value(t, row.kind, Settings_Row_Kind.Keybind)
+            testing.expect(t, row.label != row.id, "a keybind row shows its action id")
+        }
+    }
+    testing.expect(t, found_toggle, "no Format on Save row")
+    testing.expect(t, found_keybind, "no add_cursor_above row")
+}

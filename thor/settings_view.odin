@@ -27,6 +27,7 @@ Settings_Row_Kind :: enum {
     Group,   // chevron + label; clicking folds or unfolds the rows under it
     Info,    // label + read-only value; nothing to click
     Action,  // label + a button at the right edge; clicking asks the host to act
+    Toggle,  // label + an on/off switch; clicking asks the host to flip it
 }
 
 // How a value reads. A row states what its value means and the view picks the
@@ -48,6 +49,7 @@ Settings_Row :: struct {
     tone:           Settings_Tone,
     number:         int,
     min, max, step: int,
+    on:             bool, // a Toggle row's state
 }
 
 // A sidebar entry. The host registers one with thor_settings_begin_category
@@ -221,6 +223,22 @@ thor_settings_add_choice :: proc(s: ^Settings_State, id, label, value: string) {
             value = strings.clone(value),
             category = strings.clone(s.current_category),
             group = strings.clone(s.current_group),
+        },
+    )
+}
+
+// An on/off row drawn as a switch.
+thor_settings_add_toggle :: proc(s: ^Settings_State, id, label: string, on: bool) {
+    append(
+        &s.rows,
+        Settings_Row{
+            kind = .Toggle,
+            id = strings.clone(id),
+            label = strings.clone(label),
+            value = strings.clone(""),
+            category = strings.clone(s.current_category),
+            group = strings.clone(s.current_group),
+            on = on,
         },
     )
 }
@@ -721,6 +739,8 @@ settings_row :: proc(thor: ^Thor, row_index: int) {
         }
     case .Info:
         ui.label(row.value, {key = "value", props = {color = settings_tone_color(thor, row.tone), text_wrap = .Ellipsis}})
+    case .Toggle:
+        settings_toggle_control(thor, row)
     case .Group:
     }
 }
@@ -794,6 +814,34 @@ settings_step_button :: proc(thor: ^Thor, key, icon: string, enabled: bool) -> b
     )
     thor_icon_label(thor, icon, enabled ? thor.theme.foreground : thor.theme.disabled, 14)
     return enabled && it.clicked
+}
+
+@(private = "file")
+settings_toggle_control :: proc(thor: ^Thor, row: ^Settings_Row) {
+    it := ui.scope(
+        {
+            key = "toggle",
+            flags = {.Clickable},
+            props = {
+                w = ui.Px(38),
+                h = ui.Px(22),
+                dir = .Row,
+                align = .Center,
+                justify = row.on ? .End : .Start,
+                pad = ui.all(3),
+                radius = ui.rad(11),
+                bg = row.on ? thor.theme.accent_color : thor.theme.buttons,
+                border = {width = ui.all(1), color = row.on ? thor.theme.accent_color : thor.theme.border},
+                cursor = .Pointer,
+            },
+            hover = {bg = row.on ? thor.theme.accent_color : thor.theme.active},
+        },
+    )
+    ui.leaf({key = "knob", props = {w = ui.Px(14), h = ui.Px(14), radius = ui.rad(7), bg = row.on ? thor.theme.background : thor.theme.muted_color}})
+    thor_tip(thor, it.id, row.on ? "On" : "Off")
+    if it.clicked {
+        thor_on_setting_toggle(thor, row.id, !row.on)
+    }
 }
 
 @(private = "file")

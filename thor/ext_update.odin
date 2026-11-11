@@ -605,7 +605,7 @@ thor_populate_ext_category :: proc(thor: ^Thor, config: ^setting.Settings) {
         thor_ext_scan(thor)
     }
     thor_settings_begin_category(view, EXT_SETTINGS_CATEGORY, "Plugin & Theme Updates", "refresh")
-    thor_settings_add_choice(view, "check_for_plugin_updates", "Check Automatically", thor_on_off_label(setting.check_for_plugin_updates(config)))
+    thor_settings_add_toggle(view, "check_for_plugin_updates", "Check Automatically", setting.check_for_plugin_updates(config))
     pending   := thor_ext_pending_count(thor)
     now_label := thor.ext_inflight ? "Checking..." : pending > 0 ? fmt.tprintf("Check Now (%d available)", pending) : "Check Now"
     thor_settings_add_action(view, EXT_CHECK_NOW_ROW, now_label, "Check")
@@ -642,18 +642,6 @@ thor_populate_ext_category :: proc(thor: ^Thor, config: ^setting.Settings) {
 
 // Handles a click on an update row. False when `id` is not one.
 thor_ext_on_setting_choice :: proc(thor: ^Thor, id: string) -> bool {
-    if id == "check_for_plugin_updates" {
-        thor_select_open(
-            thor,
-            "Check Plugins and Themes Automatically",
-            ON_OFF_LABELS[:],
-            thor_on_off_label(setting.check_for_plugin_updates(&thor.config)),
-            thor_no_preview,
-            thor_ext_auto_commit,
-            thor,
-        )
-        return true
-    }
     if !strings.has_prefix(id, EXT_ROW_PREFIX) {
         return false
     }
@@ -676,16 +664,6 @@ thor_ext_on_setting_choice :: proc(thor: ^Thor, id: string) -> bool {
         return true
     }
     return true
-}
-
-@(private = "file")
-thor_ext_auto_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor)data
-    if err := setting.persist_bool(thor_active_settings_path(thor), "check_for_plugin_updates", choice == ON_OFF_LABELS[0]); err != .None {
-        thor_settings_save_failed(thor, thor_active_settings_path(thor), err)
-        return
-    }
-    thor_reload_settings(thor)
 }
 
 @(private = "file")

@@ -209,7 +209,7 @@ thor_lsp_populate_server :: proc(thor: ^Thor, id: string) {
         info(view, id, "error", "Last Error", status.last_error, .Bad)
     }
 
-    thor_settings_add_choice(view, thor_language_backend_id(id), "Enabled", thor_on_off_label(on))
+    thor_settings_add_toggle(view, thor_language_backend_id(id), "Enabled", on)
     thor_settings_add_action(view, thor_lsp_action_id(.Restart, id), "Restart This Server", "Restart")
     if !status.installed && status.install_command != "" {
         thor_settings_add_action(view, thor_lsp_action_id(.Install, id), "Install It", "Install")
@@ -223,7 +223,7 @@ thor_lsp_populate_server :: proc(thor: ^Thor, id: string) {
     if on {
         info(view, id, "features", "Features", fmt.tprintf("%d of %d on", card(features), len(lang.Request_Kind)))
         for kind in lang.Request_Kind {
-            thor_settings_add_choice(view, thor_language_backend_feature_id(id, kind), LANGUAGE_FEATURE_LABELS[kind], thor_on_off_label(kind in features))
+            thor_settings_add_toggle(view, thor_language_backend_feature_id(id, kind), LANGUAGE_FEATURE_LABELS[kind], kind in features)
         }
     }
     thor_settings_end_group(view)
