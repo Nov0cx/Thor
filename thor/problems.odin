@@ -300,7 +300,13 @@ problems_box :: proc(thor: ^Thor) {
         ui.label("No problems.", {key = "none", props = {color = thor.theme.muted_color, pad = ui.xy(16, 14)}})
         return
     }
-    ui.scope({key = "list", flags = {.Clip, .Scroll_Y}, props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column, pad = ui.xy(8, 8), gap = {0, 2}}})
+    ui.scope(
+        {
+            key = "list",
+            flags = {.Clip, .Scroll_Y},
+            props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), dir = .Column, pad = ui.xy(8, 8), gap = {0, 2}},
+        },
+    )
     for g, gi in groups {
         ui.push_id_int(i64(gi))
         defer ui.pop_id()

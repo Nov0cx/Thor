@@ -656,6 +656,7 @@ git_view_sidebar :: proc(thor: ^Thor) {
             key = "sidebar",
             flags = {.Clip, .Scroll_Y},
             props = {
+                position = .Relative,
                 w = ui.Px(GIT_SIDEBAR_W),
                 min_w = GIT_SIDEBAR_W,
                 h = ui.Grow(1),
@@ -766,7 +767,7 @@ git_view_file_section :: proc(thor: ^Thor, staged: bool) {
         }
     }
 
-    ui.scope({key = "list", flags = {.Clip, .Scroll_Y}, props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column}})
+    ui.scope({key = "list", flags = {.Clip, .Scroll_Y}, props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), dir = .Column}})
     if len(list) == 0 {
         ui.label(staged ? "Nothing staged" : "No changes", {key = "empty", props = {pad = ui.xy(10, 6), color = thor.theme.disabled}})
         return
@@ -894,7 +895,7 @@ git_view_diff :: proc(thor: ^Thor) {
     )
     thor_tip(thor, title.id, v.diff_title)
 
-    ui.scope({key = "rows", flags = {.Clip, .Scroll_Y, .Scroll_X}, props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column}})
+    ui.scope({key = "rows", flags = {.Clip, .Scroll_Y, .Scroll_X}, props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), dir = .Column}})
     if len(v.diff_rows) == 0 {
         return
     }
@@ -1000,7 +1001,7 @@ git_view_commit_box :: proc(thor: ^Thor) {
 git_view_history :: proc(thor: ^Thor) {
     v := &thor.git
 
-    ui.scope({key = "history", flags = {.Clip, .Scroll_Y}, props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column}})
+    ui.scope({key = "history", flags = {.Clip, .Scroll_Y}, props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), dir = .Column}})
     if len(v.commits) == 0 {
         ui.label("No commits", {key = "empty", props = {pad = ui.xy(14, 10), color = thor.theme.disabled}})
         return
@@ -1073,7 +1074,7 @@ GIT_REF_LABELS := [Git_Ref_Kind]string{.Branch = "BRANCHES", .Remote = "REMOTES"
 git_view_branches :: proc(thor: ^Thor) {
     v := &thor.git
 
-    ui.scope({key = "branches", flags = {.Clip, .Scroll_Y}, props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column}})
+    ui.scope({key = "branches", flags = {.Clip, .Scroll_Y}, props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), dir = .Column}})
 
     for kind in Git_Ref_Kind {
         ui.push_id_int(i64(kind))
@@ -1158,7 +1159,7 @@ git_view_ref_row :: proc(thor: ^Thor, ref: Git_View_Ref) -> bool {
 git_view_settings :: proc(thor: ^Thor) {
     v := &thor.git
 
-    ui.scope({key = "gitconfig", flags = {.Clip, .Scroll_Y}, props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column}})
+    ui.scope({key = "gitconfig", flags = {.Clip, .Scroll_Y}, props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), dir = .Column}})
 
     for global, slot in ([2]bool{false, true}) {
         ui.push_id_int(i64(slot))
@@ -1292,7 +1293,13 @@ git_view_lfs :: proc(thor: ^Thor) {
 git_view_hosting :: proc(thor: ^Thor) {
     v := &thor.git
 
-    ui.scope({key = "hosting", flags = {.Clip, .Scroll_Y}, props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column, gap = {0, 6}, pad = ui.all(14)}})
+    ui.scope(
+        {
+            key = "hosting",
+            flags = {.Clip, .Scroll_Y},
+            props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), dir = .Column, gap = {0, 6}, pad = ui.all(14)},
+        },
+    )
 
     {
         ui.scope(

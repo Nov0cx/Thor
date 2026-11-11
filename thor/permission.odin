@@ -160,7 +160,13 @@ permission_box :: proc(thor: ^Thor) {
             {
                 key = "rows",
                 flags = {.Clip, .Scroll_Y},
-                props = {w = ui.Grow(1), h = ui.Px(min(f32(len(d.items)), PERMISSION_MAX_ROWS) * PERMISSION_ROW_H), dir = .Column, gap = {0, 4}},
+                props = {
+                    position = .Relative,
+                    w = ui.Grow(1),
+                    h = ui.Px(min(f32(len(d.items)), PERMISSION_MAX_ROWS) * PERMISSION_ROW_H),
+                    dir = .Column,
+                    gap = {0, 4},
+                },
             },
         )
         for item, index in d.items {

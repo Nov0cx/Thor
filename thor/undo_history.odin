@@ -379,7 +379,9 @@ undo_view_header :: proc(thor: ^Thor, file: ^Open_File) {
 @(private = "file")
 undo_view_list :: proc(thor: ^Thor, file: ^Open_File) {
     v    := &thor.undo_view
-    list := ui.scope({key = "list", flags = {.Clip, .Scroll_Y}, props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column, pad = ui.xy(6, 6)}})
+    list := ui.scope(
+        {key = "list", flags = {.Clip, .Scroll_Y}, props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), dir = .Column, pad = ui.xy(6, 6)}},
+    )
     if v.scroll_pending && list.node != nil && list.rect.h > 0 {
         top    := f32(v.selected) * UNDO_ROW_H
         view   := list.rect.h - 12
@@ -630,7 +632,9 @@ undo_view_diff :: proc(thor: ^Thor, file: ^Open_File) {
         },
     )
 
-    ui.scope({key = "rows", flags = {.Clip, .Scroll_Y, .Scroll_X}, props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column, pad = {t = 4}}})
+    ui.scope(
+        {key = "rows", flags = {.Clip, .Scroll_Y, .Scroll_X}, props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), dir = .Column, pad = {t = 4}}},
+    )
     if node == nil || node.parent == textedit.NO_NODE {
         text := node != nil && node.seq != 0 ? "The oldest state the history still holds." : "The file as it was when the history began."
         ui.label(text, {key = "root", props = {pad = ui.xy(12, 8), color = thor.theme.muted_color}})

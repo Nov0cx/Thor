@@ -597,6 +597,7 @@ settings_sidebar :: proc(thor: ^Thor) {
             key = "sidebar",
             flags = {.Clip, .Scroll_Y},
             props = {
+                position = .Relative,
                 w = ui.Px(SETTINGS_SIDEBAR_W),
                 h = ui.Grow(1),
                 dir = .Column,
@@ -651,7 +652,13 @@ settings_sidebar :: proc(thor: ^Thor) {
 settings_content :: proc(thor: ^Thor) {
     s := &thor.settings
 
-    ui.scope({key = "content", flags = {.Clip, .Scroll_Y}, props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column, pad = ui.xy(14, 10), gap = {0, 2}}})
+    ui.scope(
+        {
+            key = "content",
+            flags = {.Clip, .Scroll_Y},
+            props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), dir = .Column, pad = ui.xy(14, 10), gap = {0, 2}},
+        },
+    )
 
     if s.scope == .Workspace && !s.workspace_available {
         settings_workspace_prompt(thor)

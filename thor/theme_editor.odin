@@ -252,7 +252,15 @@ theme_editor_box :: proc(thor: ^Thor) {
                 {
                     key = "preview-column",
                     flags = {.Clip, .Scroll_Y},
-                    props = {w = ui.Px(THEME_PREVIEW_WIDTH), min_w = THEME_PREVIEW_WIDTH, h = ui.Grow(1), dir = .Column, gap = {0, 8}, pad = ui.all(12)},
+                    props = {
+                        position = .Relative,
+                        w = ui.Px(THEME_PREVIEW_WIDTH),
+                        min_w = THEME_PREVIEW_WIDTH,
+                        h = ui.Grow(1),
+                        dir = .Column,
+                        gap = {0, 8},
+                        pad = ui.all(12),
+                    },
                 },
             )
             palette := e.tab == .Generate ? &e.generated_theme : &thor.theme
@@ -503,7 +511,13 @@ theme_editor_colors :: proc(thor: ^Thor) {
         }
     }
 
-    ui.scope({key = "list", flags = {.Clip, .Scroll_Y}, props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column, pad = ui.xy(10, 4), gap = {0, 2}}})
+    ui.scope(
+        {
+            key = "list",
+            flags = {.Clip, .Scroll_Y},
+            props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), dir = .Column, pad = ui.xy(10, 4), gap = {0, 2}},
+        },
+    )
     filtering := len(e.filter) > 0
     shown     := 0
     for group in theme.Color_Group {
@@ -667,7 +681,13 @@ theme_contrast_badge :: proc(thor: ^Thor, fg, bg: ui.Color) {
 
 @(private = "file")
 theme_editor_generate :: proc(thor: ^Thor) {
-    ui.scope({key = "generate", flags = {.Clip, .Scroll_Y}, props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column, gap = {0, 12}, pad = ui.all(16)}})
+    ui.scope(
+        {
+            key = "generate",
+            flags = {.Clip, .Scroll_Y},
+            props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), dir = .Column, gap = {0, 12}, pad = ui.all(16)},
+        },
+    )
     ui.label(
         "Build a whole palette from a background and an accent color. Text and syntax colors are lifted to a contrast of 4.5:1, so any pair stays readable.",
         {key = "intro", props = {w = ui.Grow(1), color = thor.theme.muted_color, text_wrap = .Words}},

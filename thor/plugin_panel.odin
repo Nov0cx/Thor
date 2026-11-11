@@ -281,7 +281,7 @@ plugin_panel_view :: proc(thor: ^Thor, p: ^Plugin_Panel) {
         {
             key = "content",
             flags = {.Clip, .Scroll_Y},
-            props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column, gap = {0, 6}, pad = ui.all(8), bg = thor.theme.second_background},
+            props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), dir = .Column, gap = {0, 6}, pad = ui.all(8), bg = thor.theme.second_background},
         },
     )
     plugin_view_nodes(thor, p, p.nodes)
