@@ -91,10 +91,13 @@ of every line. With `.*` off the replacement is the text as typed.
 ## Find in files
 
 `ctrl + shift + f` opens a picker over the files of the folder. Type the text
-to find; the rows are the matching lines, and the line under the list names the
-file and the line of the selected row. `enter` opens the file at the match.
+to find; the results are grouped under a row per file, which shows the path and
+the number of matches, and each match row shows its line number. `enter` opens
+the file at the match; on a file row, at its first match.
 
-The search uses the case, word and regular-expression toggles of the find bar.
+The `Aa`, `ab` and `.*` buttons beside the input (`alt + c`, `alt + w`,
+`alt + r`) set case, whole word and regular expression. They are the same
+toggles as in the find bar, so a change in one shows in the other.
 In a git work tree the files are the tracked and the untracked ones, so what
 `.gitignore` names is left out. A file with a NUL byte or over 4 MB is not
 read, and the list stops at 1000 matches.

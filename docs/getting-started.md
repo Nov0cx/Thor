@@ -158,7 +158,9 @@ in PowerShell, when a script needs the exit code. A debug build has no such limi
 A window narrower than 800 pixels hides the explorer; it comes back when the
 window is wide again.
 - **Command palette** (`ctrl + .`) — fuzzy-search and run any action Thor
-  exposes; every keybinding below is also a command here.
+  exposes; every keybinding below is also a command here. It shows ten rows at a
+  time; when more match, `selected/total` beside the input and a thumb at the
+  right edge show where you are in the list.
 
 Not every file is text. An image opens in a view that fits it to the pane, with
 a checkerboard behind its transparent pixels; a 3D model opens on a ground grid,
