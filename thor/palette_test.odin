@@ -2,6 +2,8 @@ package thor
 
 import "core:testing"
 
+import ui "../vendor/loom/loom"
+
 // The palette's fuzzy matcher, which both the command palette and quick open
 // filter with and which the rows mark from. Run from the repository root:
 // odin test thor
@@ -150,4 +152,15 @@ test_replaced_confirm_fires_cancel :: proc(t: ^testing.T) {
     testing.expect_value(t, cancelled, 1)
     thor_palette_close(thor)
     testing.expect_value(t, cancelled, 1)
+}
+
+@(test)
+test_cut_spans_shift_and_drop :: proc(t: ^testing.T) {
+    // "name  aaaa/bbbb/cccc/" with [10, 15) replaced by a 3-byte "…".
+    spans := []ui.Text_Span{{start = 0, end = 2}, {start = 11, end = 12}, {start = 16, end = 18}, {start = 8, end = 12}}
+    got   := palette_cut_spans(spans, 10, 15, 3)
+    testing.expect_value(t, len(got), 3)
+    testing.expect(t, got[0].start == 0 && got[0].end == 2, "a span before the cut stays")
+    testing.expect(t, got[1].start == 14 && got[1].end == 16, "a span after the cut shifts by the bytes the cut removed")
+    testing.expect(t, got[2].start == 8 && got[2].end == 10, "a span that crosses the cut keeps its head")
 }

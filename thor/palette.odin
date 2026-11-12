@@ -33,6 +33,8 @@ Palette_Pick_Index_Proc    :: #type proc(data: rawptr, index: int)
 // Rich Pick mode only: fires after user input changes the query, so a picker
 // whose rows come from a server can re-dispatch instead of only re-filtering.
 Palette_Query_Changed_Proc :: #type proc(data: rawptr, query: string)
+// Draws extra controls at the right of the query field, and takes their keys.
+Palette_Extras_Proc        :: #type proc(thor: ^Thor)
 
 // One row of a rich pick. `text` is drawn and fuzzy-matched whole; its leading
 // `name_len` bytes take `color`, the remainder is dimmed. `detail` is a preview
@@ -43,6 +45,9 @@ Pick_Item :: struct {
     color:    ui.Color,
     detail:   string, // owned
     note:     string, // owned; dim text at the right end of the row, "" for none
+    // A group header: the row names what the indented rows under it share.
+    header:   bool,
+    indent:   bool,
 }
 
 Palette_Mode :: enum {
@@ -60,14 +65,18 @@ Palette_Match :: struct {
     score: int,
 }
 
-PALETTE_WIDTH    :: f32(720)
-PALETTE_ROW_H    :: f32(30)
-PALETTE_INPUT_H  :: f32(44)
-PALETTE_MAX_ROWS :: 10
-PALETTE_TOP      :: f32(90)
+PALETTE_WIDTH       :: f32(720)
+PALETTE_ROW_H       :: f32(30)
+PALETTE_INPUT_H     :: f32(44)
+PALETTE_MAX_ROWS    :: 10
+PALETTE_THUMB_W     :: f32(4)
+PALETTE_INDENT_W    :: f32(14)
+// Row width the text does not get: the padding, the file icon and the gap after it.
+PALETTE_ROW_FIXED_W :: f32(2 * 10 + 14 + 8 + 8)
+PALETTE_TOP         :: f32(90)
 // Matched characters marked in one row. A longer query still filters and scores
 // in full; only the marks past this stop.
-PALETTE_MARK_MAX :: 64
+PALETTE_MARK_MAX    :: 64
 
 Palette :: struct {
     mode:                  Palette_Mode,
@@ -103,6 +112,7 @@ Palette :: struct {
     pick_unfiltered:       bool,
     on_query_changed:      Palette_Query_Changed_Proc,
     on_query_changed_data: rawptr,
+    extras:                Palette_Extras_Proc,
 }
 
 thor_palette_init :: proc(thor: ^Thor) {
@@ -373,6 +383,7 @@ palette_reset :: proc(thor: ^Thor, mode: Palette_Mode) {
     // it again, after this call.
     p.on_query_changed = nil
     p.on_query_changed_data = nil
+    p.extras = nil
     p.pick_unfiltered = false
     clear(&p.query)
     p.selected = 0
@@ -421,6 +432,8 @@ palette_set_pick_items :: proc(p: ^Palette, items: []Pick_Item) {
                 color = item.color,
                 detail = item.detail == "" ? "" : strings.clone(item.detail),
                 note = item.note == "" ? "" : strings.clone(item.note),
+                header = item.header,
+                indent = item.indent,
             },
         )
     }
@@ -689,11 +702,23 @@ palette_box :: proc(thor: ^Thor) {
         if (p.mode == .Prompt || p.mode == .Pick) && p.prompt_label != "" {
             ui.label(p.prompt_label, {key = "title", props = {pad = ui.xy(8, 2), color = thor.theme.muted_color, text_wrap = .Ellipsis}})
         }
-        it := ui.input(
+        row := ui.scope({key = "query-row", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {8, 0}}})
+        it  := ui.input(
             &p.query,
-            {key = "query", props = {h = ui.Px(PALETTE_INPUT_H - 12), align = .Center, bg = thor.theme.background, color = thor.theme.foreground}},
+            {
+                key = "query",
+                props = {w = ui.Grow(1), h = ui.Px(PALETTE_INPUT_H - 12), align = .Center, bg = thor.theme.background, color = thor.theme.foreground},
+            },
             palette_placeholder(thor, p),
         )
+        // How many rows match, since only PALETTE_MAX_ROWS of them show.
+        if count := palette_count_label(p); count != "" {
+            ui.label(count, {key = "count", props = {pad = ui.xy(4, 0), color = thor.theme.muted_color, text_wrap = .None}})
+        }
+        if p.extras != nil {
+            p.extras(thor)
+        }
+        _ = row
         if p.focus_pending {
             ui.set_focus(it.id)
             ui.input_select_all(it.id)
@@ -709,6 +734,15 @@ palette_box :: proc(thor: ^Thor) {
     }
 
     palette_list(thor)
+}
+
+// "selected/total" while the list holds more rows than it shows, else "".
+@(private = "file")
+palette_count_label :: proc(p: ^Palette) -> string {
+    if p.mode == .Line || p.mode == .Prompt || len(p.matches) <= PALETTE_MAX_ROWS {
+        return ""
+    }
+    return fmt.tprintf("%d/%d", p.selected + 1, len(p.matches))
 }
 
 @(private = "file")
@@ -791,13 +825,14 @@ palette_list :: proc(thor: ^Thor) {
 
     activate := false
     {
-        list := ui.scope({key = "list", flags = {.Clickable}, props = {w = ui.Grow(1), h = ui.FIT, dir = .Column}})
+        list := ui.scope({key = "list", flags = {.Clickable}, props = {w = ui.Grow(1), h = ui.FIT, dir = .Column, position = .Relative}})
         if list.wheel.y != 0 {
             palette_move(thor, list.wheel.y > 0 ? 1 : -1)
         }
 
-        p.scroll = clamp(p.scroll, 0, max(len(p.matches) - PALETTE_MAX_ROWS, 0))
-        last := min(p.scroll + PALETTE_MAX_ROWS, len(p.matches))
+        total := len(p.matches)
+        p.scroll = clamp(p.scroll, 0, max(total - PALETTE_MAX_ROWS, 0))
+        last := min(p.scroll + PALETTE_MAX_ROWS, total)
         for i in p.scroll ..< last {
             ui.push_id_int(i64(i))
             if palette_row(thor, i) {
@@ -805,6 +840,27 @@ palette_list :: proc(thor: ^Thor) {
                 activate = true
             }
             ui.pop_id()
+        }
+
+        // A thumb that says how much of the list is shown and where.
+        if total > PALETTE_MAX_ROWS {
+            list_h  := f32(PALETTE_MAX_ROWS) * PALETTE_ROW_H
+            thumb_h := max(list_h * f32(PALETTE_MAX_ROWS) / f32(total), 16)
+            thumb_y := (list_h - thumb_h) * f32(p.scroll) / f32(total - PALETTE_MAX_ROWS)
+            ui.leaf(
+                {
+                    key = "thumb",
+                    flags = {.Pass_Through},
+                    props = {
+                        position = .Absolute,
+                        inset = {r = 1, t = thumb_y},
+                        w = ui.Px(PALETTE_THUMB_W),
+                        h = ui.Px(thumb_h),
+                        radius = ui.rad(PALETTE_THUMB_W / 2),
+                        bg = thor.theme.disabled,
+                    },
+                },
+            )
         }
     }
 
@@ -853,7 +909,21 @@ palette_row :: proc(thor: ^Thor, index: int) -> bool {
     mark  := on ? thor.theme.selection_foreground : thor.theme.accent_color
 
     if p.mode == .Pick && p.pick_rich {
-        item  := p.pick_items[source]
+        item := p.pick_items[source]
+        if item.header {
+            thor_icon_label(thor, thor_file_icon(thor_file_base(item.text)), thor_file_icon_tint(thor_file_base(item.text), thor.theme.muted_color), 14)
+            ui.label(
+                item.text,
+                {key = "text", props = {w = ui.Grow(1), color = on ? thor.theme.selection_foreground : thor.theme.foreground, text_wrap = .Ellipsis}},
+            )
+            if item.note != "" {
+                ui.label(item.note, {key = "note", props = {color = thor.theme.disabled, text_wrap = .None}})
+            }
+            return it.clicked
+        }
+        if item.indent {
+            ui.leaf({key = "indent", props = {w = ui.Px(PALETTE_INDENT_W)}})
+        }
         spans := palette_split_spans(item.text, item.name_len, item.color, query, mark)
         ui.leaf({key = "text", text = item.text, spans = spans, props = {w = ui.Grow(1), color = thor.theme.muted_color, text_wrap = .Ellipsis}})
         if item.note != "" {
@@ -865,6 +935,8 @@ palette_row :: proc(thor: ^Thor, index: int) -> bool {
     label    := palette_display(thor, source)
     base     := on ? thor.theme.foreground : thor.theme.muted_color
     name_len := 0
+    dir_cut  := false
+    cut_lo, cut_hi := 0, 0
 
     // A file reads name first, with its folder dim beside it, behind the icon of
     // its type. One text node, so the marks keep one byte space over both halves.
@@ -873,6 +945,15 @@ palette_row :: proc(thor: ^Thor, index: int) -> bool {
         name_len = len(name)
         if dir := label[:len(label) - name_len]; dir != "" {
             label = strings.concatenate({name, "  ", dir}, context.temp_allocator)
+            // A long folder is cut in the middle, so its last folders stay.
+            if it.rect.w > 0 {
+                lead            := name_len + len("  ")
+                avail           := it.rect.w - PALETTE_ROW_FIXED_W - palette_measure(label[:lead])
+                head, tail, cut := thor_cut_middle(dir, avail, palette_measure)
+                if cut {
+                    dir_cut, cut_lo, cut_hi = true, lead + head, lead + tail
+                }
+            }
         }
         base = thor.theme.muted_color
         thor_icon_label(thor, thor_file_icon(name), thor_file_icon_tint(name, base), 14)
@@ -883,6 +964,10 @@ palette_row :: proc(thor: ^Thor, index: int) -> bool {
         spans = palette_split_spans(label, name_len, thor.theme.foreground, query, mark)
     } else {
         spans = palette_match_spans(query, label, mark)
+    }
+    if dir_cut {
+        spans = palette_cut_spans(spans, cut_lo, cut_hi, len("…"))
+        label = strings.concatenate({label[:cut_lo], "…", label[cut_hi:]}, context.temp_allocator)
     }
 
     ui.label(label, {key = "text", spans = spans, props = {w = ui.Grow(1), color = base, text_wrap = .Ellipsis}})
@@ -1079,6 +1164,41 @@ palette_split_spans :: proc(text: string, name_len: int, color: ui.Color, query:
         append(&runs, ui.Text_Span{start = at, end = name_end, color = color})
     }
     return runs[:]
+}
+
+// Width of `text` in the row's font.
+@(private = "file")
+palette_measure :: proc(text: string) -> f32 {
+    return ui.text_width(text)
+}
+
+// `spans` over a text whose bytes [lo, hi) were replaced by `ins` bytes. A span
+// inside the cut is dropped; one that crosses it keeps its kept part.
+palette_cut_spans :: proc(spans: []ui.Text_Span, lo, hi, ins: int) -> []ui.Text_Span {
+    shift := ins - (hi - lo)
+    out   := make([dynamic]ui.Text_Span, 0, len(spans), context.temp_allocator)
+    for s in spans {
+        start, end := s.start, s.end
+        if start >= lo && end <= hi {
+            continue
+        }
+        if start >= hi {
+            start += shift
+        } else if start > lo {
+            start = lo + ins
+        }
+        if end >= hi {
+            end += shift
+        } else if end > lo {
+            end = lo
+        }
+        if end > start {
+            span := s
+            span.start, span.end = start, end
+            append(&out, span)
+        }
+    }
+    return out[:]
 }
 
 // Start of the rune holding byte `at`.

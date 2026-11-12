@@ -1,7 +1,9 @@
 package thor
 
 import "core:path/filepath"
+import "core:strings"
 import "core:testing"
+import "core:unicode/utf8"
 
 // The same file reached through either separator spelling is one file.
 @(test)
@@ -64,4 +66,27 @@ test_path_middle :: proc(t: ^testing.T) {
     testing.expect_value(t, thor_path_middle("a/b.odin", 40), "a/b.odin")
     testing.expect_value(t, thor_path_middle("aaaaaaaaaa/bbbbbbbbbb/c.odin", 16), "aaaaaaa…/c.odin")
     testing.expect_value(t, thor_path_middle("verylongname.odin", 5), "verylongname.odin")
+}
+
+@(private = "file")
+measure_chars :: proc(text: string) -> f32 {
+    return f32(utf8.rune_count_in_string(text))
+}
+
+@(test)
+test_cut_middle :: proc(t: ^testing.T) {
+    head, tail, cut := thor_cut_middle("short", 10, measure_chars)
+    testing.expect(t, !cut && head == 5 && tail == 5)
+
+    text := "aaaaaaaaaa/bbbbbbbbbb/cccccccccc/"
+    head, tail, cut = thor_cut_middle(text, 13, measure_chars)
+    testing.expect(t, cut)
+    shown := strings.concatenate({text[:head], "…", text[tail:]}, context.temp_allocator)
+    testing.expect_value(t, utf8.rune_count_in_string(shown), 13)
+    testing.expect_value(t, shown, "aaaa…ccccccc/")
+
+    // A cut never splits a rune.
+    wide := "ääääää/öööööö/"
+    head, tail, cut = thor_cut_middle(wide, 6, measure_chars)
+    testing.expect(t, cut && utf8.valid_string(wide[:head]) && utf8.valid_string(wide[tail:]))
 }

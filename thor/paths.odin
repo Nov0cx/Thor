@@ -116,6 +116,43 @@ thor_relative_path :: proc(path, root: string) -> string {
     }
 }
 
+// Width of a string in pixels, for the cuts that fit text to a box.
+Measure_Proc :: #type proc(text: string) -> f32
+
+// Where `text` is cut so `head + "…" + tail` fits `max_w`: the kept head is
+// text[:head_end], the kept tail text[tail_start:]. The tail keeps twice the
+// head's bytes, since the end of a folder path tells two files apart.
+// `cut` is false when the whole text fits.
+thor_cut_middle :: proc(text: string, max_w: f32, measure: Measure_Proc) -> (head_end, tail_start: int, cut: bool) {
+    if measure(text) <= max_w {
+        return len(text), len(text), false
+    }
+    split :: proc(text: string, n: int) -> (int, int) {
+        head := n / 3
+        for head > 0 && !utf8.rune_start(text[head]) {
+            head -= 1
+        }
+        tail := len(text) - (n - head)
+        for tail < len(text) && !utf8.rune_start(text[tail]) {
+            tail += 1
+        }
+        return head, tail
+    }
+    lo, hi := 0, len(text) - 1
+    for lo < hi {
+        mid    := (lo + hi + 1) / 2
+        h, t   := split(text, mid)
+        joined := strings.concatenate({text[:h], "…", text[t:]}, context.temp_allocator)
+        if measure(joined) <= max_w {
+            lo = mid
+        } else {
+            hi = mid - 1
+        }
+    }
+    head_end, tail_start = split(text, lo)
+    return head_end, tail_start, true
+}
+
 // `path` cut in the middle to at most `max_len` bytes, so the file name stays.
 // Temp-allocated when cut.
 thor_path_middle :: proc(path: string, max_len: int) -> string {
