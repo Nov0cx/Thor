@@ -613,7 +613,7 @@ explorer_row :: proc(thor: ^Thor, node: ^Explorer_Node, depth: int) -> ui.Intera
     // The path, since a deep row is indented far enough to hide it, plus the git
     // state the tint and the letter only hint at.
     detail := node.load_failed ? "Could not be read" : git_status_name(status)
-    thor_tip(thor, it.id, node.path, detail)
+    thor_tip(thor, it.id, node.path, detail, .Right)
     return it
 }
 

@@ -11,19 +11,19 @@ import ui "../vendor/loom/loom"
 
 // A tooltip for `id`. `chord` is the keybind label, dim under the text; pass ""
 // where the action has none.
-thor_tip :: proc(thor: ^Thor, id: ui.Id, text: string, chord := "") {
+thor_tip :: proc(thor: ^Thor, id: ui.Id, text: string, chord := "", side := ui.Tooltip_Side.Below) {
     if text == "" {
         return
     }
     if chord == "" {
-        ui.tooltip(text, id)
+        ui.tooltip(text, id, side = side)
         return
     }
 
     body := strings.concatenate({text, "\n", chord}, context.temp_allocator)
     dim  := make([]ui.Text_Span, 1, context.temp_allocator)
     dim[0] = {start = len(text) + 1, end = len(body), color = thor.theme.disabled}
-    ui.tooltip(body, id, el = {spans = dim})
+    ui.tooltip(body, id, el = {spans = dim}, side = side)
 }
 
 // What each titlebar menu covers. The dropdown itself names the commands.
