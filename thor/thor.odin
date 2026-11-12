@@ -767,6 +767,11 @@ init :: proc() -> ^Thor {
     // The mark the titlebar and the welcome page draw. A texture needs the GL
     // context the window just made.
     thor.top_logo_texture = rl.LoadTexture("assets/branding/hammer.png")
+    if thor.top_logo_texture.id != 0 {
+        // Drawn far below its size: mipmaps keep the downscale smooth.
+        rl.GenTextureMipmaps(&thor.top_logo_texture)
+        rl.SetTextureFilter(thor.top_logo_texture, .TRILINEAR)
+    }
     rl.SetTargetFPS(60)
     rl.SetExitKey(.KEY_NULL)
 

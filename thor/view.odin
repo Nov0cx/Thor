@@ -448,7 +448,7 @@ thor_workspace :: proc(thor: ^Thor) {
         return
     }
 
-    dock := ui.dockspace("main", {mode = .In_Window, splitter = DOCK_SPLITTER_WIDTH}, {props = {w = ui.Grow(1), h = ui.Grow(1)}})
+    dock := ui.dockspace("main", {mode = .In_Window, tab_height = TAB_HEIGHT, splitter = DOCK_SPLITTER_WIDTH}, {props = {w = ui.Grow(1), h = ui.Grow(1)}})
     thor_seed_dock(thor, dock)
 
     thor.explorer_open = signal_get(&thor.explorer_visible)
