@@ -28,6 +28,15 @@
 - Settings: each language server is one group, with its feature switches inside.
 - Settings: the Keybindings page shows the command names the palette uses.
 - The lists in Settings, Problems, Git and the theme editor show a scrollbar.
+- The explorer's path tooltip shows beside the row, so it does not cover the rows below.
+- The caret in an input no longer covers the first character of the text or the placeholder.
+- Rounded borders keep their corners, for example on the Settings box.
+- The Explorer and Terminal tab bars are as tall as the editor tab strip, so their labels line up.
+- **Edit** holds Cut, Copy and Paste.
+- The titlebar maximize button follows a maximize or restore from the OS, such as `win` + `up`.
+- The command palette shows `selected/total` and a scroll thumb when it has more rows than it shows.
+- Quick open cuts a long folder in the middle, so its last folders stay visible.
+- Find in files groups the results under a row per file. Its `Aa`, `ab` and `.*` buttons (`alt` + `c`, `w`, `r`) set case, whole word and regular expression.
 - 2026.11.3 was not published; its changes ship in this version.
 
 # 2026.11.3
