@@ -283,6 +283,11 @@ thor_find_view :: proc(thor: ^Thor) {
     }
 }
 
+// Searches the bar's buffer again after the options changed elsewhere.
+thor_find_options_changed :: proc(thor: ^Thor) {
+    find_recompute(&thor.find)
+}
+
 // Flips one search option and searches again.
 @(private = "file")
 find_flip :: proc(f: ^Find_Replace, option: ^bool) {
@@ -387,7 +392,7 @@ find_count_label :: proc(f: ^Find_Replace) -> string {
     return fmt.tprintf("%d of %d", f.current + 1, len(f.matches))
 }
 
-@(private = "file")
+// One search option button: Aa, ab or .*. Reports a click.
 find_toggle :: proc(thor: ^Thor, key, label: string, on: bool, tip, chord: string) -> bool {
     it := ui.scope(
         {

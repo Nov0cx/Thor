@@ -17,6 +17,7 @@ import "../lockfree"
 import "../prof"
 import "../search"
 import "../textedit"
+import ui "../vendor/loom/loom"
 
 // Rows the picker takes; a scan stops when it has this many.
 @(private = "file")
@@ -66,6 +67,7 @@ thor_find_in_files :: proc(thor: ^Thor) {
     }
     thor_palette_pick_rich_loading(thor, "Find in files...", thor_pick_symbol, thor, thor_file_search_query_changed, thor)
     thor_palette_set_unfiltered(thor)
+    thor.palette.extras = thor_file_search_extras
     thor_palette_pick_rich_set(thor, {}, "Type to search the files of the folder")
 
     // A selection is the first query, as in the find bar.
@@ -97,6 +99,29 @@ thor_file_search_query_changed :: proc(data: rawptr, query: string) {
     } else {
         thor_palette_set_loading(thor)
         thor_palette_pick_rich_set(thor, {}, "Type to search the files of the folder")
+    }
+}
+
+// The Aa, ab and .* toggles beside the query. They share the find bar's options.
+@(private = "file")
+thor_file_search_extras :: proc(thor: ^Thor) {
+    o       := &thor.find.options
+    flipped := false
+    if find_toggle(thor, "case", "Aa", o.case_sensitive, "Match Case", "Alt+C") || ui.take_key(.C, {.Alt}) {
+        o.case_sensitive = !o.case_sensitive
+        flipped = true
+    }
+    if find_toggle(thor, "word", "ab", o.whole_word, "Whole Word", "Alt+W") || ui.take_key(.W, {.Alt}) {
+        o.whole_word = !o.whole_word
+        flipped = true
+    }
+    if find_toggle(thor, "regex", ".*", o.use_regex, "Regular Expression", "Alt+R") || ui.take_key(.R, {.Alt}) {
+        o.use_regex = !o.use_regex
+        flipped = true
+    }
+    if flipped {
+        thor_find_options_changed(thor)
+        thor_file_search_query_changed(thor, string(thor.palette.query[:]))
     }
 }
 
@@ -249,20 +274,32 @@ thor_apply_file_search :: proc(thor: ^Thor, job: ^File_Search_Job) {
         return
     }
 
+    // One header row per file, then its hits. A header picks its first hit, so
+    // doc_symbols stays one entry per row.
     thor_clear_doc_symbols(thor)
-    items := make([dynamic]Pick_Item, 0, len(job.hits), context.temp_allocator)
-    for hit in job.hits {
-        append(&thor.doc_symbols, Doc_Symbol{path = strings.clone(hit.path), offset = hit.offset})
-        rel := thor_relative_path(hit.path, thor.workspace_dir)
-        append(
-            &items,
-            Pick_Item{
-                text = hit.preview,
-                color = thor.theme.primary_text_color,
-                detail = fmt.tprintf("%s:%d", rel, hit.line),
-                note = fmt.tprintf("%s:%d", thor_file_base(rel), hit.line),
-            },
-        )
+    items := make([dynamic]Pick_Item, 0, len(job.hits) + 16, context.temp_allocator)
+    for i := 0; i < len(job.hits); {
+        path  := job.hits[i].path
+        first := i
+        for i < len(job.hits) && job.hits[i].path == path {
+            i += 1
+        }
+        rel := thor_relative_path(path, thor.workspace_dir)
+        append(&thor.doc_symbols, Doc_Symbol{path = strings.clone(path), offset = job.hits[first].offset})
+        append(&items, Pick_Item{text = rel, detail = rel, note = fmt.tprintf("%d", i - first), header = true})
+        for hit in job.hits[first:i] {
+            append(&thor.doc_symbols, Doc_Symbol{path = strings.clone(hit.path), offset = hit.offset})
+            append(
+                &items,
+                Pick_Item{
+                    text = hit.preview,
+                    color = thor.theme.primary_text_color,
+                    detail = fmt.tprintf("%s:%d", rel, hit.line),
+                    note = fmt.tprintf("%d", hit.line),
+                    indent = true,
+                },
+            )
+        }
     }
     thor_palette_pick_rich_set(thor, items[:])
     if job.capped {
