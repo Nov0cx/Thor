@@ -20,6 +20,17 @@ thor_toggle_maximize :: proc(thor: ^Thor) {
     thor.window_maximized = !thor.window_maximized
 }
 
+// Follows a maximize or restore the OS did (Win+Up, a snap, a double click), so
+// the titlebar toggle and the session see it.
+thor_poll_window_state :: proc(thor: ^Thor) {
+    if !rl.IsWindowResized() {
+        return
+    }
+    if zoomed, known := thor_window_zoomed(); known {
+        thor.window_maximized = zoomed
+    }
+}
+
 thor_toggle_fullscreen :: proc(_: ^Thor) {
     rl.ToggleBorderlessWindowed()
 }

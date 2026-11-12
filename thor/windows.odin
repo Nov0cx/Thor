@@ -53,10 +53,11 @@ Window_Ref :: struct {
 
 // Finding and raising a window is platform work: windows_windows.odin resolves
 // the user32 calls, windows_posix.odin proves the process and shells out to a
-// desktop helper. Each platform file supplies `Window_Handle` plus three
+// desktop helper. Each platform file supplies `Window_Handle` plus four
 // procedures — `thor_native_window` returns the handle this process records,
-// `thor_window_live` reads a record's state, and `thor_focus_window` brings that
-// window to the front and reports whether it could.
+// `thor_window_live` reads a record's state, `thor_focus_window` brings that
+// window to the front and reports whether it could, and `thor_window_zoomed`
+// says whether this window is maximized.
 
 // Record file for a workspace: sessions/windows/<path-key>.json, keyed exactly
 // like that workspace's session file.

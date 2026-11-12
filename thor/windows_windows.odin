@@ -23,6 +23,8 @@ Show_Window_Proc :: #type proc "system"(hwnd: win32.HWND, cmd: win32.c_int) -> w
 Set_Foreground_Proc :: #type proc "system"(hwnd: win32.HWND) -> win32.BOOL
 @(private = "file")
 Window_Pid_Proc :: #type proc "system"(hwnd: win32.HWND, pid: ^win32.DWORD) -> win32.DWORD
+@(private = "file")
+Is_Zoomed_Proc :: #type proc "system"(hwnd: win32.HWND) -> win32.BOOL
 
 @(private = "file")
 User32 :: struct {
@@ -31,6 +33,7 @@ User32 :: struct {
     show_window:    Show_Window_Proc,
     set_foreground: Set_Foreground_Proc,
     window_pid:     Window_Pid_Proc,
+    is_zoomed:      Is_Zoomed_Proc,
 }
 
 @(private = "file")
@@ -66,6 +69,7 @@ thor_load_user32 :: proc() -> ^User32 {
     user32.show_window = cast(Show_Window_Proc)GetProcAddress(lib, "ShowWindow")
     user32.set_foreground = cast(Set_Foreground_Proc)GetProcAddress(lib, "SetForegroundWindow")
     user32.window_pid = cast(Window_Pid_Proc)GetProcAddress(lib, "GetWindowThreadProcessId")
+    user32.is_zoomed = cast(Is_Zoomed_Proc)GetProcAddress(lib, "IsZoomed")
     return &user32
 }
 
@@ -75,6 +79,15 @@ SW_RESTORE :: 9
 // This window's handle, widened for the record.
 thor_native_window :: proc() -> i64 {
     return cast(i64)cast(uintptr)rl.GetWindowHandle()
+}
+
+// Whether this window is maximized. `known` is false when user32 has no answer.
+thor_window_zoomed :: proc() -> (zoomed, known: bool) {
+    u32 := thor_load_user32()
+    if u32.is_zoomed == nil {
+        return false, false
+    }
+    return u32.is_zoomed(cast(win32.HWND)rl.GetWindowHandle()) != win32.FALSE, true
 }
 
 // A record is live while its handle names a window the recorded process still

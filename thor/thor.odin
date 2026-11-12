@@ -996,6 +996,7 @@ run :: proc(thor: ^Thor) {
         frame_start := rl.GetTime()
         poll_zone   := prof.zone_begin("poll")
         thor_poll_dropped_files(thor)
+        thor_poll_window_state(thor)
         thor_poll_watcher(thor)
         thor_poll_outside_files(thor)
         thor_poll_settings(thor)

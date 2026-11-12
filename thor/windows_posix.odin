@@ -26,6 +26,11 @@ thor_native_window :: proc() -> i64 {
     return 0
 }
 
+// No portable answer; the titlebar toggle keeps its own state.
+thor_window_zoomed :: proc() -> (zoomed, known: bool) {
+    return false, false
+}
+
 // Whether the recorded process still runs. Signal 0 asks without delivering
 // anything, and EPERM means it runs under another user. A recycled pid reads as
 // live and keeps the folder held.
