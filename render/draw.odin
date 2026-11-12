@@ -45,10 +45,13 @@ draw :: proc(b: ^Backend, list: ui.Draw_List) {
     rlgl.EnableBackfaceCulling()
 }
 
+// Always `segs + 1` points, so an outer and an inner path pair up point by point.
 @(private)
 arc_path :: proc(out: ^[dynamic]rl.Vector2, cx, cy, radius, a0, a1: f32, segs: int) {
     if radius <= 0 {
-        append(out, rl.Vector2{cx, cy})
+        for _ in 0 ..= segs {
+            append(out, rl.Vector2{cx, cy})
+        }
         return
     }
     for i in 0 ..= segs {
