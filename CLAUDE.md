@@ -237,6 +237,8 @@ loop, since `poll_input` drains raylib's queues.
 ## UI (Loom)
 
 Each view is state on `Thor` plus a `thor_*_view` procedure that declares its nodes every frame.
+`GOOD_UI.md` defines good UI for Thor (tokens, component rules, a review checklist); check a UI
+change against it.
 
 - `Thor` holds no node or widget pointers. `editors: [MAX_PANES]editview.Editor` are values; the
   `layout` preset (`thor/panes.odin`) shows the first `thor_pane_count` of them, numbered down each
