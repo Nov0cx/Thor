@@ -1,3 +1,19 @@
+# 2026.11.5
+
+- Row heights, paddings, corner radii and shadows follow `font_size`, so a large font no longer clips in a row.
+- `tab` reaches the buttons, toggles and chips of the title bar, the status bar and every dialog. A ring shows the keyboard focus; a click shows no ring.
+- `tab` stays inside an open dialog.
+- Buttons fade out of their hover colour. The hover itself shows at once.
+- Dialogs, pickers and cards fade in.
+- `reduce_motion` setting turns off the fades, scroll inertia, the animated scroll to a target, the blinking terminal cursor and the pulsing busy mark.
+- Splitters between panels and panes have an 8 px grab area. The bar still draws 3 px.
+- Each shipped theme meets the contrast minimums of text, hints, status colours and syntax. Material Lighter and Solarized dark change the most.
+- Hints, paths, chords and empty-list text use the muted colour. The disabled colour is only for controls that are off.
+- Settings, git and theme editor labels use sentence case.
+- Diff rows in the git view and the undo history take the line height of their font.
+- A dialog is never wider or taller than the window less 32 px on each side.
+- What's new gives the keyboard focus back when it closes.
+
 # 2026.11.4
 
 - Odin: the formatter keeps a comment above the first member of an `enum`, `union` or `bit_field` on its own line. Before, it moved the comment onto the `{` line.
