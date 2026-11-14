@@ -13,6 +13,7 @@ import "../font"
 import "../render"
 import "../setting"
 import "../textedit"
+import "../theme"
 import ui "../vendor/loom/loom"
 
 TERMINAL_STRIP_NAME_MAX :: 140
@@ -66,19 +67,19 @@ thor_push_theme :: proc(thor: ^Thor) {
     ui.set_theme(
         ui.Theme{
             name = t.name,
-            dark = true,
+            dark = theme.color_luminance(t.background) < 0.5,
             bg = t.background,
             surface = t.second_background,
             raised = t.buttons,
-            overlay = t.second_background,
+            overlay = t.active,
             border = t.border,
-            divider = t.border,
+            divider = theme.color_mix(t.background, t.border, 0.5),
             text = t.foreground,
             text_muted = t.muted_color,
             text_faint = t.disabled,
             accent = t.accent_color,
-            accent_hover = t.accent_secondary_color,
-            accent_text = t.background,
+            accent_hover = theme.color_shade(t.accent_color, 0.12),
+            accent_text = theme.color_on(t.accent_color),
             selection = t.selection_background,
             success = t.success_color,
             warning = t.warning_color,

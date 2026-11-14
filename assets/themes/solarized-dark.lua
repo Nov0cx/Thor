@@ -19,14 +19,14 @@ return {
         accent_secondary = "#2AA198",
 
         -- Text
-        text = "#93A1A1",
-        primary_text = "#93A1A1",
-        foreground = "#839496",
-        muted = "#657B83",
-        disabled = "#2E5861",
+        text = "#A9B4B4",
+        primary_text = "#A9B4B4",
+        foreground = "#A8B4B6",
+        muted = "#7E9097",
+        disabled = "#54767D",
         selection_foreground = "#FFFFFF",
         excluded_files = "#083F4D",
-        links = "#268BD2",
+        links = "#3794D6",
 
         -- Status
         success = "#859900",
@@ -38,15 +38,15 @@ return {
         submodule = "#6C71C4",
 
         -- Syntax
-        comments = "#657B83",
+        comments = "#7E9097",
         keywords = "#859900",
         functions = "#B58900",
         strings = "#2AA198",
-        numbers = "#D33682",
+        numbers = "#DD649F",
         operators = "#93A1A1",
-        variables = "#268BD2",
+        variables = "#3794D6",
         parameters = "#93A1A1",
         attributes = "#B58900",
-        tags = "#268BD2",
+        tags = "#3794D6",
     },
 }

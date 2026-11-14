@@ -21,9 +21,9 @@ return {
         -- Text
         text = "#EEFFFF",
         primary_text = "#EEFFFF",
-        foreground = "#8F93A2",
+        foreground = "#9A9EAB",
         muted = "#717CB4",
-        disabled = "#464B5D",
+        disabled = "#5C6170",
         selection_foreground = "#FFFFFF",
         excluded_files = "#292D3E",
         links = "#80CBC4",

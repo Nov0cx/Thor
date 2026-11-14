@@ -23,7 +23,7 @@ return {
         primary_text = "#F3E7DA",
         foreground = "#D8C4B4",
         muted = "#9D8775",
-        disabled = "#5A4B40",
+        disabled = "#6E6157",
         selection_foreground = "#FFFFFF",
         excluded_files = "#33261D",
         links = "#F2B33D",

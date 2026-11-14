@@ -22,8 +22,8 @@ return {
         text = "#EEFFFF",
         primary_text = "#EEFFFF",
         foreground = "#B0BEC5",
-        muted = "#616161",
-        disabled = "#474747",
+        muted = "#888888",
+        disabled = "#6C6C6C",
         selection_foreground = "#FFFFFF",
         excluded_files = "#323232",
         links = "#80CBC4",
@@ -38,7 +38,7 @@ return {
         submodule = "#C792EA",
 
         -- Syntax
-        comments = "#616161",
+        comments = "#888888",
         keywords = "#C792EA",
         functions = "#82AAFF",
         strings = "#C3E88D",

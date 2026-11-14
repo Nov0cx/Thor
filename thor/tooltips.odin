@@ -22,7 +22,7 @@ thor_tip :: proc(thor: ^Thor, id: ui.Id, text: string, chord := "", side := ui.T
 
     body := strings.concatenate({text, "\n", chord}, context.temp_allocator)
     dim  := make([]ui.Text_Span, 1, context.temp_allocator)
-    dim[0] = {start = len(text) + 1, end = len(body), color = thor.theme.disabled}
+    dim[0] = {start = len(text) + 1, end = len(body), color = thor.theme.muted_color}
     ui.tooltip(body, id, el = {spans = dim}, side = side)
 }
 
