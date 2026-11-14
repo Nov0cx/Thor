@@ -245,7 +245,6 @@ change against it.
   scaled by `font_size / 18`; `tk(n)` scales a one-off width. A button or control goes through
   `thor_control` (`thor/controls.odin`): focusable, a ring on keyboard focus, a fade on hover out.
   A modal root sets `focus_scope = true`.
-
 - `Thor` holds no node or widget pointers. `editors: [MAX_PANES]editview.Editor` are values; the
   `layout` preset (`thor/panes.odin`) shows the first `thor_pane_count` of them, numbered down each
   column, then across. A layout change goes through `thor_set_layout`, a file into a given pane
