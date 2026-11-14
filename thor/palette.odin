@@ -908,7 +908,7 @@ palette_row :: proc(thor: ^Thor, index: int) -> bool {
                 {key = "text", props = {w = ui.Grow(1), color = on ? thor.theme.selection_foreground : thor.theme.foreground, text_wrap = .Ellipsis}},
             )
             if item.note != "" {
-                ui.label(item.note, {key = "note", props = {color = thor.theme.disabled, text_wrap = .None}})
+                ui.label(item.note, {key = "note", props = {color = thor.theme.muted_color, text_wrap = .None}})
             }
             return it.clicked
         }
@@ -918,7 +918,7 @@ palette_row :: proc(thor: ^Thor, index: int) -> bool {
         spans := palette_split_spans(item.text, item.name_len, item.color, query, mark)
         ui.leaf({key = "text", text = item.text, spans = spans, props = {w = ui.Grow(1), color = thor.theme.muted_color, text_wrap = .Ellipsis}})
         if item.note != "" {
-            ui.label(item.note, {key = "note", props = {color = thor.theme.disabled, text_wrap = .None}})
+            ui.label(item.note, {key = "note", props = {color = thor.theme.muted_color, text_wrap = .None}})
         }
         return it.clicked
     }
@@ -964,7 +964,7 @@ palette_row :: proc(thor: ^Thor, index: int) -> bool {
     ui.label(label, {key = "text", spans = spans, props = {w = ui.Grow(1), color = base, text_wrap = .Ellipsis}})
     if p.mode == .Commands {
         if shortcut := p.commands[source].shortcut; shortcut != "" {
-            ui.label(shortcut, {key = "sc", props = {color = thor.theme.disabled, text_wrap = .None}})
+            ui.label(shortcut, {key = "sc", props = {color = thor.theme.muted_color, text_wrap = .None}})
         }
     }
     return it.clicked

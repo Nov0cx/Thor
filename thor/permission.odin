@@ -182,7 +182,7 @@ permission_box :: proc(thor: ^Thor) {
         }
     }
 
-    ui.label(d.note, {key = "note", props = {color = thor.theme.disabled, text_wrap = .Words}})
+    ui.label(d.note, {key = "note", props = {color = thor.theme.muted_color, text_wrap = .Words}})
 
     {
         ui.scope({key = "buttons", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, justify = .End, gap = tk_gap(.M, .None)}})

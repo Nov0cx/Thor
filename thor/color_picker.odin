@@ -408,7 +408,7 @@ color_picker_row :: proc(thor: ^Thor) {
 
 @(private = "file")
 color_picker_buttons :: proc(thor: ^Thor) {
-    ui.scope({key = "buttons", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, justify = .End, gap = tk_gap(.M, .None), margin = {t = 4}}})
+    ui.scope({key = "buttons", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, justify = .End, gap = tk_gap(.M, .None), margin = {t = tk_sp(.XS)}}})
 
     if color_picker_button(thor, "cancel", "Cancel", thor.theme.muted_color) {
         color_picker_dismiss(thor)

@@ -253,7 +253,7 @@ thor_tip_card_view :: proc(thor: ^Thor) {
             props = {
                 opacity = 1,
                 position = .Fixed,
-                inset = {r = 24, b = 24},
+                inset = {r = tk_sp(.XXL), b = tk_sp(.XXL)},
                 w = ui.Px(tk(TIP_CARD_WIDTH)),
                 max_w = ui.viewport().x - 2 * TK_MODAL_MARGIN,
                 h = ui.FIT,
@@ -325,7 +325,7 @@ thor_tip_card_body :: proc(thor: ^Thor, tip: setting.Tip, index, count: int, sho
             never := ui.scope(
                 thor_control(thor, {key = "never", flags = {.Clickable}, props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, cursor = .Pointer}}),
             )
-            ui.label("Do not show tips again", {key = "text", props = {color = thor.theme.disabled, text_wrap = .None}})
+            ui.label("Do not show tips again", {key = "text", props = {color = thor.theme.muted_color, text_wrap = .None}})
             thor_tip(thor, never.id, "Turn the tip of the day off")
             if never.clicked {
                 thor_tip_card_close(thor, true)
@@ -339,7 +339,7 @@ thor_tip_card_body :: proc(thor: ^Thor, tip: setting.Tip, index, count: int, sho
             if thor_tip_arrow(thor, "prev", "chevron-left", "Previous tip") {
                 thor_tip_step(thor, -1)
             }
-            ui.label(fmt.tprintf("%d / %d", index + 1, count), {key = "pos", props = {color = thor.theme.disabled, text_wrap = .None}})
+            ui.label(fmt.tprintf("%d / %d", index + 1, count), {key = "pos", props = {color = thor.theme.muted_color, text_wrap = .None}})
             if thor_tip_arrow(thor, "next", "chevron-right", "Next tip") {
                 thor_tip_step(thor, 1)
             }

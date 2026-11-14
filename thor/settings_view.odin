@@ -630,7 +630,7 @@ settings_sidebar :: proc(thor: ^Thor) {
                 min_w = tk(SETTINGS_SIDEBAR_W),
                 h = ui.Grow(1),
                 dir = .Column,
-                pad = {l = 8, r = 8, t = 10, b = 8},
+                pad = {l = tk_sp(.M), r = tk_sp(.M), t = tk_sp(.M), b = tk_sp(.M)},
                 gap = tk_gap(.None, .XXS),
                 bg = thor.theme.second_background,
                 radius = ui.rad4(0, 0, 0, tk_rad_inner(.Modal, 1)),
@@ -697,7 +697,7 @@ settings_content :: proc(thor: ^Thor) {
         return
     }
     if len(s.visible_rows) == 0 {
-        ui.label("Nothing here", {key = "empty", props = {pad = tk_pad(.XS, .M), color = thor.theme.disabled}})
+        ui.label("Nothing here", {key = "empty", props = {pad = tk_pad(.XS, .M), color = thor.theme.muted_color}})
         return
     }
 
@@ -742,7 +742,7 @@ settings_row :: proc(thor: ^Thor, row_index: int) {
                 dir = .Row,
                 align = .Center,
                 gap = tk_gap(.L, .None),
-                pad = {l = 8 + indent, r = 8},
+                pad = {l = tk_sp(.M) + indent, r = tk_sp(.M)},
                 radius = tk_rad(.Popup),
             },
             hover = {bg = thor.theme.second_background},
@@ -795,7 +795,7 @@ settings_group_row :: proc(thor: ^Thor, row: ^Settings_Row) {
                     align = .Center,
                     gap = tk_gap(.M, .None),
                     pad = tk_pad(.S, .None),
-                    margin = {t = 6},
+                    margin = {t = tk_sp(.S)},
                     radius = tk_rad(.Popup),
                     cursor = .Pointer,
                 },
@@ -977,7 +977,7 @@ settings_button :: proc(
                     dir = .Row,
                     align = .Center,
                     pad = ui.xy(outlined ? 12 : 10, 0),
-                    margin = {t = outlined ? 8 : 0},
+                    margin = {t = outlined ? tk_sp(.M) : 0},
                     radius = tk_rad(.Popup),
                     bg = thor.theme.buttons,
                     border = {width = ui.all(outlined ? 1 : 0), color = color},

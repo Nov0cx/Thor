@@ -86,6 +86,9 @@ TK_W_TOOL_MAX   :: f32(1080)
 // The room a modal leaves to each window edge.
 TK_MODAL_MARGIN :: f32(32)
 
+// The grab width of a 3 px splitter (9.2).
+TK_SPLITTER_GRAB :: f32(8)
+
 // Durations in seconds (5.9).
 TK_FAST   :: f32(0.1)
 TK_NORMAL :: f32(0.15)

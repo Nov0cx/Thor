@@ -268,7 +268,7 @@ PLUGINS := [?]Tutorial_Step{
     {
         title = "Permissions",
         body = "A plugin that wants to run programs, write files or show a panel asks first. " +
-            "Your answer is kept, and the settings window shows it under **PLUGIN PERMISSIONS**.",
+            "Your answer is kept, and the settings window shows it under **Plugins**.",
         check = Check_Next{},
     },
     {

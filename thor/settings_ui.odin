@@ -61,8 +61,8 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     }
 
     thor_settings_begin_category(view, "editor", "Editor", "adjustments")
-    thor_settings_add_number(view, "tab_width", "Tab Width", setting.tab_width(config), setting.TAB_WIDTH_MIN, setting.TAB_WIDTH_MAX, 1)
-    thor_settings_add_number(view, "font_size", "Font Size", setting.font_size(config), setting.FONT_SIZE_MIN, setting.FONT_SIZE_MAX, 1)
+    thor_settings_add_number(view, "tab_width", "Tab width", setting.tab_width(config), setting.TAB_WIDTH_MIN, setting.TAB_WIDTH_MAX, 1)
+    thor_settings_add_number(view, "font_size", "Font size", setting.font_size(config), setting.FONT_SIZE_MIN, setting.FONT_SIZE_MAX, 1)
     thor_settings_add_number(
         view,
         "autosave_delay_ms",
@@ -81,13 +81,13 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
         setting.PEEK_HEIGHT_MAX,
         1,
     )
-    thor_settings_add_toggle(view, "insert_spaces", "Insert Spaces", setting.insert_spaces(config))
-    thor_settings_add_toggle(view, "detect_indentation", "Detect Indentation", setting.detect_indentation(config))
-    thor_settings_add_toggle(view, "indent_guides", "Indent Guides", setting.indent_guides(config))
-    thor_settings_add_toggle(view, "relative_line_numbers", "Relative Line Numbers", setting.relative_line_numbers(config))
-    thor_settings_add_toggle(view, "format_on_save", "Format on Save", setting.format_on_save(config))
-    thor_settings_add_toggle(view, "format_on_type", "Format on Type", setting.format_on_type(config))
-    thor_settings_add_choice(view, "right_alt", "Right Alt Key", thor_right_alt_label(config))
+    thor_settings_add_toggle(view, "insert_spaces", "Insert spaces", setting.insert_spaces(config))
+    thor_settings_add_toggle(view, "detect_indentation", "Detect indentation", setting.detect_indentation(config))
+    thor_settings_add_toggle(view, "indent_guides", "Indent guides", setting.indent_guides(config))
+    thor_settings_add_toggle(view, "relative_line_numbers", "Relative line numbers", setting.relative_line_numbers(config))
+    thor_settings_add_toggle(view, "format_on_save", "Format on save", setting.format_on_save(config))
+    thor_settings_add_toggle(view, "format_on_type", "Format on type", setting.format_on_type(config))
+    thor_settings_add_choice(view, "right_alt", "Right Alt key", thor_right_alt_label(config))
 
     thor_settings_begin_category(view, "appearance", "Appearance", "palette")
     theme := setting.theme_name(config)
@@ -101,31 +101,31 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     if icon_pack == "" {
         icon_pack = font.icon_active_pack(PRIMARY_ICON_PACK_GROUP)
     }
-    thor_settings_add_choice(view, "icon_pack", "Icon Pack", icon_pack)
+    thor_settings_add_choice(view, "icon_pack", "Icon pack", icon_pack)
     file_icon_pack := setting.file_icon_pack_name(config)
     if file_icon_pack == "" {
         file_icon_pack = font.icon_active_pack(FILE_ICON_PACK_GROUP)
     }
-    thor_settings_add_choice(view, "file_icon_pack", "File Icon Pack", file_icon_pack)
+    thor_settings_add_choice(view, "file_icon_pack", "File icon pack", file_icon_pack)
     thor_settings_add_choice(view, "ligatures", "Ligatures", thor_ligatures_label(config))
     thor_settings_add_toggle(view, "tooltips", "Tooltips", setting.tooltips(config))
     thor_settings_add_toggle(view, "reduce_motion", "Reduce motion", setting.reduce_motion(config))
 
     thor_settings_begin_category(view, "windows", "Windows", "window")
-    thor_settings_add_choice(view, "open_folder_in", "Open Folder In", thor_open_folder_in_label(config))
-    thor_settings_add_choice(view, "pane_layout", "Editor Pane Layout", thor_pane_layout_label(config))
-    thor_settings_add_toggle(view, "clipboard_history_save", "Save Clipboard History", setting.clipboard_history_save(config))
-    thor_settings_add_toggle(view, "tip_of_the_day", "Tip of the Day", setting.tip_of_the_day(config))
+    thor_settings_add_choice(view, "open_folder_in", "Open folder in", thor_open_folder_in_label(config))
+    thor_settings_add_choice(view, "pane_layout", "Editor pane layout", thor_pane_layout_label(config))
+    thor_settings_add_toggle(view, "clipboard_history_save", "Save clipboard history", setting.clipboard_history_save(config))
+    thor_settings_add_toggle(view, "tip_of_the_day", "Tip of the day", setting.tip_of_the_day(config))
     if thor_shell_menu_supported() {
-        thor_settings_add_toggle(view, "shell_menu", "Explorer Menu Entry", thor_shell_menu_registered())
+        thor_settings_add_toggle(view, "shell_menu", "Explorer menu entry", thor_shell_menu_registered())
     }
 
     thor_settings_begin_category(view, "terminal", "Terminal", "terminal-2")
-    thor_settings_add_choice(view, "default_shell", "Default Shell", thor_default_shell_label(thor, config))
-    thor_settings_add_toggle(view, "terminal_clipboard", "Programs Set Clipboard", setting.terminal_clipboard(config))
+    thor_settings_add_choice(view, "default_shell", "Default shell", thor_default_shell_label(thor, config))
+    thor_settings_add_toggle(view, "terminal_clipboard", "Programs set clipboard", setting.terminal_clipboard(config))
 
     thor_settings_begin_category(view, "updates", "Updates", "download")
-    thor_settings_add_toggle(view, "check_for_updates", "Check for Updates", setting.check_for_updates(config))
+    thor_settings_add_toggle(view, "check_for_updates", "Check for updates", setting.check_for_updates(config))
     if scope == .General {
         thor_populate_ext_category(thor, config)
     }
@@ -650,7 +650,7 @@ thor_cmd_change_plugin_permission :: proc(thor: ^Thor, source: Plugin_Source, pl
     delete(thor.plugin_setting_target)
     thor.plugin_setting_target = strings.clone(plugin_id)
     thor.plugin_setting_source = source
-    thor_select_open(thor, "Plugin Permissions", PLUGIN_PERMISSION_LABELS[:], current, thor_plugin_permission_preview, thor_plugin_permission_commit, thor)
+    thor_select_open(thor, "Plugin permissions", PLUGIN_PERMISSION_LABELS[:], current, thor_plugin_permission_preview, thor_plugin_permission_commit, thor)
 }
 
 @(private = "file")

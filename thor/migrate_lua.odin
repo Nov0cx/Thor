@@ -192,7 +192,7 @@ thor_lua_notice_view :: proc(thor: ^Thor) {
             props = {
                 opacity = 1,
                 position = .Fixed,
-                inset = {r = 24, b = 24},
+                inset = {r = tk_sp(.XXL), b = tk_sp(.XXL)},
                 w = ui.Px(tk(LUA_NOTICE_WIDTH)),
                 max_w = ui.viewport().x - 2 * TK_MODAL_MARGIN,
                 h = ui.FIT,
@@ -218,15 +218,15 @@ thor_lua_notice_view :: proc(thor: ^Thor) {
     )
     for path, i in thor.lua_converted {
         if i == 6 {
-            ui.label("and more; see user/thor.log", {key = "more", props = {color = thor.theme.disabled, text_wrap = .None}})
+            ui.label("and more; see user/thor.log", {key = "more", props = {color = thor.theme.muted_color, text_wrap = .None}})
             break
         }
         ui.push_id_int(i64(i))
-        ui.label(path, {key = "path", props = {w = ui.Grow(1), color = thor.theme.disabled, text_wrap = .Ellipsis}})
+        ui.label(path, {key = "path", props = {w = ui.Grow(1), color = thor.theme.muted_color, text_wrap = .Ellipsis}})
         ui.pop_id()
     }
     {
-        ui.scope({key = "foot", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.M, .None), margin = {t = 4}}})
+        ui.scope({key = "foot", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.M, .None), margin = {t = tk_sp(.XS)}}})
         ui.spacer(ui.Grow(1), {key = "gap"})
         if lua_notice_button(thor, "open", "Open settings.lua", false) {
             thor_lua_notice_dismiss(thor)

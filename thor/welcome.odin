@@ -118,7 +118,7 @@ thor_welcome_view :: proc(thor: ^Thor) {
     ui.label("Open a folder to start, or pick a file.", {key = "sub", props = {color = thor.theme.muted_color, text_wrap = .None}})
 
     {
-        ui.scope({key = "actions", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = tk_gap(.M, .None), margin = {t = 6}}})
+        ui.scope({key = "actions", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = tk_gap(.M, .None), margin = {t = tk_sp(.S)}}})
         if welcome_button(thor, "open-folder", "Open Folder", "folder", "Open a folder as the workspace") {
             thor_cmd_open_folder(thor)
             return
@@ -185,7 +185,7 @@ welcome_recent :: proc(thor: ^Thor) {
         return
     }
 
-    ui.label("Recent", {key = "recent-label", props = {color = thor.theme.disabled, margin = {t = 14}, text_wrap = .None}})
+    ui.label("Recent", {key = "recent-label", props = {color = thor.theme.muted_color, margin = {t = tk_sp(.L)}, text_wrap = .None}})
     ui.scope({key = "recent", props = {w = ui.Grow(1), h = ui.FIT, dir = .Column, gap = tk_gap(.None, .S)}})
 
     name_w := welcome_recent_name_width(paths)
@@ -229,7 +229,7 @@ welcome_recent :: proc(thor: ^Thor) {
             ui.label(filepath.base(path), {key = "name", props = {w = ui.Px(name_w), min_w = name_w, color = thor.theme.foreground, text_wrap = .Ellipsis}})
             // The name alone reads the same for two folders of one name, so the
             // whole path rides beside it.
-            ui.label(path, {key = "path", props = {w = ui.Grow(1), color = thor.theme.disabled, text_wrap = .Ellipsis}})
+            ui.label(path, {key = "path", props = {w = ui.Grow(1), color = thor.theme.muted_color, text_wrap = .Ellipsis}})
             // A long path is cut short above, so the whole one goes in the tip.
             thor_tip(thor, it.id, path)
         }
@@ -258,7 +258,7 @@ welcome_tip :: proc(thor: ^Thor) {
                 dir = .Column,
                 gap = tk_gap(.None, .M),
                 pad = tk_pad_all(.L),
-                margin = {t = 18},
+                margin = {t = tk_sp(.XL)},
                 radius = tk_rad(.Card),
                 bg = thor.theme.second_background,
                 border = {width = ui.all(1), color = thor.theme.border},

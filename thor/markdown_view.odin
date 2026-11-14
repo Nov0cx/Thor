@@ -614,9 +614,9 @@ thor_markdown_code_chrome :: proc(thor: ^Thor, view: ^Markdown_View, item: markd
             key = "lang",
             props = {
                 position = .Absolute,
-                inset = {l = x + item.w - tw - 10, t = y + 4},
+                inset = {l = x + item.w - tw - tk_sp(.M), t = y + tk_sp(.XS)},
                 w = ui.FIT,
-                color = thor.theme.disabled,
+                color = thor.theme.muted_color,
                 font_size = size,
                 text_wrap = .None,
             },

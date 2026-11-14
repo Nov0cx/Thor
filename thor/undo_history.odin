@@ -444,7 +444,7 @@ undo_view_row :: proc(thor: ^Thor, file: ^Open_File, index: int, now: time.Time)
                 dir = .Row,
                 align = .Center,
                 gap = tk_gap(.M, .None),
-                pad = {r = 8},
+                pad = {r = tk_sp(.M)},
                 radius = tk_rad(.Control),
                 cursor = .Pointer,
                 bg = on ? thor.theme.selection_background : ui.Color{0, 0, 0, 0},
@@ -520,7 +520,7 @@ undo_view_graph :: proc(thor: ^Thor, v: ^Undo_View, row: Undo_Graph_Row, on: boo
             key = "dot",
             props = {
                 position = .Absolute,
-                inset = {l = x - size / 2, t = mid - size / 2},
+                inset = {l = x - size / tk_sp(.XXS), t = mid - size / tk_sp(.XXS)},
                 w = ui.Px(size),
                 h = ui.Px(size),
                 radius = ui.rad(size / 2),
@@ -647,7 +647,11 @@ undo_view_diff :: proc(thor: ^Thor, file: ^Open_File) {
     )
 
     ui.scope(
-        {key = "rows", flags = {.Clip, .Scroll_Y, .Scroll_X}, props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), dir = .Column, pad = {t = 4}}},
+        {
+            key = "rows",
+            flags = {.Clip, .Scroll_Y, .Scroll_X},
+            props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), dir = .Column, pad = {t = tk_sp(.XS)}},
+        },
     )
     if node == nil || node.parent == textedit.NO_NODE {
         text := node != nil && node.seq != 0 ? "The oldest state the history still holds." : "The file as it was when the history began."

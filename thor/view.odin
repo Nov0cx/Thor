@@ -441,7 +441,11 @@ thor_workspace :: proc(thor: ^Thor) {
         return
     }
 
-    dock := ui.dockspace("main", {mode = .In_Window, tab_height = tk_h(.Tabs), splitter = DOCK_SPLITTER_WIDTH}, {props = {w = ui.Grow(1), h = ui.Grow(1)}})
+    dock := ui.dockspace(
+        "main",
+        {mode = .In_Window, tab_height = tk_h(.Tabs), splitter = DOCK_SPLITTER_WIDTH, splitter_hit = TK_SPLITTER_GRAB},
+        {props = {w = ui.Grow(1), h = ui.Grow(1)}},
+    )
     thor_seed_dock(thor, dock)
 
     thor.explorer_open = signal_get(&thor.explorer_visible)
@@ -539,7 +543,7 @@ thor_console_panel :: proc(thor: ^Thor) {
     console := thor_active_console(thor)
     if console == nil {
         thor.console_focused = false
-        ui.label("No terminal", {key = "no-terminal", props = {pad = tk_pad(.L, .M), color = thor.theme.disabled}})
+        ui.label("No terminal", {key = "no-terminal", props = {pad = tk_pad(.L, .M), color = thor.theme.muted_color}})
         return
     }
     thor_console_view(thor, console)
@@ -783,6 +787,7 @@ thor_pane_handle :: proc(thor: ^Thor, key: string, along: ui.Direction, weights:
         {
             key = key,
             flags = {.Clickable, .Draggable},
+            hit_pad = (TK_SPLITTER_GRAB - PANE_HANDLE_WIDTH) / 2,
             props = {
                 w = row ? ui.Px(PANE_HANDLE_WIDTH) : ui.Grow(1),
                 h = row ? ui.Grow(1) : ui.Px(PANE_HANDLE_WIDTH),

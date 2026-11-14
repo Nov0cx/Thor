@@ -669,7 +669,7 @@ git_view_sidebar :: proc(thor: ^Thor) {
                 min_w = tk(GIT_SIDEBAR_W),
                 h = ui.Grow(1),
                 dir = .Column,
-                pad = {l = 8, r = 8, t = 10, b = 8},
+                pad = {l = tk_sp(.M), r = tk_sp(.M), t = tk_sp(.M), b = tk_sp(.M)},
                 gap = tk_gap(.None, .XXS),
                 bg = thor.theme.second_background,
             },
@@ -779,7 +779,7 @@ git_view_file_section :: proc(thor: ^Thor, staged: bool) {
                 },
             },
         )
-        ui.label(staged ? "STAGED" : "CHANGES", {key = "title", props = {w = ui.Grow(1), color = thor.theme.disabled, text_wrap = .None}})
+        ui.label(staged ? "STAGED" : "CHANGES", {key = "title", props = {w = ui.Grow(1), color = thor.theme.muted_color, text_wrap = .None}})
         if len(list) > 0 && git_view_button(thor, "all", staged ? "Unstage All" : "Stage All", !v.busy) {
             thor_on_git_stage(thor, "", !staged)
             return
@@ -788,7 +788,7 @@ git_view_file_section :: proc(thor: ^Thor, staged: bool) {
 
     ui.scope({key = "list", flags = {.Clip, .Scroll_Y}, props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), dir = .Column}})
     if len(list) == 0 {
-        ui.label(staged ? "Nothing staged" : "No changes", {key = "empty", props = {pad = tk_pad(.M, .S), color = thor.theme.disabled}})
+        ui.label(staged ? "Nothing staged" : "No changes", {key = "empty", props = {pad = tk_pad(.M, .S), color = thor.theme.muted_color}})
         return
     }
 
@@ -859,7 +859,7 @@ git_view_file_row :: proc(thor: ^Thor, file: Git_View_File, staged: bool, index:
     ui.label(git_status_label(file.status), {key = "st", props = {w = ui.Px(tk(12)), color = git_status_color(thor, file.status), text_wrap = .None}})
     ui.label(file.display, {key = "name", props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .Ellipsis}})
     if file.is_lfs {
-        ui.label("LFS", {key = "lfs", props = {color = thor.theme.disabled, text_wrap = .None}})
+        ui.label("LFS", {key = "lfs", props = {color = thor.theme.muted_color, text_wrap = .None}})
     }
 
     // The chip and the LFS pill are no hit targets of their own - a click on
@@ -1022,7 +1022,7 @@ git_view_history :: proc(thor: ^Thor) {
 
     ui.scope({key = "history", flags = {.Clip, .Scroll_Y}, props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), dir = .Column}})
     if len(v.commits) == 0 {
-        ui.label("No commits", {key = "empty", props = {pad = tk_pad(.XL, .M), color = thor.theme.disabled}})
+        ui.label("No commits", {key = "empty", props = {pad = tk_pad(.XL, .M), color = thor.theme.muted_color}})
         return
     }
 
@@ -1072,7 +1072,7 @@ git_view_history :: proc(thor: ^Thor) {
                 commit.date,
                 {
                     key = "date",
-                    props = {w = ui.Px(tk(GIT_DATE_W)), min_w = tk(GIT_DATE_W), color = thor.theme.disabled, text_align = .End, text_wrap = .Ellipsis},
+                    props = {w = ui.Px(tk(GIT_DATE_W)), min_w = tk(GIT_DATE_W), color = thor.theme.muted_color, text_align = .End, text_wrap = .Ellipsis},
                 },
             )
         }
@@ -1148,7 +1148,7 @@ git_view_ref_row :: proc(thor: ^Thor, ref: Git_View_Ref) -> bool {
                     dir = .Row,
                     align = .Center,
                     gap = tk_gap(.M, .None),
-                    pad = {l = 26, r = 14},
+                    pad = {l = tk_h(.Row), r = tk_sp(.L)},
                     bg = ref.current ? thor.theme.selection_background : nil,
                     cursor = .Pointer,
                 },
@@ -1235,7 +1235,7 @@ git_view_config_row :: proc(thor: ^Thor, index: int) -> bool {
                     dir = .Row,
                     align = .Center,
                     gap = tk_gap(.M, .None),
-                    pad = {l = 26, r = 14},
+                    pad = {l = tk_h(.Row), r = tk_sp(.L)},
                     cursor = .Pointer,
                 },
                 hover = {bg = thor.theme.buttons},
@@ -1289,12 +1289,16 @@ git_view_config_row :: proc(thor: ^Thor, index: int) -> bool {
 git_view_lfs :: proc(thor: ^Thor) {
     v := &thor.git
 
-    git_view_section_label(thor, "GIT LFS")
+    git_view_section_label(thor, "Git LFS")
     ui.label(
         v.lfs_available ? v.lfs_version : "not installed",
         {
             key = "lfs-status",
-            props = {pad = {l = 26, r = 14, t = 4, b = 4}, color = v.lfs_available ? thor.theme.muted_color : thor.theme.disabled, text_wrap = .None},
+            props = {
+                pad = {l = tk_h(.Row), r = tk_sp(.L), t = tk_sp(.XS), b = tk_sp(.XS)},
+                color = v.lfs_available ? thor.theme.muted_color : thor.theme.disabled,
+                text_wrap = .None,
+            },
         },
     )
     if !v.lfs_available {
@@ -1310,7 +1314,7 @@ git_view_lfs :: proc(thor: ^Thor) {
                 props = {
                     w = ui.Grow(1),
                     h = ui.Px(tk_h(.Row)),
-                    pad = {l = 26, r = 14},
+                    pad = {l = tk_h(.Row), r = tk_sp(.L)},
                     color = thor.theme.foreground,
                     font = thor.font_mono,
                     text_wrap = .Ellipsis,
@@ -1383,11 +1387,11 @@ git_view_hosting :: proc(thor: ^Thor) {
             return
         }
 
-        git_view_section_label(thor, "PULL REQUESTS")
+        git_view_section_label(thor, "Pull requests")
         if v.cli_name == "" {
-            ui.label("Install the gh or glab CLI to list pull requests.", {key = "cli-hint", props = {pad = tk_pad(.XS, .XS), color = thor.theme.disabled}})
+            ui.label("Install the gh or glab CLI to list pull requests.", {key = "cli-hint", props = {pad = tk_pad(.XS, .XS), color = thor.theme.muted_color}})
         } else if len(v.prs) == 0 {
-            ui.label("None open.", {key = "no-prs", props = {pad = tk_pad(.XS, .XS), color = thor.theme.disabled}})
+            ui.label("None open.", {key = "no-prs", props = {pad = tk_pad(.XS, .XS), color = thor.theme.muted_color}})
         } else {
             for pr, index in v.prs {
                 ui.push_id_int(i64(index))
@@ -1400,7 +1404,7 @@ git_view_hosting :: proc(thor: ^Thor) {
         }
     }
 
-    git_view_section_label(thor, "CLONE")
+    git_view_section_label(thor, "Clone")
     ui.input(
         &v.clone_url,
         {
@@ -1461,7 +1465,7 @@ git_view_pr_row :: proc(thor: ^Thor, pr: Git_View_Pr) -> bool {
     )
     ui.label(fmt.tprintf("#%d", pr.number), {key = "num", props = {color = thor.theme.accent_color, text_wrap = .None}})
     ui.label(pr.title, {key = "title", props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .Ellipsis}})
-    ui.label(pr.branch, {key = "branch", props = {color = thor.theme.disabled, text_wrap = .None}})
+    ui.label(pr.branch, {key = "branch", props = {color = thor.theme.muted_color, text_wrap = .None}})
     if it.clicked {
         thor_on_git_hosting(thor, .Open_Pr, pr.url, "")
         return true
@@ -1471,7 +1475,13 @@ git_view_pr_row :: proc(thor: ^Thor, pr: Git_View_Pr) -> bool {
 
 @(private = "file")
 git_view_section_label :: proc(thor: ^Thor, text: string) {
-    ui.label(text, {key = text, props = {w = ui.Grow(1), pad = {l = 4, r = 14, t = 12, b = 4}, color = thor.theme.disabled, text_wrap = .None}})
+    ui.label(
+        text,
+        {
+            key = text,
+            props = {w = ui.Grow(1), pad = {l = tk_sp(.XS), r = tk_sp(.L), t = tk_sp(.L), b = tk_sp(.XS)}, color = thor.theme.muted_color, text_wrap = .None},
+        },
+    )
 }
 
 // A fold header. Reports whether it was clicked, which flips the caller's state.
@@ -1497,7 +1507,7 @@ git_view_fold_header :: proc(thor: ^Thor, label: string, open: bool) -> bool {
         ),
     )
     thor_icon_label(thor, open ? "chevron-down" : "chevron-right", thor.theme.muted_color, 14)
-    ui.label(label, {key = "text", props = {w = ui.Grow(1), color = thor.theme.disabled, text_wrap = .None}})
+    ui.label(label, {key = "text", props = {w = ui.Grow(1), color = thor.theme.muted_color, text_wrap = .None}})
     return it.clicked
 }
 

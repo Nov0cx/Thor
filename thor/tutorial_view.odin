@@ -223,7 +223,7 @@ thor_tutorial_card :: proc(thor: ^Thor, target: ui.Rect, has_target: bool) {
         thor_icon_label(thor, "school", thor.theme.accent_color)
         ui.label(chapter.title, {key = "chapter", props = {w = ui.Grow(1), color = thor.theme.muted_color, text_wrap = .Ellipsis}})
         if has_step {
-            ui.label(fmt.tprintf("%d / %d", t.step + 1, len(chapter.steps)), {key = "pos", props = {color = thor.theme.disabled, text_wrap = .None}})
+            ui.label(fmt.tprintf("%d / %d", t.step + 1, len(chapter.steps)), {key = "pos", props = {color = thor.theme.muted_color, text_wrap = .None}})
         }
         close := ui.scope(
             thor_control(
@@ -260,7 +260,7 @@ thor_tutorial_card :: proc(thor: ^Thor, target: ui.Rect, has_target: bool) {
     thor_tutorial_card_body(thor, thor_tutorial_card_text(thor, step, has_step))
     thor_tutorial_dots(thor, len(chapter.steps), t.step)
 
-    ui.scope({key = "foot", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.S, .None), margin = {t = 4}}})
+    ui.scope({key = "foot", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.S, .None), margin = {t = tk_sp(.XS)}}})
     if tutorial_button(thor, "chapters", "Chapters", false) {
         t.chooser_open = true
     }
@@ -394,7 +394,7 @@ thor_tutorial_chooser :: proc(thor: ^Thor) {
             },
         )
         {
-            ui.scope({key = "head", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.M, .None), margin = {b = 6}}})
+            ui.scope({key = "head", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.M, .None), margin = {b = tk_sp(.S)}}})
             thor_icon_label(thor, "school", thor.theme.accent_color)
             ui.label("Tutorial", {key = "title", props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .None}})
         }
@@ -406,7 +406,7 @@ thor_tutorial_chooser :: proc(thor: ^Thor) {
                 thor_tutorial_start(thor, i)
             }
         }
-        ui.scope({key = "foot", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.S, .None), margin = {t = 10}}})
+        ui.scope({key = "foot", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.S, .None), margin = {t = tk_sp(.M)}}})
         if tutorial_button(thor, "shortcuts", "All shortcuts", false) {
             t.chooser_open = false
             thor_open_docs_page(thor, "keybindings.md")
@@ -460,6 +460,6 @@ tutorial_chapter_row :: proc(thor: ^Thor, i: int) -> bool {
     } else if mark.step > 0 {
         state = fmt.tprintf("resume at %d / %d", mark.step + 1, len(c.steps))
     }
-    ui.label(state, {key = "state", props = {color = thor.theme.disabled, text_wrap = .None}})
+    ui.label(state, {key = "state", props = {color = thor.theme.muted_color, text_wrap = .None}})
     return row.clicked
 }

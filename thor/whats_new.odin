@@ -213,7 +213,7 @@ thor_whats_new_view :: proc(thor: ^Thor) {
     thor_whats_new_body(thor, text, width - 2 * tk_sp(.XL))
 
     {
-        ui.scope({key = "foot", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.M, .None), margin = {t = 4}}})
+        ui.scope({key = "foot", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.M, .None), margin = {t = tk_sp(.XS)}}})
         ui.spacer(ui.Grow(1), {key = "gap"})
         if whats_new_button(thor, "toggle", w.full ? "Summary" : "All changes", false) {
             w.full = !w.full

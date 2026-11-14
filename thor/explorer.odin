@@ -478,7 +478,7 @@ thor_explorer_view :: proc(thor: ^Thor) {
     }
 
     if len(rows) == 0 {
-        ui.label("No files", {key = "empty", props = {pad = tk_pad(.L, .M), color = thor.theme.disabled}})
+        ui.label("No files", {key = "empty", props = {pad = tk_pad(.L, .M), color = thor.theme.muted_color}})
         if panel.right_clicked {
             explorer_right_click_root(thor)
         }
@@ -552,7 +552,7 @@ explorer_row :: proc(thor: ^Thor, node: ^Explorer_Node, depth: int) -> ui.Intera
                 dir = .Row,
                 align = .Center,
                 gap = tk_gap(.XS, .None),
-                pad = {l = tk_sp(.S) + f32(depth) * tk_sp(.XL), r = 6},
+                pad = {l = tk_sp(.S) + f32(depth) * tk_sp(.XL), r = tk_sp(.S)},
                 bg = on ? thor.theme.selection_background : ui.Color{0, 0, 0, 0},
                 border = {width = ui.all(drop ? 1 : 0), color = thor.theme.accent_color},
                 cursor = .Pointer,

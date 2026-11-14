@@ -256,7 +256,7 @@ plugin_panel_view :: proc(thor: ^Thor, p: ^Plugin_Panel) {
                 key = "header",
                 props = {
                     w = ui.Grow(1),
-                    h = ui.Px(tk(32)),
+                    h = ui.Px(tk_h(.Bar)),
                     dir = .Row,
                     align = .Center,
                     gap = tk_gap(.M, .None),
@@ -266,27 +266,7 @@ plugin_panel_view :: proc(thor: ^Thor, p: ^Plugin_Panel) {
             },
         )
         ui.label(p.title, {key = "title", props = {w = ui.Grow(1), color = thor.theme.primary_text_color, text_wrap = .Ellipsis}})
-        close := ui.scope(
-            thor_control(
-                thor,
-                {
-                    key = "close",
-                    flags = {.Clickable},
-                    props = {
-                        w = ui.Px(tk(24)),
-                        h = ui.Px(tk_h(.Row_Compact)),
-                        dir = .Row,
-                        justify = .Center,
-                        align = .Center,
-                        radius = tk_rad(.Control),
-                        cursor = .Pointer,
-                    },
-                    hover = {bg = thor.theme.active},
-                },
-            ),
-        )
-        thor_icon_label(thor, "x", thor.theme.primary_text_color, 14)
-        ui.tooltip("Close this panel", close.id)
+        close := thor_icon_button(thor, "x", "close", tip = "Close this panel", color = thor.theme.primary_text_color, w = tk_h(.Row_Compact))
         if close.clicked {
             // The plugin is told too, so a later render does not resurrect
             // contents the user closed.

@@ -506,7 +506,14 @@ theme_editor_colors :: proc(thor: ^Thor) {
         ui.scope(
             {
                 key = "filter-row",
-                props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.M, .None), pad = {l = 12, r = 12, t = 10, b = 6}},
+                props = {
+                    w = ui.Grow(1),
+                    h = ui.FIT,
+                    dir = .Row,
+                    align = .Center,
+                    gap = tk_gap(.M, .None),
+                    pad = {l = tk_sp(.L), r = tk_sp(.L), t = tk_sp(.M), b = tk_sp(.S)},
+                },
             },
         )
         thor_icon_label(thor, "search", thor.theme.muted_color, size = 15)
@@ -591,7 +598,7 @@ theme_group_row :: proc(thor: ^Thor, group: theme.Color_Group, count, changed: i
                     align = .Center,
                     gap = tk_gap(.M, .None),
                     pad = tk_pad(.S, .None),
-                    margin = {t = 6},
+                    margin = {t = tk_sp(.S)},
                     radius = tk_rad(.Popup),
                     cursor = .Pointer,
                 },
@@ -631,7 +638,7 @@ theme_color_row :: proc(thor: ^Thor, index: int) {
                 dir = .Row,
                 align = .Center,
                 gap = tk_gap(.M, .None),
-                pad = {l = 26, r = 8},
+                pad = {l = tk_h(.Row), r = tk_sp(.M)},
                 radius = tk_rad(.Popup),
                 bg = selected ? thor.theme.active : {},
                 cursor = .Pointer,
@@ -652,7 +659,7 @@ theme_color_row :: proc(thor: ^Thor, index: int) {
         },
     )
     ui.label(entry.key, {key = "label", props = {color = thor.theme.foreground, text_wrap = .None}})
-    ui.label(entry.role, {key = "role", props = {w = ui.Grow(1), color = thor.theme.disabled, text_wrap = .Ellipsis}})
+    ui.label(entry.role, {key = "role", props = {w = ui.Grow(1), color = thor.theme.muted_color, text_wrap = .Ellipsis}})
     if entry.group != .Surfaces {
         theme_contrast_badge(thor, color, thor.theme.background)
     }
@@ -758,7 +765,7 @@ theme_editor_generate :: proc(thor: ^Thor) {
     }
 
     {
-        ui.scope({key = "actions", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = tk_gap(.M, .None), margin = {t = 8}}})
+        ui.scope({key = "actions", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = tk_gap(.M, .None), margin = {t = tk_sp(.M)}}})
         if theme_button(thor, "from-current", "refresh", "Seeds From Current Theme", true, false, "Take the seeds from the theme on screen", "") {
             thor_reset_theme_seeds(thor)
             thor_theme_generate_refresh(thor)
@@ -832,7 +839,7 @@ theme_editor_footer :: proc(thor: ^Thor) {
     )
     ui.label(e.note, {key = "note", props = {w = ui.Grow(1), color = e.note_error ? thor.theme.error_color : thor.theme.muted_color, text_wrap = .Ellipsis}})
     hints := e.tab == .Colors ? "Up/Down select · Enter edit · Ctrl+C/V hex · Del reset · Ctrl+S save" : "Ctrl+S save · Esc close"
-    ui.label(hints, {key = "hints", props = {color = thor.theme.disabled, text_wrap = .None}})
+    ui.label(hints, {key = "hints", props = {color = thor.theme.muted_color, text_wrap = .None}})
 }
 
 // One piece of the preview: its text and the role that colors it.
@@ -907,7 +914,15 @@ theme_preview :: proc(thor: ^Thor, p: ^theme.Theme) {
             {
                 key = "tabs",
                 flags = {.Clickable},
-                props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = tk_gap(.XXS, .None), pad = {l = 6, t = 6}, bg = p.contrast, radius = {8, 8, 0, 0}},
+                props = {
+                    w = ui.Grow(1),
+                    h = ui.FIT,
+                    dir = .Row,
+                    gap = tk_gap(.XXS, .None),
+                    pad = {l = tk_sp(.S), t = tk_sp(.S)},
+                    bg = p.contrast,
+                    radius = {8, 8, 0, 0},
+                },
             },
         )
         preview_part(thor, "tab-active", "main.odin", p.foreground, p.background, "background", pad = 12, top_radius = true)
@@ -928,7 +943,7 @@ theme_preview :: proc(thor: ^Thor, p: ^theme.Theme) {
                 {
                     key = "line",
                     flags = current ? {.Clickable} : {},
-                    props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, pad = {r = 8}, bg = current ? p.highlight : {}},
+                    props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, pad = {r = tk_sp(.M)}, bg = current ? p.highlight : {}},
                 },
             )
             preview_part(thor, "number", fmt.tprintf("%d", n + 1), p.disabled, {}, "disabled", w = 34, align_end = true)
@@ -973,7 +988,7 @@ theme_preview :: proc(thor: ^Thor, p: ^theme.Theme) {
         )
         preview_part(thor, "folder", "src", p.foreground, {}, "foreground")
         {
-            ui.scope({key = "files", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = tk_gap(.M, .None), pad = {l = 6}}})
+            ui.scope({key = "files", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = tk_gap(.M, .None), pad = {l = tk_sp(.S)}}})
             preview_part(thor, "guide", "", {}, p.tree, "tree", w = 2, grow_h = true)
             {
                 ui.scope({key = "names", props = {w = ui.Grow(1), h = ui.FIT, dir = .Column, gap = tk_gap(.None, .XXS)}})
@@ -994,7 +1009,9 @@ theme_preview :: proc(thor: ^Thor, p: ^theme.Theme) {
 
     // Status chips and text.
     {
-        ui.scope({key = "chips", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = tk_gap(.S, .None), pad = {l = 10, r = 10, t = 8}}})
+        ui.scope(
+            {key = "chips", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = tk_gap(.S, .None), pad = {l = tk_sp(.M), r = tk_sp(.M), t = tk_sp(.M)}}},
+        )
         preview_chip(thor, "info", "Info", p.info_color, "info")
         preview_chip(thor, "error", "1 error", p.error_color, "error")
         preview_chip(thor, "conflict", "Conflict", p.conflict_color, "conflict")

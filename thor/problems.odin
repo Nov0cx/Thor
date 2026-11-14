@@ -319,7 +319,7 @@ problems_box :: proc(thor: ^Thor) {
         defer ui.pop_id()
         ui.label(
             fmt.tprintf("%s (%d)", problem_display_path(thor, g.path), len(g.problems)),
-            {key = "file", props = {color = thor.theme.foreground, pad = {l = 8, t = 8, b = 4}, text_wrap = .Ellipsis, w = ui.Grow(1)}},
+            {key = "file", props = {color = thor.theme.foreground, pad = {l = tk_sp(.M), t = tk_sp(.M), b = tk_sp(.XS)}, text_wrap = .Ellipsis, w = ui.Grow(1)}},
         )
         for p, pi in g.problems {
             problem_row(thor, g.path, p, pi)

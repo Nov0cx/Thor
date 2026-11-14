@@ -193,7 +193,7 @@ menu_row :: proc(thor: ^Thor, item: Menu_Item) -> bool {
         chord = thor_action_shortcut(thor, item.action)
     }
     if chord != "" {
-        ui.label(chord, {key = "sc", props = {color = thor.theme.disabled, text_wrap = .None}})
+        ui.label(chord, {key = "sc", props = {color = thor.theme.muted_color, text_wrap = .None}})
     }
     return item.enabled && it.clicked
 }
