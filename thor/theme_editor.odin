@@ -129,8 +129,11 @@ thor_theme_editor_view :: proc(thor: ^Thor) {
     backdrop := ui.scope(
         {
             key = "theme-backdrop",
+            transition = TK_ENTER,
+            enter = {opacity = 0},
             flags = {.Floating, .Clickable},
             props = {
+                opacity = 1,
                 position = .Fixed,
                 inset = {0, 0, 0, 0},
                 w = ui.Grow(1),
@@ -227,8 +230,12 @@ theme_editor_box :: proc(thor: ^Thor) {
     ui.scope(
         {
             key = "theme-box",
+            transition = TK_ENTER,
+            enter = {opacity = 0},
+            focus_scope = true,
             flags = {.Clickable},
             props = {
+                opacity = 1,
                 w = ui.Px(tk(THEME_EDITOR_WIDTH)),
                 max_w = ui.viewport().x - 2 * TK_MODAL_MARGIN,
                 h = ui.Px(tk(THEME_EDITOR_HEIGHT)),
@@ -303,22 +310,25 @@ theme_editor_header :: proc(thor: ^Thor) {
     ui.label("Theme", {key = "title", props = {color = thor.theme.foreground, text_wrap = .None}})
 
     switcher := ui.begin(
-        {
-            key = "switch",
-            flags = {.Clickable},
-            props = {
-                w = ui.FIT,
-                h = ui.Px(tk_h(.Control)),
-                dir = .Row,
-                align = .Center,
-                gap = tk_gap(.S, .None),
-                pad = tk_pad(.M, .None),
-                radius = tk_rad(.Popup),
-                bg = thor.theme.buttons,
-                cursor = .Pointer,
+        thor_control(
+            thor,
+            {
+                key = "switch",
+                flags = {.Clickable},
+                props = {
+                    w = ui.FIT,
+                    h = ui.Px(tk_h(.Control)),
+                    dir = .Row,
+                    align = .Center,
+                    gap = tk_gap(.S, .None),
+                    pad = tk_pad(.M, .None),
+                    radius = tk_rad(.Popup),
+                    bg = thor.theme.buttons,
+                    cursor = .Pointer,
+                },
+                hover = {bg = thor.theme.active},
             },
-            hover = {bg = thor.theme.active},
-        },
+        ),
     )
     ui.label(thor.theme.name, {key = "name", props = {color = thor.theme.foreground, text_wrap = .None}})
     thor_icon_label(thor, "chevron-down", thor.theme.muted_color, size = 14)
@@ -347,12 +357,15 @@ theme_editor_header :: proc(thor: ^Thor) {
     ui.label(state, {key = "state", props = {w = ui.Grow(1), color = thor.theme.muted_color, text_wrap = .Ellipsis}})
 
     close := ui.begin(
-        {
-            key = "close",
-            flags = {.Clickable},
-            props = {w = ui.Px(tk(26)), h = ui.Px(tk_h(.Row)), dir = .Row, justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
-            hover = {bg = thor.theme.buttons},
-        },
+        thor_control(
+            thor,
+            {
+                key = "close",
+                flags = {.Clickable},
+                props = {w = ui.Px(tk(26)), h = ui.Px(tk_h(.Row)), dir = .Row, justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
+                hover = {bg = thor.theme.buttons},
+            },
+        ),
     )
     thor_icon_label(thor, "x", thor.theme.muted_color)
     ui.end()
@@ -421,21 +434,24 @@ theme_editor_toolbar :: proc(thor: ^Thor) {
 @(private = "file")
 theme_tab :: proc(thor: ^Thor, key, label: string, active: bool) -> bool {
     it := ui.begin(
-        {
-            key = key,
-            flags = {.Clickable},
-            props = {
-                w = ui.FIT,
-                h = ui.Px(tk_h(.Control)),
-                dir = .Row,
-                align = .Center,
-                pad = tk_pad(.L, .None),
-                radius = tk_rad(.Popup),
-                bg = active ? thor.theme.active : {},
-                cursor = .Pointer,
+        thor_control(
+            thor,
+            {
+                key = key,
+                flags = {.Clickable},
+                props = {
+                    w = ui.FIT,
+                    h = ui.Px(tk_h(.Control)),
+                    dir = .Row,
+                    align = .Center,
+                    pad = tk_pad(.L, .None),
+                    radius = tk_rad(.Popup),
+                    bg = active ? thor.theme.active : {},
+                    cursor = .Pointer,
+                },
+                hover = {bg = active ? thor.theme.active : thor.theme.second_background},
             },
-            hover = {bg = active ? thor.theme.active : thor.theme.second_background},
-        },
+        ),
     )
     ui.label(label, {key = "label", props = {color = active ? thor.theme.foreground : thor.theme.muted_color, text_wrap = .None}})
     ui.end()
@@ -563,22 +579,25 @@ theme_group_row :: proc(thor: ^Thor, group: theme.Color_Group, count, changed: i
     e    := &thor.theme_editor
     open := filtering || !e.collapsed[group]
     it   := ui.begin(
-        {
-            key = "group",
-            flags = {.Clickable},
-            props = {
-                w = ui.Grow(1),
-                h = ui.Px(tk_h(.Row_Picker)),
-                dir = .Row,
-                align = .Center,
-                gap = tk_gap(.M, .None),
-                pad = tk_pad(.S, .None),
-                margin = {t = 6},
-                radius = tk_rad(.Popup),
-                cursor = .Pointer,
+        thor_control(
+            thor,
+            {
+                key = "group",
+                flags = {.Clickable},
+                props = {
+                    w = ui.Grow(1),
+                    h = ui.Px(tk_h(.Row_Picker)),
+                    dir = .Row,
+                    align = .Center,
+                    gap = tk_gap(.M, .None),
+                    pad = tk_pad(.S, .None),
+                    margin = {t = 6},
+                    radius = tk_rad(.Popup),
+                    cursor = .Pointer,
+                },
+                hover = {bg = thor.theme.second_background},
             },
-            hover = {bg = thor.theme.second_background},
-        },
+        ),
     )
     thor_icon_label(thor, open ? "chevron-down" : "chevron-right", thor.theme.muted_color, size = 14)
     ui.label(theme.GROUP_LABELS[group], {key = "label", props = {color = thor.theme.foreground, text_wrap = .None}})
@@ -640,12 +659,23 @@ theme_color_row :: proc(thor: ^Thor, index: int) {
     ui.label(theme.to_hex(color), {key = "hex", props = {w = ui.Px(tk(86)), color = thor.theme.muted_color, text_wrap = .None}})
     if changed {
         reset := ui.begin(
-            {
-                key = "reset",
-                flags = {.Clickable},
-                props = {w = ui.Px(tk(24)), h = ui.Px(tk_h(.Row)), dir = .Row, justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
-                hover = {bg = thor.theme.buttons},
-            },
+            thor_control(
+                thor,
+                {
+                    key = "reset",
+                    flags = {.Clickable},
+                    props = {
+                        w = ui.Px(tk(24)),
+                        h = ui.Px(tk_h(.Row)),
+                        dir = .Row,
+                        justify = .Center,
+                        align = .Center,
+                        radius = tk_rad(.Control),
+                        cursor = .Pointer,
+                    },
+                    hover = {bg = thor.theme.buttons},
+                },
+            ),
         )
         thor_icon_label(thor, "arrow-back-up", thor.theme.warning_color, size = 14)
         ui.end()
@@ -743,22 +773,25 @@ theme_editor_generate :: proc(thor: ^Thor) {
 @(private = "file")
 theme_seed_row :: proc(thor: ^Thor, key, label: string, color: ui.Color) -> bool {
     it := ui.begin(
-        {
-            key = key,
-            flags = {.Clickable},
-            props = {
-                w = ui.Grow(1),
-                h = ui.Px(tk_h(.Row_Form)),
-                dir = .Row,
-                align = .Center,
-                gap = tk_gap(.M, .None),
-                pad = tk_pad(.M, .None),
-                radius = tk_rad(.Popup),
-                bg = thor.theme.second_background,
-                cursor = .Pointer,
+        thor_control(
+            thor,
+            {
+                key = key,
+                flags = {.Clickable},
+                props = {
+                    w = ui.Grow(1),
+                    h = ui.Px(tk_h(.Row_Form)),
+                    dir = .Row,
+                    align = .Center,
+                    gap = tk_gap(.M, .None),
+                    pad = tk_pad(.M, .None),
+                    radius = tk_rad(.Popup),
+                    bg = thor.theme.second_background,
+                    cursor = .Pointer,
+                },
+                hover = {bg = thor.theme.active},
             },
-            hover = {bg = thor.theme.active},
-        },
+        ),
     )
     ui.leaf(
         {

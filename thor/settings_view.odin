@@ -429,8 +429,11 @@ thor_settings_view :: proc(thor: ^Thor) {
     backdrop := ui.scope(
         {
             key = "settings-backdrop",
+            transition = TK_ENTER,
+            enter = {opacity = 0},
             flags = {.Floating, .Clickable},
             props = {
+                opacity = 1,
                 position = .Fixed,
                 inset = {0, 0, 0, 0},
                 w = ui.Grow(1),
@@ -498,8 +501,12 @@ settings_box :: proc(thor: ^Thor) {
     ui.scope(
         {
             key = "settings-box",
+            transition = TK_ENTER,
+            enter = {opacity = 0},
+            focus_scope = true,
             flags = {.Clickable},
             props = {
+                opacity = 1,
                 w = ui.Px(tk(SETTINGS_WIDTH)),
                 max_w = ui.viewport().x - 2 * TK_MODAL_MARGIN,
                 h = ui.Px(tk(SETTINGS_HEIGHT)),
@@ -564,12 +571,15 @@ settings_header :: proc(thor: ^Thor) {
     }
 
     close := ui.scope(
-        {
-            key = "close",
-            flags = {.Clickable},
-            props = {w = ui.Px(tk(26)), h = ui.Px(tk_h(.Row)), dir = .Row, justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
-            hover = {bg = thor.theme.buttons},
-        },
+        thor_control(
+            thor,
+            {
+                key = "close",
+                flags = {.Clickable},
+                props = {w = ui.Px(tk(26)), h = ui.Px(tk_h(.Row)), dir = .Row, justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
+                hover = {bg = thor.theme.buttons},
+            },
+        ),
     )
     thor_icon_label(thor, "x", thor.theme.muted_color)
     if close.clicked {
@@ -583,19 +593,22 @@ settings_scope_tab :: proc(thor: ^Thor, scope: Settings_Scope, label: string) {
     on := s.scope == scope
 
     it := ui.scope(
-        {
-            key = label,
-            flags = {.Clickable},
-            props = {
-                h = ui.Px(tk_h(.Row)),
-                dir = .Row,
-                align = .Center,
-                pad = tk_pad(.L, .None),
-                radius = tk_pill(tk_h(.Row)),
-                bg = on ? thor.theme.accent_color : thor.theme.buttons,
-                cursor = .Pointer,
+        thor_control(
+            thor,
+            {
+                key = label,
+                flags = {.Clickable},
+                props = {
+                    h = ui.Px(tk_h(.Row)),
+                    dir = .Row,
+                    align = .Center,
+                    pad = tk_pad(.L, .None),
+                    radius = tk_pill(tk_h(.Row)),
+                    bg = on ? thor.theme.accent_color : thor.theme.buttons,
+                    cursor = .Pointer,
+                },
             },
-        },
+        ),
     )
     ui.label(label, {key = "text", props = {color = on ? thor.theme.background : thor.theme.muted_color, text_wrap = .None}})
     if it.clicked {
@@ -635,22 +648,25 @@ settings_sidebar :: proc(thor: ^Thor) {
         it: ui.Interaction
         {
             it = ui.scope(
-                {
-                    key = "cat",
-                    flags = {.Clickable},
-                    props = {
-                        w = ui.Grow(1),
-                        h = ui.Px(tk_h(.Row_Picker)),
-                        dir = .Row,
-                        align = .Center,
-                        gap = tk_gap(.M, .None),
-                        pad = tk_pad(.M, .None),
-                        radius = tk_rad(.Popup),
-                        bg = on ? thor.theme.selection_background : nil,
-                        cursor = .Pointer,
+                thor_control(
+                    thor,
+                    {
+                        key = "cat",
+                        flags = {.Clickable},
+                        props = {
+                            w = ui.Grow(1),
+                            h = ui.Px(tk_h(.Row_Picker)),
+                            dir = .Row,
+                            align = .Center,
+                            gap = tk_gap(.M, .None),
+                            pad = tk_pad(.M, .None),
+                            radius = tk_rad(.Popup),
+                            bg = on ? thor.theme.selection_background : nil,
+                            cursor = .Pointer,
+                        },
+                        hover = {bg = on ? thor.theme.selection_background : thor.theme.buttons},
                     },
-                    hover = {bg = on ? thor.theme.selection_background : thor.theme.buttons},
-                },
+                ),
             )
             thor_icon_label(thor, entry.icon, on ? thor.theme.foreground : thor.theme.muted_color)
             ui.label(entry.label, {key = "label", props = {w = ui.Grow(1), color = on ? thor.theme.foreground : thor.theme.muted_color, text_wrap = .Ellipsis}})
@@ -767,22 +783,25 @@ settings_group_row :: proc(thor: ^Thor, row: ^Settings_Row) {
     open := !settings_group_collapsed(s, row.id)
 
     it := ui.scope(
-        {
-            key = "group",
-            flags = {.Clickable},
-            props = {
-                w = ui.Grow(1),
-                h = ui.Px(tk_h(.Row_Form)),
-                dir = .Row,
-                align = .Center,
-                gap = tk_gap(.M, .None),
-                pad = tk_pad(.S, .None),
-                margin = {t = 6},
-                radius = tk_rad(.Popup),
-                cursor = .Pointer,
+        thor_control(
+            thor,
+            {
+                key = "group",
+                flags = {.Clickable},
+                props = {
+                    w = ui.Grow(1),
+                    h = ui.Px(tk_h(.Row_Form)),
+                    dir = .Row,
+                    align = .Center,
+                    gap = tk_gap(.M, .None),
+                    pad = tk_pad(.S, .None),
+                    margin = {t = 6},
+                    radius = tk_rad(.Popup),
+                    cursor = .Pointer,
+                },
+                hover = {bg = thor.theme.second_background},
             },
-            hover = {bg = thor.theme.second_background},
-        },
+        ),
     )
     thor_icon_label(thor, open ? "chevron-down" : "chevron-right", thor.theme.muted_color)
     ui.label(row.label, {key = "label", props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .Ellipsis}})
@@ -835,23 +854,26 @@ settings_step_button :: proc(thor: ^Thor, key, icon: string, enabled: bool) -> b
 @(private = "file")
 settings_toggle_control :: proc(thor: ^Thor, row: ^Settings_Row) {
     it := ui.scope(
-        {
-            key = "toggle",
-            flags = {.Clickable},
-            props = {
-                w = ui.Px(tk(38)),
-                h = ui.Px(tk_h(.Row_Compact)),
-                dir = .Row,
-                align = .Center,
-                justify = row.on ? .End : .Start,
-                pad = tk_pad_all(.XS),
-                radius = tk_pill(tk_h(.Row_Compact)),
-                bg = row.on ? thor.theme.accent_color : thor.theme.buttons,
-                border = {width = ui.all(1), color = row.on ? thor.theme.accent_color : thor.theme.border},
-                cursor = .Pointer,
+        thor_control(
+            thor,
+            {
+                key = "toggle",
+                flags = {.Clickable},
+                props = {
+                    w = ui.Px(tk(38)),
+                    h = ui.Px(tk_h(.Row_Compact)),
+                    dir = .Row,
+                    align = .Center,
+                    justify = row.on ? .End : .Start,
+                    pad = tk_pad_all(.XS),
+                    radius = tk_pill(tk_h(.Row_Compact)),
+                    bg = row.on ? thor.theme.accent_color : thor.theme.buttons,
+                    border = {width = ui.all(1), color = row.on ? thor.theme.accent_color : thor.theme.border},
+                    cursor = .Pointer,
+                },
+                hover = {bg = row.on ? thor.theme.accent_color : thor.theme.active},
             },
-            hover = {bg = row.on ? thor.theme.accent_color : thor.theme.active},
-        },
+        ),
     )
     ui.leaf(
         {key = "knob", props = {w = ui.Px(tk(14)), h = ui.Px(tk(14)), radius = tk_pill(tk(14)), bg = row.on ? thor.theme.background : thor.theme.muted_color}},
@@ -865,21 +887,24 @@ settings_toggle_control :: proc(thor: ^Thor, row: ^Settings_Row) {
 @(private = "file")
 settings_choice_control :: proc(thor: ^Thor, row: ^Settings_Row) {
     it := ui.scope(
-        {
-            key = "choice",
-            flags = {.Clickable},
-            props = {
-                h = ui.Px(tk_h(.Row)),
-                dir = .Row,
-                align = .Center,
-                gap = tk_gap(.M, .None),
-                pad = tk_pad(.M, .None),
-                radius = tk_rad(.Popup),
-                bg = thor.theme.buttons,
-                cursor = .Pointer,
+        thor_control(
+            thor,
+            {
+                key = "choice",
+                flags = {.Clickable},
+                props = {
+                    h = ui.Px(tk_h(.Row)),
+                    dir = .Row,
+                    align = .Center,
+                    gap = tk_gap(.M, .None),
+                    pad = tk_pad(.M, .None),
+                    radius = tk_rad(.Popup),
+                    bg = thor.theme.buttons,
+                    cursor = .Pointer,
+                },
+                hover = {bg = thor.theme.active},
             },
-            hover = {bg = thor.theme.active},
-        },
+        ),
     )
     ui.label(row.value, {key = "value", props = {color = thor.theme.foreground, text_wrap = .None}})
     thor_icon_label(thor, "chevron-down", thor.theme.muted_color, 14)
@@ -895,23 +920,26 @@ settings_keybind_control :: proc(thor: ^Thor, row: ^Settings_Row, row_index: int
     bound     := row.value != ""
 
     it   := ui.scope(
-        {
-            key = "chord",
-            flags = {.Clickable},
-            props = {
-                w = ui.Px(tk(SETTINGS_CHORD_W)),
-                h = ui.Px(tk_h(.Row)),
-                dir = .Row,
-                justify = .Center,
-                align = .Center,
-                pad = tk_pad(.M, .None),
-                radius = tk_rad(.Popup),
-                bg = capturing ? thor.theme.selection_background : (bound ? thor.theme.buttons : nil),
-                border = {width = ui.all(1), color = capturing ? thor.theme.accent_color : thor.theme.border},
-                cursor = .Pointer,
+        thor_control(
+            thor,
+            {
+                key = "chord",
+                flags = {.Clickable},
+                props = {
+                    w = ui.Px(tk(SETTINGS_CHORD_W)),
+                    h = ui.Px(tk_h(.Row)),
+                    dir = .Row,
+                    justify = .Center,
+                    align = .Center,
+                    pad = tk_pad(.M, .None),
+                    radius = tk_rad(.Popup),
+                    bg = capturing ? thor.theme.selection_background : (bound ? thor.theme.buttons : nil),
+                    border = {width = ui.all(1), color = capturing ? thor.theme.accent_color : thor.theme.border},
+                    cursor = .Pointer,
+                },
+                hover = {bg = capturing ? thor.theme.selection_background : thor.theme.active},
             },
-            hover = {bg = capturing ? thor.theme.selection_background : thor.theme.active},
-        },
+        ),
     )
     text := capturing ? "Press shortcut..." : (bound ? row.value : "Add shortcut")
     ui.label(
@@ -939,22 +967,25 @@ settings_button :: proc(
     outlined := false,
 ) -> bool {
     it := ui.scope(
-        {
-            key = key,
-            flags = {.Clickable},
-            props = {
-                h = ui.Px(tk_h(.Row)),
-                dir = .Row,
-                align = .Center,
-                pad = ui.xy(outlined ? 12 : 10, 0),
-                margin = {t = outlined ? 8 : 0},
-                radius = tk_rad(.Popup),
-                bg = thor.theme.buttons,
-                border = {width = ui.all(outlined ? 1 : 0), color = color},
-                cursor = .Pointer,
+        thor_control(
+            thor,
+            {
+                key = key,
+                flags = {.Clickable},
+                props = {
+                    h = ui.Px(tk_h(.Row)),
+                    dir = .Row,
+                    align = .Center,
+                    pad = ui.xy(outlined ? 12 : 10, 0),
+                    margin = {t = outlined ? 8 : 0},
+                    radius = tk_rad(.Popup),
+                    bg = thor.theme.buttons,
+                    border = {width = ui.all(outlined ? 1 : 0), color = color},
+                    cursor = .Pointer,
+                },
+                hover = {bg = thor.theme.active},
             },
-            hover = {bg = thor.theme.active},
-        },
+        ),
     )
     ui.label(label, {key = "text", props = {color = color, text_wrap = .None}})
     return it.clicked

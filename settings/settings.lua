@@ -20,6 +20,7 @@ return {
     open_folder_in = "ask",
     pane_layout = "remember",
     peek_height = 12,
+    reduce_motion = false,
     relative_line_numbers = true,
     right_alt = "auto",
     tab_width = 4,

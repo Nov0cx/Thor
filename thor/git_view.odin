@@ -536,8 +536,11 @@ thor_git_panel_view :: proc(thor: ^Thor) {
     backdrop := ui.scope(
         {
             key = "git-backdrop",
+            transition = TK_ENTER,
+            enter = {opacity = 0},
             flags = {.Floating, .Clickable},
             props = {
+                opacity = 1,
                 position = .Fixed,
                 inset = {0, 0, 0, 0},
                 w = ui.Grow(1),
@@ -564,8 +567,12 @@ git_view_box :: proc(thor: ^Thor) {
     box := ui.scope(
         {
             key = "git-box",
+            transition = TK_ENTER,
+            enter = {opacity = 0},
+            focus_scope = true,
             flags = {.Clickable, .Focusable},
             props = {
+                opacity = 1,
                 w = ui.Px(tk(GIT_VIEW_WIDTH)),
                 max_w = ui.viewport().x - 2 * TK_MODAL_MARGIN,
                 h = ui.Px(tk(GIT_VIEW_HEIGHT)),
@@ -625,12 +632,15 @@ git_view_header :: proc(thor: ^Thor) {
     }
 
     close := ui.scope(
-        {
-            key = "close",
-            flags = {.Clickable},
-            props = {w = ui.Px(tk(26)), h = ui.Px(tk_h(.Row)), dir = .Row, justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
-            hover = {bg = thor.theme.buttons},
-        },
+        thor_control(
+            thor,
+            {
+                key = "close",
+                flags = {.Clickable},
+                props = {w = ui.Px(tk(26)), h = ui.Px(tk_h(.Row)), dir = .Row, justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
+                hover = {bg = thor.theme.buttons},
+            },
+        ),
     )
     thor_icon_label(thor, "x", thor.theme.muted_color)
     thor_tip(thor, close.id, "Close", thor_action_shortcut(thor, "open_git_gui"))
@@ -672,22 +682,25 @@ git_view_sidebar :: proc(thor: ^Thor) {
         }
         on := v.kind == kind
         it := ui.scope(
-            {
-                key = GIT_VIEW_LABELS[kind],
-                flags = {.Clickable},
-                props = {
-                    w = ui.Grow(1),
-                    h = ui.Px(tk(32)),
-                    dir = .Row,
-                    align = .Center,
-                    gap = tk_gap(.M, .None),
-                    pad = tk_pad(.M, .None),
-                    radius = tk_rad(.Popup),
-                    bg = on ? thor.theme.selection_background : nil,
-                    cursor = .Pointer,
+            thor_control(
+                thor,
+                {
+                    key = GIT_VIEW_LABELS[kind],
+                    flags = {.Clickable},
+                    props = {
+                        w = ui.Grow(1),
+                        h = ui.Px(tk(32)),
+                        dir = .Row,
+                        align = .Center,
+                        gap = tk_gap(.M, .None),
+                        pad = tk_pad(.M, .None),
+                        radius = tk_rad(.Popup),
+                        bg = on ? thor.theme.selection_background : nil,
+                        cursor = .Pointer,
+                    },
+                    hover = {bg = on ? thor.theme.selection_background : thor.theme.buttons},
                 },
-                hover = {bg = on ? thor.theme.selection_background : thor.theme.buttons},
-            },
+            ),
         )
         thor_icon_label(thor, GIT_VIEW_ICONS[kind], on ? thor.theme.foreground : thor.theme.muted_color)
         ui.label(
@@ -1124,21 +1137,24 @@ git_view_branches :: proc(thor: ^Thor) {
 @(private = "file")
 git_view_ref_row :: proc(thor: ^Thor, ref: Git_View_Ref) -> bool {
     it := ui.scope(
-        {
-            key = "ref",
-            flags = {.Clickable},
-            props = {
-                w = ui.Grow(1),
-                h = ui.Px(tk_h(.Row)),
-                dir = .Row,
-                align = .Center,
-                gap = tk_gap(.M, .None),
-                pad = {l = 26, r = 14},
-                bg = ref.current ? thor.theme.selection_background : nil,
-                cursor = .Pointer,
+        thor_control(
+            thor,
+            {
+                key = "ref",
+                flags = {.Clickable},
+                props = {
+                    w = ui.Grow(1),
+                    h = ui.Px(tk_h(.Row)),
+                    dir = .Row,
+                    align = .Center,
+                    gap = tk_gap(.M, .None),
+                    pad = {l = 26, r = 14},
+                    bg = ref.current ? thor.theme.selection_background : nil,
+                    cursor = .Pointer,
+                },
+                hover = {bg = ref.current ? thor.theme.selection_background : thor.theme.buttons},
             },
-            hover = {bg = ref.current ? thor.theme.selection_background : thor.theme.buttons},
-        },
+        ),
     )
     ui.label(ref.name, {key = "name", props = {w = ui.Grow(1), color = ref.current ? thor.theme.accent_color : thor.theme.foreground, text_wrap = .Ellipsis}})
     if ref.subject != "" {
@@ -1208,12 +1224,23 @@ git_view_config_row :: proc(thor: ^Thor, index: int) -> bool {
     editing := v.config_edit_index == index
 
     it := ui.scope(
-        {
-            key = "cfg",
-            flags = {.Clickable},
-            props = {w = ui.Grow(1), h = ui.Px(tk_h(.Row) + 4), dir = .Row, align = .Center, gap = tk_gap(.M, .None), pad = {l = 26, r = 14}, cursor = .Pointer},
-            hover = {bg = thor.theme.buttons},
-        },
+        thor_control(
+            thor,
+            {
+                key = "cfg",
+                flags = {.Clickable},
+                props = {
+                    w = ui.Grow(1),
+                    h = ui.Px(tk_h(.Row) + 4),
+                    dir = .Row,
+                    align = .Center,
+                    gap = tk_gap(.M, .None),
+                    pad = {l = 26, r = 14},
+                    cursor = .Pointer,
+                },
+                hover = {bg = thor.theme.buttons},
+            },
+        ),
     )
     ui.label(row.key, {key = "key", props = {w = ui.Px(tk(240)), color = thor.theme.foreground, text_wrap = .Ellipsis}})
 
@@ -1413,21 +1440,24 @@ git_view_hosting :: proc(thor: ^Thor) {
 @(private = "file")
 git_view_pr_row :: proc(thor: ^Thor, pr: Git_View_Pr) -> bool {
     it := ui.scope(
-        {
-            key = "pr",
-            flags = {.Clickable},
-            props = {
-                w = ui.Grow(1),
-                h = ui.Px(tk_h(.Row)),
-                dir = .Row,
-                align = .Center,
-                gap = tk_gap(.M, .None),
-                pad = tk_pad(.XS, .None),
-                radius = tk_rad(.Control),
-                cursor = .Pointer,
+        thor_control(
+            thor,
+            {
+                key = "pr",
+                flags = {.Clickable},
+                props = {
+                    w = ui.Grow(1),
+                    h = ui.Px(tk_h(.Row)),
+                    dir = .Row,
+                    align = .Center,
+                    gap = tk_gap(.M, .None),
+                    pad = tk_pad(.XS, .None),
+                    radius = tk_rad(.Control),
+                    cursor = .Pointer,
+                },
+                hover = {bg = thor.theme.buttons},
             },
-            hover = {bg = thor.theme.buttons},
-        },
+        ),
     )
     ui.label(fmt.tprintf("#%d", pr.number), {key = "num", props = {color = thor.theme.accent_color, text_wrap = .None}})
     ui.label(pr.title, {key = "title", props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .Ellipsis}})
@@ -1448,20 +1478,23 @@ git_view_section_label :: proc(thor: ^Thor, text: string) {
 @(private = "file")
 git_view_fold_header :: proc(thor: ^Thor, label: string, open: bool) -> bool {
     it := ui.scope(
-        {
-            key = "fold",
-            flags = {.Clickable},
-            props = {
-                w = ui.Grow(1),
-                h = ui.Px(tk_h(.Row)),
-                dir = .Row,
-                align = .Center,
-                gap = tk_gap(.M, .None),
-                pad = tk_pad(.M, .None),
-                bg = thor.theme.second_background,
-                cursor = .Pointer,
+        thor_control(
+            thor,
+            {
+                key = "fold",
+                flags = {.Clickable},
+                props = {
+                    w = ui.Grow(1),
+                    h = ui.Px(tk_h(.Row)),
+                    dir = .Row,
+                    align = .Center,
+                    gap = tk_gap(.M, .None),
+                    pad = tk_pad(.M, .None),
+                    bg = thor.theme.second_background,
+                    cursor = .Pointer,
+                },
             },
-        },
+        ),
     )
     thor_icon_label(thor, open ? "chevron-down" : "chevron-right", thor.theme.muted_color, 14)
     ui.label(label, {key = "text", props = {w = ui.Grow(1), color = thor.theme.disabled, text_wrap = .None}})
@@ -1471,20 +1504,23 @@ git_view_fold_header :: proc(thor: ^Thor, label: string, open: bool) -> bool {
 @(private = "file")
 git_view_row_button :: proc(thor: ^Thor, key, label: string) -> bool {
     it := ui.scope(
-        {
-            key = key,
-            flags = {.Clickable},
-            props = {
-                w = ui.Grow(1),
-                h = ui.Px(tk_h(.Row) + 4),
-                dir = .Row,
-                align = .Center,
-                pad = tk_pad(.XL, .None),
-                radius = tk_rad(.Control),
-                cursor = .Pointer,
+        thor_control(
+            thor,
+            {
+                key = key,
+                flags = {.Clickable},
+                props = {
+                    w = ui.Grow(1),
+                    h = ui.Px(tk_h(.Row) + 4),
+                    dir = .Row,
+                    align = .Center,
+                    pad = tk_pad(.XL, .None),
+                    radius = tk_rad(.Control),
+                    cursor = .Pointer,
+                },
+                hover = {bg = thor.theme.buttons},
             },
-            hover = {bg = thor.theme.buttons},
-        },
+        ),
     )
     ui.label(label, {key = "text", props = {color = thor.theme.accent_color, text_wrap = .None}})
     return it.clicked
@@ -1530,20 +1566,23 @@ git_view_button :: proc(
 @(private = "file")
 git_view_toggle :: proc(thor: ^Thor, key, label: string, on: bool, tip := "") -> bool {
     it := ui.scope(
-        {
-            key = key,
-            flags = {.Clickable},
-            props = {
-                h = ui.Px(tk_h(.Row)),
-                dir = .Row,
-                align = .Center,
-                gap = tk_gap(.S, .None),
-                pad = tk_pad(.M, .None),
-                radius = tk_rad(.Control),
-                cursor = .Pointer,
+        thor_control(
+            thor,
+            {
+                key = key,
+                flags = {.Clickable},
+                props = {
+                    h = ui.Px(tk_h(.Row)),
+                    dir = .Row,
+                    align = .Center,
+                    gap = tk_gap(.S, .None),
+                    pad = tk_pad(.M, .None),
+                    radius = tk_rad(.Control),
+                    cursor = .Pointer,
+                },
+                hover = {bg = thor.theme.buttons},
             },
-            hover = {bg = thor.theme.buttons},
-        },
+        ),
     )
     thor_icon_label(thor, on ? "square-check" : "square", thor.theme.muted_color, 14)
     ui.label(label, {key = "text", props = {color = thor.theme.foreground, text_wrap = .None}})

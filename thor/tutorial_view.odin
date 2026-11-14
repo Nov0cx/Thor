@@ -196,8 +196,11 @@ thor_tutorial_card :: proc(thor: ^Thor, target: ui.Rect, has_target: bool) {
     card := ui.scope(
         {
             key = "tutorial-card",
+            transition = TK_ENTER,
+            enter = {opacity = 0},
             flags = {.Floating, .Clickable},
             props = {
+                opacity = 1,
                 position = .Fixed,
                 inset = {l = x, t = y},
                 w = ui.Px(tk(CARD_W)),
@@ -223,20 +226,23 @@ thor_tutorial_card :: proc(thor: ^Thor, target: ui.Rect, has_target: bool) {
             ui.label(fmt.tprintf("%d / %d", t.step + 1, len(chapter.steps)), {key = "pos", props = {color = thor.theme.disabled, text_wrap = .None}})
         }
         close := ui.scope(
-            {
-                key = "close",
-                flags = {.Clickable},
-                props = {
-                    w = ui.Px(tk(22)),
-                    h = ui.Px(tk_h(.Row_Compact)),
-                    dir = .Row,
-                    justify = .Center,
-                    align = .Center,
-                    radius = tk_rad(.Control),
-                    cursor = .Pointer,
+            thor_control(
+                thor,
+                {
+                    key = "close",
+                    flags = {.Clickable},
+                    props = {
+                        w = ui.Px(tk(22)),
+                        h = ui.Px(tk_h(.Row_Compact)),
+                        dir = .Row,
+                        justify = .Center,
+                        align = .Center,
+                        radius = tk_rad(.Control),
+                        cursor = .Pointer,
+                    },
+                    hover = {bg = thor.theme.buttons},
                 },
-                hover = {bg = thor.theme.buttons},
-            },
+            ),
         )
         thor_icon_label(thor, "x", thor.theme.muted_color, 14)
         thor_tip(thor, close.id, "Close the tutorial")
@@ -321,21 +327,24 @@ tutorial_button :: proc(thor: ^Thor, key, label: string, primary: bool) -> bool 
     bg := primary ? thor.theme.accent_color : thor.theme.buttons
     fg := primary ? theme.color_on(thor.theme.accent_color) : thor.theme.foreground
     it := ui.scope(
-        {
-            key = key,
-            flags = {.Clickable},
-            props = {
-                w = ui.FIT,
-                h = ui.Px(tk_h(.Row)),
-                dir = .Row,
-                align = .Center,
-                pad = tk_pad(.M, .None),
-                radius = tk_rad(.Popup),
-                bg = bg,
-                cursor = .Pointer,
+        thor_control(
+            thor,
+            {
+                key = key,
+                flags = {.Clickable},
+                props = {
+                    w = ui.FIT,
+                    h = ui.Px(tk_h(.Row)),
+                    dir = .Row,
+                    align = .Center,
+                    pad = tk_pad(.M, .None),
+                    radius = tk_rad(.Popup),
+                    bg = bg,
+                    cursor = .Pointer,
+                },
+                hover = {bg = primary ? thor.theme.accent_secondary_color : thor.theme.active},
             },
-            hover = {bg = primary ? thor.theme.accent_secondary_color : thor.theme.active},
-        },
+        ),
     )
     ui.label(label, {key = "label", props = {color = fg, text_wrap = .None}})
     return it.clicked
@@ -418,21 +427,24 @@ tutorial_chapter_row :: proc(thor: ^Thor, i: int) -> bool {
     c    := TUTORIAL_CHAPTERS[i]
     mark := thor.tutorial.marks[i]
     row  := ui.scope(
-        {
-            key = "chapter",
-            flags = {.Clickable},
-            props = {
-                w = ui.Grow(1),
-                h = ui.Px(tk_h(.Row_Picker)),
-                dir = .Row,
-                align = .Center,
-                gap = tk_gap(.M, .None),
-                pad = tk_pad(.M, .None),
-                radius = tk_rad(.Control),
-                cursor = .Pointer,
+        thor_control(
+            thor,
+            {
+                key = "chapter",
+                flags = {.Clickable},
+                props = {
+                    w = ui.Grow(1),
+                    h = ui.Px(tk_h(.Row_Picker)),
+                    dir = .Row,
+                    align = .Center,
+                    gap = tk_gap(.M, .None),
+                    pad = tk_pad(.M, .None),
+                    radius = tk_rad(.Control),
+                    cursor = .Pointer,
+                },
+                hover = {bg = thor.theme.buttons},
             },
-            hover = {bg = thor.theme.buttons},
-        },
+        ),
     )
     icon, color := "circle", thor.theme.disabled
     if mark.done {

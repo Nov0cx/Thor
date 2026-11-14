@@ -31,6 +31,7 @@ Whats_New :: struct {
     open:          bool,
     full:          bool, // shows the changelog section, not the summary
     focus_pending: bool,
+    return_focus:  string,        // borrowed focus owner when it opened
     view:          Markdown_View, // owned
 }
 
@@ -113,7 +114,18 @@ thor_whats_new_show :: proc(thor: ^Thor, full: bool) {
     w.open = true
     w.full = full
     w.focus_pending = true
+    w.return_focus = thor.focus_owner
     w.view.scroll = 0
+}
+
+// Closes the card and gives the focus back to where it was.
+@(private = "file")
+thor_whats_new_close :: proc(thor: ^Thor) {
+    w := &thor.whats_new
+    w.open = false
+    if w.return_focus != "" {
+        thor.focus_request = w.return_focus
+    }
 }
 
 thor_cmd_whats_new :: proc(data: rawptr) {
@@ -144,8 +156,11 @@ thor_whats_new_view :: proc(thor: ^Thor) {
     backdrop := ui.scope(
         {
             key = "whats-new-backdrop",
+            transition = TK_ENTER,
+            enter = {opacity = 0},
             flags = {.Floating, .Clickable},
             props = {
+                opacity = 1,
                 position = .Fixed,
                 inset = {0, 0, 0, 0},
                 w = ui.Grow(1),
@@ -163,8 +178,12 @@ thor_whats_new_view :: proc(thor: ^Thor) {
     box   := ui.scope(
         {
             key = "whats-new-box",
+            transition = TK_ENTER,
+            enter = {opacity = 0},
+            focus_scope = true,
             flags = {.Clickable, .Focusable},
             props = {
+                opacity = 1,
                 w = ui.Px(width),
                 h = ui.FIT,
                 dir = .Column,
@@ -201,12 +220,12 @@ thor_whats_new_view :: proc(thor: ^Thor) {
             w.view.scroll = 0
         }
         if whats_new_button(thor, "ok", "OK", true) {
-            w.open = false
+            thor_whats_new_close(thor)
         }
     }
 
     if ui.take_key(.Escape) || ui.take_key(.Enter) || backdrop.clicked {
-        w.open = false
+        thor_whats_new_close(thor)
     }
 }
 
@@ -241,21 +260,24 @@ whats_new_button :: proc(thor: ^Thor, key, label: string, primary: bool) -> bool
     bg := primary ? thor.theme.accent_color : thor.theme.buttons
     fg := primary ? theme.color_on(thor.theme.accent_color) : thor.theme.foreground
     it := ui.scope(
-        {
-            key = key,
-            flags = {.Clickable},
-            props = {
-                w = ui.FIT,
-                h = ui.Px(tk_h(.Control)),
-                dir = .Row,
-                align = .Center,
-                pad = tk_pad(.L, .None),
-                radius = tk_rad(.Popup),
-                bg = bg,
-                cursor = .Pointer,
+        thor_control(
+            thor,
+            {
+                key = key,
+                flags = {.Clickable},
+                props = {
+                    w = ui.FIT,
+                    h = ui.Px(tk_h(.Control)),
+                    dir = .Row,
+                    align = .Center,
+                    pad = tk_pad(.L, .None),
+                    radius = tk_rad(.Popup),
+                    bg = bg,
+                    cursor = .Pointer,
+                },
+                hover = {bg = primary ? bg : thor.theme.active},
             },
-            hover = {bg = primary ? bg : thor.theme.active},
-        },
+        ),
     )
     ui.label(label, {key = "label", props = {color = fg, text_wrap = .None}})
     return it.clicked

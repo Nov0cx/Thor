@@ -69,6 +69,8 @@ General :: struct {
     check_for_plugin_updates: bool,
     // Show the hover explanation of a control after a short dwell. On by default.
     tooltips:                 bool,
+    // Turn off UI motion: transitions, scroll inertia and the cursor blink. Off by default.
+    reduce_motion:            bool,
     // Show the tip of the day on the welcome page and at the first start of a day. On by default.
     tip_of_the_day:           bool,
     // The "language_intelligence" switch and its allowed features. On by default.
@@ -408,6 +410,11 @@ check_for_plugin_updates :: proc(s: ^Settings) -> bool {
 // Whether a control explains itself when the cursor rests on it.
 tooltips :: proc(s: ^Settings) -> bool {
     return s.general.tooltips
+}
+
+// Whether the UI runs without motion.
+reduce_motion :: proc(s: ^Settings) -> bool {
+    return s.general.reduce_motion
 }
 
 // Whether the tip of the day is shown. Off hides the welcome page card and
@@ -1071,6 +1078,7 @@ load_general :: proc(s: ^Settings, path: string) {
     read_bool(root, "check_for_updates", &s.general.check_for_updates)
     read_bool(root, "check_for_plugin_updates", &s.general.check_for_plugin_updates)
     read_bool(root, "tooltips", &s.general.tooltips)
+    read_bool(root, "reduce_motion", &s.general.reduce_motion)
     read_bool(root, "tip_of_the_day", &s.general.tip_of_the_day)
     read_bool(root, "terminal_clipboard", &s.general.terminal_clipboard)
     read_bool(root, "clipboard_history_save", &s.general.clipboard_history_save)

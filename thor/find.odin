@@ -235,8 +235,11 @@ thor_find_view :: proc(thor: ^Thor) {
     ui.scope(
         {
             key = "find",
+            transition = TK_ENTER,
+            enter = {opacity = 0},
             flags = {.Floating, .Clickable},
             props = {
+                opacity = 1,
                 position = .Fixed,
                 inset = {l = x, t = y},
                 w = ui.Px(width),
@@ -394,22 +397,25 @@ find_count_label :: proc(f: ^Find_Replace) -> string {
 // One search option button: Aa, ab or .*. Reports a click.
 find_toggle :: proc(thor: ^Thor, key, label: string, on: bool, tip, chord: string) -> bool {
     it := ui.scope(
-        {
-            key = key,
-            flags = {.Clickable},
-            props = {
-                w = ui.Px(tk(26)),
-                h = ui.Px(tk_h(.Row)),
-                dir = .Row,
-                justify = .Center,
-                align = .Center,
-                radius = tk_rad(.Control),
-                bg = on ? thor.theme.selection_background : nil,
-                border = {width = ui.all(1), color = on ? thor.theme.accent_color : ui.Color{}},
-                cursor = .Pointer,
+        thor_control(
+            thor,
+            {
+                key = key,
+                flags = {.Clickable},
+                props = {
+                    w = ui.Px(tk(26)),
+                    h = ui.Px(tk_h(.Row)),
+                    dir = .Row,
+                    justify = .Center,
+                    align = .Center,
+                    radius = tk_rad(.Control),
+                    bg = on ? thor.theme.selection_background : nil,
+                    border = {width = ui.all(1), color = on ? thor.theme.accent_color : ui.Color{}},
+                    cursor = .Pointer,
+                },
+                hover = {bg = on ? thor.theme.selection_background : thor.theme.buttons},
             },
-            hover = {bg = on ? thor.theme.selection_background : thor.theme.buttons},
-        },
+        ),
     )
     ui.label(label, {key = "text", props = {color = on ? thor.theme.foreground : thor.theme.muted_color, font = thor.font_mono, text_wrap = .None}})
     thor_tip(thor, it.id, on ? fmt.tprintf("%s: on", tip) : fmt.tprintf("%s: off", tip), chord)
@@ -419,12 +425,15 @@ find_toggle :: proc(thor: ^Thor, key, label: string, on: bool, tip, chord: strin
 @(private = "file")
 find_icon_button :: proc(thor: ^Thor, key, icon: string) -> bool {
     it := ui.scope(
-        {
-            key = key,
-            flags = {.Clickable},
-            props = {w = ui.Px(tk(26)), h = ui.Px(tk_h(.Row)), dir = .Row, justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
-            hover = {bg = thor.theme.buttons},
-        },
+        thor_control(
+            thor,
+            {
+                key = key,
+                flags = {.Clickable},
+                props = {w = ui.Px(tk(26)), h = ui.Px(tk_h(.Row)), dir = .Row, justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
+                hover = {bg = thor.theme.buttons},
+            },
+        ),
     )
     thor_icon_label(thor, icon, thor.theme.muted_color, 14)
     return it.clicked
@@ -433,20 +442,23 @@ find_icon_button :: proc(thor: ^Thor, key, icon: string) -> bool {
 @(private = "file")
 find_text_button :: proc(thor: ^Thor, key, label: string) -> bool {
     it := ui.scope(
-        {
-            key = key,
-            flags = {.Clickable},
-            props = {
-                h = ui.Px(tk_h(.Row)),
-                dir = .Row,
-                align = .Center,
-                pad = tk_pad(.M, .None),
-                radius = tk_rad(.Control),
-                bg = thor.theme.buttons,
-                cursor = .Pointer,
+        thor_control(
+            thor,
+            {
+                key = key,
+                flags = {.Clickable},
+                props = {
+                    h = ui.Px(tk_h(.Row)),
+                    dir = .Row,
+                    align = .Center,
+                    pad = tk_pad(.M, .None),
+                    radius = tk_rad(.Control),
+                    bg = thor.theme.buttons,
+                    cursor = .Pointer,
+                },
+                hover = {bg = thor.theme.active},
             },
-            hover = {bg = thor.theme.active},
-        },
+        ),
     )
     ui.label(label, {key = "text", props = {color = thor.theme.foreground, text_wrap = .None}})
     return it.clicked

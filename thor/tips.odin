@@ -247,8 +247,11 @@ thor_tip_card_view :: proc(thor: ^Thor) {
     ui.scope(
         {
             key = "tip-card",
+            transition = TK_ENTER,
+            enter = {opacity = 0},
             flags = {.Floating, .Clickable},
             props = {
+                opacity = 1,
                 position = .Fixed,
                 inset = {r = 24, b = 24},
                 w = ui.Px(tk(TIP_CARD_WIDTH)),
@@ -278,20 +281,23 @@ thor_tip_card_body :: proc(thor: ^Thor, tip: setting.Tip, index, count: int, sho
         ui.label(tip.title, {key = "title", props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .Ellipsis}})
         if closable {
             close := ui.scope(
-                {
-                    key = "close",
-                    flags = {.Clickable},
-                    props = {
-                        w = ui.Px(tk(22)),
-                        h = ui.Px(tk_h(.Row_Compact)),
-                        dir = .Row,
-                        justify = .Center,
-                        align = .Center,
-                        radius = tk_rad(.Control),
-                        cursor = .Pointer,
+                thor_control(
+                    thor,
+                    {
+                        key = "close",
+                        flags = {.Clickable},
+                        props = {
+                            w = ui.Px(tk(22)),
+                            h = ui.Px(tk_h(.Row_Compact)),
+                            dir = .Row,
+                            justify = .Center,
+                            align = .Center,
+                            radius = tk_rad(.Control),
+                            cursor = .Pointer,
+                        },
+                        hover = {bg = thor.theme.buttons},
                     },
-                    hover = {bg = thor.theme.buttons},
-                },
+                ),
             )
             thor_icon_label(thor, "x", thor.theme.muted_color, 14)
             thor_tip(thor, close.id, "Close this tip")
@@ -316,7 +322,9 @@ thor_tip_card_body :: proc(thor: ^Thor, tip: setting.Tip, index, count: int, sho
     {
         ui.scope({key = "foot", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.S, .None)}})
         if closable {
-            never := ui.scope({key = "never", flags = {.Clickable}, props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, cursor = .Pointer}})
+            never := ui.scope(
+                thor_control(thor, {key = "never", flags = {.Clickable}, props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, cursor = .Pointer}}),
+            )
             ui.label("Do not show tips again", {key = "text", props = {color = thor.theme.disabled, text_wrap = .None}})
             thor_tip(thor, never.id, "Turn the tip of the day off")
             if never.clicked {
@@ -342,20 +350,23 @@ thor_tip_card_body :: proc(thor: ^Thor, tip: setting.Tip, index, count: int, sho
 @(private = "file")
 thor_tip_arrow :: proc(thor: ^Thor, key, icon, tip: string) -> bool {
     it := ui.scope(
-        {
-            key = key,
-            flags = {.Clickable},
-            props = {
-                w = ui.Px(tk(22)),
-                h = ui.Px(tk_h(.Row_Compact)),
-                dir = .Row,
-                justify = .Center,
-                align = .Center,
-                radius = tk_rad(.Control),
-                cursor = .Pointer,
+        thor_control(
+            thor,
+            {
+                key = key,
+                flags = {.Clickable},
+                props = {
+                    w = ui.Px(tk(22)),
+                    h = ui.Px(tk_h(.Row_Compact)),
+                    dir = .Row,
+                    justify = .Center,
+                    align = .Center,
+                    radius = tk_rad(.Control),
+                    cursor = .Pointer,
+                },
+                hover = {bg = thor.theme.buttons},
             },
-            hover = {bg = thor.theme.buttons},
-        },
+        ),
     )
     thor_icon_label(thor, icon, thor.theme.muted_color, 14)
     thor_tip(thor, it.id, tip)

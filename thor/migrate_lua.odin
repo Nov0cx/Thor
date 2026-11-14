@@ -186,8 +186,11 @@ thor_lua_notice_view :: proc(thor: ^Thor) {
     ui.scope(
         {
             key = "lua-notice",
+            transition = TK_ENTER,
+            enter = {opacity = 0},
             flags = {.Floating, .Clickable},
             props = {
+                opacity = 1,
                 position = .Fixed,
                 inset = {r = 24, b = 24},
                 w = ui.Px(tk(LUA_NOTICE_WIDTH)),
@@ -240,21 +243,24 @@ lua_notice_button :: proc(thor: ^Thor, key, label: string, primary: bool) -> boo
     bg := primary ? thor.theme.accent_color : thor.theme.buttons
     fg := primary ? theme.color_on(thor.theme.accent_color) : thor.theme.foreground
     it := ui.scope(
-        {
-            key = key,
-            flags = {.Clickable},
-            props = {
-                w = ui.FIT,
-                h = ui.Px(tk_h(.Control)),
-                dir = .Row,
-                align = .Center,
-                pad = tk_pad(.L, .None),
-                radius = tk_rad(.Popup),
-                bg = bg,
-                cursor = .Pointer,
+        thor_control(
+            thor,
+            {
+                key = key,
+                flags = {.Clickable},
+                props = {
+                    w = ui.FIT,
+                    h = ui.Px(tk_h(.Control)),
+                    dir = .Row,
+                    align = .Center,
+                    pad = tk_pad(.L, .None),
+                    radius = tk_rad(.Popup),
+                    bg = bg,
+                    cursor = .Pointer,
+                },
+                hover = {bg = primary ? bg : thor.theme.active},
             },
-            hover = {bg = primary ? bg : thor.theme.active},
-        },
+        ),
     )
     ui.label(label, {key = "label", props = {color = fg, text_wrap = .None}})
     return it.clicked

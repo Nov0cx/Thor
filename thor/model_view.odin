@@ -269,20 +269,23 @@ thor_model_button :: proc(thor: ^Thor, view: ^Model_View) {
         return
     }
     it := ui.begin(
-        {
-            key = "model-spin",
-            flags = {.Clickable},
-            props = {
-                position = .Absolute,
-                inset = {r = tk_sp(.M), t = tk_sp(.M)},
-                w = ui.Px(tk(MODEL_BUTTON_SIZE)),
-                h = ui.Px(tk(MODEL_BUTTON_SIZE)),
-                justify = .Center,
-                align = .Center,
-                bg = view.spinning ? thor.theme.accent_color : thor.theme.highlight,
-                cursor = .Pointer,
+        thor_control(
+            thor,
+            {
+                key = "model-spin",
+                flags = {.Clickable},
+                props = {
+                    position = .Absolute,
+                    inset = {r = tk_sp(.M), t = tk_sp(.M)},
+                    w = ui.Px(tk(MODEL_BUTTON_SIZE)),
+                    h = ui.Px(tk(MODEL_BUTTON_SIZE)),
+                    justify = .Center,
+                    align = .Center,
+                    bg = view.spinning ? thor.theme.accent_color : thor.theme.highlight,
+                    cursor = .Pointer,
+                },
             },
-        },
+        ),
     )
     thor_icon_label(thor, "3d-rotate", thor.theme.foreground, 18)
     ui.end()

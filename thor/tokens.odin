@@ -219,7 +219,15 @@ tk_modal_h :: proc(height: f32) -> f32 {
 }
 
 // The colour fade of a control: hover out, press and border changes (Fast).
-TK_FADE :: ui.Transition{props = {.Bg, .Color, .Border_Color}, dur = TK_FAST, ease = .Out_Quad}
+// Hover in and press are instant; the way out fades.
+TK_FADE :: ui.Transition{props = {.Bg, .Color, .Border_Color}, dur = TK_FAST, ease = .Out_Quad, snap = {.Hover, .Active}}
+
+// The focus ring of a control: a 1 px inset `accent` ring, shown for keyboard focus (7.4).
+tk_focus_rules :: proc(thor: ^Thor) -> []ui.Rule {
+    rules := make([]ui.Rule, 1, context.temp_allocator)
+    rules[0] = {on = {.Focus_Visible}, props = {shadow = {spread = 1, color = thor.theme.accent_color, inset = true}}}
+    return rules
+}
 
 // The opacity enter of a popup, a picker or a modal (Normal).
 TK_ENTER :: ui.Transition{props = {.Opacity}, dur = TK_NORMAL, ease = .Out_Cubic}

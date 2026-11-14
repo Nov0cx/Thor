@@ -267,20 +267,23 @@ plugin_panel_view :: proc(thor: ^Thor, p: ^Plugin_Panel) {
         )
         ui.label(p.title, {key = "title", props = {w = ui.Grow(1), color = thor.theme.primary_text_color, text_wrap = .Ellipsis}})
         close := ui.scope(
-            {
-                key = "close",
-                flags = {.Clickable},
-                props = {
-                    w = ui.Px(tk(24)),
-                    h = ui.Px(tk_h(.Row_Compact)),
-                    dir = .Row,
-                    justify = .Center,
-                    align = .Center,
-                    radius = tk_rad(.Control),
-                    cursor = .Pointer,
+            thor_control(
+                thor,
+                {
+                    key = "close",
+                    flags = {.Clickable},
+                    props = {
+                        w = ui.Px(tk(24)),
+                        h = ui.Px(tk_h(.Row_Compact)),
+                        dir = .Row,
+                        justify = .Center,
+                        align = .Center,
+                        radius = tk_rad(.Control),
+                        cursor = .Pointer,
+                    },
+                    hover = {bg = thor.theme.active},
                 },
-                hover = {bg = thor.theme.active},
-            },
+            ),
         )
         thor_icon_label(thor, "x", thor.theme.primary_text_color, 14)
         ui.tooltip("Close this panel", close.id)
@@ -406,22 +409,25 @@ plugin_panel_select :: proc(p: ^Plugin_Panel, action, row: int, item: string) {
 @(private = "file")
 plugin_view_button :: proc(thor: ^Thor, key, text: string, color, fill: ui.Color) -> bool {
     it := ui.scope(
-        {
-            key = key,
-            flags = {.Clickable},
-            props = {
-                w = ui.Grow(1),
-                h = ui.Px(tk_h(.Row)),
-                dir = .Row,
-                align = .Center,
-                pad = tk_pad(.M, .None),
-                radius = tk_rad(.Control),
-                bg = fill,
-                border = {width = ui.all(1), color = thor.theme.border},
-                cursor = .Pointer,
+        thor_control(
+            thor,
+            {
+                key = key,
+                flags = {.Clickable},
+                props = {
+                    w = ui.Grow(1),
+                    h = ui.Px(tk_h(.Row)),
+                    dir = .Row,
+                    align = .Center,
+                    pad = tk_pad(.M, .None),
+                    radius = tk_rad(.Control),
+                    bg = fill,
+                    border = {width = ui.all(1), color = thor.theme.border},
+                    cursor = .Pointer,
+                },
+                hover = {bg = thor.theme.active},
             },
-            hover = {bg = thor.theme.active},
-        },
+        ),
     )
     ui.label(text, {key = "text", props = {w = ui.Grow(1), color = color, text_wrap = .Ellipsis}})
     return it.clicked

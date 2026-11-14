@@ -117,6 +117,7 @@ thor_menu_view :: proc(thor: ^Thor) {
         box := ui.scope(
             {
                 key = "menu-box",
+                focus_scope = true,
                 flags = {.Clickable, .Focusable},
                 props = {
                     position = .Fixed,

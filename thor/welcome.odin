@@ -271,22 +271,25 @@ welcome_tip :: proc(thor: ^Thor) {
 @(private = "file")
 welcome_button :: proc(thor: ^Thor, key, label, icon, tip: string) -> bool {
     it := ui.scope(
-        {
-            key = key,
-            flags = {.Clickable},
-            props = {
-                h = ui.Px(tk_h(.Row_Form)),
-                dir = .Row,
-                align = .Center,
-                gap = tk_gap(.M, .None),
-                pad = tk_pad(.L, .None),
-                radius = tk_rad(.Popup),
-                bg = thor.theme.buttons,
-                border = {width = ui.all(1), color = thor.theme.accent_color},
-                cursor = .Pointer,
+        thor_control(
+            thor,
+            {
+                key = key,
+                flags = {.Clickable},
+                props = {
+                    h = ui.Px(tk_h(.Row_Form)),
+                    dir = .Row,
+                    align = .Center,
+                    gap = tk_gap(.M, .None),
+                    pad = tk_pad(.L, .None),
+                    radius = tk_rad(.Popup),
+                    bg = thor.theme.buttons,
+                    border = {width = ui.all(1), color = thor.theme.accent_color},
+                    cursor = .Pointer,
+                },
+                hover = {bg = thor.theme.active},
             },
-            hover = {bg = thor.theme.active},
-        },
+        ),
     )
     thor_icon_label(thor, icon, thor.theme.accent_color)
     ui.label(label, {key = "text", props = {color = thor.theme.foreground, text_wrap = .None}})

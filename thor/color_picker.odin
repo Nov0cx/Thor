@@ -184,8 +184,11 @@ thor_color_picker_view :: proc(thor: ^Thor) {
     backdrop := ui.scope(
         {
             key = "picker-backdrop",
+            transition = TK_ENTER,
+            enter = {opacity = 0},
             flags = {.Floating, .Clickable},
             props = {
+                opacity = 1,
                 position = .Fixed,
                 inset = {0, 0, 0, 0},
                 w = ui.Grow(1),
@@ -221,8 +224,12 @@ color_picker_box :: proc(thor: ^Thor) {
     ui.scope(
         {
             key = "picker-box",
+            transition = TK_ENTER,
+            enter = {opacity = 0},
+            focus_scope = true,
             flags = {.Clickable},
             props = {
+                opacity = 1,
                 w = ui.Px(tk(COLOR_PICKER_WIDTH)),
                 max_w = ui.viewport().x - 2 * TK_MODAL_MARGIN,
                 h = ui.FIT,
@@ -415,22 +422,25 @@ color_picker_buttons :: proc(thor: ^Thor) {
 @(private = "file")
 color_picker_button :: proc(thor: ^Thor, key, label: string, color: ui.Color) -> bool {
     it := ui.scope(
-        {
-            key = key,
-            flags = {.Clickable},
-            props = {
-                w = ui.Px(tk(80)),
-                h = ui.Px(tk_h(.Row_Picker)),
-                dir = .Row,
-                justify = .Center,
-                align = .Center,
-                radius = tk_rad(.Popup),
-                bg = thor.theme.buttons,
-                border = {width = ui.all(1), color = color},
-                cursor = .Pointer,
+        thor_control(
+            thor,
+            {
+                key = key,
+                flags = {.Clickable},
+                props = {
+                    w = ui.Px(tk(80)),
+                    h = ui.Px(tk_h(.Row_Picker)),
+                    dir = .Row,
+                    justify = .Center,
+                    align = .Center,
+                    radius = tk_rad(.Popup),
+                    bg = thor.theme.buttons,
+                    border = {width = ui.all(1), color = color},
+                    cursor = .Pointer,
+                },
+                hover = {bg = thor.theme.active},
             },
-            hover = {bg = thor.theme.active},
-        },
+        ),
     )
     ui.label(label, {key = "text", props = {color = color, text_wrap = .None}})
     return it.clicked

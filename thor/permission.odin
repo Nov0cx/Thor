@@ -101,8 +101,11 @@ thor_permission_view :: proc(thor: ^Thor) {
     ui.scope(
         {
             key = "perm-backdrop",
+            transition = TK_ENTER,
+            enter = {opacity = 0},
             flags = {.Floating, .Clickable},
             props = {
+                opacity = 1,
                 position = .Fixed,
                 inset = {0, 0, 0, 0},
                 w = ui.Grow(1),
@@ -132,8 +135,12 @@ permission_box :: proc(thor: ^Thor) {
     box := ui.scope(
         {
             key = "perm-box",
+            transition = TK_ENTER,
+            enter = {opacity = 0},
+            focus_scope = true,
             flags = {.Clickable, .Focusable},
             props = {
+                opacity = 1,
                 w = ui.Px(tk(PERMISSION_WIDTH)),
                 max_w = ui.viewport().x - 2 * TK_MODAL_MARGIN,
                 h = ui.FIT,
@@ -212,22 +219,25 @@ permission_row :: proc(thor: ^Thor, item: Permission_Item) {
 @(private = "file")
 permission_button :: proc(thor: ^Thor, key, label: string, color: ui.Color) -> bool {
     it := ui.scope(
-        {
-            key = key,
-            flags = {.Clickable},
-            props = {
-                w = ui.Px(tk(96)),
-                h = ui.Px(tk_h(.Row_Picker)),
-                dir = .Row,
-                justify = .Center,
-                align = .Center,
-                radius = tk_rad(.Popup),
-                bg = thor.theme.buttons,
-                border = {width = ui.all(1), color = color},
-                cursor = .Pointer,
+        thor_control(
+            thor,
+            {
+                key = key,
+                flags = {.Clickable},
+                props = {
+                    w = ui.Px(tk(96)),
+                    h = ui.Px(tk_h(.Row_Picker)),
+                    dir = .Row,
+                    justify = .Center,
+                    align = .Center,
+                    radius = tk_rad(.Popup),
+                    bg = thor.theme.buttons,
+                    border = {width = ui.all(1), color = color},
+                    cursor = .Pointer,
+                },
+                hover = {bg = thor.theme.active},
             },
-            hover = {bg = thor.theme.active},
-        },
+        ),
     )
     ui.label(label, {key = "text", props = {color = color, text_wrap = .None}})
     return it.clicked

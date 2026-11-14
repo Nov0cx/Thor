@@ -660,8 +660,12 @@ palette_box :: proc(thor: ^Thor) {
     box := ui.scope(
         {
             key = "palette-box",
+            transition = TK_ENTER,
+            enter = {opacity = 0},
+            focus_scope = true,
             flags = {.Clickable, .Focusable},
             props = {
+                opacity = 1,
                 w = ui.Px(tk(PALETTE_WIDTH)),
                 max_w = ui.viewport().x - 2 * TK_MODAL_MARGIN,
                 h = ui.FIT,

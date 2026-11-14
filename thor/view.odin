@@ -11,6 +11,7 @@ import rl "vendor:raylib"
 import "../editview"
 import "../font"
 import "../render"
+import "../setting"
 import "../textedit"
 import ui "../vendor/loom/loom"
 
@@ -204,12 +205,15 @@ thor_titlebar :: proc(thor: ^Thor) {
     )
 
     logo := ui.begin(
-        {
-            key = "logo",
-            flags = {.Clickable},
-            props = {w = ui.Px(tk(34)), h = ui.Px(tk_h(.Control)), justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
-            hover = {bg = thor.theme.buttons},
-        },
+        thor_control(
+            thor,
+            {
+                key = "logo",
+                flags = {.Clickable},
+                props = {w = ui.Px(tk(34)), h = ui.Px(tk_h(.Control)), justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
+                hover = {bg = thor.theme.buttons},
+            },
+        ),
     )
     thor_logo_image(thor, "mark", 22)
     ui.end()
@@ -313,12 +317,15 @@ thor_task_controls :: proc(thor: ^Thor) {
     }
 
     run := ui.begin(
-        {
-            key = "task-run",
-            flags = {.Clickable},
-            props = {w = ui.Px(tk(28)), h = ui.Px(tk_h(.Control)), justify = .Center, align = .Center, radius = tk_rad(.Control)},
-            hover = {bg = thor.theme.buttons},
-        },
+        thor_control(
+            thor,
+            {
+                key = "task-run",
+                flags = {.Clickable},
+                props = {w = ui.Px(tk(28)), h = ui.Px(tk_h(.Control)), justify = .Center, align = .Center, radius = tk_rad(.Control)},
+                hover = {bg = thor.theme.buttons},
+            },
+        ),
     )
     thor_icon_label(thor, "player-play", thor.theme.success_color, 14)
     ui.end()
@@ -337,20 +344,23 @@ thor_update_button :: proc(thor: ^Thor) {
         return
     }
     it := ui.begin(
-        {
-            key = "update",
-            flags = {.Clickable},
-            props = {
-                h = ui.Px(tk_h(.Control)),
-                dir = .Row,
-                align = .Center,
-                gap = tk_gap(.S, .None),
-                pad = tk_pad(.M, .None),
-                radius = tk_rad(.Control),
-                bg = thor.theme.buttons,
+        thor_control(
+            thor,
+            {
+                key = "update",
+                flags = {.Clickable},
+                props = {
+                    h = ui.Px(tk_h(.Control)),
+                    dir = .Row,
+                    align = .Center,
+                    gap = tk_gap(.S, .None),
+                    pad = tk_pad(.M, .None),
+                    radius = tk_rad(.Control),
+                    bg = thor.theme.buttons,
+                },
+                hover = {bg = thor.theme.active},
             },
-            hover = {bg = thor.theme.active},
-        },
+        ),
     )
     thor_icon_label(thor, icon, thor.theme.accent_color, 14)
     ui.label(label, {key = "text", props = {color = thor.theme.foreground, text_wrap = .None}})
@@ -388,20 +398,23 @@ thor_ext_update_button :: proc(thor: ^Thor) {
         return
     }
     it := ui.begin(
-        {
-            key = "ext_update",
-            flags = {.Clickable},
-            props = {
-                h = ui.Px(tk_h(.Control)),
-                dir = .Row,
-                align = .Center,
-                gap = tk_gap(.S, .None),
-                pad = tk_pad(.M, .None),
-                radius = tk_rad(.Control),
-                bg = thor.theme.buttons,
+        thor_control(
+            thor,
+            {
+                key = "ext_update",
+                flags = {.Clickable},
+                props = {
+                    h = ui.Px(tk_h(.Control)),
+                    dir = .Row,
+                    align = .Center,
+                    gap = tk_gap(.S, .None),
+                    pad = tk_pad(.M, .None),
+                    radius = tk_rad(.Control),
+                    bg = thor.theme.buttons,
+                },
+                hover = {bg = thor.theme.active},
             },
-            hover = {bg = thor.theme.active},
-        },
+        ),
     )
     thor_icon_label(thor, "puzzle", thor.theme.accent_color, 14)
     ui.label(fmt.tprintf("%d", pending), {key = "text", props = {color = thor.theme.foreground, text_wrap = .None}})
@@ -412,48 +425,9 @@ thor_ext_update_button :: proc(thor: ^Thor) {
     }
 }
 
-// A flat chrome button. Loom's button fills with the accent and writes its text
-// in accent_text, which suits a dialog's confirm and not the titlebar, so the
-// fill, the border and the text colour are stated here instead of inherited.
-// text_align/text_align_v place the node's own text; justify/align place
-// children, which a leaf has none of.
-@(private = "file")
-thor_text_button :: proc(thor: ^Thor, label: string, el: ui.Element = {}, loc := #caller_location) -> ui.Interaction {
-    e := ui.Element{
-        text = label,
-        flags = {.Clickable},
-        props = {
-            w = ui.FIT,
-            h = ui.Px(tk_h(.Control)),
-            pad = tk_pad(.M, .None),
-            text_align = .Center,
-            text_align_v = .Center,
-            radius = tk_rad(.Control),
-            color = thor.theme.foreground,
-            cursor = .Pointer,
-            text_wrap = .None,
-        },
-        hover = {bg = thor.theme.buttons},
-    }
-    ui.merge_element(&e, el, loc)
-    return ui.leaf(e, loc)
-}
-
 @(private = "file")
 thor_titlebar_button :: proc(thor: ^Thor, icon, key: string, danger := false, tip := "") -> bool {
-    hover := danger ? thor.theme.danger_color : thor.theme.buttons
-    it    := ui.begin(
-        {
-            key = key,
-            flags = {.Clickable},
-            props = {w = ui.Px(tk(40)), h = ui.Px(tk_h(.Control)), justify = .Center, align = .Center, radius = tk_rad(.Control)},
-            hover = {bg = hover},
-        },
-    )
-    thor_icon_label(thor, icon, thor.theme.foreground, 14)
-    ui.end()
-    thor_tip(thor, it.id, tip)
-    return it.clicked
+    return thor_icon_button(thor, icon, key, tip = tip, danger = danger, w = tk(40)).clicked
 }
 
 @(private = "file")
@@ -628,12 +602,15 @@ thor_terminal_strip :: proc(thor: ^Thor) {
         ui.leaf({key = "dot", props = {w = ui.Px(tk(6)), h = ui.Px(tk(6)), radius = tk_pill(tk(6)), bg = dot}})
         ui.label(info.name, {props = {max_w = tk(TERMINAL_STRIP_NAME_MAX), color = on ? thor.theme.foreground : thor.theme.muted_color, text_wrap = .Ellipsis}})
         close := ui.begin(
-            {
-                key = "close",
-                flags = {.Clickable},
-                props = {w = ui.Px(tk(16)), h = ui.Px(tk(16)), justify = .Center, align = .Center, radius = tk_rad(.Control)},
-                hover = {bg = thor.theme.danger_color},
-            },
+            thor_control(
+                thor,
+                {
+                    key = "close",
+                    flags = {.Clickable},
+                    props = {w = ui.Px(tk(16)), h = ui.Px(tk(16)), justify = .Center, align = .Center, radius = tk_rad(.Control)},
+                    hover = {bg = thor.theme.danger_color},
+                },
+            ),
         )
         thor_icon_label(thor, "x", thor.theme.muted_color, 12)
         ui.end()
@@ -658,12 +635,15 @@ thor_terminal_strip :: proc(thor: ^Thor) {
 
     ui.spacer()
     add := ui.begin(
-        {
-            key = "add",
-            flags = {.Clickable},
-            props = {w = ui.Px(tk(24)), h = ui.Px(tk_h(.Row_Compact)), justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
-            hover = {bg = thor.theme.buttons},
-        },
+        thor_control(
+            thor,
+            {
+                key = "add",
+                flags = {.Clickable},
+                props = {w = ui.Px(tk(24)), h = ui.Px(tk_h(.Row_Compact)), justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
+                hover = {bg = thor.theme.buttons},
+            },
+        ),
     )
     thor_icon_label(thor, "plus", thor.theme.muted_color, 14)
     ui.end()
@@ -896,12 +876,15 @@ thor_tabbar :: proc(thor: ^Thor) {
             ui.leaf({key = "dot", props = {w = ui.Px(tk(6)), h = ui.Px(tk(6)), radius = tk_pill(tk(6)), bg = thor.theme.accent_color}})
         }
         close := ui.begin(
-            {
-                key = "close",
-                flags = {.Clickable},
-                props = {w = ui.Px(tk(18)), h = ui.Px(tk(18)), justify = .Center, align = .Center, radius = tk_rad(.Control)},
-                hover = {bg = thor.theme.danger_color},
-            },
+            thor_control(
+                thor,
+                {
+                    key = "close",
+                    flags = {.Clickable},
+                    props = {w = ui.Px(tk(18)), h = ui.Px(tk(18)), justify = .Center, align = .Center, radius = tk_rad(.Control)},
+                    hover = {bg = thor.theme.danger_color},
+                },
+            ),
         )
         thor_icon_label(thor, "x", thor.theme.muted_color, 12)
         ui.end()
@@ -1821,7 +1804,9 @@ thor_status_segment :: proc(thor: ^Thor, key, icon, text: string, color: ui.Colo
     if clickable {
         e.flags = {.Clickable}
         e.props.cursor = .Pointer
-        e.hover = {color = thor.theme.accent_color}
+        e.props.pad = tk_pad(.S, .None)
+        e.hover = {bg = thor.theme.buttons}
+        e = thor_control(thor, e)
     }
 
     it := ui.begin(e)
@@ -1901,7 +1886,7 @@ thor_statusbar :: proc(thor: ^Thor) {
     // Analyzer work in flight. The icon pulses, so it reads as ongoing without
     // a rotating spinner.
     if info.busy {
-        pulse := 0.5 + 0.5 * math.sin(f32(rl.GetTime()) * BUSY_PULSE_RATE)
+        pulse := setting.reduce_motion(&thor.config) ? 1 : 0.5 + 0.5 * math.sin(f32(rl.GetTime()) * BUSY_PULSE_RATE)
         color := dim
         color[3] = u8(140 + 115 * pulse)
         thor_status_segment(thor, "busy", "loader-2", info.busy_message, color, "Language intelligence is working on this file")

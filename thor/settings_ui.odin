@@ -109,6 +109,7 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     thor_settings_add_choice(view, "file_icon_pack", "File Icon Pack", file_icon_pack)
     thor_settings_add_choice(view, "ligatures", "Ligatures", thor_ligatures_label(config))
     thor_settings_add_toggle(view, "tooltips", "Tooltips", setting.tooltips(config))
+    thor_settings_add_toggle(view, "reduce_motion", "Reduce motion", setting.reduce_motion(config))
 
     thor_settings_begin_category(view, "windows", "Windows", "window")
     thor_settings_add_choice(view, "open_folder_in", "Open Folder In", thor_open_folder_in_label(config))
@@ -566,6 +567,7 @@ thor_on_setting_toggle :: proc(data: rawptr, id: string, on: bool) {
         "format_on_save",
         "format_on_type",
         "tooltips",
+        "reduce_motion",
         "clipboard_history_save",
         "tip_of_the_day",
         "terminal_clipboard",
@@ -717,6 +719,8 @@ thor_setting_description :: proc(id: string) -> string {
         return "Draw programming ligatures, such as -> as one glyph."
     case "tooltips":
         return "Explain a control when the mouse stays on it."
+    case "reduce_motion":
+        return "No fades, no scroll inertia and no blinking cursor."
     case "open_folder_in":
         return "What Open Folder does: ask, replace this workspace, or open a window."
     case "pane_layout":

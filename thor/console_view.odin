@@ -8,6 +8,7 @@ import "core:strings"
 import rl "vendor:raylib"
 
 import "../font"
+import "../setting"
 import ui "../vendor/loom/loom"
 import "../vt"
 
@@ -536,7 +537,7 @@ console_row_cursor :: proc(thor: ^Thor, console: ^Console, index: int, cell_w, r
     if !term.cursor_visible || index != vt.term_cursor_line(term) {
         return
     }
-    if term.cursor_blink && console.focused {
+    if term.cursor_blink && console.focused && !setting.reduce_motion(&thor.config) {
         phase := rl.GetTime() - console.blink_base
         if phase - f64(int(phase / CURSOR_BLINK_PERIOD)) * CURSOR_BLINK_PERIOD > CURSOR_BLINK_PERIOD * 0.5 {
             return

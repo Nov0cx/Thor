@@ -184,8 +184,11 @@ thor_select_view :: proc(thor: ^Thor) {
         ui.scope(
             {
                 key = "select-backdrop",
+                transition = TK_ENTER,
+                enter = {opacity = 0},
                 flags = {.Floating, .Clickable},
                 props = {
+                    opacity = 1,
                     position = .Fixed,
                     inset = {0, 0, 0, 0},
                     w = ui.Grow(1),
@@ -236,8 +239,12 @@ select_box :: proc(thor: ^Thor) {
     box := ui.scope(
         {
             key = "select-box",
+            transition = TK_ENTER,
+            enter = {opacity = 0},
+            focus_scope = true,
             flags = {.Clickable, .Focusable},
             props = {
+                opacity = 1,
                 w = ui.Px(tk(SELECT_WIDTH)),
                 max_w = ui.viewport().x - 2 * TK_MODAL_MARGIN,
                 h = ui.FIT,

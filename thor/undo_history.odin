@@ -275,8 +275,11 @@ thor_undo_history_view :: proc(thor: ^Thor) {
     backdrop := ui.scope(
         {
             key = "undo-backdrop",
+            transition = TK_ENTER,
+            enter = {opacity = 0},
             flags = {.Floating, .Clickable},
             props = {
+                opacity = 1,
                 position = .Fixed,
                 inset = {0, 0, 0, 0},
                 w = ui.Grow(1),
@@ -308,8 +311,12 @@ undo_view_box :: proc(thor: ^Thor, file: ^Open_File) {
     box := ui.scope(
         {
             key = "undo-box",
+            transition = TK_ENTER,
+            enter = {opacity = 0},
+            focus_scope = true,
             flags = {.Clickable, .Focusable},
             props = {
+                opacity = 1,
                 w = ui.Px(min(tk_modal_w(UNDO_VIEW_WIDTH), ui.viewport().x * 0.62)),
                 max_w = ui.viewport().x - 2 * TK_MODAL_MARGIN,
                 h = ui.Px(ui.viewport().y - 2 * TK_MODAL_MARGIN),
@@ -363,12 +370,15 @@ undo_view_header :: proc(thor: ^Thor, file: ^Open_File) {
     )
     ui.leaf({key = "gap", props = {w = ui.Grow(1)}})
     close := ui.scope(
-        {
-            key = "close",
-            flags = {.Clickable},
-            props = {w = ui.Px(tk(26)), h = ui.Px(tk_h(.Row)), dir = .Row, justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
-            hover = {bg = thor.theme.buttons},
-        },
+        thor_control(
+            thor,
+            {
+                key = "close",
+                flags = {.Clickable},
+                props = {w = ui.Px(tk(26)), h = ui.Px(tk_h(.Row)), dir = .Row, justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
+                hover = {bg = thor.theme.buttons},
+            },
+        ),
     )
     thor_icon_label(thor, "x", thor.theme.muted_color)
     thor_tip(thor, close.id, "Close and go back", "Escape")

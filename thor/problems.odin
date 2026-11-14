@@ -247,8 +247,11 @@ thor_problems_view :: proc(thor: ^Thor) {
     backdrop := ui.scope(
         {
             key = "problems-backdrop",
+            transition = TK_ENTER,
+            enter = {opacity = 0},
             flags = {.Floating, .Clickable},
             props = {
+                opacity = 1,
                 position = .Fixed,
                 inset = {0, 0, 0, 0},
                 w = ui.Grow(1),
@@ -275,8 +278,12 @@ problems_box :: proc(thor: ^Thor) {
     box    := ui.scope(
         {
             key = "problems-box",
+            transition = TK_ENTER,
+            enter = {opacity = 0},
+            focus_scope = true,
             flags = {.Clickable, .Focusable},
             props = {
+                opacity = 1,
                 w = ui.Px(tk(PROBLEMS_WIDTH)),
                 max_w = ui.viewport().x - 2 * TK_MODAL_MARGIN,
                 h = len(groups) == 0 ? ui.FIT : ui.Px(tk(PROBLEMS_HEIGHT)),
@@ -349,12 +356,15 @@ problems_header :: proc(thor: ^Thor, groups: []Problem_Group) {
     )
     ui.leaf({key = "gap", props = {w = ui.Grow(1)}})
     close := ui.scope(
-        {
-            key = "close",
-            flags = {.Clickable},
-            props = {w = ui.Px(tk(26)), h = ui.Px(tk_h(.Row)), dir = .Row, justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
-            hover = {bg = thor.theme.buttons},
-        },
+        thor_control(
+            thor,
+            {
+                key = "close",
+                flags = {.Clickable},
+                props = {w = ui.Px(tk(26)), h = ui.Px(tk_h(.Row)), dir = .Row, justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
+                hover = {bg = thor.theme.buttons},
+            },
+        ),
     )
     thor_icon_label(thor, "x", thor.theme.muted_color)
     thor_tip(thor, close.id, "Close", thor_action_shortcut(thor, "open_problems"))
