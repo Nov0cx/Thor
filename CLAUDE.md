@@ -240,6 +240,12 @@ Each view is state on `Thor` plus a `thor_*_view` procedure that declares its no
 `GOOD_UI.md` defines good UI for Thor (tokens, component rules, a review checklist); check a UI
 change against it.
 
+- Sizes, radii, shadows, scrims, type sizes and durations come from `thor/tokens.odin` (`tk_sp`,
+  `tk_h`, `tk_rad`, `tk_shadow`, `tk_scrim`, `tk_font`, `TK_FADE`, `TK_ENTER`). Each pixel token is
+  scaled by `font_size / 18`; `tk(n)` scales a one-off width. A button or control goes through
+  `thor_control` (`thor/controls.odin`): focusable, a ring on keyboard focus, a fade on hover out.
+  A modal root sets `focus_scope = true`.
+
 - `Thor` holds no node or widget pointers. `editors: [MAX_PANES]editview.Editor` are values; the
   `layout` preset (`thor/panes.odin`) shows the first `thor_pane_count` of them, numbered down each
   column, then across. A layout change goes through `thor_set_layout`, a file into a given pane
@@ -519,7 +525,7 @@ io/package/debug/`load`), path-confined file access, a two-second wall-clock bud
 A plugin that wants a permission stays unloaded until the user allows it: `thor_load_plugins`
 (`thor/plugin_trust.odin`) scans first, runs the permission-free plugins at once, and holds the rest
 for one batched prompt whose answer lands in `sessions/plugin-grants.json`. Settings shows the same
-state as a "PLUGIN PERMISSIONS" section (`thor/settings_ui.odin`): allowing there loads the plugin on
+state in its "Plugins" category (`thor/settings_ui.odin`): allowing there loads the plugin on
 the spot, blocking a running one waits for a restart.
 
 Plugins come from two places, a `Plugin_Source` apart: the bundled `plugins/` beside the binary, and

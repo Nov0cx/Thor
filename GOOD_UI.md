@@ -4,7 +4,7 @@ This document defines what good UI means for Thor. It gives the principles, the 
 checked against, what Loom can and cannot do, and where Thor does not follow its own rules today.
 
 Read sections 2 and 5 to 10 before a UI change. Check the change against section 12 before a commit.
-Section 11 is a snapshot (2026-11, version 2026.11.4): fix an item, then remove it.
+Section 11 lists what is still open: fix an item, then remove it.
 
 Each rule has two parts: the **principle** (why) and the **number** (what to check). When they
 disagree in a case this document did not foresee, the principle wins and the number is corrected here.
@@ -32,7 +32,8 @@ around it is flat, has little contrast and does not move unless the user caused 
 3. **Keyboard first, pointer complete.** Each action is reachable by key, and also by pointer. The
    palette is the one entry point that lists everything.
 4. **One way.** A list of things to pick from is the palette shape. A question is the modal shape. A
-   row is the row shape. A new view uses these before it makes its own.
+   row is the row shape. A new view uses these before it makes its own. Buttons and controls come
+   from `thor/controls.odin` (`thor_control`, `thor_text_button`, `thor_icon_button`).
 5. **Reversible and escapable.** Escape closes the top layer and only that layer. A click on the
    scrim does the same. An edit is covered by undo. A destructive action asks, and names the thing
    it destroys.
@@ -43,7 +44,7 @@ around it is flat, has little contrast and does not move unless the user caused 
 8. **Stable layout.** A node does not change size or place because an async result arrived. Reserve
    the space (a fixed column, a fixed row) before the data lands.
 9. **Tokens, not literals.** A size, a radius, a shadow, a duration or a colour comes from section 5
-   or from the theme. A literal in a view file is a defect.
+   (`thor/tokens.odin`) or from the theme. A literal in a view file is a defect.
 10. **Scale with the user.** The UI follows `general.font_size` and the display scale. A pixel
     constant that does not scale is allowed only for hairlines.
 
@@ -75,14 +76,14 @@ around in Thor.
 | Layers | `position` (`Flow`, `Relative`, `Absolute`, `Fixed`), `inset`, `z`, `.Floating`, `.Pass_Through`. | `props.odin`, `tree.odin` |
 | Surface | `bg` as a colour or a gradient (linear, radial, bilinear), `border` (width per edge), `radius` (per corner), `shadow` (offset, blur, spread, inset), `opacity`. | `props.odin` |
 | State styles | `hover`, `active`, `focus`, `disabled`, `group_hover` props, and `rules` on a `State_Set` (`Checked`, `Open`, `Focus_Within`, …). | `tree.odin`, `cascade.odin` |
-| Motion | `Transition{props, dur, delay, ease}` on 22 props (sizes, pad, gap, bg, border, radius, shadow, opacity, colour, font size). Eases: `Linear`, `Out_Quad`, `In_Out_Quad`, `Out_Cubic`, `Out_Back`, `Spring`. `.No_Anim` turns a node off. A node does not animate on its first frame. | `transition.odin` |
+| Motion | `Transition{props, dur, delay, ease, snap}` on 22 props (sizes, pad, gap, bg, border, radius, shadow, opacity, colour, font size). Eases: `Linear`, `Out_Quad`, `In_Out_Quad`, `Out_Cubic`, `Out_Back`, `Spring`. `snap` names states that take their target at once and animate only on the way out. `Element.enter` is what a new node starts from on its first frame. `.No_Anim` turns a node off, `set_reduce_motion` turns all motion off. | `transition.odin` |
 | Scrolling | Scrollbars from `overflow`, wheel bubbling, inertia (`Config.scroll_inertia`, `no_scroll_inertia`), animated scroll-to (`scroll_to_dur`), `.Wheel` for a view that owns its offset. | `scroll.odin`, `containers.odin` |
 | Text | Colour spans per byte range, tab stops, wrap modes (`Words`, `Chars`, `None`, `Ellipsis`), horizontal and vertical alignment, `caret_x` and `offset_at`. | `text.odin` |
 | Widgets | `label`, `spacer`, `divider`, `button`, `image`, `checkbox`, `radio`, `slider`, `input` (selection, word moves, undo, clipboard), `scroll`, `popup`, `tooltip`, `virtual`. | `widgets.odin`, `containers.odin`, `input_text.odin`, `virtual.odin` |
 | Docking | `dockspace`, `panel`: tabs, splitters, drag to dock, detach, `dock_save` and `dock_load`. | `dock.odin`, `dock_viewport.odin` |
 | Painting | `paint_rect`, `paint_line`, `paint_poly` in node-local coordinates, under or over the text. `custom` for the host renderer. | `paint.odin` |
-| Interaction | Click counts, right and middle click, drag delta, hover enter and exit, 8 cursor shapes, `.Hoverable`. | `input.odin`, `interact.odin` |
-| Keyboard | An ordered key stream with `consumed`. Tab and Shift+Tab move the focus over `.Focusable` nodes in tree order. Escape drops the focus. Space and Enter activate. | `interact.odin` |
+| Interaction | Click counts, right and middle click, drag delta, hover enter and exit, 8 cursor shapes, `.Hoverable`. `Element.hit_pad` grows the hit area, `Dock_Config.splitter_hit` the splitters'. | `input.odin`, `interact.odin` |
+| Keyboard | An ordered key stream with `consumed`. Tab and Shift+Tab move the focus over `.Focusable` nodes in tree order, inside the nearest `Element.focus_scope`. The state `.Focus_Visible` marks keyboard focus. Escape drops the focus. Space and Enter activate. | `interact.odin` |
 | Theme | 20 colour slots, set once with `set_theme`. Loom's own widgets read only these. | `theme.odin` |
 | Debug | `debug_overlay`, `debug_rects`, `dump_tree`, `stats`. | `debug.odin` |
 
@@ -94,15 +95,14 @@ Loom's own widget timings are a good base: button 120 ms `Out_Quad`, checkbox 10
 | Limit | Result for Thor |
 | --- | --- |
 | No key routing. Call order is priority. | Global chords run before the tree. A widget takes a key only inside `ui.focus_within`. |
-| A new node has a zero rect and no hover until the next pass. | An enter animation cannot start from the final geometry in frame one. Anchor popups to a node that exists; fade in from opacity 0 as `ui.popup` does. |
+| A new node has a zero rect and no hover until the next pass. | An enter animation cannot start from the final geometry in frame one. Anchor popups to a node that exists; fade in with `enter = {opacity = 0}`. |
 | Virtual rows have one height. | A list row never grows. A second line is a second row type with a fixed height. |
 | `Cmd_Push_Clip.radius` is ignored by `render` (a scissor is a rectangle). | A rounded container that clips children shows square corners on the children. Keep children inside the radius with padding. |
 | No backdrop blur, no blend modes. | A scrim is a flat colour with alpha. |
 | No drag-and-drop payload API. | Drag sources and targets are host code on `dragging` and `drag_delta`. |
 | No accessibility tree. | A screen reader cannot read Thor. See 9.5. |
 | No IME composition surface. | Composed input shows only when committed. |
-| No reduce-motion switch. | The host must set `.No_Anim` or zero durations. See 8.5. |
-| No UI scale. `Input.dpi` exists; props are raw pixels. | The host must multiply. See 9.3. |
+| No UI scale. `Input.dpi` exists; props are raw pixels. | The host multiplies: `thor/tokens.odin` scales each token. See 9.3. |
 | `Transition` is one set for all listed props of a node. | A node that needs two durations is two nodes. |
 
 ## 5. Tokens
@@ -441,7 +441,8 @@ room. A theme that fails is a broken theme.
 | Adjacent surfaces (`background` and `second_background`) | No minimum. A border or space separates them. |
 
 `theme.color_contrast_ratio` measures, `theme.color_ensure_contrast` repairs, and the generator uses
-both (`TEXT_FLOOR` is 4.5). The ratios are WCAG 2.2 AA; the first row is stricter by choice.
+both (`TEXT_FLOOR` is 4.5). `theme/shipped_themes_test.odin` checks each shipped theme against this
+table. The ratios are WCAG 2.2 AA; the first row is stricter by choice.
 
 ### 9.2 Targets
 
@@ -502,42 +503,29 @@ the tokens of this document for free. The rules for the plugin:
 
 ## 11. Gap audit
 
-Where Thor does not follow this document. Line numbers are of version 2026.11.4.
+Where Thor does not follow this document yet.
 
 ### 11.1 Thor
 
 | # | Rule | Finding | Where |
 | --- | --- | --- | --- |
-| 1 | 2.9 | No shared token file. Each view has its own constants for row height, width, pad and gap. | `thor/explorer.odin:13`, `menu.odin:9`, `palette.odin:68`, `select.odin:14`, `settings_view.odin:12`, `git_view.odin:12`, `find.odin:13`, `permission.odin:12`, … |
-| 2 | 5.2 | Row heights off the scale: 28 (`UNDO_ROW_H`). The same height has four names (`EXPLORER_ROW_H`, `MENU_ROW_H`, `GIT_ROW_H`, and a literal 26). | `thor/undo_history.odin:16`, `plugin_panel.odin:391` |
-| 3 | 5.1 | 10 and 14 are common paddings. | `thor/console_view.odin:29`, `hex_view.odin:24`, `image_view.odin:23`, `tutorial_view.odin:17`, `view.odin:415`, `tasks.odin:25`, `update.odin:29` |
-| 4 | 5.3 | Radii 2, 3, 7, 11 and 12 are in use beside 4, 6, 8 and 10, all as `ui.rad(n)` literals (about 110 sites). | `thor/view.odin`, `settings_view.odin`, `tutorial_view.odin` |
-| 5 | 5.5 | The shadows already form three levels (4/16, 6/24, 8/32) but are copied as literals at 19 sites. The scrim alpha is 120, 140 or 150. | `thor/palette.odin:658` (120), `settings_view.odin:449` (140), `permission.odin:115` (150) |
-| 6 | 5.9, 8.2 | No node in `thor/` sets a `transition`. Only Loom's own widgets (`button`, `checkbox`, `popup`) animate. Hover on each custom row and button is a hard switch in and out. | all of `thor/` |
-| 7 | 7.4 | No node in `thor/` sets a `focus` style. Custom buttons are `.Clickable` and not `.Focusable`, so Tab does not reach them and nothing would show if it did. | `thor/view.odin:408` (`thor_text_button`), `view.odin:430` (`thor_titlebar_button`) |
-| 8 | 2.4 | `thor_text_button` and `thor_titlebar_button` are private to `view.odin`. Other views build their own buttons. | `thor/view.odin:407`, `model_view.odin:268`, `plugin_panel.odin` (`plugin_view_button`) |
-| 9 | 9.3 | Row and control heights are pixel constants, and UI text follows `general.font_size`. A large font size clips in a 26 px row. No `ui_scale`. | `thor/view.odin:114`, `explorer.odin:555`, `menu.odin:179`, `palette.odin:893` |
-| 10 | 5.6 | Font sizes as literals (36, 10) and as ad-hoc offsets (−1, −2, +2). | `thor/view.odin:765`, `view.odin:955`, `peek.odin:343`, `peek.odin:349`, `tutorial_view.odin`, `whats_new.odin` |
-| 11 | 5.7 | `thor_push_theme` sets `dark = true` for each theme, maps `overlay` to the same role as `surface`, and `divider` to `border`. A light theme tells Loom it is dark. | `thor/view.odin:74`, `view.odin:78`, `view.odin:80` |
-| 12 | 9.1 | Mjolnir: `disabled` on `background` is 2.78 : 1 (rule 3 : 1) and is used for line numbers and tooltip chords. `comments` is 3.12 : 1 (rule 4.5 : 1). `border` on `background` is 1.03 : 1, so a hairline is invisible and panels separate by surface colour only. | `theme/theme.odin:137`, `theme.odin:140`, `theme.odin:156`, `thor/tooltips.odin:25` |
-| 13 | 9.1 | The contrast rules are checked for generated themes only (`theme_generate_test.odin`). No test checks the shipped theme files. | `theme/theme_generate_test.odin:41` |
-| 14 | 8.5 | No `reduce_motion` setting. | `settings/settings.lua` |
-| 15 | 9.2 | Splitters are 3 px wide and the grab area is the same 3 px. | `thor/view.odin:25`, `panes.odin:17` |
-| 16 | 10.1 | Plugin panel metrics are literals too (header 32, button 24 × 20, canvas font 14 that does not follow the UI size). | `thor/plugin_panel.odin:56`, `plugin_panel.odin:259`, `plugin_panel.odin:266` |
+| 1 | 5.6 | Command, menu and palette names use Title Case ("View: Toggle Explorer", "Language Servers"): about 130 in `thor/`, more in `plugins/`, and the docs and the tutorial quote them. View labels are in sentence case. | `thor/commands.odin`, `thor/menus.odin`, `plugins/*/plugin.lua`, `docs/` |
+| 2 | 5.9 | List rows switch their hover fill in and out with no fade. A fade on the row would also animate a selection that moves by key (8.3). | `thor/explorer.odin`, `palette.odin`, `select.odin`, `git_view.odin` |
+| 3 | 2.9 | One-off widths are `tk(n)` literals in the views (a menu label, an icon box, a column). They scale, but they are not tokens. | `thor/view.odin`, `git_view.odin`, `settings_view.odin`, … |
 
-Good as it is, and to keep: chords in tooltips (`thor_tip`), the palette count, the
-status bar split, the busy delay, a scrim click and Escape on each modal, virtual lists in the
-explorer, the three shadow levels, role colours for plugin panels (`thor_plugin_role_color`).
+Good as it is, and to keep: the tokens in `thor/tokens.odin` and the UI scale, the shared controls
+in `thor/controls.odin` with their keyboard focus ring, a focus scope on each modal, the enter fade,
+`reduce_motion`, the contrast test of each shipped theme (`theme/shipped_themes_test.odin`), chords
+in tooltips (`thor_tip`), the palette count, the status bar split, the busy delay, a scrim click and
+Escape on each modal, virtual lists in the explorer, role colours for plugin panels
+(`thor_plugin_role_color`).
 
 ### 11.2 Needs Loom
 
 | # | Rule | Missing |
 | --- | --- | --- |
-| L1 | 9.3 | A scale factor applied to pixel props, or a documented host pattern for one. |
-| L2 | 8.5 | A context switch that turns all transitions off. |
-| L3 | 9.2 | A hit area larger than the drawn rect (a splitter, a small icon). |
+| L1 | 9.3 | A scale factor applied to pixel props. Thor scales its own tokens; Loom's own widget metrics (popup pad, tooltip size) stay fixed. |
 | L4 | 5.3 | A rounded clip, or a note in each backend that the radius is ignored. |
-| L5 | 7.5 | A focus scope, so Tab stays inside a modal without host code. |
 | L6 | 8.2 | A leave transition: a node that is no longer declared is gone in the same frame. |
 | L7 | 9.5 | An accessibility tree. Large; stated so it is not forgotten. |
 | L8 | 6.3 | Virtual rows of more than one height, for a two-line row inside a list of one-line rows. |
