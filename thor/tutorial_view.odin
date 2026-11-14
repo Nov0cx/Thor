@@ -13,11 +13,6 @@ import ui "../vendor/loom/loom"
 @(private = "file")
 CARD_W :: f32(360)
 
-@(private = "file")
-CARD_PAD :: f32(14)
-
-@(private = "file")
-CARD_GAP :: f32(16)
 
 @(private = "file")
 SPOT_DIM :: ui.Color{0, 0, 0, 110}
@@ -112,7 +107,7 @@ thor_tutorial_spotlight :: proc(thor: ^Thor, r: ui.Rect) {
                 w = ui.Px(r.w),
                 h = ui.Px(r.h),
                 z = 326,
-                radius = ui.rad(4),
+                radius = tk_rad(.Control),
                 border = {width = ui.all(2), color = thor.theme.accent_color},
             },
         },
@@ -124,7 +119,7 @@ thor_tutorial_spotlight :: proc(thor: ^Thor, r: ui.Rect) {
 @(private = "file")
 thor_tutorial_card_pos :: proc(target: ui.Rect, has_target: bool, w, h: f32) -> (x, y: f32) {
     v := ui.viewport()
-    x, y = v.x - w - 24, v.y - h - 24 - STATUSBAR_HEIGHT
+    x, y = v.x - w - 24, v.y - h - 24 - tk_h(.Bar)
     if !has_target {
         return
     }
@@ -134,21 +129,21 @@ thor_tutorial_card_pos :: proc(target: ui.Rect, has_target: bool, w, h: f32) -> 
     below := v.y - (r.y + r.h)
     above := r.y
     best  := f32(-1)
-    if right >= w + CARD_GAP * 2 && right > best {
+    if right >= w + tk_sp(.XL) * 2 && right > best {
         best = right
-        x, y = r.x + r.w + CARD_GAP, r.y
+        x, y = r.x + r.w + tk_sp(.XL), r.y
     }
-    if left >= w + CARD_GAP * 2 && left > best {
+    if left >= w + tk_sp(.XL) * 2 && left > best {
         best = left
-        x, y = r.x - w - CARD_GAP, r.y
+        x, y = r.x - w - tk_sp(.XL), r.y
     }
-    if below >= h + CARD_GAP * 2 && below > best {
+    if below >= h + tk_sp(.XL) * 2 && below > best {
         best = below
-        x, y = r.x, r.y + r.h + CARD_GAP
+        x, y = r.x, r.y + r.h + tk_sp(.XL)
     }
-    if above >= h + CARD_GAP * 2 && above > best {
+    if above >= h + tk_sp(.XL) * 2 && above > best {
         best = above
-        x, y = r.x, r.y - h - CARD_GAP
+        x, y = r.x, r.y - h - tk_sp(.XL)
     }
     if best < 0 {
         x, y = r.x + r.w - w - 24, r.y + r.h - h - 24
@@ -196,7 +191,7 @@ thor_tutorial_card :: proc(thor: ^Thor, target: ui.Rect, has_target: bool) {
     chapter        := TUTORIAL_CHAPTERS[t.chapter]
     step, has_step := thor_tutorial_current(thor)
     h              := t.card_h > 0 ? t.card_h : 220
-    x, y           := thor_tutorial_card_pos(target, has_target, CARD_W, h)
+    x, y           := thor_tutorial_card_pos(target, has_target, tk(CARD_W), h)
 
     card := ui.scope(
         {
@@ -205,23 +200,23 @@ thor_tutorial_card :: proc(thor: ^Thor, target: ui.Rect, has_target: bool) {
             props = {
                 position = .Fixed,
                 inset = {l = x, t = y},
-                w = ui.Px(CARD_W),
+                w = ui.Px(tk(CARD_W)),
                 h = ui.FIT,
                 dir = .Column,
-                pad = ui.all(CARD_PAD),
-                gap = {0, 8},
+                pad = ui.all(tk_sp(.L)),
+                gap = tk_gap(.None, .M),
                 z = 330,
                 bg = thor.theme.second_background,
-                radius = ui.rad(8),
+                radius = tk_rad(.Card),
                 border = {width = ui.all(1), color = thor.theme.accent_color},
-                shadow = {offset = {0, 6}, blur = 24, color = thor.theme.contrast},
+                shadow = tk_shadow(thor, .Card),
             },
         },
     )
     t.card_h = card.rect.h
 
     {
-        ui.scope({key = "head", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {8, 0}}})
+        ui.scope({key = "head", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.M, .None)}})
         thor_icon_label(thor, "school", thor.theme.accent_color)
         ui.label(chapter.title, {key = "chapter", props = {w = ui.Grow(1), color = thor.theme.muted_color, text_wrap = .Ellipsis}})
         if has_step {
@@ -231,7 +226,15 @@ thor_tutorial_card :: proc(thor: ^Thor, target: ui.Rect, has_target: bool) {
             {
                 key = "close",
                 flags = {.Clickable},
-                props = {w = ui.Px(22), h = ui.Px(22), dir = .Row, justify = .Center, align = .Center, radius = ui.rad(4), cursor = .Pointer},
+                props = {
+                    w = ui.Px(tk(22)),
+                    h = ui.Px(tk_h(.Row_Compact)),
+                    dir = .Row,
+                    justify = .Center,
+                    align = .Center,
+                    radius = tk_rad(.Control),
+                    cursor = .Pointer,
+                },
                 hover = {bg = thor.theme.buttons},
             },
         )
@@ -245,13 +248,13 @@ thor_tutorial_card :: proc(thor: ^Thor, target: ui.Rect, has_target: bool) {
 
     ui.label(
         has_step ? step.title : "Chapter done",
-        {key = "title", props = {w = ui.Grow(1), color = thor.theme.foreground, font_size = f32(thor.config.general.font_size + 2), text_wrap = .Words}},
+        {key = "title", props = {w = ui.Grow(1), color = thor.theme.foreground, font_size = tk_font(thor, .Title), text_wrap = .Words}},
     )
 
     thor_tutorial_card_body(thor, thor_tutorial_card_text(thor, step, has_step))
     thor_tutorial_dots(thor, len(chapter.steps), t.step)
 
-    ui.scope({key = "foot", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {6, 0}, margin = {t = 4}}})
+    ui.scope({key = "foot", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.S, .None), margin = {t = 4}}})
     if tutorial_button(thor, "chapters", "Chapters", false) {
         t.chooser_open = true
     }
@@ -286,7 +289,7 @@ thor_tutorial_card :: proc(thor: ^Thor, target: ui.Rect, has_target: bool) {
 thor_tutorial_card_body :: proc(thor: ^Thor, text: string) {
     view := &thor.tutorial.card
     thor_markdown_set_source(view, text, 0, nil)
-    avail := CARD_W - 2 * CARD_PAD
+    avail := tk(CARD_W) - 2 * tk_sp(.L)
     thor_markdown_ensure(thor, view, avail, thor_markdown_base(thor))
     h    := max(view.page.content_height - markdown.PAD_TOP - markdown.PAD_BOTTOM, 0)
     body := ui.scope({key = "body", props = {position = .Relative, w = ui.Px(avail), h = ui.Px(h)}})
@@ -299,7 +302,7 @@ thor_tutorial_dots :: proc(thor: ^Thor, count, at: int) {
     if count <= 1 {
         return
     }
-    ui.scope({key = "dots", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {5, 0}}})
+    ui.scope({key = "dots", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.XS, .None)}})
     for i in 0 ..< count {
         color := thor.theme.border
         if i < at {
@@ -308,7 +311,7 @@ thor_tutorial_dots :: proc(thor: ^Thor, count, at: int) {
             color = thor.theme.accent_color
         }
         ui.push_id_int(i64(i))
-        ui.leaf({key = "dot", props = {w = ui.Px(6), h = ui.Px(6), radius = ui.rad(3), bg = color}})
+        ui.leaf({key = "dot", props = {w = ui.Px(tk(6)), h = ui.Px(tk(6)), radius = tk_pill(tk(6)), bg = color}})
         ui.pop_id()
     }
 }
@@ -321,7 +324,16 @@ tutorial_button :: proc(thor: ^Thor, key, label: string, primary: bool) -> bool 
         {
             key = key,
             flags = {.Clickable},
-            props = {w = ui.FIT, h = ui.Px(26), dir = .Row, align = .Center, pad = ui.xy(10, 0), radius = ui.rad(6), bg = bg, cursor = .Pointer},
+            props = {
+                w = ui.FIT,
+                h = ui.Px(tk_h(.Row)),
+                dir = .Row,
+                align = .Center,
+                pad = tk_pad(.M, .None),
+                radius = tk_rad(.Popup),
+                bg = bg,
+                cursor = .Pointer,
+            },
             hover = {bg = primary ? thor.theme.accent_secondary_color : thor.theme.active},
         },
     )
@@ -349,7 +361,7 @@ thor_tutorial_chooser :: proc(thor: ^Thor) {
                 justify = .Center,
                 align = .Center,
                 z = 340,
-                bg = ui.Color{0, 0, 0, 120},
+                bg = tk_scrim(.Card),
             },
         },
     )
@@ -359,21 +371,21 @@ thor_tutorial_chooser :: proc(thor: ^Thor) {
                 key = "box",
                 flags = {.Clickable},
                 props = {
-                    w = ui.Px(420),
-                    max_w = ui.viewport().x - 60,
+                    w = ui.Px(tk(420)),
+                    max_w = ui.viewport().x - 2 * TK_MODAL_MARGIN,
                     h = ui.FIT,
                     dir = .Column,
-                    gap = {0, 4},
-                    pad = ui.all(16),
-                    radius = ui.rad(8),
+                    gap = tk_gap(.None, .XS),
+                    pad = tk_pad_all(.XL),
+                    radius = tk_rad(.Card),
                     bg = thor.theme.second_background,
                     border = {width = ui.all(1), color = thor.theme.border},
-                    shadow = {offset = {0, 6}, blur = 24, color = thor.theme.contrast},
+                    shadow = tk_shadow(thor, .Card),
                 },
             },
         )
         {
-            ui.scope({key = "head", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {8, 0}, margin = {b = 6}}})
+            ui.scope({key = "head", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.M, .None), margin = {b = 6}}})
             thor_icon_label(thor, "school", thor.theme.accent_color)
             ui.label("Tutorial", {key = "title", props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .None}})
         }
@@ -385,7 +397,7 @@ thor_tutorial_chooser :: proc(thor: ^Thor) {
                 thor_tutorial_start(thor, i)
             }
         }
-        ui.scope({key = "foot", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {6, 0}, margin = {t = 10}}})
+        ui.scope({key = "foot", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.S, .None), margin = {t = 10}}})
         if tutorial_button(thor, "shortcuts", "All shortcuts", false) {
             t.chooser_open = false
             thor_open_docs_page(thor, "keybindings.md")
@@ -409,7 +421,16 @@ tutorial_chapter_row :: proc(thor: ^Thor, i: int) -> bool {
         {
             key = "chapter",
             flags = {.Clickable},
-            props = {w = ui.Grow(1), h = ui.Px(30), dir = .Row, align = .Center, gap = {8, 0}, pad = ui.xy(8, 0), radius = ui.rad(4), cursor = .Pointer},
+            props = {
+                w = ui.Grow(1),
+                h = ui.Px(tk_h(.Row_Picker)),
+                dir = .Row,
+                align = .Center,
+                gap = tk_gap(.M, .None),
+                pad = tk_pad(.M, .None),
+                radius = tk_rad(.Control),
+                cursor = .Pointer,
+            },
             hover = {bg = thor.theme.buttons},
         },
     )

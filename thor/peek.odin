@@ -329,7 +329,9 @@ thor_peek_view :: proc(thor: ^Thor, outer: ^editview.Editor, pane_rect: ui.Rect)
 
     // The header: where the target is, the candidates, Open and close.
     {
-        ui.begin({key = "peek_header", props = {w = ui.Grow(1), h = ui.Px(line_h), dir = .Row, align = .Center, pad = ui.xy(8, 0), gap = {8, 0}}})
+        ui.begin(
+            {key = "peek_header", props = {w = ui.Grow(1), h = ui.Px(line_h), dir = .Row, align = .Center, pad = tk_pad(.M, .None), gap = tk_gap(.M, .None)}},
+        )
         defer ui.end()
         label := "Loading..."
         if peek.index < len(peek.targets) {
@@ -340,13 +342,13 @@ thor_peek_view :: proc(thor: ^Thor, outer: ^editview.Editor, pane_rect: ui.Rect)
             }
             label = line > 0 ? fmt.tprintf("%s:%d", filepath.base(target.path), line) : filepath.base(target.path)
         }
-        ui.leaf({key = "peek_title", text = label, props = {color = thor.theme.text, font_size = f32(outer.font_size) - 1}})
+        ui.leaf({key = "peek_title", text = label, props = {color = thor.theme.text, font_size = tk_type_size(f32(outer.font_size), .Body)}})
         if len(peek.targets) > 1 {
             ui.leaf(
                 {
                     key = "peek_count",
                     text = fmt.tprintf("%d of %d", peek.index + 1, len(peek.targets)),
-                    props = {color = thor.theme.muted_color, font_size = f32(outer.font_size) - 2},
+                    props = {color = thor.theme.muted_color, font_size = tk_type_size(f32(outer.font_size), .Small)},
                 },
             )
             if ui.button("<", {key = "peek_prev"}).clicked {

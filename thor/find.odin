@@ -10,12 +10,8 @@ import "../search"
 import "../textedit"
 import ui "../vendor/loom/loom"
 
-FIND_WIDTH   :: f32(520)
-// The width of the controls after the find field: the count, six 26 px buttons and their gaps.
-FIND_TRAIL_W :: f32(96 + 6 * 26 + 6 * 6)
-FIND_TOP     :: f32(90)
-// Inset from the top right corner of the pane the bar searches.
-FIND_GAP     :: f32(12)
+FIND_WIDTH :: TK_W_FORM
+FIND_TOP   :: f32(90)
 
 Find_Replace :: struct {
     // The pane the bar searches. Borrowed; re-taken on every open.
@@ -228,12 +224,12 @@ thor_find_view :: proc(thor: ^Thor) {
     // Top right of the pane it searches, never over the explorer. The rect is
     // zero until that pane has been laid out once, which is what the fallback
     // to the window is for.
-    x, y, width := f32(0), FIND_TOP, FIND_WIDTH
-    if f.editor != nil && f.editor.view.w > FIND_GAP * 2 {
+    x, y, width := f32(0), tk(FIND_TOP), tk(FIND_WIDTH)
+    if f.editor != nil && f.editor.view.w > tk_sp(.L) * 2 {
         pane := f.editor.view
-        width = min(FIND_WIDTH, pane.w - FIND_GAP * 2)
-        x = pane.x + pane.w - width - FIND_GAP
-        y = pane.y + FIND_GAP
+        width = min(tk(FIND_WIDTH), pane.w - tk_sp(.L) * 2)
+        x = pane.x + pane.w - width - tk_sp(.L)
+        y = pane.y + tk_sp(.L)
     }
 
     ui.scope(
@@ -246,13 +242,13 @@ thor_find_view :: proc(thor: ^Thor) {
                 w = ui.Px(width),
                 h = ui.FIT,
                 dir = .Column,
-                gap = {0, 6},
-                pad = ui.all(10),
+                gap = tk_gap(.None, .S),
+                pad = tk_pad_all(.M),
                 z = 350,
                 bg = thor.theme.second_background,
-                radius = ui.rad(8),
+                radius = tk_rad(.Card),
                 border = {width = ui.all(1), color = thor.theme.border},
-                shadow = {offset = {0, 6}, blur = 24, color = thor.theme.contrast},
+                shadow = tk_shadow(thor, .Card),
             },
         },
     )
@@ -300,7 +296,7 @@ find_flip :: proc(f: ^Find_Replace, option: ^bool) {
 find_query_row :: proc(thor: ^Thor) {
     f := &thor.find
 
-    ui.scope({key = "query-row", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {6, 0}}})
+    ui.scope({key = "query-row", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.S, .None)}})
 
     it := ui.input(
         &f.find,
@@ -310,7 +306,7 @@ find_query_row :: proc(thor: ^Thor) {
                 w = ui.Grow(1),
                 bg = thor.theme.background,
                 color = thor.theme.foreground,
-                radius = ui.rad(4),
+                radius = tk_rad(.Control),
                 border = {width = ui.all(1), color = thor.theme.border},
             },
         },
@@ -328,7 +324,10 @@ find_query_row :: proc(thor: ^Thor) {
 
     ui.label(
         find_count_label(f),
-        {key = "count", props = {w = ui.Px(96), text_align = .Center, color = f.regex_bad ? thor.theme.error_color : thor.theme.muted_color, text_wrap = .None}},
+        {
+            key = "count",
+            props = {w = ui.Px(tk(96)), text_align = .Center, color = f.regex_bad ? thor.theme.error_color : thor.theme.muted_color, text_wrap = .None},
+        },
     )
 
     if find_toggle(thor, "case", "Aa", f.options.case_sensitive, "Match Case", "Alt+C") {
@@ -356,7 +355,7 @@ find_query_row :: proc(thor: ^Thor) {
 find_replace_row :: proc(thor: ^Thor) {
     f := &thor.find
 
-    ui.scope({key = "replace-row", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {6, 0}}})
+    ui.scope({key = "replace-row", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.S, .None)}})
     ui.input(
         &f.replace,
         {
@@ -365,14 +364,14 @@ find_replace_row :: proc(thor: ^Thor) {
                 w = ui.Grow(1),
                 bg = thor.theme.background,
                 color = thor.theme.foreground,
-                radius = ui.rad(4),
+                radius = tk_rad(.Control),
                 border = {width = ui.all(1), color = thor.theme.border},
             },
         },
         "Replace",
     )
     // As wide as the controls after the find field, so both fields end at one x.
-    ui.scope({key = "actions", props = {w = ui.Px(FIND_TRAIL_W), h = ui.FIT, dir = .Row, align = .Center, gap = {6, 0}}})
+    ui.scope({key = "actions", props = {w = ui.Px(find_trail_w()), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.S, .None)}})
     if find_text_button(thor, "one", "Replace") {
         find_do_replace(f)
     }
@@ -399,12 +398,12 @@ find_toggle :: proc(thor: ^Thor, key, label: string, on: bool, tip, chord: strin
             key = key,
             flags = {.Clickable},
             props = {
-                w = ui.Px(26),
-                h = ui.Px(26),
+                w = ui.Px(tk(26)),
+                h = ui.Px(tk_h(.Row)),
                 dir = .Row,
                 justify = .Center,
                 align = .Center,
-                radius = ui.rad(4),
+                radius = tk_rad(.Control),
                 bg = on ? thor.theme.selection_background : nil,
                 border = {width = ui.all(1), color = on ? thor.theme.accent_color : ui.Color{}},
                 cursor = .Pointer,
@@ -423,7 +422,7 @@ find_icon_button :: proc(thor: ^Thor, key, icon: string) -> bool {
         {
             key = key,
             flags = {.Clickable},
-            props = {w = ui.Px(26), h = ui.Px(26), dir = .Row, justify = .Center, align = .Center, radius = ui.rad(4), cursor = .Pointer},
+            props = {w = ui.Px(tk(26)), h = ui.Px(tk_h(.Row)), dir = .Row, justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
             hover = {bg = thor.theme.buttons},
         },
     )
@@ -437,10 +436,24 @@ find_text_button :: proc(thor: ^Thor, key, label: string) -> bool {
         {
             key = key,
             flags = {.Clickable},
-            props = {h = ui.Px(26), dir = .Row, align = .Center, pad = ui.xy(10, 0), radius = ui.rad(4), bg = thor.theme.buttons, cursor = .Pointer},
+            props = {
+                h = ui.Px(tk_h(.Row)),
+                dir = .Row,
+                align = .Center,
+                pad = tk_pad(.M, .None),
+                radius = tk_rad(.Control),
+                bg = thor.theme.buttons,
+                cursor = .Pointer,
+            },
             hover = {bg = thor.theme.active},
         },
     )
     ui.label(label, {key = "text", props = {color = thor.theme.foreground, text_wrap = .None}})
     return it.clicked
+}
+
+// The width of the controls after the find field: the count, six row-high buttons and their gaps.
+@(private = "file")
+find_trail_w :: proc() -> f32 {
+    return tk(96) + 6 * tk_h(.Row) + 6 * tk_sp(.S)
 }

@@ -6,7 +6,6 @@ package thor
 import ui "../vendor/loom/loom"
 
 MENU_MIN_W :: f32(180)
-MENU_ROW_H :: f32(26)
 
 // One row. `title`, `shortcut` and `action` are borrowed: every opener passes a
 // literal, and the list is rebuilt on the next open. `action` is the keybinds
@@ -123,14 +122,14 @@ thor_menu_view :: proc(thor: ^Thor) {
                     position = .Fixed,
                     inset = {l = x, t = y},
                     w = ui.FIT,
-                    min_w = MENU_MIN_W,
+                    min_w = tk(MENU_MIN_W),
                     h = ui.FIT,
                     dir = .Column,
-                    pad = ui.all(4),
+                    pad = tk_pad_all(.XS),
                     bg = thor.theme.second_background,
-                    radius = ui.rad(6),
+                    radius = tk_rad(.Popup),
                     border = {width = ui.all(1), color = thor.theme.border},
-                    shadow = {offset = {0, 4}, blur = 16, color = thor.theme.contrast},
+                    shadow = tk_shadow(thor, .Popup),
                 },
             },
         )
@@ -166,7 +165,7 @@ thor_menu_view :: proc(thor: ^Thor) {
 @(private = "file")
 menu_row :: proc(thor: ^Thor, item: Menu_Item) -> bool {
     if item.separator {
-        ui.leaf({key = "sep", props = {w = ui.Grow(1), h = ui.Px(1), margin = ui.xy(6, 4), bg = thor.theme.border}})
+        ui.leaf({key = "sep", props = {w = ui.Grow(1), h = ui.Px(1), margin = tk_pad(.S, .XS), bg = thor.theme.border}})
         return false
     }
 
@@ -176,12 +175,12 @@ menu_row :: proc(thor: ^Thor, item: Menu_Item) -> bool {
             flags = item.enabled ? {.Clickable} : {},
             props = {
                 w = ui.Grow(1),
-                h = ui.Px(MENU_ROW_H),
+                h = ui.Px(tk_h(.Row)),
                 dir = .Row,
                 align = .Center,
-                gap = {16, 0},
-                pad = ui.xy(10, 0),
-                radius = ui.rad(4),
+                gap = tk_gap(.XL, .None),
+                pad = tk_pad(.M, .None),
+                radius = tk_rad(.Control),
                 cursor = item.enabled ? .Pointer : .Not_Allowed,
             },
             hover = {bg = item.enabled ? thor.theme.buttons : nil},

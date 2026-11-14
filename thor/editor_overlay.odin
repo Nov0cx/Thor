@@ -13,17 +13,6 @@ import "../markdown"
 import "../render"
 import ui "../vendor/loom/loom"
 
-// Padding inside a card, and the gap between a card and the line it points at.
-@(private = "file")
-CARD_PAD_X :: f32(8)
-@(private = "file")
-CARD_PAD_Y :: f32(4)
-@(private = "file")
-CARD_GAP :: f32(4)
-
-// Left inset of a candidate's text inside the completion box.
-@(private = "file")
-COMPLETION_TEXT_X :: f32(8)
 
 // Dot size as a fraction of the character height, and the alpha the markers are
 // drawn at, so indentation reads as texture and not as text.
@@ -240,9 +229,9 @@ thor_completion_card :: proc(thor: ^Thor, editor: ^editview.Editor) {
             w = ui.Px(box.w),
             h = ui.Px(box.h),
             bg = thor.theme.second_background,
-            radius = ui.rad(6),
+            radius = tk_rad(.Popup),
             border = {width = ui.all(1), color = thor.theme.border},
-            shadow = {offset = {0, 4}, blur = 16, color = thor.theme.contrast},
+            shadow = tk_shadow(thor, .Popup),
         },
     })
 
@@ -263,7 +252,7 @@ thor_completion_card :: proc(thor: ^Thor, editor: ^editview.Editor) {
                 text = candidate.text,
                 props = {
                     position = .Absolute,
-                    inset = {COMPLETION_TEXT_X, y, 0, 0},
+                    inset = {tk_sp(.M), y, 0, 0},
                     w = ui.FIT,
                     h = ui.Px(row_h),
                     color = color,
@@ -274,7 +263,7 @@ thor_completion_card :: proc(thor: ^Thor, editor: ^editview.Editor) {
             },
         )
         if candidate.note != "" {
-            note_x := COMPLETION_TEXT_X + f32(font.measure(candidate.text, editor.font_size, "")) + 12
+            note_x := tk_sp(.M) + f32(font.measure(candidate.text, editor.font_size, "")) + 12
             ui.leaf(
                 {
                     key = "note",
@@ -324,8 +313,8 @@ thor_completion_doc_card :: proc(thor: ^Thor, editor: ^editview.Editor) {
         return
     }
 
-    width := min(COMPLETION_DOC_WIDTH, editor.view.w * 0.5)
-    avail := width - CARD_PAD_X * 2
+    width := min(tk(COMPLETION_DOC_WIDTH), editor.view.w * 0.5)
+    avail := width - tk_sp(.M) * 2
     if avail < 80 {
         return
     }
@@ -333,11 +322,11 @@ thor_completion_doc_card :: proc(thor: ^Thor, editor: ^editview.Editor) {
     thor_markdown_set_source(view, source, 0, nil)
     thor_markdown_ensure(thor, view, avail, thor_markdown_base(thor))
     content := max(view.page.content_height - markdown.PAD_TOP - markdown.PAD_BOTTOM, 0)
-    height  := min(content + CARD_PAD_Y * 2, editor.view.h)
+    height  := min(content + tk_sp(.XS) * 2, editor.view.h)
 
-    x := box.x + box.w + CARD_GAP
+    x := box.x + box.w + tk_sp(.XS)
     if x + width > editor.view.x + editor.view.w {
-        x = box.x - width - CARD_GAP
+        x = box.x - width - tk_sp(.XS)
     }
     x = max(x, editor.view.x)
     y := max(min(box.y, editor.view.y + editor.view.h - height), editor.view.y)
@@ -352,14 +341,14 @@ thor_completion_doc_card :: proc(thor: ^Thor, editor: ^editview.Editor) {
                 w = ui.Px(width),
                 h = ui.Px(height),
                 bg = thor.theme.second_background,
-                radius = ui.rad(6),
+                radius = tk_rad(.Popup),
                 border = {width = ui.all(1), color = thor.theme.border},
-                shadow = {offset = {0, 4}, blur = 16, color = thor.theme.contrast},
+                shadow = tk_shadow(thor, .Popup),
             },
         },
     )
     view.hovered = -1
-    thor_markdown_draw(thor, view, {x, y, width, height}, CARD_PAD_X, CARD_PAD_Y - markdown.PAD_TOP, false)
+    thor_markdown_draw(thor, view, {x, y, width, height}, tk_sp(.M), tk_sp(.XS) - markdown.PAD_TOP, false)
 }
 
 // What a dwell resolved, over the symbol it describes. A diagnostic tints the
@@ -410,16 +399,16 @@ thor_editor_card :: proc(thor: ^Thor, editor: ^editview.Editor, key, text: strin
     // A word wider than the wrap budget keeps its own line, and a pane too narrow
     // to wrap in leaves the text whole, so the box is capped at the pane and the
     // node clips what does not fit rather than hanging over the explorer.
-    width  := min(text_w + CARD_PAD_X * 2, editor.view.w)
-    height := f32(lines) * line_h + CARD_PAD_Y * 2
+    width  := min(text_w + tk_sp(.M) * 2, editor.view.w)
+    height := f32(lines) * line_h + tk_sp(.XS) * 2
 
     box_x := x
-    box_y := y - height - CARD_GAP
+    box_y := y - height - tk_sp(.XS)
     if box_y < editor.view.y {
-        box_y = y + line_h + CARD_GAP // flip below the line
+        box_y = y + line_h + tk_sp(.XS) // flip below the line
     }
     if box_x + width > editor.view.x + editor.view.w {
-        box_x = editor.view.x + editor.view.w - width - CARD_GAP
+        box_x = editor.view.x + editor.view.w - width - tk_sp(.XS)
     }
     box_x = max(box_x, editor.view.x)
     thor_card_draw(thor, editor, key, text, {box_x, box_y, width, height}, line_h, border)
@@ -439,11 +428,11 @@ thor_card_draw :: proc(thor: ^Thor, editor: ^editview.Editor, key, text: string,
                 w = ui.Px(width),
                 h = ui.Px(height),
                 dir = .Column,
-                pad = ui.xy(CARD_PAD_X, CARD_PAD_Y),
+                pad = ui.xy(tk_sp(.M), tk_sp(.XS)),
                 bg = thor.theme.second_background,
-                radius = ui.rad(6),
+                radius = tk_rad(.Popup),
                 border = {width = ui.all(1), color = border},
-                shadow = {offset = {0, 4}, blur = 16, color = thor.theme.contrast},
+                shadow = tk_shadow(thor, .Popup),
             },
         },
     )

@@ -11,7 +11,6 @@ import ui "../vendor/loom/loom"
 
 THEME_EDITOR_WIDTH  :: f32(920)
 THEME_EDITOR_HEIGHT :: f32(660)
-THEME_EDITOR_ROW_H  :: f32(34)
 THEME_PREVIEW_WIDTH :: f32(380)
 
 // WCAG contrast a text role needs against the background, and the floor under
@@ -140,7 +139,7 @@ thor_theme_editor_view :: proc(thor: ^Thor) {
                 justify = .Center,
                 align = .Center,
                 z = 440,
-                bg = ui.Color{0, 0, 0, 140},
+                bg = tk_scrim(.Modal),
             },
         },
     )
@@ -230,15 +229,15 @@ theme_editor_box :: proc(thor: ^Thor) {
             key = "theme-box",
             flags = {.Clickable},
             props = {
-                w = ui.Px(THEME_EDITOR_WIDTH),
-                max_w = ui.viewport().x - 40,
-                h = ui.Px(THEME_EDITOR_HEIGHT),
-                max_h = ui.viewport().y - 40,
+                w = ui.Px(tk(THEME_EDITOR_WIDTH)),
+                max_w = ui.viewport().x - 2 * TK_MODAL_MARGIN,
+                h = ui.Px(tk(THEME_EDITOR_HEIGHT)),
+                max_h = ui.viewport().y - 2 * TK_MODAL_MARGIN,
                 dir = .Column,
                 bg = thor.theme.background,
-                radius = ui.rad(10),
+                radius = tk_rad(.Modal),
                 border = {width = ui.all(1), color = thor.theme.border},
-                shadow = {offset = {0, 8}, blur = 32, color = thor.theme.contrast},
+                shadow = tk_shadow(thor, .Modal),
             },
         },
     )
@@ -254,12 +253,12 @@ theme_editor_box :: proc(thor: ^Thor) {
                     flags = {.Clip, .Scroll_Y},
                     props = {
                         position = .Relative,
-                        w = ui.Px(THEME_PREVIEW_WIDTH),
-                        min_w = THEME_PREVIEW_WIDTH,
+                        w = ui.Px(tk(THEME_PREVIEW_WIDTH)),
+                        min_w = tk(THEME_PREVIEW_WIDTH),
                         h = ui.Grow(1),
                         dir = .Column,
-                        gap = {0, 8},
-                        pad = ui.all(12),
+                        gap = tk_gap(.None, .M),
+                        pad = tk_pad_all(.L),
                     },
                 },
             )
@@ -293,8 +292,8 @@ theme_editor_header :: proc(thor: ^Thor) {
                 h = ui.FIT,
                 dir = .Row,
                 align = .Center,
-                gap = {10, 0},
-                pad = ui.xy(14, 10),
+                gap = tk_gap(.M, .None),
+                pad = tk_pad(.XL, .M),
                 bg = thor.theme.second_background,
                 radius = {10, 10, 0, 0},
             },
@@ -309,12 +308,12 @@ theme_editor_header :: proc(thor: ^Thor) {
             flags = {.Clickable},
             props = {
                 w = ui.FIT,
-                h = ui.Px(28),
+                h = ui.Px(tk_h(.Control)),
                 dir = .Row,
                 align = .Center,
-                gap = {6, 0},
-                pad = ui.xy(10, 0),
-                radius = ui.rad(6),
+                gap = tk_gap(.S, .None),
+                pad = tk_pad(.M, .None),
+                radius = tk_rad(.Popup),
                 bg = thor.theme.buttons,
                 cursor = .Pointer,
             },
@@ -343,7 +342,7 @@ theme_editor_header :: proc(thor: ^Thor) {
     }
     dirty := e.generated || (!thor.select_open && thor_theme_dirty(thor))
     if dirty {
-        ui.leaf({key = "dot", props = {w = ui.Px(8), h = ui.Px(8), radius = ui.rad(4), bg = thor.theme.warning_color}})
+        ui.leaf({key = "dot", props = {w = ui.Px(tk(8)), h = ui.Px(tk(8)), radius = tk_rad(.Control), bg = thor.theme.warning_color}})
     }
     ui.label(state, {key = "state", props = {w = ui.Grow(1), color = thor.theme.muted_color, text_wrap = .Ellipsis}})
 
@@ -351,7 +350,7 @@ theme_editor_header :: proc(thor: ^Thor) {
         {
             key = "close",
             flags = {.Clickable},
-            props = {w = ui.Px(26), h = ui.Px(26), dir = .Row, justify = .Center, align = .Center, radius = ui.rad(4), cursor = .Pointer},
+            props = {w = ui.Px(tk(26)), h = ui.Px(tk_h(.Row)), dir = .Row, justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
             hover = {bg = thor.theme.buttons},
         },
     )
@@ -376,8 +375,8 @@ theme_editor_toolbar :: proc(thor: ^Thor) {
                 h = ui.FIT,
                 dir = .Row,
                 align = .Center,
-                gap = {6, 0},
-                pad = ui.xy(12, 8),
+                gap = tk_gap(.S, .None),
+                pad = tk_pad(.L, .M),
                 border = {width = {b = 1}, color = thor.theme.border},
             },
         },
@@ -427,11 +426,11 @@ theme_tab :: proc(thor: ^Thor, key, label: string, active: bool) -> bool {
             flags = {.Clickable},
             props = {
                 w = ui.FIT,
-                h = ui.Px(28),
+                h = ui.Px(tk_h(.Control)),
                 dir = .Row,
                 align = .Center,
-                pad = ui.xy(12, 0),
-                radius = ui.rad(6),
+                pad = tk_pad(.L, .None),
+                radius = tk_rad(.Popup),
                 bg = active ? thor.theme.active : {},
                 cursor = .Pointer,
             },
@@ -458,12 +457,12 @@ theme_button :: proc(thor: ^Thor, key, icon, label: string, enabled, primary: bo
             flags = enabled ? {.Clickable} : {},
             props = {
                 w = ui.FIT,
-                h = ui.Px(28),
+                h = ui.Px(tk_h(.Control)),
                 dir = .Row,
                 align = .Center,
-                gap = {6, 0},
+                gap = tk_gap(.S, .None),
                 pad = ui.xy(label == "" ? 7 : 12, 0),
-                radius = ui.rad(6),
+                radius = tk_rad(.Popup),
                 bg = bg,
                 cursor = enabled ? .Pointer : .Default,
             },
@@ -488,7 +487,12 @@ theme_editor_colors :: proc(thor: ^Thor) {
 
     ui.scope({key = "colors", props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column}})
     {
-        ui.scope({key = "filter-row", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {8, 0}, pad = {l = 12, r = 12, t = 10, b = 6}}})
+        ui.scope(
+            {
+                key = "filter-row",
+                props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.M, .None), pad = {l = 12, r = 12, t = 10, b = 6}},
+            },
+        )
         thor_icon_label(thor, "search", thor.theme.muted_color, size = 15)
         it := ui.input(
             &e.filter,
@@ -498,7 +502,7 @@ theme_editor_colors :: proc(thor: ^Thor) {
                     w = ui.Grow(1),
                     bg = thor.theme.contrast,
                     color = thor.theme.foreground,
-                    radius = ui.rad(6),
+                    radius = tk_rad(.Popup),
                     border = {width = ui.all(1), color = thor.theme.border},
                 },
             },
@@ -515,7 +519,7 @@ theme_editor_colors :: proc(thor: ^Thor) {
         {
             key = "list",
             flags = {.Clip, .Scroll_Y},
-            props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), dir = .Column, pad = ui.xy(10, 4), gap = {0, 2}},
+            props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), dir = .Column, pad = tk_pad(.M, .XS), gap = tk_gap(.None, .XXS)},
         },
     )
     filtering := len(e.filter) > 0
@@ -550,7 +554,7 @@ theme_editor_colors :: proc(thor: ^Thor) {
         ui.pop_id()
     }
     if filtering && shown == 0 {
-        ui.label("No role matches the filter", {key = "empty", props = {color = thor.theme.muted_color, pad = ui.all(12)}})
+        ui.label("No role matches the filter", {key = "empty", props = {color = thor.theme.muted_color, pad = tk_pad_all(.L)}})
     }
 }
 
@@ -564,13 +568,13 @@ theme_group_row :: proc(thor: ^Thor, group: theme.Color_Group, count, changed: i
             flags = {.Clickable},
             props = {
                 w = ui.Grow(1),
-                h = ui.Px(30),
+                h = ui.Px(tk_h(.Row_Picker)),
                 dir = .Row,
                 align = .Center,
-                gap = {8, 0},
-                pad = ui.xy(6, 0),
+                gap = tk_gap(.M, .None),
+                pad = tk_pad(.S, .None),
                 margin = {t = 6},
-                radius = ui.rad(6),
+                radius = tk_rad(.Popup),
                 cursor = .Pointer,
             },
             hover = {bg = thor.theme.second_background},
@@ -604,31 +608,42 @@ theme_color_row :: proc(thor: ^Thor, index: int) {
             flags = {.Clickable},
             props = {
                 w = ui.Grow(1),
-                h = ui.Px(THEME_EDITOR_ROW_H),
+                h = ui.Px(tk_h(.Row_Form)),
                 dir = .Row,
                 align = .Center,
-                gap = {10, 0},
+                gap = tk_gap(.M, .None),
                 pad = {l = 26, r = 8},
-                radius = ui.rad(6),
+                radius = tk_rad(.Popup),
                 bg = selected ? thor.theme.active : {},
                 cursor = .Pointer,
             },
             hover = {bg = selected ? thor.theme.active : thor.theme.second_background},
         },
     )
-    ui.leaf({key = "swatch", props = {w = ui.Px(30), h = ui.Px(20), radius = ui.rad(4), bg = color, border = {width = ui.all(1), color = thor.theme.border}}})
+    ui.leaf(
+        {
+            key = "swatch",
+            props = {
+                w = ui.Px(tk(30)),
+                h = ui.Px(tk_h(.Row_Compact)),
+                radius = tk_rad(.Control),
+                bg = color,
+                border = {width = ui.all(1), color = thor.theme.border},
+            },
+        },
+    )
     ui.label(entry.key, {key = "label", props = {color = thor.theme.foreground, text_wrap = .None}})
     ui.label(entry.role, {key = "role", props = {w = ui.Grow(1), color = thor.theme.disabled, text_wrap = .Ellipsis}})
     if entry.group != .Surfaces {
         theme_contrast_badge(thor, color, thor.theme.background)
     }
-    ui.label(theme.to_hex(color), {key = "hex", props = {w = ui.Px(86), color = thor.theme.muted_color, text_wrap = .None}})
+    ui.label(theme.to_hex(color), {key = "hex", props = {w = ui.Px(tk(86)), color = thor.theme.muted_color, text_wrap = .None}})
     if changed {
         reset := ui.begin(
             {
                 key = "reset",
                 flags = {.Clickable},
-                props = {w = ui.Px(24), h = ui.Px(24), dir = .Row, justify = .Center, align = .Center, radius = ui.rad(4), cursor = .Pointer},
+                props = {w = ui.Px(tk(24)), h = ui.Px(tk_h(.Row)), dir = .Row, justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
                 hover = {bg = thor.theme.buttons},
             },
         )
@@ -644,7 +659,7 @@ theme_color_row :: proc(thor: ^Thor, index: int) {
             thor_theme_reset_color(thor, index)
         }
     } else {
-        ui.spacer(ui.Px(24), {key = "reset-gap", props = {h = ui.Px(24)}})
+        ui.spacer(ui.Px(24), {key = "reset-gap", props = {h = ui.Px(tk_h(.Row))}})
     }
     ui.end()
     thor_tip(thor, it.id, entry.hint)
@@ -674,7 +689,7 @@ theme_contrast_badge :: proc(thor: ^Thor, fg, bg: ui.Color) {
     }
     it := ui.label(
         fmt.tprintf("%.1f:1", ratio),
-        {key = "contrast", props = {color = color, text_wrap = .None, pad = ui.xy(6, 2), radius = ui.rad(4), bg = thor.theme.second_background}},
+        {key = "contrast", props = {color = color, text_wrap = .None, pad = tk_pad(.S, .XXS), radius = tk_rad(.Control), bg = thor.theme.second_background}},
     )
     thor_tip(thor, it.id, tip)
 }
@@ -685,7 +700,7 @@ theme_editor_generate :: proc(thor: ^Thor) {
         {
             key = "generate",
             flags = {.Clip, .Scroll_Y},
-            props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), dir = .Column, gap = {0, 12}, pad = ui.all(16)},
+            props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), dir = .Column, gap = tk_gap(.None, .L), pad = tk_pad_all(.XL)},
         },
     )
     ui.label(
@@ -695,7 +710,7 @@ theme_editor_generate :: proc(thor: ^Thor) {
 
     ui.label("Mode", {key = "mode-title", props = {color = thor.theme.foreground}})
     {
-        ui.scope({key = "mode", props = {w = ui.FIT, h = ui.FIT, dir = .Row, gap = {6, 0}}})
+        ui.scope({key = "mode", props = {w = ui.FIT, h = ui.FIT, dir = .Row, gap = tk_gap(.S, .None)}})
         if theme_tab(thor, "dark", "Dark", thor.theme_seed_dark) {
             thor_theme_set_mode(thor, true)
         }
@@ -713,7 +728,7 @@ theme_editor_generate :: proc(thor: ^Thor) {
     }
 
     {
-        ui.scope({key = "actions", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = {8, 0}, margin = {t = 8}}})
+        ui.scope({key = "actions", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = tk_gap(.M, .None), margin = {t = 8}}})
         if theme_button(thor, "from-current", "refresh", "Seeds From Current Theme", true, false, "Take the seeds from the theme on screen", "") {
             thor_reset_theme_seeds(thor)
             thor_theme_generate_refresh(thor)
@@ -733,19 +748,30 @@ theme_seed_row :: proc(thor: ^Thor, key, label: string, color: ui.Color) -> bool
             flags = {.Clickable},
             props = {
                 w = ui.Grow(1),
-                h = ui.Px(THEME_EDITOR_ROW_H),
+                h = ui.Px(tk_h(.Row_Form)),
                 dir = .Row,
                 align = .Center,
-                gap = {10, 0},
-                pad = ui.xy(8, 0),
-                radius = ui.rad(6),
+                gap = tk_gap(.M, .None),
+                pad = tk_pad(.M, .None),
+                radius = tk_rad(.Popup),
                 bg = thor.theme.second_background,
                 cursor = .Pointer,
             },
             hover = {bg = thor.theme.active},
         },
     )
-    ui.leaf({key = "swatch", props = {w = ui.Px(30), h = ui.Px(20), radius = ui.rad(4), bg = color, border = {width = ui.all(1), color = thor.theme.border}}})
+    ui.leaf(
+        {
+            key = "swatch",
+            props = {
+                w = ui.Px(tk(30)),
+                h = ui.Px(tk_h(.Row_Compact)),
+                radius = tk_rad(.Control),
+                bg = color,
+                border = {width = ui.all(1), color = thor.theme.border},
+            },
+        },
+    )
     ui.label(label, {key = "label", props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .None}})
     ui.label(theme.to_hex(color), {key = "hex", props = {color = thor.theme.muted_color, text_wrap = .None}})
     ui.end()
@@ -763,8 +789,8 @@ theme_editor_footer :: proc(thor: ^Thor) {
                 h = ui.FIT,
                 dir = .Row,
                 align = .Center,
-                gap = {12, 0},
-                pad = ui.xy(14, 8),
+                gap = tk_gap(.L, .None),
+                pad = tk_pad(.XL, .M),
                 bg = thor.theme.second_background,
                 radius = {0, 0, 10, 10},
                 border = {width = {t = 1}, color = thor.theme.border},
@@ -838,7 +864,7 @@ theme_preview :: proc(thor: ^Thor, p: ^theme.Theme) {
         {
             key = "mock",
             flags = {.Clip},
-            props = {w = ui.Grow(1), h = ui.FIT, dir = .Column, radius = ui.rad(8), bg = p.background, border = {width = ui.all(1), color = p.border}},
+            props = {w = ui.Grow(1), h = ui.FIT, dir = .Column, radius = tk_rad(.Card), bg = p.background, border = {width = ui.all(1), color = p.border}},
         },
     )
 
@@ -848,7 +874,7 @@ theme_preview :: proc(thor: ^Thor, p: ^theme.Theme) {
             {
                 key = "tabs",
                 flags = {.Clickable},
-                props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = {2, 0}, pad = {l = 6, t = 6}, bg = p.contrast, radius = {8, 8, 0, 0}},
+                props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = tk_gap(.XXS, .None), pad = {l = 6, t = 6}, bg = p.contrast, radius = {8, 8, 0, 0}},
             },
         )
         preview_part(thor, "tab-active", "main.odin", p.foreground, p.background, "background", pad = 12, top_radius = true)
@@ -861,7 +887,7 @@ theme_preview :: proc(thor: ^Thor, p: ^theme.Theme) {
 
     // Code.
     {
-        code := ui.begin({key = "code", flags = {.Clickable}, props = {w = ui.Grow(1), h = ui.FIT, dir = .Column, pad = ui.xy(0, 6), bg = p.background}})
+        code := ui.begin({key = "code", flags = {.Clickable}, props = {w = ui.Grow(1), h = ui.FIT, dir = .Column, pad = tk_pad(.None, .S), bg = p.background}})
         for line, n in PREVIEW_CODE {
             ui.push_id_int(i64(n))
             current := n == PREVIEW_CURRENT_LINE
@@ -905,7 +931,7 @@ theme_preview :: proc(thor: ^Thor, p: ^theme.Theme) {
                     w = ui.Grow(1),
                     h = ui.FIT,
                     dir = .Column,
-                    pad = ui.xy(10, 4),
+                    pad = tk_pad(.M, .XS),
                     gap = {0, 1},
                     bg = p.second_background,
                     border = {width = {t = 1, b = 1}, color = p.border},
@@ -914,16 +940,16 @@ theme_preview :: proc(thor: ^Thor, p: ^theme.Theme) {
         )
         preview_part(thor, "folder", "src", p.foreground, {}, "foreground")
         {
-            ui.scope({key = "files", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = {8, 0}, pad = {l = 6}}})
+            ui.scope({key = "files", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = tk_gap(.M, .None), pad = {l = 6}}})
             preview_part(thor, "guide", "", {}, p.tree, "tree", w = 2, grow_h = true)
             {
-                ui.scope({key = "names", props = {w = ui.Grow(1), h = ui.FIT, dir = .Column, gap = {0, 2}}})
+                ui.scope({key = "names", props = {w = ui.Grow(1), h = ui.FIT, dir = .Column, gap = tk_gap(.None, .XXS)}})
                 preview_part(thor, "file", "main.odin", p.primary_text_color, {}, "primary_text")
                 preview_part(thor, "changed", "util.odin  M", p.warning_color, {}, "warning")
             }
         }
         {
-            ui.scope({key = "more", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = {14, 0}}})
+            ui.scope({key = "more", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = tk_gap(.XL, .None)}})
             preview_part(thor, "submodule", "vendor  S", p.submodule_color, {}, "submodule")
             preview_part(thor, "ignored", "build", p.excluded_files_color, {}, "excluded_files")
         }
@@ -935,14 +961,14 @@ theme_preview :: proc(thor: ^Thor, p: ^theme.Theme) {
 
     // Status chips and text.
     {
-        ui.scope({key = "chips", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = {6, 0}, pad = {l = 10, r = 10, t = 8}}})
+        ui.scope({key = "chips", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = tk_gap(.S, .None), pad = {l = 10, r = 10, t = 8}}})
         preview_chip(thor, "info", "Info", p.info_color, "info")
         preview_chip(thor, "error", "1 error", p.error_color, "error")
         preview_chip(thor, "conflict", "Conflict", p.conflict_color, "conflict")
         preview_chip(thor, "success", "Passed", p.success_color, "success")
     }
     {
-        ui.scope({key = "texts", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = {12, 0}, pad = ui.xy(10, 8)}})
+        ui.scope({key = "texts", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = tk_gap(.L, .None), pad = tk_pad(.M, .M)}})
         preview_part(thor, "body", "Text", p.text, {}, "text")
         preview_part(thor, "muted", "3 matches", p.muted_color, {}, "muted")
         preview_part(thor, "link", "docs", p.links_color, {}, "links")
@@ -960,9 +986,9 @@ theme_preview :: proc(thor: ^Thor, p: ^theme.Theme) {
                     w = ui.Grow(1),
                     h = ui.FIT,
                     dir = .Row,
-                    gap = {6, 0},
+                    gap = tk_gap(.S, .None),
                     align = .Center,
-                    pad = ui.xy(10, 8),
+                    pad = tk_pad(.M, .M),
                     border = {width = {t = 1}, color = p.border},
                 },
             },
@@ -997,7 +1023,7 @@ preview_part :: proc(
         text_wrap = .None,
         cursor = .Pointer,
         pad = ui.xy(pad, pad > 0 ? 4 : 0),
-        radius = top_radius ? {6, 6, 0, 0} : ui.rad(bg != {} ? 4 : 0),
+        radius = top_radius ? {tk_rad_px(.Popup), tk_rad_px(.Popup), 0, 0} : (bg != {} ? tk_rad(.Control) : {}),
         text_align = align_end ? .End : .Start,
     }
     if w > 0 {

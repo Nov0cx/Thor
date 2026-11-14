@@ -9,8 +9,7 @@ import ui "../vendor/loom/loom"
 
 Permission_Dialog_Proc :: #type proc(data: rawptr)
 
-PERMISSION_WIDTH    :: f32(520)
-PERMISSION_ROW_H    :: f32(46)
+PERMISSION_WIDTH    :: TK_W_FORM
 PERMISSION_MAX_ROWS :: 8
 
 @(private = "file")
@@ -112,7 +111,7 @@ thor_permission_view :: proc(thor: ^Thor) {
                 justify = .Center,
                 align = .Center,
                 z = 480,
-                bg = ui.Color{0, 0, 0, 150},
+                bg = tk_scrim(.Card),
             },
         },
     )
@@ -135,16 +134,16 @@ permission_box :: proc(thor: ^Thor) {
             key = "perm-box",
             flags = {.Clickable, .Focusable},
             props = {
-                w = ui.Px(PERMISSION_WIDTH),
-                max_w = ui.viewport().x - 60,
+                w = ui.Px(tk(PERMISSION_WIDTH)),
+                max_w = ui.viewport().x - 2 * TK_MODAL_MARGIN,
                 h = ui.FIT,
                 dir = .Column,
-                gap = {0, 8},
-                pad = ui.all(16),
+                gap = tk_gap(.None, .M),
+                pad = tk_pad_all(.XL),
                 bg = thor.theme.second_background,
-                radius = ui.rad(8),
+                radius = tk_rad(.Card),
                 border = {width = ui.all(1), color = thor.theme.border},
-                shadow = {offset = {0, 6}, blur = 24, color = thor.theme.contrast},
+                shadow = tk_shadow(thor, .Card),
             },
         },
     )
@@ -163,9 +162,9 @@ permission_box :: proc(thor: ^Thor) {
                 props = {
                     position = .Relative,
                     w = ui.Grow(1),
-                    h = ui.Px(min(f32(len(d.items)), PERMISSION_MAX_ROWS) * PERMISSION_ROW_H),
+                    h = ui.Px(min(f32(len(d.items)), PERMISSION_MAX_ROWS) * tk_h(.Row_Two_Line)),
                     dir = .Column,
-                    gap = {0, 4},
+                    gap = tk_gap(.None, .XS),
                 },
             },
         )
@@ -179,7 +178,7 @@ permission_box :: proc(thor: ^Thor) {
     ui.label(d.note, {key = "note", props = {color = thor.theme.disabled, text_wrap = .Words}})
 
     {
-        ui.scope({key = "buttons", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, justify = .End, gap = {8, 0}}})
+        ui.scope({key = "buttons", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, justify = .End, gap = tk_gap(.M, .None)}})
         if permission_button(thor, "cancel", "Cancel", thor.theme.muted_color) {
             permission_answer(thor, false)
             return
@@ -197,11 +196,11 @@ permission_row :: proc(thor: ^Thor, item: Permission_Item) {
             key = "row",
             props = {
                 w = ui.Grow(1),
-                h = ui.Px(PERMISSION_ROW_H),
+                h = ui.Px(tk_h(.Row_Two_Line)),
                 dir = .Column,
                 justify = .Center,
-                pad = ui.xy(10, 0),
-                radius = ui.rad(6),
+                pad = tk_pad(.M, .None),
+                radius = tk_rad(.Popup),
                 bg = thor.theme.background,
             },
         },
@@ -217,12 +216,12 @@ permission_button :: proc(thor: ^Thor, key, label: string, color: ui.Color) -> b
             key = key,
             flags = {.Clickable},
             props = {
-                w = ui.Px(96),
-                h = ui.Px(30),
+                w = ui.Px(tk(96)),
+                h = ui.Px(tk_h(.Row_Picker)),
                 dir = .Row,
                 justify = .Center,
                 align = .Center,
-                radius = ui.rad(6),
+                radius = tk_rad(.Popup),
                 bg = thor.theme.buttons,
                 border = {width = ui.all(1), color = color},
                 cursor = .Pointer,

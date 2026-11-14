@@ -19,8 +19,6 @@ ZOOM_MAX :: f32(40)
 @(private = "file")
 CHECKER_SIZE :: f32(16)
 
-@(private = "file")
-INFO_PAD :: f32(10)
 
 // User zoom on top of the fit-to-view base scale, and the pan offset of the
 // image centre from the pane centre. Reset when the file changes.
@@ -138,7 +136,12 @@ thor_image_info :: proc(thor: ^Thor, file: ^Open_File, scale: f32) {
         text,
         {
             key = "image-info",
-            props = {position = .Absolute, inset = {l = INFO_PAD, b = INFO_PAD}, color = thor.theme.foreground, font_size = f32(thor.config.general.font_size)},
+            props = {
+                position = .Absolute,
+                inset = {l = tk_sp(.M), b = tk_sp(.M)},
+                color = thor.theme.foreground,
+                font_size = f32(thor.config.general.font_size),
+            },
         },
     )
 }

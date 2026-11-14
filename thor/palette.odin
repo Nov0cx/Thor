@@ -65,18 +65,14 @@ Palette_Match :: struct {
     score: int,
 }
 
-PALETTE_WIDTH       :: f32(720)
-PALETTE_ROW_H       :: f32(30)
-PALETTE_INPUT_H     :: f32(44)
-PALETTE_MAX_ROWS    :: 10
-PALETTE_THUMB_W     :: f32(4)
-PALETTE_INDENT_W    :: f32(14)
-// Row width the text does not get: the padding, the file icon and the gap after it.
-PALETTE_ROW_FIXED_W :: f32(2 * 10 + 14 + 8 + 8)
-PALETTE_TOP         :: f32(90)
+PALETTE_WIDTH    :: TK_W_PALETTE
+PALETTE_INPUT_H  :: f32(44)
+PALETTE_MAX_ROWS :: 10
+PALETTE_THUMB_W  :: f32(4)
+PALETTE_TOP      :: f32(90)
 // Matched characters marked in one row. A longer query still filters and scores
 // in full; only the marks past this stop.
-PALETTE_MARK_MAX    :: 64
+PALETTE_MARK_MAX :: 64
 
 Palette :: struct {
     mode:                  Palette_Mode,
@@ -647,16 +643,7 @@ thor_palette_view :: proc(thor: ^Thor) {
         {
             key = "palette-backdrop",
             flags = {.Floating, .Clickable},
-            props = {
-                position = .Fixed,
-                inset = {0, 0, 0, 0},
-                w = ui.Grow(1),
-                h = ui.Grow(1),
-                dir = .Column,
-                align = .Center,
-                z = 460,
-                bg = ui.Color{0, 0, 0, 120},
-            },
+            props = {position = .Fixed, inset = {0, 0, 0, 0}, w = ui.Grow(1), h = ui.Grow(1), dir = .Column, align = .Center, z = 460, bg = tk_scrim(.Card)},
         },
     )
 
@@ -675,17 +662,17 @@ palette_box :: proc(thor: ^Thor) {
             key = "palette-box",
             flags = {.Clickable, .Focusable},
             props = {
-                w = ui.Px(PALETTE_WIDTH),
-                max_w = ui.viewport().x - 80,
+                w = ui.Px(tk(PALETTE_WIDTH)),
+                max_w = ui.viewport().x - 2 * TK_MODAL_MARGIN,
                 h = ui.FIT,
                 dir = .Column,
-                margin = {t = PALETTE_TOP},
-                pad = ui.all(6),
-                gap = {0, 4},
+                margin = {t = tk(PALETTE_TOP)},
+                pad = tk_pad_all(.S),
+                gap = tk_gap(.None, .XS),
                 bg = thor.theme.second_background,
-                radius = ui.rad(8),
+                radius = tk_rad(.Card),
                 border = {width = ui.all(1), color = thor.theme.border},
-                shadow = {offset = {0, 6}, blur = 24, color = thor.theme.contrast},
+                shadow = tk_shadow(thor, .Card),
             },
         },
     )
@@ -695,25 +682,25 @@ palette_box :: proc(thor: ^Thor) {
             ui.set_focus(box.id)
             p.focus_pending = false
         }
-        ui.label(p.prompt_label, {key = "msg", props = {pad = ui.xy(8, 10), color = thor.theme.foreground}})
-        ui.label("Enter to confirm, Escape to cancel", {key = "hint", props = {pad = ui.xy(8, 2), color = thor.theme.muted_color}})
+        ui.label(p.prompt_label, {key = "msg", props = {pad = tk_pad(.M, .M), color = thor.theme.foreground}})
+        ui.label("Enter to confirm, Escape to cancel", {key = "hint", props = {pad = tk_pad(.M, .XXS), color = thor.theme.muted_color}})
     } else {
         // A prefilled prompt hides its placeholder, so the title says what it asks.
         if (p.mode == .Prompt || p.mode == .Pick) && p.prompt_label != "" {
-            ui.label(p.prompt_label, {key = "title", props = {pad = ui.xy(8, 2), color = thor.theme.muted_color, text_wrap = .Ellipsis}})
+            ui.label(p.prompt_label, {key = "title", props = {pad = tk_pad(.M, .XXS), color = thor.theme.muted_color, text_wrap = .Ellipsis}})
         }
-        row := ui.scope({key = "query-row", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {8, 0}}})
+        row := ui.scope({key = "query-row", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.M, .None)}})
         it  := ui.input(
             &p.query,
             {
                 key = "query",
-                props = {w = ui.Grow(1), h = ui.Px(PALETTE_INPUT_H - 12), align = .Center, bg = thor.theme.background, color = thor.theme.foreground},
+                props = {w = ui.Grow(1), h = ui.Px(tk(PALETTE_INPUT_H) - 12), align = .Center, bg = thor.theme.background, color = thor.theme.foreground},
             },
             palette_placeholder(thor, p),
         )
         // How many rows match, since only PALETTE_MAX_ROWS of them show.
         if count := palette_count_label(p); count != "" {
-            ui.label(count, {key = "count", props = {pad = ui.xy(4, 0), color = thor.theme.muted_color, text_wrap = .None}})
+            ui.label(count, {key = "count", props = {pad = tk_pad(.XS, .None), color = thor.theme.muted_color, text_wrap = .None}})
         }
         if p.extras != nil {
             p.extras(thor)
@@ -818,7 +805,7 @@ palette_list :: proc(thor: ^Thor) {
 
     if len(p.matches) == 0 {
         if p.pick_rich && (p.pick_loading || p.pick_hint != "") {
-            ui.label(p.pick_loading ? "Loading" : p.pick_hint, {key = "loading", props = {pad = ui.xy(10, 6), color = thor.theme.muted_color}})
+            ui.label(p.pick_loading ? "Loading" : p.pick_hint, {key = "loading", props = {pad = tk_pad(.M, .S), color = thor.theme.muted_color}})
         }
         return
     }
@@ -844,7 +831,7 @@ palette_list :: proc(thor: ^Thor) {
 
         // A thumb that says how much of the list is shown and where.
         if total > PALETTE_MAX_ROWS {
-            list_h  := f32(PALETTE_MAX_ROWS) * PALETTE_ROW_H
+            list_h  := f32(PALETTE_MAX_ROWS) * tk_h(.Row_Picker)
             thumb_h := max(list_h * f32(PALETTE_MAX_ROWS) / f32(total), 16)
             thumb_y := (list_h - thumb_h) * f32(p.scroll) / f32(total - PALETTE_MAX_ROWS)
             ui.leaf(
@@ -854,9 +841,9 @@ palette_list :: proc(thor: ^Thor) {
                     props = {
                         position = .Absolute,
                         inset = {r = 1, t = thumb_y},
-                        w = ui.Px(PALETTE_THUMB_W),
+                        w = ui.Px(tk(PALETTE_THUMB_W)),
                         h = ui.Px(thumb_h),
-                        radius = ui.rad(PALETTE_THUMB_W / 2),
+                        radius = ui.rad(tk(PALETTE_THUMB_W) / 2),
                         bg = thor.theme.disabled,
                     },
                 },
@@ -868,7 +855,7 @@ palette_list :: proc(thor: ^Thor) {
     if p.mode == .Pick && p.pick_rich && p.selected < len(p.matches) {
         item := p.pick_items[p.matches[p.selected].index]
         if item.detail != "" {
-            ui.label(item.detail, {key = "detail", props = {pad = ui.xy(10, 4), color = thor.theme.muted_color, text_wrap = .Ellipsis}})
+            ui.label(item.detail, {key = "detail", props = {pad = tk_pad(.M, .XS), color = thor.theme.muted_color, text_wrap = .Ellipsis}})
         }
     }
 
@@ -890,12 +877,12 @@ palette_row :: proc(thor: ^Thor, index: int) -> bool {
             flags = {.Clickable},
             props = {
                 w = ui.Grow(1),
-                h = ui.Px(PALETTE_ROW_H),
+                h = ui.Px(tk_h(.Row_Picker)),
                 dir = .Row,
                 align = .Center,
-                gap = {8, 0},
-                pad = ui.xy(10, 0),
-                radius = ui.rad(4),
+                gap = tk_gap(.M, .None),
+                pad = tk_pad(.M, .None),
+                radius = tk_rad(.Control),
                 bg = on ? thor.theme.selection_background : ui.Color{0, 0, 0, 0},
             },
             hover = {bg = thor.theme.buttons},
@@ -922,7 +909,7 @@ palette_row :: proc(thor: ^Thor, index: int) -> bool {
             return it.clicked
         }
         if item.indent {
-            ui.leaf({key = "indent", props = {w = ui.Px(PALETTE_INDENT_W)}})
+            ui.leaf({key = "indent", props = {w = ui.Px(tk_sp(.XL))}})
         }
         spans := palette_split_spans(item.text, item.name_len, item.color, query, mark)
         ui.leaf({key = "text", text = item.text, spans = spans, props = {w = ui.Grow(1), color = thor.theme.muted_color, text_wrap = .Ellipsis}})
@@ -948,7 +935,7 @@ palette_row :: proc(thor: ^Thor, index: int) -> bool {
             // A long folder is cut in the middle, so its last folders stay.
             if it.rect.w > 0 {
                 lead            := name_len + len("  ")
-                avail           := it.rect.w - PALETTE_ROW_FIXED_W - palette_measure(label[:lead])
+                avail           := it.rect.w - palette_row_fixed_w() - palette_measure(label[:lead])
                 head, tail, cut := thor_cut_middle(dir, avail, palette_measure)
                 if cut {
                     dir_cut, cut_lo, cut_hi = true, lead + head, lead + tail
@@ -1233,4 +1220,10 @@ is_separator :: proc(b: u8) -> bool {
         return true
     }
     return false
+}
+
+// Row width the text does not get: the padding, the file icon and the gaps after it.
+@(private = "file")
+palette_row_fixed_w :: proc() -> f32 {
+    return 2 * tk_sp(.M) + tk(14) + 2 * tk_sp(.M)
 }

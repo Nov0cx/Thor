@@ -24,10 +24,8 @@ import "../setting"
 import "../update"
 
 import rl "vendor:raylib"
-// The titlebar button's metrics, matching the task selector beside it.
-@(private = "file")
-UPDATE_BUTTON_PAD_X :: 10
 
+// The titlebar button's metrics, matching the task selector beside it.
 @(private = "file")
 UPDATE_BUTTON_ICON_SIZE :: 16
 

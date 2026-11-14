@@ -11,8 +11,7 @@ import ui "../vendor/loom/loom"
 // selection moves; `commit` applies and persists it on confirm.
 Select_Choice_Proc :: #type proc(data: rawptr, choice: string)
 
-SELECT_WIDTH    :: f32(420)
-SELECT_ROW_H    :: f32(30)
+SELECT_WIDTH    :: TK_W_QUESTION
 SELECT_MAX_ROWS :: 12
 
 Select_Dialog :: struct {
@@ -195,7 +194,7 @@ thor_select_view :: proc(thor: ^Thor) {
                     justify = .Center,
                     align = .Center,
                     z = 450,
-                    bg = ui.Color{0, 0, 0, 120},
+                    bg = tk_scrim(.Card),
                 },
             },
         )
@@ -239,15 +238,15 @@ select_box :: proc(thor: ^Thor) {
             key = "select-box",
             flags = {.Clickable, .Focusable},
             props = {
-                w = ui.Px(SELECT_WIDTH),
-                max_w = ui.viewport().x - 80,
+                w = ui.Px(tk(SELECT_WIDTH)),
+                max_w = ui.viewport().x - 2 * TK_MODAL_MARGIN,
                 h = ui.FIT,
                 dir = .Column,
-                pad = ui.all(6),
+                pad = tk_pad_all(.S),
                 bg = thor.theme.second_background,
-                radius = ui.rad(8),
+                radius = tk_rad(.Card),
                 border = {width = ui.all(1), color = thor.theme.border},
-                shadow = {offset = {0, 6}, blur = 24, color = thor.theme.contrast},
+                shadow = tk_shadow(thor, .Card),
             },
         },
     )
@@ -256,7 +255,7 @@ select_box :: proc(thor: ^Thor) {
         s.focus_pending = false
     }
 
-    ui.label(s.title, {key = "title", props = {pad = ui.xy(10, 10), color = thor.theme.foreground, text_wrap = .None}})
+    ui.label(s.title, {key = "title", props = {pad = tk_pad(.M, .M), color = thor.theme.foreground, text_wrap = .None}})
 
     hovered := -1
     clicked := false
@@ -301,11 +300,11 @@ select_row :: proc(thor: ^Thor, index: int) -> ui.Interaction {
             flags = {.Clickable},
             props = {
                 w = ui.Grow(1),
-                h = ui.Px(SELECT_ROW_H),
+                h = ui.Px(tk_h(.Row_Picker)),
                 dir = .Row,
                 align = .Center,
-                pad = ui.xy(10, 0),
-                radius = ui.rad(4),
+                pad = tk_pad(.M, .None),
+                radius = tk_rad(.Control),
                 bg = on ? thor.theme.selection_background : ui.Color{0, 0, 0, 0},
             },
             hover = {bg = thor.theme.buttons},

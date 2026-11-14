@@ -10,15 +10,11 @@ import "core:strings"
 import "../prof"
 import ui "../vendor/loom/loom"
 
-EXPLORER_ROW_H     :: f32(26)
-EXPLORER_INDENT    :: f32(16)
 // Width of the fold-chevron column, held open on every row.
 EXPLORER_CHEVRON_W :: f32(16)
 EXPLORER_ICON      :: f32(16)
 // Width of the git status letter at the right edge of a file row.
 EXPLORER_STATUS_W  :: f32(12)
-// Gap between the panel edge and the first column of a row.
-EXPLORER_PAD_L     :: f32(6)
 
 Explorer_Node :: struct {
     name:        string, // owned
@@ -482,7 +478,7 @@ thor_explorer_view :: proc(thor: ^Thor) {
     }
 
     if len(rows) == 0 {
-        ui.label("No files", {key = "empty", props = {pad = ui.xy(12, 8), color = thor.theme.disabled}})
+        ui.label("No files", {key = "empty", props = {pad = tk_pad(.L, .M), color = thor.theme.disabled}})
         if panel.right_clicked {
             explorer_right_click_root(thor)
         }
@@ -495,7 +491,7 @@ thor_explorer_view :: proc(thor: ^Thor) {
     released := false
 
     {
-        first, last := ui.virtual(len(rows), EXPLORER_ROW_H)
+        first, last := ui.virtual(len(rows), tk_h(.Row))
         defer ui.end_virtual()
 
         for index in first ..< last {
@@ -552,11 +548,11 @@ explorer_row :: proc(thor: ^Thor, node: ^Explorer_Node, depth: int) -> ui.Intera
             flags = {.Clickable, .Draggable, .Group},
             props = {
                 w = ui.Grow(1),
-                h = ui.Px(EXPLORER_ROW_H),
+                h = ui.Px(tk_h(.Row)),
                 dir = .Row,
                 align = .Center,
-                gap = {4, 0},
-                pad = {l = EXPLORER_PAD_L + f32(depth) * EXPLORER_INDENT, r = 6},
+                gap = tk_gap(.XS, .None),
+                pad = {l = tk_sp(.S) + f32(depth) * tk_sp(.XL), r = 6},
                 bg = on ? thor.theme.selection_background : ui.Color{0, 0, 0, 0},
                 border = {width = ui.all(drop ? 1 : 0), color = thor.theme.accent_color},
                 cursor = .Pointer,
@@ -568,14 +564,17 @@ explorer_row :: proc(thor: ^Thor, node: ^Explorer_Node, depth: int) -> ui.Intera
     // One guide per level above this row, down the middle of that level's chevron
     // column, so a deep row reads back to the folder that holds it.
     for level in 0 ..< depth {
-        x := EXPLORER_PAD_L + f32(level) * EXPLORER_INDENT + EXPLORER_CHEVRON_W * 0.5
-        ui.paint_rect({x, 0, 1, EXPLORER_ROW_H}, thor.theme.tree)
+        x := tk_sp(.S) + f32(level) * tk_sp(.XL) + tk(EXPLORER_CHEVRON_W) * 0.5
+        ui.paint_rect({x, 0, 1, tk_h(.Row)}, thor.theme.tree)
     }
 
     // The chevron column is reserved on a file row as well, so a file icon and a
     // folder icon sit at the same indent.
     ui.begin(
-        {key = "chevron", props = {w = ui.Px(EXPLORER_CHEVRON_W), min_w = EXPLORER_CHEVRON_W, h = ui.Px(EXPLORER_ROW_H), justify = .Center, align = .Center}},
+        {
+            key = "chevron",
+            props = {w = ui.Px(tk(EXPLORER_CHEVRON_W)), min_w = tk(EXPLORER_CHEVRON_W), h = ui.Px(tk_h(.Row)), justify = .Center, align = .Center},
+        },
     )
     if node.is_dir {
         thor_icon_label(thor, node.expanded ? "chevron-down" : "chevron-right", thor.theme.muted_color)
@@ -583,12 +582,12 @@ explorer_row :: proc(thor: ^Thor, node: ^Explorer_Node, depth: int) -> ui.Intera
     ui.end()
 
     if node.is_dir {
-        thor_icon_label(thor, node.expanded ? "folder-open" : "folder", thor.theme.accent_color, key = "folder", min_w = EXPLORER_ICON)
+        thor_icon_label(thor, node.expanded ? "folder-open" : "folder", thor.theme.accent_color, key = "folder", min_w = tk(EXPLORER_ICON))
     } else {
         // The icon carries the language's vendor colour; unknown types keep the
         // neutral one.
         tint := thor_file_icon_tint(node.name, thor.theme.muted_color)
-        thor_icon_label(thor, thor_file_icon(node.name), tint, min_w = EXPLORER_ICON)
+        thor_icon_label(thor, thor_file_icon(node.name), tint, min_w = tk(EXPLORER_ICON))
     }
 
     status := thor_tree_git_status(thor, node.path, node.is_dir)
@@ -606,7 +605,7 @@ explorer_row :: proc(thor: ^Thor, node: ^Explorer_Node, depth: int) -> ui.Intera
     if status != .None && !node.is_dir {
         ui.label(
             git_status_letter(status),
-            {key = "status", props = {w = ui.Px(EXPLORER_STATUS_W), min_w = EXPLORER_STATUS_W, text_align = .End, color = color, text_wrap = .None}},
+            {key = "status", props = {w = ui.Px(tk(EXPLORER_STATUS_W)), min_w = tk(EXPLORER_STATUS_W), text_align = .End, color = color, text_wrap = .None}},
         )
     }
 

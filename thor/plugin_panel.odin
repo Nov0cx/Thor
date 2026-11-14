@@ -51,10 +51,6 @@ Plugin_Panel_Canvas :: struct {
     action: int,
 }
 
-// Font size a canvas draws and measures text at.
-@(private = "file")
-PLUGIN_CANVAS_FONT_SIZE :: 14
-
 PLUGIN_DOCK_RIGHT_W  :: f32(280)
 PLUGIN_DOCK_BOTTOM_H :: f32(200)
 
@@ -217,8 +213,8 @@ thor_plugin_dock_view :: proc(thor: ^Thor, dock: Plugin_Dock) {
         {
             key = dock == .Right ? "plugin-dock-right" : "plugin-dock-bottom",
             props = {
-                w = dock == .Right ? ui.Px(PLUGIN_DOCK_RIGHT_W) : ui.Grow(1),
-                h = dock == .Right ? ui.Grow(1) : ui.Px(PLUGIN_DOCK_BOTTOM_H),
+                w = dock == .Right ? ui.Px(tk(PLUGIN_DOCK_RIGHT_W)) : ui.Grow(1),
+                h = dock == .Right ? ui.Grow(1) : ui.Px(tk(PLUGIN_DOCK_BOTTOM_H)),
                 dir = .Column,
                 gap = {0, 1},
                 bg = thor.theme.border,
@@ -252,18 +248,37 @@ thor_plugin_dock_view :: proc(thor: ^Thor, dock: Plugin_Dock) {
 
 @(private = "file")
 plugin_panel_view :: proc(thor: ^Thor, p: ^Plugin_Panel) {
-    ui.scope({key = "panel", props = {w = ui.Grow(1), h = ui.Grow(1), min_h = 80, dir = .Column, bg = thor.theme.second_background}})
+    ui.scope({key = "panel", props = {w = ui.Grow(1), h = ui.Grow(1), min_h = tk(80), dir = .Column, bg = thor.theme.second_background}})
 
     {
         ui.scope(
-            {key = "header", props = {w = ui.Grow(1), h = ui.Px(32), dir = .Row, align = .Center, gap = {8, 0}, pad = ui.xy(10, 0), bg = thor.theme.highlight}},
+            {
+                key = "header",
+                props = {
+                    w = ui.Grow(1),
+                    h = ui.Px(tk(32)),
+                    dir = .Row,
+                    align = .Center,
+                    gap = tk_gap(.M, .None),
+                    pad = tk_pad(.M, .None),
+                    bg = thor.theme.highlight,
+                },
+            },
         )
         ui.label(p.title, {key = "title", props = {w = ui.Grow(1), color = thor.theme.primary_text_color, text_wrap = .Ellipsis}})
         close := ui.scope(
             {
                 key = "close",
                 flags = {.Clickable},
-                props = {w = ui.Px(24), h = ui.Px(20), dir = .Row, justify = .Center, align = .Center, radius = ui.rad(4), cursor = .Pointer},
+                props = {
+                    w = ui.Px(tk(24)),
+                    h = ui.Px(tk_h(.Row_Compact)),
+                    dir = .Row,
+                    justify = .Center,
+                    align = .Center,
+                    radius = tk_rad(.Control),
+                    cursor = .Pointer,
+                },
                 hover = {bg = thor.theme.active},
             },
         )
@@ -281,7 +296,15 @@ plugin_panel_view :: proc(thor: ^Thor, p: ^Plugin_Panel) {
         {
             key = "content",
             flags = {.Clip, .Scroll_Y},
-            props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), dir = .Column, gap = {0, 6}, pad = ui.all(8), bg = thor.theme.second_background},
+            props = {
+                position = .Relative,
+                w = ui.Grow(1),
+                h = ui.Grow(1),
+                dir = .Column,
+                gap = tk_gap(.None, .S),
+                pad = tk_pad_all(.M),
+                bg = thor.theme.second_background,
+            },
         },
     )
     plugin_view_nodes(thor, p, p.nodes)
@@ -325,7 +348,7 @@ plugin_view_node :: proc(thor: ^Thor, p: ^Plugin_Panel, node: plugin.View_Node) 
         plugin_view_nodes(thor, p, node.children)
 
     case .List:
-        ui.scope({key = "list", props = {w = ui.Grow(1), h = ui.FIT, dir = .Column, gap = {0, 2}}})
+        ui.scope({key = "list", props = {w = ui.Grow(1), h = ui.FIT, dir = .Column, gap = tk_gap(.None, .XXS)}})
         for item, row in node.items {
             ui.push_id_int(i64(row))
             hit := plugin_view_button(thor, "row", item, thor_plugin_role_color(thor, node.role, thor.theme.foreground), thor.theme.second_background)
@@ -388,11 +411,11 @@ plugin_view_button :: proc(thor: ^Thor, key, text: string, color, fill: ui.Color
             flags = {.Clickable},
             props = {
                 w = ui.Grow(1),
-                h = ui.Px(26),
+                h = ui.Px(tk_h(.Row)),
                 dir = .Row,
                 align = .Center,
-                pad = ui.xy(8, 0),
-                radius = ui.rad(4),
+                pad = tk_pad(.M, .None),
+                radius = tk_rad(.Control),
                 bg = fill,
                 border = {width = ui.all(1), color = thor.theme.border},
                 cursor = .Pointer,
@@ -431,7 +454,7 @@ thor_plugin_draw_rect :: proc(host: rawptr, x, y, w, h: f32, role: string, fill:
 thor_plugin_draw_text :: proc(host: rawptr, x, y: f32, text, role: string) {
     thor  := cast(^Thor)host
     color := thor_plugin_role_color(thor, role, thor.theme.foreground)
-    font.draw(text, i32(x), i32(y), PLUGIN_CANVAS_FONT_SIZE, {color[0], color[1], color[2], color[3]})
+    font.draw(text, i32(x), i32(y), i32(tk_font(thor, .Body)), {color[0], color[1], color[2], color[3]})
 }
 
 // ctx:line inside a canvas draw.
@@ -442,7 +465,9 @@ thor_plugin_draw_line :: proc(host: rawptr, x0, y0, x1, y1, thickness: f32, role
 }
 
 // ctx:measure: the size ctx:text would take.
-thor_plugin_measure_text :: proc(_: rawptr, text: string) -> (f32, f32) {
-    width := font.measure(text, PLUGIN_CANVAS_FONT_SIZE)
-    return f32(width), f32(font.line_height(PLUGIN_CANVAS_FONT_SIZE))
+thor_plugin_measure_text :: proc(host: rawptr, text: string) -> (f32, f32) {
+    thor  := cast(^Thor)host
+    size  := i32(tk_font(thor, .Body))
+    width := font.measure(text, size)
+    return f32(width), f32(font.line_height(size))
 }

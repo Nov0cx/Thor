@@ -215,7 +215,7 @@ thor_cmd_change_font :: proc(data: rawptr) {
     }
     // Warm the unbaked families off-thread, so moving the selection previews
     // without a main-thread bake.
-    sizes := [2]i32{cast(i32)setting.font_size(&thor.config), WELCOME_TITLE_FONT_SIZE}
+    sizes := [2]i32{cast(i32)setting.font_size(&thor.config), i32(tk_font(thor, .Display))}
     font.prebake_async(families, sizes[:])
     thor_select_open(thor, "Change Font", families, font.default_family(), thor_font_preview, thor_font_commit, thor)
 }

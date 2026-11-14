@@ -9,17 +9,15 @@ import "core:strings"
 
 import ui "../vendor/loom/loom"
 
-GIT_VIEW_WIDTH   :: f32(1080)
+GIT_VIEW_WIDTH   :: TK_W_TOOL_MAX
 GIT_VIEW_HEIGHT  :: f32(680)
 GIT_SIDEBAR_W    :: f32(180)
 GIT_FILES_W      :: f32(340)
 GIT_COMMIT_BOX_H :: f32(150)
-GIT_ROW_H        :: f32(26)
 GIT_HASH_W       :: f32(64)
 GIT_AUTHOR_W     :: f32(130)
 GIT_DATE_W       :: f32(90)
 GIT_REFS_MAX_W   :: f32(200)
-GIT_DIFF_ROW_H   :: f32(18)
 
 Git_View_Kind :: enum {
     Changes,
@@ -548,7 +546,7 @@ thor_git_panel_view :: proc(thor: ^Thor) {
                 justify = .Center,
                 align = .Center,
                 z = 410,
-                bg = ui.Color{0, 0, 0, 140},
+                bg = tk_scrim(.Modal),
             },
         },
     )
@@ -568,15 +566,15 @@ git_view_box :: proc(thor: ^Thor) {
             key = "git-box",
             flags = {.Clickable, .Focusable},
             props = {
-                w = ui.Px(GIT_VIEW_WIDTH),
-                max_w = ui.viewport().x - 80,
-                h = ui.Px(GIT_VIEW_HEIGHT),
-                max_h = ui.viewport().y - 80,
+                w = ui.Px(tk(GIT_VIEW_WIDTH)),
+                max_w = ui.viewport().x - 2 * TK_MODAL_MARGIN,
+                h = ui.Px(tk(GIT_VIEW_HEIGHT)),
+                max_h = ui.viewport().y - 2 * TK_MODAL_MARGIN,
                 dir = .Column,
                 bg = thor.theme.background,
-                radius = ui.rad(10),
+                radius = tk_rad(.Modal),
                 border = {width = ui.all(1), color = thor.theme.border},
-                shadow = {offset = {0, 8}, blur = 32, color = thor.theme.contrast},
+                shadow = tk_shadow(thor, .Modal),
             },
         },
     )
@@ -601,7 +599,7 @@ git_view_header :: proc(thor: ^Thor) {
     ui.scope(
         {
             key = "header",
-            props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {10, 0}, pad = ui.xy(14, 12), bg = thor.theme.second_background},
+            props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.M, .None), pad = tk_pad(.XL, .L), bg = thor.theme.second_background},
         },
     )
 
@@ -630,7 +628,7 @@ git_view_header :: proc(thor: ^Thor) {
         {
             key = "close",
             flags = {.Clickable},
-            props = {w = ui.Px(26), h = ui.Px(26), dir = .Row, justify = .Center, align = .Center, radius = ui.rad(4), cursor = .Pointer},
+            props = {w = ui.Px(tk(26)), h = ui.Px(tk_h(.Row)), dir = .Row, justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
             hover = {bg = thor.theme.buttons},
         },
     )
@@ -657,12 +655,12 @@ git_view_sidebar :: proc(thor: ^Thor) {
             flags = {.Clip, .Scroll_Y},
             props = {
                 position = .Relative,
-                w = ui.Px(GIT_SIDEBAR_W),
-                min_w = GIT_SIDEBAR_W,
+                w = ui.Px(tk(GIT_SIDEBAR_W)),
+                min_w = tk(GIT_SIDEBAR_W),
                 h = ui.Grow(1),
                 dir = .Column,
                 pad = {l = 8, r = 8, t = 10, b = 8},
-                gap = {0, 2},
+                gap = tk_gap(.None, .XXS),
                 bg = thor.theme.second_background,
             },
         },
@@ -679,12 +677,12 @@ git_view_sidebar :: proc(thor: ^Thor) {
                 flags = {.Clickable},
                 props = {
                     w = ui.Grow(1),
-                    h = ui.Px(32),
+                    h = ui.Px(tk(32)),
                     dir = .Row,
                     align = .Center,
-                    gap = {8, 0},
-                    pad = ui.xy(8, 0),
-                    radius = ui.rad(6),
+                    gap = tk_gap(.M, .None),
+                    pad = tk_pad(.M, .None),
+                    radius = tk_rad(.Popup),
                     bg = on ? thor.theme.selection_background : nil,
                     cursor = .Pointer,
                 },
@@ -726,7 +724,7 @@ git_view_content :: proc(thor: ^Thor) {
 git_view_footer :: proc(thor: ^Thor) {
     v := &thor.git
 
-    ui.scope({key = "footer", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, pad = ui.xy(14, 8), bg = thor.theme.second_background}})
+    ui.scope({key = "footer", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, pad = tk_pad(.XL, .M), bg = thor.theme.second_background}})
     ui.label(
         v.busy ? "Working..." : v.status_line,
         {key = "status", props = {w = ui.Grow(1), color = v.status_is_error ? thor.theme.error_color : thor.theme.muted_color, text_wrap = .Ellipsis}},
@@ -736,7 +734,7 @@ git_view_footer :: proc(thor: ^Thor) {
 @(private = "file")
 git_view_changes :: proc(thor: ^Thor) {
     {
-        ui.scope({key = "files", props = {w = ui.Px(GIT_FILES_W), h = ui.Grow(1), dir = .Column, border = {width = {r = 1}, color = thor.theme.border}}})
+        ui.scope({key = "files", props = {w = ui.Px(tk(GIT_FILES_W)), h = ui.Grow(1), dir = .Column, border = {width = {r = 1}, color = thor.theme.border}}})
         git_view_file_section(thor, false)
         git_view_file_section(thor, true)
     }
@@ -757,7 +755,15 @@ git_view_file_section :: proc(thor: ^Thor, staged: bool) {
         ui.scope(
             {
                 key = "head",
-                props = {w = ui.Grow(1), h = ui.Px(GIT_ROW_H), dir = .Row, align = .Center, gap = {8, 0}, pad = ui.xy(10, 0), bg = thor.theme.second_background},
+                props = {
+                    w = ui.Grow(1),
+                    h = ui.Px(tk_h(.Row)),
+                    dir = .Row,
+                    align = .Center,
+                    gap = tk_gap(.M, .None),
+                    pad = tk_pad(.M, .None),
+                    bg = thor.theme.second_background,
+                },
             },
         )
         ui.label(staged ? "STAGED" : "CHANGES", {key = "title", props = {w = ui.Grow(1), color = thor.theme.disabled, text_wrap = .None}})
@@ -769,11 +775,11 @@ git_view_file_section :: proc(thor: ^Thor, staged: bool) {
 
     ui.scope({key = "list", flags = {.Clip, .Scroll_Y}, props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), dir = .Column}})
     if len(list) == 0 {
-        ui.label(staged ? "Nothing staged" : "No changes", {key = "empty", props = {pad = ui.xy(10, 6), color = thor.theme.disabled}})
+        ui.label(staged ? "Nothing staged" : "No changes", {key = "empty", props = {pad = tk_pad(.M, .S), color = thor.theme.disabled}})
         return
     }
 
-    first, last := ui.virtual(len(list), GIT_ROW_H)
+    first, last := ui.virtual(len(list), tk_h(.Row))
     defer ui.end_virtual()
 
     for index in first ..< last {
@@ -826,18 +832,18 @@ git_view_file_row :: proc(thor: ^Thor, file: Git_View_File, staged: bool, index:
             flags = {.Clickable},
             props = {
                 w = ui.Grow(1),
-                h = ui.Px(GIT_ROW_H),
+                h = ui.Px(tk_h(.Row)),
                 dir = .Row,
                 align = .Center,
-                gap = {8, 0},
-                pad = ui.xy(10, 0),
+                gap = tk_gap(.M, .None),
+                pad = tk_pad(.M, .None),
                 bg = on ? thor.theme.selection_background : nil,
                 cursor = .Pointer,
             },
             hover = {bg = on ? thor.theme.selection_background : thor.theme.buttons},
         },
     )
-    ui.label(git_status_label(file.status), {key = "st", props = {w = ui.Px(12), color = git_status_color(thor, file.status), text_wrap = .None}})
+    ui.label(git_status_label(file.status), {key = "st", props = {w = ui.Px(tk(12)), color = git_status_color(thor, file.status), text_wrap = .None}})
     ui.label(file.display, {key = "name", props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .Ellipsis}})
     if file.is_lfs {
         ui.label("LFS", {key = "lfs", props = {color = thor.theme.disabled, text_wrap = .None}})
@@ -885,8 +891,8 @@ git_view_diff :: proc(thor: ^Thor) {
             flags = {.Hoverable},
             props = {
                 w = ui.Grow(1),
-                h = ui.Px(GIT_ROW_H),
-                pad = ui.xy(12, 0),
+                h = ui.Px(tk_h(.Row)),
+                pad = tk_pad(.L, .None),
                 bg = thor.theme.second_background,
                 color = thor.theme.muted_color,
                 text_wrap = .Ellipsis,
@@ -900,7 +906,7 @@ git_view_diff :: proc(thor: ^Thor) {
         return
     }
 
-    first, last := ui.virtual(len(v.diff_rows), GIT_DIFF_ROW_H)
+    first, last := ui.virtual(len(v.diff_rows), tk_code_row_h(thor))
     defer ui.end_virtual()
 
     for index in first ..< last {
@@ -912,8 +918,8 @@ git_view_diff :: proc(thor: ^Thor) {
                 key = "line",
                 props = {
                     w = ui.Grow(1),
-                    h = ui.Px(GIT_DIFF_ROW_H),
-                    pad = ui.xy(12, 0),
+                    h = ui.Px(tk_code_row_h(thor)),
+                    pad = tk_pad(.L, .None),
                     bg = git_diff_row_bg(thor, row.kind),
                     color = git_diff_row_color(thor, row.kind),
                     font = thor.font_mono,
@@ -955,7 +961,7 @@ git_diff_row_color :: proc(thor: ^Thor, kind: Git_Diff_Row_Kind) -> ui.Color {
 git_view_commit_box :: proc(thor: ^Thor) {
     v := &thor.git
 
-    ui.scope({key = "commit", props = {w = ui.Grow(1), h = ui.Px(GIT_COMMIT_BOX_H), dir = .Column, gap = {0, 6}, pad = ui.all(10)}})
+    ui.scope({key = "commit", props = {w = ui.Grow(1), h = ui.Px(tk(GIT_COMMIT_BOX_H)), dir = .Column, gap = tk_gap(.None, .S), pad = tk_pad_all(.M)}})
 
     ui.input(
         &v.subject,
@@ -965,7 +971,7 @@ git_view_commit_box :: proc(thor: ^Thor) {
                 w = ui.Grow(1),
                 bg = thor.theme.second_background,
                 color = thor.theme.foreground,
-                radius = ui.rad(4),
+                radius = tk_rad(.Control),
                 border = {width = ui.all(1), color = thor.theme.border},
             },
         },
@@ -980,14 +986,14 @@ git_view_commit_box :: proc(thor: ^Thor) {
                 h = ui.Grow(1),
                 bg = thor.theme.second_background,
                 color = thor.theme.foreground,
-                radius = ui.rad(4),
+                radius = tk_rad(.Control),
                 border = {width = ui.all(1), color = thor.theme.border},
             },
         },
         "Description",
     )
 
-    ui.scope({key = "actions", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {8, 0}}})
+    ui.scope({key = "actions", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.M, .None)}})
     if git_view_toggle(thor, "amend", "Amend", v.amend, "Rewrite the last commit instead of adding a new one") {
         v.amend = !v.amend
     }
@@ -1003,7 +1009,7 @@ git_view_history :: proc(thor: ^Thor) {
 
     ui.scope({key = "history", flags = {.Clip, .Scroll_Y}, props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), dir = .Column}})
     if len(v.commits) == 0 {
-        ui.label("No commits", {key = "empty", props = {pad = ui.xy(14, 10), color = thor.theme.disabled}})
+        ui.label("No commits", {key = "empty", props = {pad = tk_pad(.XL, .M), color = thor.theme.disabled}})
         return
     }
 
@@ -1022,11 +1028,11 @@ git_view_history :: proc(thor: ^Thor) {
                     flags = {.Clickable},
                     props = {
                         w = ui.Grow(1),
-                        h = ui.Px(GIT_ROW_H + 8),
+                        h = ui.Px(tk_h(.Row) + 8),
                         dir = .Row,
                         align = .Center,
-                        gap = {10, 0},
-                        pad = ui.xy(14, 0),
+                        gap = tk_gap(.M, .None),
+                        pad = tk_pad(.XL, .None),
                         bg = on ? thor.theme.selection_background : nil,
                         cursor = .Pointer,
                     },
@@ -1036,19 +1042,25 @@ git_view_history :: proc(thor: ^Thor) {
             // Fixed columns, so a long subject or author does not move the others.
             ui.label(
                 commit.short,
-                {key = "hash", props = {w = ui.Px(GIT_HASH_W), min_w = GIT_HASH_W, color = thor.theme.accent_color, font = thor.font_mono, text_wrap = .None}},
+                {
+                    key = "hash",
+                    props = {w = ui.Px(tk(GIT_HASH_W)), min_w = tk(GIT_HASH_W), color = thor.theme.accent_color, font = thor.font_mono, text_wrap = .None},
+                },
             )
             ui.label(commit.subject, {key = "subject", props = {w = ui.Grow(1), min_w = 0, color = thor.theme.foreground, text_wrap = .Ellipsis}})
             if commit.refs != "" {
-                ui.label(commit.refs, {key = "refs", props = {max_w = GIT_REFS_MAX_W, color = thor.theme.info_color, text_wrap = .Ellipsis}})
+                ui.label(commit.refs, {key = "refs", props = {max_w = tk(GIT_REFS_MAX_W), color = thor.theme.info_color, text_wrap = .Ellipsis}})
             }
             ui.label(
                 commit.author,
-                {key = "author", props = {w = ui.Px(GIT_AUTHOR_W), min_w = GIT_AUTHOR_W, color = thor.theme.muted_color, text_wrap = .Ellipsis}},
+                {key = "author", props = {w = ui.Px(tk(GIT_AUTHOR_W)), min_w = tk(GIT_AUTHOR_W), color = thor.theme.muted_color, text_wrap = .Ellipsis}},
             )
             ui.label(
                 commit.date,
-                {key = "date", props = {w = ui.Px(GIT_DATE_W), min_w = GIT_DATE_W, color = thor.theme.disabled, text_align = .End, text_wrap = .Ellipsis}},
+                {
+                    key = "date",
+                    props = {w = ui.Px(tk(GIT_DATE_W)), min_w = tk(GIT_DATE_W), color = thor.theme.disabled, text_align = .End, text_wrap = .Ellipsis},
+                },
             )
         }
         ui.pop_id()
@@ -1117,10 +1129,10 @@ git_view_ref_row :: proc(thor: ^Thor, ref: Git_View_Ref) -> bool {
             flags = {.Clickable},
             props = {
                 w = ui.Grow(1),
-                h = ui.Px(GIT_ROW_H),
+                h = ui.Px(tk_h(.Row)),
                 dir = .Row,
                 align = .Center,
-                gap = {8, 0},
+                gap = tk_gap(.M, .None),
                 pad = {l = 26, r = 14},
                 bg = ref.current ? thor.theme.selection_background : nil,
                 cursor = .Pointer,
@@ -1199,11 +1211,11 @@ git_view_config_row :: proc(thor: ^Thor, index: int) -> bool {
         {
             key = "cfg",
             flags = {.Clickable},
-            props = {w = ui.Grow(1), h = ui.Px(GIT_ROW_H + 4), dir = .Row, align = .Center, gap = {10, 0}, pad = {l = 26, r = 14}, cursor = .Pointer},
+            props = {w = ui.Grow(1), h = ui.Px(tk_h(.Row) + 4), dir = .Row, align = .Center, gap = tk_gap(.M, .None), pad = {l = 26, r = 14}, cursor = .Pointer},
             hover = {bg = thor.theme.buttons},
         },
     )
-    ui.label(row.key, {key = "key", props = {w = ui.Px(240), color = thor.theme.foreground, text_wrap = .Ellipsis}})
+    ui.label(row.key, {key = "key", props = {w = ui.Px(tk(240)), color = thor.theme.foreground, text_wrap = .Ellipsis}})
 
     if editing {
         field := ui.input(
@@ -1214,7 +1226,7 @@ git_view_config_row :: proc(thor: ^Thor, index: int) -> bool {
                     w = ui.Grow(1),
                     bg = thor.theme.second_background,
                     color = thor.theme.foreground,
-                    radius = ui.rad(4),
+                    radius = tk_rad(.Control),
                     border = {width = ui.all(1), color = thor.theme.accent_color},
                 },
             },
@@ -1270,7 +1282,7 @@ git_view_lfs :: proc(thor: ^Thor) {
                 key = "pattern",
                 props = {
                     w = ui.Grow(1),
-                    h = ui.Px(GIT_ROW_H),
+                    h = ui.Px(tk_h(.Row)),
                     pad = {l = 26, r = 14},
                     color = thor.theme.foreground,
                     font = thor.font_mono,
@@ -1297,7 +1309,7 @@ git_view_hosting :: proc(thor: ^Thor) {
         {
             key = "hosting",
             flags = {.Clip, .Scroll_Y},
-            props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), dir = .Column, gap = {0, 6}, pad = ui.all(14)},
+            props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), dir = .Column, gap = tk_gap(.None, .S), pad = tk_pad_all(.XL)},
         },
     )
 
@@ -1310,9 +1322,9 @@ git_view_hosting :: proc(thor: ^Thor) {
                     h = ui.FIT,
                     dir = .Row,
                     align = .Center,
-                    gap = {10, 0},
-                    pad = ui.all(10),
-                    radius = ui.rad(6),
+                    gap = tk_gap(.M, .None),
+                    pad = tk_pad_all(.M),
+                    radius = tk_rad(.Popup),
                     bg = thor.theme.second_background,
                 },
             },
@@ -1346,9 +1358,9 @@ git_view_hosting :: proc(thor: ^Thor) {
 
         git_view_section_label(thor, "PULL REQUESTS")
         if v.cli_name == "" {
-            ui.label("Install the gh or glab CLI to list pull requests.", {key = "cli-hint", props = {pad = ui.xy(4, 4), color = thor.theme.disabled}})
+            ui.label("Install the gh or glab CLI to list pull requests.", {key = "cli-hint", props = {pad = tk_pad(.XS, .XS), color = thor.theme.disabled}})
         } else if len(v.prs) == 0 {
-            ui.label("None open.", {key = "no-prs", props = {pad = ui.xy(4, 4), color = thor.theme.disabled}})
+            ui.label("None open.", {key = "no-prs", props = {pad = tk_pad(.XS, .XS), color = thor.theme.disabled}})
         } else {
             for pr, index in v.prs {
                 ui.push_id_int(i64(index))
@@ -1370,7 +1382,7 @@ git_view_hosting :: proc(thor: ^Thor) {
                 w = ui.Grow(1),
                 bg = thor.theme.second_background,
                 color = thor.theme.foreground,
-                radius = ui.rad(4),
+                radius = tk_rad(.Control),
                 border = {width = ui.all(1), color = thor.theme.border},
             },
         },
@@ -1384,7 +1396,7 @@ git_view_hosting :: proc(thor: ^Thor) {
                 w = ui.Grow(1),
                 bg = thor.theme.second_background,
                 color = thor.theme.foreground,
-                radius = ui.rad(4),
+                radius = tk_rad(.Control),
                 border = {width = ui.all(1), color = thor.theme.border},
             },
         },
@@ -1404,7 +1416,16 @@ git_view_pr_row :: proc(thor: ^Thor, pr: Git_View_Pr) -> bool {
         {
             key = "pr",
             flags = {.Clickable},
-            props = {w = ui.Grow(1), h = ui.Px(GIT_ROW_H), dir = .Row, align = .Center, gap = {8, 0}, pad = ui.xy(4, 0), radius = ui.rad(4), cursor = .Pointer},
+            props = {
+                w = ui.Grow(1),
+                h = ui.Px(tk_h(.Row)),
+                dir = .Row,
+                align = .Center,
+                gap = tk_gap(.M, .None),
+                pad = tk_pad(.XS, .None),
+                radius = tk_rad(.Control),
+                cursor = .Pointer,
+            },
             hover = {bg = thor.theme.buttons},
         },
     )
@@ -1432,11 +1453,11 @@ git_view_fold_header :: proc(thor: ^Thor, label: string, open: bool) -> bool {
             flags = {.Clickable},
             props = {
                 w = ui.Grow(1),
-                h = ui.Px(GIT_ROW_H),
+                h = ui.Px(tk_h(.Row)),
                 dir = .Row,
                 align = .Center,
-                gap = {8, 0},
-                pad = ui.xy(10, 0),
+                gap = tk_gap(.M, .None),
+                pad = tk_pad(.M, .None),
                 bg = thor.theme.second_background,
                 cursor = .Pointer,
             },
@@ -1453,7 +1474,15 @@ git_view_row_button :: proc(thor: ^Thor, key, label: string) -> bool {
         {
             key = key,
             flags = {.Clickable},
-            props = {w = ui.Grow(1), h = ui.Px(GIT_ROW_H + 4), dir = .Row, align = .Center, pad = ui.xy(14, 0), radius = ui.rad(4), cursor = .Pointer},
+            props = {
+                w = ui.Grow(1),
+                h = ui.Px(tk_h(.Row) + 4),
+                dir = .Row,
+                align = .Center,
+                pad = tk_pad(.XL, .None),
+                radius = tk_rad(.Control),
+                cursor = .Pointer,
+            },
             hover = {bg = thor.theme.buttons},
         },
     )
@@ -1475,11 +1504,11 @@ git_view_button :: proc(
             key = key,
             flags = enabled ? {.Clickable} : {},
             props = {
-                h = ui.Px(24),
+                h = ui.Px(tk_h(.Row)),
                 dir = .Row,
                 align = .Center,
-                pad = ui.xy(10, 0),
-                radius = ui.rad(4),
+                pad = tk_pad(.M, .None),
+                radius = tk_rad(.Control),
                 bg = danger ? nil : thor.theme.buttons,
                 border = danger ? {width = ui.all(1), color = thor.theme.border} : {},
                 cursor = enabled ? .Pointer : .Not_Allowed,
@@ -1504,7 +1533,15 @@ git_view_toggle :: proc(thor: ^Thor, key, label: string, on: bool, tip := "") ->
         {
             key = key,
             flags = {.Clickable},
-            props = {h = ui.Px(24), dir = .Row, align = .Center, gap = {6, 0}, pad = ui.xy(8, 0), radius = ui.rad(4), cursor = .Pointer},
+            props = {
+                h = ui.Px(tk_h(.Row)),
+                dir = .Row,
+                align = .Center,
+                gap = tk_gap(.S, .None),
+                pad = tk_pad(.M, .None),
+                radius = tk_rad(.Control),
+                cursor = .Pointer,
+            },
             hover = {bg = thor.theme.buttons},
         },
     )

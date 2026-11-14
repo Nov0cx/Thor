@@ -22,7 +22,6 @@ import "../luaconf"
 // the manifest's preload sizes are).
 TASK_SELECTOR_MIN_WIDTH :: 110
 TASK_SELECTOR_MAX_WIDTH :: 260
-TASK_SELECTOR_PAD_X     :: 10
 TASK_SELECTOR_ICON_SIZE :: 16
 
 // A named command run in the workspace directory. Carries its owner so a menu

@@ -194,7 +194,7 @@ thor_color_picker_view :: proc(thor: ^Thor) {
                 justify = .Center,
                 align = .Center,
                 z = 470,
-                bg = ui.Color{0, 0, 0, 120},
+                bg = tk_scrim(.Card),
             },
         },
     )
@@ -223,16 +223,16 @@ color_picker_box :: proc(thor: ^Thor) {
             key = "picker-box",
             flags = {.Clickable},
             props = {
-                w = ui.Px(COLOR_PICKER_WIDTH),
-                max_w = ui.viewport().x - 40,
+                w = ui.Px(tk(COLOR_PICKER_WIDTH)),
+                max_w = ui.viewport().x - 2 * TK_MODAL_MARGIN,
                 h = ui.FIT,
                 dir = .Column,
-                pad = ui.all(16),
-                gap = {0, 10},
+                pad = tk_pad_all(.XL),
+                gap = tk_gap(.None, .M),
                 bg = thor.theme.second_background,
-                radius = ui.rad(8),
+                radius = tk_rad(.Card),
                 border = {width = ui.all(1), color = thor.theme.border},
-                shadow = {offset = {0, 6}, blur = 24, color = thor.theme.contrast},
+                shadow = tk_shadow(thor, .Card),
             },
         },
     )
@@ -258,7 +258,13 @@ color_picker_square :: proc(thor: ^Thor) {
         {
             key = "square",
             flags = {.Clickable, .Draggable},
-            props = {w = ui.Grow(1), h = ui.Px(COLOR_PICKER_SQUARE_H), radius = ui.rad(4), bg = ui.Gradient{kind = .Bilinear, stops = stops}, cursor = .Grab},
+            props = {
+                w = ui.Grow(1),
+                h = ui.Px(tk(COLOR_PICKER_SQUARE_H)),
+                radius = tk_rad(.Control),
+                bg = ui.Gradient{kind = .Bilinear, stops = stops},
+                cursor = .Grab,
+            },
         },
     )
 
@@ -317,8 +323,8 @@ color_picker_strip :: proc(thor: ^Thor, key: string, fill: ui.Paint) -> ui.Inter
             flags = {.Clickable, .Draggable},
             props = {
                 w = ui.Grow(1),
-                h = ui.Px(COLOR_PICKER_STRIP_H),
-                radius = ui.rad(4),
+                h = ui.Px(tk(COLOR_PICKER_STRIP_H)),
+                radius = tk_rad(.Control),
                 bg = fill,
                 border = {width = ui.all(1), color = thor.theme.border},
                 cursor = .Resize_H,
@@ -341,13 +347,30 @@ color_picker_strip_marker :: proc(it: ui.Interaction, t: f32) {
 color_picker_row :: proc(thor: ^Thor) {
     p := &thor.color_picker
 
-    ui.scope({key = "row", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {10, 0}}})
+    ui.scope({key = "row", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.M, .None)}})
 
-    ui.leaf({key = "was", props = {w = ui.Px(34), h = ui.Px(26), radius = ui.rad(4), bg = p.original, border = {width = ui.all(1), color = thor.theme.border}}})
+    ui.leaf(
+        {
+            key = "was",
+            props = {
+                w = ui.Px(tk(34)),
+                h = ui.Px(tk_h(.Row)),
+                radius = tk_rad(.Control),
+                bg = p.original,
+                border = {width = ui.all(1), color = thor.theme.border},
+            },
+        },
+    )
     ui.leaf(
         {
             key = "now",
-            props = {w = ui.Px(34), h = ui.Px(26), radius = ui.rad(4), bg = thor_color_picker_color(p), border = {width = ui.all(1), color = thor.theme.border}},
+            props = {
+                w = ui.Px(tk(34)),
+                h = ui.Px(tk_h(.Row)),
+                radius = tk_rad(.Control),
+                bg = thor_color_picker_color(p),
+                border = {width = ui.all(1), color = thor.theme.border},
+            },
         },
     )
 
@@ -359,7 +382,7 @@ color_picker_row :: proc(thor: ^Thor) {
                 w = ui.Grow(1),
                 bg = thor.theme.background,
                 color = thor.theme.foreground,
-                radius = ui.rad(4),
+                radius = tk_rad(.Control),
                 border = {width = ui.all(1), color = thor.theme.border},
             },
         },
@@ -378,7 +401,7 @@ color_picker_row :: proc(thor: ^Thor) {
 
 @(private = "file")
 color_picker_buttons :: proc(thor: ^Thor) {
-    ui.scope({key = "buttons", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, justify = .End, gap = {8, 0}, margin = {t = 4}}})
+    ui.scope({key = "buttons", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, justify = .End, gap = tk_gap(.M, .None), margin = {t = 4}}})
 
     if color_picker_button(thor, "cancel", "Cancel", thor.theme.muted_color) {
         color_picker_dismiss(thor)
@@ -396,12 +419,12 @@ color_picker_button :: proc(thor: ^Thor, key, label: string, color: ui.Color) ->
             key = key,
             flags = {.Clickable},
             props = {
-                w = ui.Px(80),
-                h = ui.Px(30),
+                w = ui.Px(tk(80)),
+                h = ui.Px(tk_h(.Row_Picker)),
                 dir = .Row,
                 justify = .Center,
                 align = .Center,
-                radius = ui.rad(6),
+                radius = tk_rad(.Popup),
                 bg = thor.theme.buttons,
                 border = {width = ui.all(1), color = color},
                 cursor = .Pointer,

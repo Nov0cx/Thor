@@ -257,7 +257,7 @@ thor_problems_view :: proc(thor: ^Thor) {
                 justify = .Center,
                 align = .Center,
                 z = 410,
-                bg = ui.Color{0, 0, 0, 140},
+                bg = tk_scrim(.Modal),
             },
         },
     )
@@ -277,15 +277,15 @@ problems_box :: proc(thor: ^Thor) {
             key = "problems-box",
             flags = {.Clickable, .Focusable},
             props = {
-                w = ui.Px(PROBLEMS_WIDTH),
-                max_w = ui.viewport().x - 80,
-                h = len(groups) == 0 ? ui.FIT : ui.Px(PROBLEMS_HEIGHT),
-                max_h = ui.viewport().y - 80,
+                w = ui.Px(tk(PROBLEMS_WIDTH)),
+                max_w = ui.viewport().x - 2 * TK_MODAL_MARGIN,
+                h = len(groups) == 0 ? ui.FIT : ui.Px(tk(PROBLEMS_HEIGHT)),
+                max_h = ui.viewport().y - 2 * TK_MODAL_MARGIN,
                 dir = .Column,
                 bg = thor.theme.background,
-                radius = ui.rad(10),
+                radius = tk_rad(.Modal),
                 border = {width = ui.all(1), color = thor.theme.border},
-                shadow = {offset = {0, 8}, blur = 32, color = thor.theme.contrast},
+                shadow = tk_shadow(thor, .Modal),
             },
         },
     )
@@ -297,14 +297,14 @@ problems_box :: proc(thor: ^Thor) {
     problems_header(thor, groups)
 
     if len(groups) == 0 {
-        ui.label("No problems.", {key = "none", props = {color = thor.theme.muted_color, pad = ui.xy(16, 14)}})
+        ui.label("No problems.", {key = "none", props = {color = thor.theme.muted_color, pad = tk_pad(.XL, .XL)}})
         return
     }
     ui.scope(
         {
             key = "list",
             flags = {.Clip, .Scroll_Y},
-            props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), dir = .Column, pad = ui.xy(8, 8), gap = {0, 2}},
+            props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), dir = .Column, pad = tk_pad(.M, .M), gap = tk_gap(.None, .XXS)},
         },
     )
     for g, gi in groups {
@@ -325,7 +325,7 @@ problems_header :: proc(thor: ^Thor, groups: []Problem_Group) {
     ui.scope(
         {
             key = "header",
-            props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {10, 0}, pad = ui.xy(14, 12), bg = thor.theme.second_background},
+            props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.M, .None), pad = tk_pad(.XL, .L), bg = thor.theme.second_background},
         },
     )
     icon, color := "circle-check", thor.theme.success_color
@@ -352,7 +352,7 @@ problems_header :: proc(thor: ^Thor, groups: []Problem_Group) {
         {
             key = "close",
             flags = {.Clickable},
-            props = {w = ui.Px(26), h = ui.Px(26), dir = .Row, justify = .Center, align = .Center, radius = ui.rad(4), cursor = .Pointer},
+            props = {w = ui.Px(tk(26)), h = ui.Px(tk_h(.Row)), dir = .Row, justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
             hover = {bg = thor.theme.buttons},
         },
     )
@@ -372,12 +372,21 @@ problem_row :: proc(thor: ^Thor, path: string, p: Problem, index: int) {
         {
             key = "row",
             flags = {.Clickable},
-            props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {10, 0}, pad = ui.xy(8, 4), radius = ui.rad(4), cursor = .Pointer},
+            props = {
+                w = ui.Grow(1),
+                h = ui.FIT,
+                dir = .Row,
+                align = .Center,
+                gap = tk_gap(.M, .None),
+                pad = tk_pad(.M, .XS),
+                radius = tk_rad(.Control),
+                cursor = .Pointer,
+            },
             hover = {bg = thor.theme.buttons},
         },
     )
-    ui.label(problem_label(p.severity), {key = "severity", props = {color = color, text_wrap = .None, min_w = 56}})
-    ui.label(fmt.tprintf("%d", p.line + 1), {key = "line", props = {color = thor.theme.muted_color, text_wrap = .None, min_w = 40}})
+    ui.label(problem_label(p.severity), {key = "severity", props = {color = color, text_wrap = .None, min_w = tk(56)}})
+    ui.label(fmt.tprintf("%d", p.line + 1), {key = "line", props = {color = thor.theme.muted_color, text_wrap = .None, min_w = tk(40)}})
     ui.label(p.message, {key = "message", props = {color = thor.theme.foreground, text_wrap = .Ellipsis, w = ui.Grow(1)}})
     if p.code != "" {
         ui.label(p.code, {key = "code", props = {color = thor.theme.muted_color, text_wrap = .None}})

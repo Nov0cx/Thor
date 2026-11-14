@@ -14,9 +14,7 @@ import ui "../vendor/loom/loom"
 // of them; the column has no room for that many.
 WELCOME_RECENT_ROWS :: 5
 
-WELCOME_WIDTH           :: f32(520)
-WELCOME_RECENT_ROW_H    :: f32(36)
-WELCOME_TITLE_FONT_SIZE :: i32(28)
+WELCOME_WIDTH           :: TK_W_FORM
 WELCOME_LOGO_HEIGHT     :: f32(72)
 // The recent list's icon and name columns. Fixed, so every path starts at one x.
 WELCOME_RECENT_ICON_W   :: f32(18)
@@ -108,14 +106,19 @@ thor_welcome_open_file :: proc(data: rawptr) {
 thor_welcome_view :: proc(thor: ^Thor) {
     ui.scope({key = "welcome", props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column, justify = .Center, align = .Center, bg = thor.theme.background}})
 
-    ui.scope({key = "column", props = {w = ui.Px(WELCOME_WIDTH), max_w = ui.viewport().x - 80, h = ui.FIT, dir = .Column, gap = {0, 10}}})
+    ui.scope(
+        {
+            key = "column",
+            props = {w = ui.Px(tk(WELCOME_WIDTH)), max_w = ui.viewport().x - 2 * TK_MODAL_MARGIN, h = ui.FIT, dir = .Column, gap = tk_gap(.None, .M)},
+        },
+    )
 
-    thor_logo_image(thor, "logo", WELCOME_LOGO_HEIGHT)
-    ui.label("Thor", {key = "title", props = {color = thor.theme.foreground, font_size = f32(WELCOME_TITLE_FONT_SIZE), text_wrap = .None}})
+    thor_logo_image(thor, "logo", tk(WELCOME_LOGO_HEIGHT))
+    ui.label("Thor", {key = "title", props = {color = thor.theme.foreground, font_size = tk_font(thor, .Display), text_wrap = .None}})
     ui.label("Open a folder to start, or pick a file.", {key = "sub", props = {color = thor.theme.muted_color, text_wrap = .None}})
 
     {
-        ui.scope({key = "actions", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = {8, 0}, margin = {t = 6}}})
+        ui.scope({key = "actions", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = tk_gap(.M, .None), margin = {t = 6}}})
         if welcome_button(thor, "open-folder", "Open Folder", "folder", "Open a folder as the workspace") {
             thor_cmd_open_folder(thor)
             return
@@ -138,14 +141,14 @@ thor_welcome_view :: proc(thor: ^Thor) {
 // x. Capped, since a long name would otherwise leave the path no room.
 @(private = "file")
 welcome_recent_name_width :: proc(paths: []string) -> f32 {
-    width := WELCOME_RECENT_NAME_MIN
+    width := tk(WELCOME_RECENT_NAME_MIN)
     for path, index in paths {
         if index >= WELCOME_RECENT_ROWS {
             break
         }
         width = max(width, ui.text_width(filepath.base(path)))
     }
-    return min(width, WELCOME_RECENT_NAME_MAX)
+    return min(width, tk(WELCOME_RECENT_NAME_MAX))
 }
 
 // How long a read of the recent list serves the welcome page.
@@ -183,7 +186,7 @@ welcome_recent :: proc(thor: ^Thor) {
     }
 
     ui.label("Recent", {key = "recent-label", props = {color = thor.theme.disabled, margin = {t = 14}, text_wrap = .None}})
-    ui.scope({key = "recent", props = {w = ui.Grow(1), h = ui.FIT, dir = .Column, gap = {0, 6}}})
+    ui.scope({key = "recent", props = {w = ui.Grow(1), h = ui.FIT, dir = .Column, gap = tk_gap(.None, .S)}})
 
     name_w := welcome_recent_name_width(paths)
 
@@ -204,12 +207,12 @@ welcome_recent :: proc(thor: ^Thor) {
                     flags = {.Clickable},
                     props = {
                         w = ui.Grow(1),
-                        h = ui.Px(WELCOME_RECENT_ROW_H),
+                        h = ui.Px(tk_h(.Row_Form)),
                         dir = .Row,
                         align = .Center,
-                        gap = {8, 0},
-                        pad = ui.xy(10, 0),
-                        radius = ui.rad(6),
+                        gap = tk_gap(.M, .None),
+                        pad = tk_pad(.M, .None),
+                        radius = tk_rad(.Popup),
                         bg = thor.theme.buttons,
                         cursor = .Pointer,
                     },
@@ -220,7 +223,7 @@ welcome_recent :: proc(thor: ^Thor) {
             // label then overflows its box instead of cutting the text. The
             // floors freeze the icon and the name, so the path alone gives way
             // and the columns line up down the list.
-            ui.begin({key = "icon", props = {w = ui.Px(WELCOME_RECENT_ICON_W), min_w = WELCOME_RECENT_ICON_W, justify = .Center, align = .Center}})
+            ui.begin({key = "icon", props = {w = ui.Px(tk(WELCOME_RECENT_ICON_W)), min_w = tk(WELCOME_RECENT_ICON_W), justify = .Center, align = .Center}})
             thor_icon_label(thor, "folder", thor.theme.muted_color)
             ui.end()
             ui.label(filepath.base(path), {key = "name", props = {w = ui.Px(name_w), min_w = name_w, color = thor.theme.foreground, text_wrap = .Ellipsis}})
@@ -253,10 +256,10 @@ welcome_tip :: proc(thor: ^Thor) {
                 w = ui.Grow(1),
                 h = ui.FIT,
                 dir = .Column,
-                gap = {0, 8},
-                pad = ui.all(14),
+                gap = tk_gap(.None, .M),
+                pad = tk_pad_all(.L),
                 margin = {t = 18},
-                radius = ui.rad(8),
+                radius = tk_rad(.Card),
                 bg = thor.theme.second_background,
                 border = {width = ui.all(1), color = thor.theme.border},
             },
@@ -272,12 +275,12 @@ welcome_button :: proc(thor: ^Thor, key, label, icon, tip: string) -> bool {
             key = key,
             flags = {.Clickable},
             props = {
-                h = ui.Px(34),
+                h = ui.Px(tk_h(.Row_Form)),
                 dir = .Row,
                 align = .Center,
-                gap = {8, 0},
-                pad = ui.xy(14, 0),
-                radius = ui.rad(6),
+                gap = tk_gap(.M, .None),
+                pad = tk_pad(.L, .None),
+                radius = tk_rad(.Popup),
                 bg = thor.theme.buttons,
                 border = {width = ui.all(1), color = thor.theme.accent_color},
                 cursor = .Pointer,

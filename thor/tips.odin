@@ -230,7 +230,7 @@ thor_write_tips_record :: proc(record: Tips_Record) {
     }
 }
 
-TIP_CARD_WIDTH :: f32(420)
+TIP_CARD_WIDTH :: TK_W_QUESTION
 
 // The floating card over the editor. The welcome page shows the same tip inline
 // through thor_tip_card_body.
@@ -251,17 +251,17 @@ thor_tip_card_view :: proc(thor: ^Thor) {
             props = {
                 position = .Fixed,
                 inset = {r = 24, b = 24},
-                w = ui.Px(TIP_CARD_WIDTH),
-                max_w = ui.viewport().x - 48,
+                w = ui.Px(tk(TIP_CARD_WIDTH)),
+                max_w = ui.viewport().x - 2 * TK_MODAL_MARGIN,
                 h = ui.FIT,
                 dir = .Column,
-                pad = ui.all(14),
-                gap = {0, 8},
+                pad = tk_pad_all(.L),
+                gap = tk_gap(.None, .M),
                 z = 300,
                 bg = thor.theme.second_background,
-                radius = ui.rad(8),
+                radius = tk_rad(.Card),
                 border = {width = ui.all(1), color = thor.theme.border},
-                shadow = {offset = {0, 6}, blur = 24, color = thor.theme.contrast},
+                shadow = tk_shadow(thor, .Card),
             },
         },
     )
@@ -273,7 +273,7 @@ thor_tip_card_view :: proc(thor: ^Thor) {
 // page. `closable` adds the close box and the "never show again" line.
 thor_tip_card_body :: proc(thor: ^Thor, tip: setting.Tip, index, count: int, shortcut: string, closable: bool) {
     {
-        ui.scope({key = "head", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {8, 0}}})
+        ui.scope({key = "head", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.M, .None)}})
         thor_icon_label(thor, "bulb", thor.theme.accent_color)
         ui.label(tip.title, {key = "title", props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .Ellipsis}})
         if closable {
@@ -281,7 +281,15 @@ thor_tip_card_body :: proc(thor: ^Thor, tip: setting.Tip, index, count: int, sho
                 {
                     key = "close",
                     flags = {.Clickable},
-                    props = {w = ui.Px(22), h = ui.Px(22), dir = .Row, justify = .Center, align = .Center, radius = ui.rad(4), cursor = .Pointer},
+                    props = {
+                        w = ui.Px(tk(22)),
+                        h = ui.Px(tk_h(.Row_Compact)),
+                        dir = .Row,
+                        justify = .Center,
+                        align = .Center,
+                        radius = tk_rad(.Control),
+                        cursor = .Pointer,
+                    },
                     hover = {bg = thor.theme.buttons},
                 },
             )
@@ -298,12 +306,15 @@ thor_tip_card_body :: proc(thor: ^Thor, tip: setting.Tip, index, count: int, sho
     if shortcut != "" {
         ui.label(
             shortcut,
-            {key = "chord", props = {pad = ui.xy(8, 3), radius = ui.rad(4), bg = thor.theme.buttons, color = thor.theme.accent_color, text_wrap = .None}},
+            {
+                key = "chord",
+                props = {pad = tk_pad(.M, .XS), radius = tk_rad(.Control), bg = thor.theme.buttons, color = thor.theme.accent_color, text_wrap = .None},
+            },
         )
     }
 
     {
-        ui.scope({key = "foot", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {6, 0}}})
+        ui.scope({key = "foot", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.S, .None)}})
         if closable {
             never := ui.scope({key = "never", flags = {.Clickable}, props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, cursor = .Pointer}})
             ui.label("Do not show tips again", {key = "text", props = {color = thor.theme.disabled, text_wrap = .None}})
@@ -334,7 +345,15 @@ thor_tip_arrow :: proc(thor: ^Thor, key, icon, tip: string) -> bool {
         {
             key = key,
             flags = {.Clickable},
-            props = {w = ui.Px(22), h = ui.Px(22), dir = .Row, justify = .Center, align = .Center, radius = ui.rad(4), cursor = .Pointer},
+            props = {
+                w = ui.Px(tk(22)),
+                h = ui.Px(tk_h(.Row_Compact)),
+                dir = .Row,
+                justify = .Center,
+                align = .Center,
+                radius = tk_rad(.Control),
+                cursor = .Pointer,
+            },
             hover = {bg = thor.theme.buttons},
         },
     )

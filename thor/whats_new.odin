@@ -23,9 +23,7 @@ CHANGELOG_SOURCE :: #load("../CHANGELOG.md", string)
 WHATS_NEW_FILE :: "sessions/whats-new.txt"
 
 @(private = "file")
-WHATS_NEW_WIDTH :: f32(560)
-@(private = "file")
-WHATS_NEW_PAD :: f32(16)
+WHATS_NEW_WIDTH :: TK_W_FORM
 @(private = "file")
 WHATS_NEW_WHEEL_LINES :: f32(3)
 
@@ -156,12 +154,12 @@ thor_whats_new_view :: proc(thor: ^Thor) {
                 justify = .Center,
                 align = .Center,
                 z = 470,
-                bg = ui.Color{0, 0, 0, 120},
+                bg = tk_scrim(.Card),
             },
         },
     )
 
-    width := min(WHATS_NEW_WIDTH, ui.viewport().x - 60)
+    width := tk_modal_w(WHATS_NEW_WIDTH)
     box   := ui.scope(
         {
             key = "whats-new-box",
@@ -170,12 +168,12 @@ thor_whats_new_view :: proc(thor: ^Thor) {
                 w = ui.Px(width),
                 h = ui.FIT,
                 dir = .Column,
-                gap = {0, 10},
-                pad = ui.all(WHATS_NEW_PAD),
+                gap = tk_gap(.None, .M),
+                pad = ui.all(tk_sp(.XL)),
                 bg = thor.theme.second_background,
-                radius = ui.rad(8),
+                radius = tk_rad(.Card),
                 border = {width = ui.all(1), color = thor.theme.border},
-                shadow = {offset = {0, 6}, blur = 24, color = thor.theme.contrast},
+                shadow = tk_shadow(thor, .Card),
             },
         },
     )
@@ -185,18 +183,18 @@ thor_whats_new_view :: proc(thor: ^Thor) {
     }
 
     {
-        ui.scope({key = "head", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {8, 0}}})
+        ui.scope({key = "head", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.M, .None)}})
         thor_icon_label(thor, "sparkles", thor.theme.accent_color)
         ui.label(
             fmt.tprintf("What's new in Thor %s", VERSION),
-            {key = "title", props = {w = ui.Grow(1), color = thor.theme.foreground, font_size = f32(thor.config.general.font_size + 2), text_wrap = .Ellipsis}},
+            {key = "title", props = {w = ui.Grow(1), color = thor.theme.foreground, font_size = tk_font(thor, .Title), text_wrap = .Ellipsis}},
         )
     }
 
-    thor_whats_new_body(thor, text, width - 2 * WHATS_NEW_PAD)
+    thor_whats_new_body(thor, text, width - 2 * tk_sp(.XL))
 
     {
-        ui.scope({key = "foot", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {8, 0}, margin = {t = 4}}})
+        ui.scope({key = "foot", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.M, .None), margin = {t = 4}}})
         ui.spacer(ui.Grow(1), {key = "gap"})
         if whats_new_button(thor, "toggle", w.full ? "Summary" : "All changes", false) {
             w.full = !w.full
@@ -246,7 +244,16 @@ whats_new_button :: proc(thor: ^Thor, key, label: string, primary: bool) -> bool
         {
             key = key,
             flags = {.Clickable},
-            props = {w = ui.FIT, h = ui.Px(28), dir = .Row, align = .Center, pad = ui.xy(12, 0), radius = ui.rad(6), bg = bg, cursor = .Pointer},
+            props = {
+                w = ui.FIT,
+                h = ui.Px(tk_h(.Control)),
+                dir = .Row,
+                align = .Center,
+                pad = tk_pad(.L, .None),
+                radius = tk_rad(.Popup),
+                bg = bg,
+                cursor = .Pointer,
+            },
             hover = {bg = primary ? bg : thor.theme.active},
         },
     )

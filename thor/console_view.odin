@@ -26,8 +26,6 @@ Console_Link_Proc :: #type proc(data: rawptr, line: string) -> (start: int, end:
 // Opens the source location a clicked scrollback line names.
 Console_Activate_Proc :: #type proc(data: rawptr, line: string)
 
-CONSOLE_PAD_X       :: f32(10)
-CONSOLE_PAD_Y       :: f32(6)
 CONSOLE_SCROLLBACK  :: 5000
 // Lines one wheel notch moves, and the arrow keys an alternate-screen program
 // gets instead when it reads no mouse.
@@ -273,7 +271,7 @@ console_grid :: proc(thor: ^Thor, console: ^Console) {
         {
             key = "grid",
             flags = {.Clip, .Clickable, .Focusable, .Draggable, .Wheel},
-            props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column, pad = ui.xy(CONSOLE_PAD_X, CONSOLE_PAD_Y), cursor = .Text},
+            props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column, pad = ui.xy(tk_sp(.M), tk_sp(.S)), cursor = .Text},
         },
     )
     // Enter and Space are bytes for the shell, not a click on the grid.
@@ -306,8 +304,8 @@ console_sync_size :: proc(console: ^Console, rect: ui.Rect, cell_w, row_h: f32) 
     if cell_w <= 0 || row_h <= 0 || rect.w <= 0 || rect.h <= 0 {
         return
     }
-    cols := max(int((rect.w - CONSOLE_PAD_X * 2) / cell_w), 1)
-    rows := max(int((rect.h - CONSOLE_PAD_Y * 2) / row_h), 1)
+    cols := max(int((rect.w - tk_sp(.M) * 2) / cell_w), 1)
+    rows := max(int((rect.h - tk_sp(.S) * 2) / row_h), 1)
     if cols == console.cols && rows == console.rows {
         return
     }
@@ -379,7 +377,7 @@ console_row :: proc(thor: ^Thor, console: ^Console, index: int, cell_w, row_h: f
     term := console.term
     line := term == nil ? nil : vt.term_line(term, index)
 
-    ui.begin({key = "row", props = {w = ui.Grow(1), h = ui.Px(row_h), dir = .Row, gap = {0, 0}}})
+    ui.begin({key = "row", props = {w = ui.Grow(1), h = ui.Px(row_h), dir = .Row, gap = tk_gap(.None, .None)}})
     defer ui.end()
     if line == nil {
         return
@@ -710,8 +708,8 @@ console_mouse_report :: proc(console: ^Console, grid: ui.Interaction, col, row: 
 @(private = "file")
 console_cell_at :: proc(console: ^Console, grid: ui.Interaction, cell_w, row_h: f32, first: int) -> (line: int, col: int) {
     mouse := ui.mouse_pos()
-    x     := mouse.x - (grid.rect.x + CONSOLE_PAD_X)
-    y     := mouse.y - (grid.rect.y + CONSOLE_PAD_Y)
+    x     := mouse.x - (grid.rect.x + tk_sp(.M))
+    y     := mouse.y - (grid.rect.y + tk_sp(.S))
     col = clamp(int(x / max(cell_w, 1)), 0, max(console.cols - 1, 0))
     row := clamp(int(y / max(row_h, 1)), 0, max(console.rows - 1, 0))
     line = clamp(first + row, 0, max(vt.term_total_lines(console.term) - 1, 0))

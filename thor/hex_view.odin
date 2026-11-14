@@ -20,8 +20,6 @@ HEX_COL_ASCII :: HEX_COL_HEX + HEX_ROW_BYTES * 3 + 2
 // Characters in one row.
 HEX_COLS :: HEX_COL_ASCII + HEX_ROW_BYTES
 
-@(private = "file")
-HEX_PAD :: f32(10)
 
 @(private = "file")
 HEX_BAR_WIDTH :: f32(10)
@@ -163,7 +161,7 @@ thor_hex_view :: proc(thor: ^Thor, view: ^Hex_View, file: ^Open_File, key: strin
     row_h  := f32(font.line_height(size))
     rows   := hex_row_count(len(bytes))
     // One row for the column header, one for the info line.
-    shown  := max(int((pane.rect.h - HEX_PAD * 2) / row_h) - 2, 1)
+    shown  := max(int((pane.rect.h - tk_sp(.M) * 2) / row_h) - 2, 1)
     last   := max(rows - shown, 0)
 
     hex_view_mouse(view, pane, len(bytes), cell_w, row_h, shown)
@@ -176,7 +174,7 @@ thor_hex_view :: proc(thor: ^Thor, view: ^Hex_View, file: ^Open_File, key: strin
     props := ui.Props{position = .Absolute, font = thor.font_mono, font_size = f32(size), color = thor.theme.foreground, text_wrap = .None}
 
     header := props
-    header.inset = {l = HEX_PAD, t = HEX_PAD}
+    header.inset = {l = tk_sp(.M), t = tk_sp(.M)}
     header.color = thor.theme.muted_color
     ui.label(hex_header_text(), {key = "header", props = header})
 
@@ -185,10 +183,10 @@ thor_hex_view :: proc(thor: ^Thor, view: ^Hex_View, file: ^Open_File, key: strin
         if row >= rows {
             break
         }
-        y := HEX_PAD + f32(r + 1) * row_h
+        y := tk_sp(.M) + f32(r + 1) * row_h
         hex_paint_row_marks(thor, row, y, cell_w, row_h, lo, hi, view.cursor, pane.focused)
         line := props
-        line.inset = {l = HEX_PAD, t = y}
+        line.inset = {l = tk_sp(.M), t = y}
         ui.push_id_int(i64(r))
         ui.label(hex_row_text(bytes, row), {key = "row", props = line})
         ui.pop_id()
@@ -232,8 +230,8 @@ hex_paint_row_marks :: proc(thor: ^Thor, row: int, y, cell_w, row_h: f32, lo, hi
         if offset == cursor && lo == hi {
             color = focused ? thor.theme.highlight : thor.theme.contrast
         }
-        ui.paint_rect({HEX_PAD + f32(hex_byte_col(i)) * cell_w, y, cell_w * 2, row_h}, color)
-        ui.paint_rect({HEX_PAD + f32(HEX_COL_ASCII + i) * cell_w, y, cell_w, row_h}, color)
+        ui.paint_rect({tk_sp(.M) + f32(hex_byte_col(i)) * cell_w, y, cell_w * 2, row_h}, color)
+        ui.paint_rect({tk_sp(.M) + f32(HEX_COL_ASCII + i) * cell_w, y, cell_w, row_h}, color)
     }
 }
 
@@ -248,8 +246,8 @@ hex_view_mouse :: proc(view: ^Hex_View, pane: ui.Interaction, size: int, cell_w,
         return
     }
     mouse     := ui.mouse_pos()
-    col       := int((mouse.x - pane.rect.x - HEX_PAD) / cell_w)
-    r         := int((mouse.y - pane.rect.y - HEX_PAD) / row_h) - 1
+    col       := int((mouse.x - pane.rect.x - tk_sp(.M)) / cell_w)
+    r         := int((mouse.y - pane.rect.y - tk_sp(.M)) / row_h) - 1
     index, ok := hex_byte_at_col(col)
     if !ok && pane.pressed {
         return
@@ -333,7 +331,7 @@ hex_scrollbar :: proc(thor: ^Thor, view: ^Hex_View, pane: ui.Interaction, rows, 
         {
             key = "scrollbar",
             flags = {.Clickable, .Draggable},
-            props = {position = .Absolute, inset = {r = 0, t = 0}, w = ui.Px(HEX_BAR_WIDTH), h = ui.Px(pane.rect.h)},
+            props = {position = .Absolute, inset = {r = 0, t = 0}, w = ui.Px(tk(HEX_BAR_WIDTH)), h = ui.Px(pane.rect.h)},
         },
     )
     track_h := pane.rect.h
@@ -344,7 +342,10 @@ hex_scrollbar :: proc(thor: ^Thor, view: ^Hex_View, pane: ui.Interaction, rows, 
         view.top_row = clamp(int(y / max(track_h - thumb_h, 1) * f32(last) + 0.5), 0, last)
     }
     thumb_y := (track_h - thumb_h) * f32(view.top_row) / f32(last)
-    ui.paint_rect({pane.rect.w - HEX_BAR_WIDTH, thumb_y, HEX_BAR_WIDTH, thumb_h}, track.hovered || track.dragging ? thor.theme.accent_color : thor.theme.border)
+    ui.paint_rect(
+        {pane.rect.w - tk(HEX_BAR_WIDTH), thumb_y, tk(HEX_BAR_WIDTH), thumb_h},
+        track.hovered || track.dragging ? thor.theme.accent_color : thor.theme.border,
+    )
 }
 
 // Bottom-left overlay: name, size, the caret offset and the byte under it.
@@ -363,7 +364,13 @@ hex_info :: proc(thor: ^Thor, view: ^Hex_View, file: ^Open_File, size: i32) {
         text,
         {
             key = "hex-info",
-            props = {position = .Absolute, inset = {l = HEX_PAD, b = HEX_PAD * 0.5}, color = thor.theme.muted_color, font_size = f32(size), text_wrap = .None},
+            props = {
+                position = .Absolute,
+                inset = {l = tk_sp(.M), b = tk_sp(.M) * 0.5},
+                color = thor.theme.muted_color,
+                font_size = f32(size),
+                text_wrap = .None,
+            },
         },
     )
 }

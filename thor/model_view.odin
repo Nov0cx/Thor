@@ -45,8 +45,6 @@ MODEL_GRID_HALF :: 12
 @(private = "file")
 MODEL_BUTTON_SIZE :: f32(30)
 
-@(private = "file")
-MODEL_BUTTON_MARGIN :: f32(10)
 
 // The 3D pass renders at this multiple of the pane size and is filtered back
 // down, the cheapest antialiasing available without an MSAA target.
@@ -255,7 +253,7 @@ thor_model_info :: proc(thor: ^Thor, view: ^Model_View) {
             key = "model-info",
             props = {
                 position = .Absolute,
-                inset = {l = MODEL_BUTTON_MARGIN, b = MODEL_BUTTON_MARGIN},
+                inset = {l = tk_sp(.M), b = tk_sp(.M)},
                 color = thor.theme.foreground,
                 font_size = f32(thor.config.general.font_size),
             },
@@ -266,7 +264,7 @@ thor_model_info :: proc(thor: ^Thor, view: ^Model_View) {
 // Top-right toggle for the auto-orbit.
 @(private = "file")
 thor_model_button :: proc(thor: ^Thor, view: ^Model_View) {
-    span := MODEL_BUTTON_SIZE + 2 * MODEL_BUTTON_MARGIN
+    span := tk(MODEL_BUTTON_SIZE) + 2 * tk_sp(.M)
     if view.rect.w < span || view.rect.h < span {
         return
     }
@@ -276,9 +274,9 @@ thor_model_button :: proc(thor: ^Thor, view: ^Model_View) {
             flags = {.Clickable},
             props = {
                 position = .Absolute,
-                inset = {r = MODEL_BUTTON_MARGIN, t = MODEL_BUTTON_MARGIN},
-                w = ui.Px(MODEL_BUTTON_SIZE),
-                h = ui.Px(MODEL_BUTTON_SIZE),
+                inset = {r = tk_sp(.M), t = tk_sp(.M)},
+                w = ui.Px(tk(MODEL_BUTTON_SIZE)),
+                h = ui.Px(tk(MODEL_BUTTON_SIZE)),
                 justify = .Center,
                 align = .Center,
                 bg = view.spinning ? thor.theme.accent_color : thor.theme.highlight,

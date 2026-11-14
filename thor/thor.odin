@@ -734,7 +734,7 @@ init :: proc() -> ^Thor {
             append(&preload_packs, pack)
         }
     }
-    extra_sizes := [2]i32{cast(i32)setting.font_size(&thor.config), WELCOME_TITLE_FONT_SIZE}
+    extra_sizes := [2]i32{cast(i32)setting.font_size(&thor.config), i32(tk_font(thor, .Display))}
     font.begin_async_load(
         "assets/fonts/fonts.json",
         "assets/icons/icons.json",

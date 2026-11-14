@@ -12,10 +12,8 @@ import ui "../vendor/loom/loom"
 // The Undo History modal: the undo tree of one buffer as a graph, newest first, with a diff of the selected step.
 // Moving the selection moves the buffer; Enter keeps that state, Escape goes back to the start.
 
-UNDO_VIEW_WIDTH      :: 980
-UNDO_ROW_H           :: f32(28)
+UNDO_VIEW_WIDTH      :: TK_W_TOOL
 UNDO_LANE_W          :: f32(14)
-UNDO_DIFF_ROW_H      :: f32(20)
 // Bytes of op text a label quotes.
 UNDO_HISTORY_SNIPPET :: 40
 // Context lines above and below each hunk of the diff.
@@ -286,9 +284,9 @@ thor_undo_history_view :: proc(thor: ^Thor) {
                 dir = .Row,
                 justify = .End,
                 align = .Center,
-                pad = ui.all(24),
+                pad = tk_pad_all(.XXL),
                 z = 410,
-                bg = ui.Color{0, 0, 0, 60},
+                bg = tk_scrim(.Modal),
             },
         },
     )
@@ -312,14 +310,14 @@ undo_view_box :: proc(thor: ^Thor, file: ^Open_File) {
             key = "undo-box",
             flags = {.Clickable, .Focusable},
             props = {
-                w = ui.Px(min(UNDO_VIEW_WIDTH, ui.viewport().x * 0.62)),
-                max_w = ui.viewport().x - 48,
-                h = ui.Px(ui.viewport().y - 80),
+                w = ui.Px(min(tk_modal_w(UNDO_VIEW_WIDTH), ui.viewport().x * 0.62)),
+                max_w = ui.viewport().x - 2 * TK_MODAL_MARGIN,
+                h = ui.Px(ui.viewport().y - 2 * TK_MODAL_MARGIN),
                 dir = .Column,
                 bg = thor.theme.background,
-                radius = ui.rad(10),
+                radius = tk_rad(.Modal),
                 border = {width = ui.all(1), color = thor.theme.border},
-                shadow = {offset = {0, 8}, blur = 32, color = thor.theme.contrast},
+                shadow = tk_shadow(thor, .Modal),
             },
         },
     )
@@ -340,7 +338,10 @@ undo_view_box :: proc(thor: ^Thor, file: ^Open_File) {
     }
     ui.label(
         "↑↓ rows   ←→ single steps   Enter keep   Esc go back",
-        {key = "hint", props = {w = ui.Grow(1), pad = ui.xy(14, 6), color = thor.theme.muted_color, bg = thor.theme.second_background, text_wrap = .Ellipsis}},
+        {
+            key = "hint",
+            props = {w = ui.Grow(1), pad = tk_pad(.XL, .S), color = thor.theme.muted_color, bg = thor.theme.second_background, text_wrap = .Ellipsis},
+        },
     )
 }
 
@@ -350,7 +351,7 @@ undo_view_header :: proc(thor: ^Thor, file: ^Open_File) {
     ui.scope(
         {
             key = "header",
-            props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {10, 0}, pad = ui.xy(14, 12), bg = thor.theme.second_background},
+            props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.M, .None), pad = tk_pad(.XL, .L), bg = thor.theme.second_background},
         },
     )
     thor_icon_label(thor, "history", thor.theme.accent_color)
@@ -365,7 +366,7 @@ undo_view_header :: proc(thor: ^Thor, file: ^Open_File) {
         {
             key = "close",
             flags = {.Clickable},
-            props = {w = ui.Px(26), h = ui.Px(26), dir = .Row, justify = .Center, align = .Center, radius = ui.rad(4), cursor = .Pointer},
+            props = {w = ui.Px(tk(26)), h = ui.Px(tk_h(.Row)), dir = .Row, justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
             hover = {bg = thor.theme.buttons},
         },
     )
@@ -380,22 +381,22 @@ undo_view_header :: proc(thor: ^Thor, file: ^Open_File) {
 undo_view_list :: proc(thor: ^Thor, file: ^Open_File) {
     v    := &thor.undo_view
     list := ui.scope(
-        {key = "list", flags = {.Clip, .Scroll_Y}, props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), dir = .Column, pad = ui.xy(6, 6)}},
+        {key = "list", flags = {.Clip, .Scroll_Y}, props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), dir = .Column, pad = tk_pad(.S, .S)}},
     )
     if v.scroll_pending && list.node != nil && list.rect.h > 0 {
-        top    := f32(v.selected) * UNDO_ROW_H
+        top    := f32(v.selected) * tk_h(.Row)
         view   := list.rect.h - 12
         scroll := list.node.scroll.y
         if top < scroll {
             ui.set_scroll(list.node, .Y, top)
-        } else if top + UNDO_ROW_H > scroll + view {
-            ui.set_scroll(list.node, .Y, top + UNDO_ROW_H - view)
+        } else if top + tk_h(.Row) > scroll + view {
+            ui.set_scroll(list.node, .Y, top + tk_h(.Row) - view)
         }
         v.scroll_pending = false
     }
 
     now         := time.now()
-    first, last := ui.virtual(len(v.rows), UNDO_ROW_H)
+    first, last := ui.virtual(len(v.rows), tk_h(.Row))
     defer ui.end_virtual()
     for i in first ..< last {
         ui.push_id_int(i64(i))
@@ -429,12 +430,12 @@ undo_view_row :: proc(thor: ^Thor, file: ^Open_File, index: int, now: time.Time)
             flags = {.Clickable},
             props = {
                 w = ui.Grow(1),
-                h = ui.Px(UNDO_ROW_H),
+                h = ui.Px(tk_h(.Row)),
                 dir = .Row,
                 align = .Center,
-                gap = {8, 0},
+                gap = tk_gap(.M, .None),
                 pad = {r = 8},
-                radius = ui.rad(4),
+                radius = tk_rad(.Control),
                 cursor = .Pointer,
                 bg = on ? thor.theme.selection_background : ui.Color{0, 0, 0, 0},
             },
@@ -456,15 +457,18 @@ undo_view_row :: proc(thor: ^Thor, file: ^Open_File, index: int, now: time.Time)
         undo_view_badge(thor, "start", thor.theme.accent_color)
     }
     if !root {
-        ui.label(fmt.tprintf("L%d", node.line + 1), {key = "line", props = {color = thor.theme.muted_color, text_wrap = .None, min_w = 44}})
+        ui.label(fmt.tprintf("L%d", node.line + 1), {key = "line", props = {color = thor.theme.muted_color, text_wrap = .None, min_w = tk(44)}})
     }
-    ui.label(undo_history_age(time.diff(node.stamp, now)), {key = "age", props = {color = thor.theme.muted_color, text_wrap = .None, min_w = 56}})
+    ui.label(undo_history_age(time.diff(node.stamp, now)), {key = "age", props = {color = thor.theme.muted_color, text_wrap = .None, min_w = tk(56)}})
     return it.clicked, it.double_clicked
 }
 
 @(private = "file")
 undo_view_badge :: proc(thor: ^Thor, text: string, color: ui.Color) {
-    ui.label(text, {key = text, props = {pad = ui.xy(6, 1), radius = ui.rad(4), color = color, border = {width = ui.all(1), color = color}, text_wrap = .None}})
+    ui.label(
+        text,
+        {key = text, props = {pad = tk_pad(.S, .XXS), radius = tk_rad(.Control), color = color, border = {width = ui.all(1), color = color}, text_wrap = .None}},
+    )
 }
 
 // The lanes beside a row: a bar for each line that passes, the node's dot, and a
@@ -473,17 +477,17 @@ undo_view_badge :: proc(thor: ^Thor, text: string, color: ui.Color) {
 undo_view_graph :: proc(thor: ^Thor, v: ^Undo_View, row: Undo_Graph_Row, on: bool) {
     line := thor.theme.border
     dot  := on ? thor.theme.accent_color : thor.theme.muted_color
-    ui.scope({key = "graph", props = {position = .Relative, w = ui.Px(f32(v.lanes) * UNDO_LANE_W + 6), h = ui.Px(UNDO_ROW_H)}})
+    ui.scope({key = "graph", props = {position = .Relative, w = ui.Px(f32(v.lanes) * tk(UNDO_LANE_W) + 6), h = ui.Px(tk_h(.Row))}})
     x_of :: proc(lane: int) -> f32 {
-        return 6 + f32(lane) * UNDO_LANE_W + UNDO_LANE_W / 2
+        return 6 + f32(lane) * tk(UNDO_LANE_W) + tk(UNDO_LANE_W) / 2
     }
-    mid := UNDO_ROW_H / 2
+    mid := tk_h(.Row) / 2
     bar :: proc(key: string, x, y, w, h: f32, color: ui.Color) {
         ui.leaf({key = key, props = {position = .Absolute, inset = {l = x, t = y}, w = ui.Px(w), h = ui.Px(h), bg = color}})
     }
     for l in row.through {
         ui.push_id_int(i64(l))
-        bar("through", x_of(l) - 1, 0, 2, UNDO_ROW_H, line)
+        bar("through", x_of(l) - 1, 0, 2, tk_h(.Row), line)
         ui.pop_id()
     }
     for l in row.joins {
@@ -498,7 +502,7 @@ undo_view_graph :: proc(thor: ^Thor, v: ^Undo_View, row: Undo_Graph_Row, on: boo
         bar("top", x - 1, 0, 2, mid, line)
     }
     if row.bottom {
-        bar("bottom", x - 1, mid, 2, UNDO_ROW_H - mid, line)
+        bar("bottom", x - 1, mid, 2, tk_h(.Row) - mid, line)
     }
     size := f32(10)
     ui.leaf(
@@ -609,7 +613,7 @@ undo_history_age :: proc(age: time.Duration) -> string {
 @(private = "file")
 undo_view_diff :: proc(thor: ^Thor, file: ^Open_File) {
     v := &thor.undo_view
-    ui.scope({key = "diff", props = {w = ui.Px(min(UNDO_VIEW_WIDTH, ui.viewport().x * 0.62) * 0.4), h = ui.Grow(1), dir = .Column}})
+    ui.scope({key = "diff", props = {w = ui.Px(min(tk_modal_w(UNDO_VIEW_WIDTH), ui.viewport().x * 0.62) * 0.4), h = ui.Grow(1), dir = .Column}})
     state := &file.state
     node: ^textedit.Undo_Node
     title := "Change"
@@ -623,8 +627,8 @@ undo_view_diff :: proc(thor: ^Thor, file: ^Open_File) {
             key = "title",
             props = {
                 w = ui.Grow(1),
-                h = ui.Px(UNDO_ROW_H),
-                pad = ui.xy(12, 0),
+                h = ui.Px(tk_h(.Row)),
+                pad = tk_pad(.L, .None),
                 bg = thor.theme.second_background,
                 color = thor.theme.muted_color,
                 text_wrap = .Ellipsis,
@@ -637,7 +641,7 @@ undo_view_diff :: proc(thor: ^Thor, file: ^Open_File) {
     )
     if node == nil || node.parent == textedit.NO_NODE {
         text := node != nil && node.seq != 0 ? "The oldest state the history still holds." : "The file as it was when the history began."
-        ui.label(text, {key = "root", props = {pad = ui.xy(12, 8), color = thor.theme.muted_color}})
+        ui.label(text, {key = "root", props = {pad = tk_pad(.L, .M), color = thor.theme.muted_color}})
         return
     }
     rows := undo_diff_rows(state, hunks)
@@ -658,8 +662,8 @@ undo_view_diff :: proc(thor: ^Thor, file: ^Open_File) {
                 key = "line",
                 props = {
                     w = ui.Grow(1),
-                    h = ui.Px(UNDO_DIFF_ROW_H),
-                    pad = ui.xy(12, 0),
+                    h = ui.Px(tk_code_row_h(thor)),
+                    pad = tk_pad(.L, .None),
                     bg = git_diff_row_bg(thor, row.kind),
                     color = git_diff_row_color(thor, row.kind),
                     font = thor.font_mono,

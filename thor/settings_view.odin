@@ -9,17 +9,10 @@ import "core:strings"
 
 import ui "../vendor/loom/loom"
 
-SETTINGS_WIDTH        :: f32(940)
-SETTINGS_HEIGHT       :: f32(620)
-SETTINGS_SIDEBAR_W    :: f32(240)
-SETTINGS_CHORD_W      :: f32(170)
-// Corner radius of the box, and the radius its edge children take: the same
-// curve one border width in.
-SETTINGS_RADIUS       :: f32(10)
-SETTINGS_INNER_RADIUS :: SETTINGS_RADIUS - 1
-SETTINGS_ROW_H        :: f32(34)
-SETTINGS_ROW_DESC_H   :: f32(56)
-SETTINGS_CATEGORY_H   :: f32(32)
+SETTINGS_WIDTH     :: TK_W_TOOL
+SETTINGS_HEIGHT    :: f32(620)
+SETTINGS_SIDEBAR_W :: f32(240)
+SETTINGS_CHORD_W   :: f32(170)
 
 Settings_Row_Kind :: enum {
     Number,  // label + [-] value [+] stepper
@@ -446,7 +439,7 @@ thor_settings_view :: proc(thor: ^Thor) {
                 justify = .Center,
                 align = .Center,
                 z = 420,
-                bg = ui.Color{0, 0, 0, 140},
+                bg = tk_scrim(.Modal),
             },
         },
     )
@@ -507,15 +500,15 @@ settings_box :: proc(thor: ^Thor) {
             key = "settings-box",
             flags = {.Clickable},
             props = {
-                w = ui.Px(SETTINGS_WIDTH),
-                max_w = ui.viewport().x - 80,
-                h = ui.Px(SETTINGS_HEIGHT),
-                max_h = ui.viewport().y - 80,
+                w = ui.Px(tk(SETTINGS_WIDTH)),
+                max_w = ui.viewport().x - 2 * TK_MODAL_MARGIN,
+                h = ui.Px(tk(SETTINGS_HEIGHT)),
+                max_h = ui.viewport().y - 2 * TK_MODAL_MARGIN,
                 dir = .Column,
                 bg = thor.theme.background,
-                radius = ui.rad(SETTINGS_RADIUS),
+                radius = tk_rad(.Modal),
                 border = {width = ui.all(1), color = thor.theme.border},
-                shadow = {offset = {0, 8}, blur = 32, color = thor.theme.contrast},
+                shadow = tk_shadow(thor, .Modal),
             },
         },
     )
@@ -538,12 +531,12 @@ settings_header :: proc(thor: ^Thor) {
         h = ui.FIT,
         dir = .Row,
         align = .Center,
-        gap = {10, 0},
-        pad = ui.xy(14, 12),
+        gap = tk_gap(.M, .None),
+        pad = tk_pad(.XL, .L),
         bg = thor.theme.second_background,
         // The box's own corners, less its border: a square fill here
         // would paint over the rounded corner it sits in.
-        radius = ui.rad4(SETTINGS_INNER_RADIUS, SETTINGS_INNER_RADIUS, 0, 0),
+        radius = ui.rad4(tk_rad_inner(.Modal, 1), tk_rad_inner(.Modal, 1), 0, 0),
     }})
 
     ui.label("Settings", {key = "title", props = {color = thor.theme.foreground, text_wrap = .None}})
@@ -559,7 +552,7 @@ settings_header :: proc(thor: ^Thor) {
                 w = ui.Grow(1),
                 bg = thor.theme.background,
                 color = thor.theme.foreground,
-                radius = ui.rad(6),
+                radius = tk_rad(.Popup),
                 border = {width = ui.all(1), color = thor.theme.border},
             },
         },
@@ -574,7 +567,7 @@ settings_header :: proc(thor: ^Thor) {
         {
             key = "close",
             flags = {.Clickable},
-            props = {w = ui.Px(26), h = ui.Px(26), dir = .Row, justify = .Center, align = .Center, radius = ui.rad(4), cursor = .Pointer},
+            props = {w = ui.Px(tk(26)), h = ui.Px(tk_h(.Row)), dir = .Row, justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
             hover = {bg = thor.theme.buttons},
         },
     )
@@ -594,11 +587,11 @@ settings_scope_tab :: proc(thor: ^Thor, scope: Settings_Scope, label: string) {
             key = label,
             flags = {.Clickable},
             props = {
-                h = ui.Px(24),
+                h = ui.Px(tk_h(.Row)),
                 dir = .Row,
                 align = .Center,
-                pad = ui.xy(12, 0),
-                radius = ui.rad(12),
+                pad = tk_pad(.L, .None),
+                radius = tk_pill(tk_h(.Row)),
                 bg = on ? thor.theme.accent_color : thor.theme.buttons,
                 cursor = .Pointer,
             },
@@ -620,14 +613,14 @@ settings_sidebar :: proc(thor: ^Thor) {
             flags = {.Clip, .Scroll_Y},
             props = {
                 position = .Relative,
-                w = ui.Px(SETTINGS_SIDEBAR_W),
-                min_w = SETTINGS_SIDEBAR_W,
+                w = ui.Px(tk(SETTINGS_SIDEBAR_W)),
+                min_w = tk(SETTINGS_SIDEBAR_W),
                 h = ui.Grow(1),
                 dir = .Column,
                 pad = {l = 8, r = 8, t = 10, b = 8},
-                gap = {0, 2},
+                gap = tk_gap(.None, .XXS),
                 bg = thor.theme.second_background,
-                radius = ui.rad4(0, 0, 0, SETTINGS_INNER_RADIUS),
+                radius = ui.rad4(0, 0, 0, tk_rad_inner(.Modal, 1)),
             },
         },
     )
@@ -647,12 +640,12 @@ settings_sidebar :: proc(thor: ^Thor) {
                     flags = {.Clickable},
                     props = {
                         w = ui.Grow(1),
-                        h = ui.Px(SETTINGS_CATEGORY_H),
+                        h = ui.Px(tk_h(.Row_Picker)),
                         dir = .Row,
                         align = .Center,
-                        gap = {8, 0},
-                        pad = ui.xy(8, 0),
-                        radius = ui.rad(6),
+                        gap = tk_gap(.M, .None),
+                        pad = tk_pad(.M, .None),
+                        radius = tk_rad(.Popup),
                         bg = on ? thor.theme.selection_background : nil,
                         cursor = .Pointer,
                     },
@@ -679,7 +672,7 @@ settings_content :: proc(thor: ^Thor) {
         {
             key = "content",
             flags = {.Clip, .Scroll_Y},
-            props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), dir = .Column, pad = ui.xy(14, 10), gap = {0, 2}},
+            props = {position = .Relative, w = ui.Grow(1), h = ui.Grow(1), dir = .Column, pad = tk_pad(.XL, .M), gap = tk_gap(.None, .XXS)},
         },
     )
 
@@ -688,7 +681,7 @@ settings_content :: proc(thor: ^Thor) {
         return
     }
     if len(s.visible_rows) == 0 {
-        ui.label("Nothing here", {key = "empty", props = {pad = ui.xy(4, 8), color = thor.theme.disabled}})
+        ui.label("Nothing here", {key = "empty", props = {pad = tk_pad(.XS, .M), color = thor.theme.disabled}})
         return
     }
 
@@ -702,8 +695,11 @@ settings_content :: proc(thor: ^Thor) {
 // The Workspace tab with no .thor/ folder yet: one button that makes it.
 @(private = "file")
 settings_workspace_prompt :: proc(thor: ^Thor) {
-    ui.label("This folder has no workspace settings yet.", {key = "msg", props = {pad = ui.xy(4, 10), color = thor.theme.foreground}})
-    ui.label("Workspace settings live in .thor/ and override the general ones.", {key = "hint", props = {pad = ui.xy(4, 2), color = thor.theme.muted_color}})
+    ui.label("This folder has no workspace settings yet.", {key = "msg", props = {pad = tk_pad(.XS, .M), color = thor.theme.foreground}})
+    ui.label(
+        "Workspace settings live in .thor/ and override the general ones.",
+        {key = "hint", props = {pad = tk_pad(.XS, .XXS), color = thor.theme.muted_color}},
+    )
     if settings_button(thor, "cta", "Create Workspace Settings", thor.theme.accent_color, outlined = true) {
         thor_cmd_init_workspace(thor)
     }
@@ -726,12 +722,12 @@ settings_row :: proc(thor: ^Thor, row_index: int) {
             key = "row",
             props = {
                 w = ui.Grow(1),
-                h = ui.Px(row.desc != "" ? SETTINGS_ROW_DESC_H : SETTINGS_ROW_H),
+                h = ui.Px(row.desc != "" ? tk_h(.Row_Form_Desc) : tk_h(.Row_Form)),
                 dir = .Row,
                 align = .Center,
-                gap = {12, 0},
+                gap = tk_gap(.L, .None),
                 pad = {l = 8 + indent, r = 8},
-                radius = ui.rad(6),
+                radius = tk_rad(.Popup),
             },
             hover = {bg = thor.theme.second_background},
         },
@@ -776,13 +772,13 @@ settings_group_row :: proc(thor: ^Thor, row: ^Settings_Row) {
             flags = {.Clickable},
             props = {
                 w = ui.Grow(1),
-                h = ui.Px(SETTINGS_ROW_H),
+                h = ui.Px(tk_h(.Row_Form)),
                 dir = .Row,
                 align = .Center,
-                gap = {8, 0},
-                pad = ui.xy(6, 0),
+                gap = tk_gap(.M, .None),
+                pad = tk_pad(.S, .None),
                 margin = {t = 6},
-                radius = ui.rad(6),
+                radius = tk_rad(.Popup),
                 cursor = .Pointer,
             },
             hover = {bg = thor.theme.second_background},
@@ -804,7 +800,7 @@ settings_number_control :: proc(thor: ^Thor, row: ^Settings_Row) {
     if settings_step_button(thor, "dec", "minus", row.number > row.min) {
         step = -row.step
     }
-    ui.label(row.value, {key = "value", props = {w = ui.Px(56), text_align = .Center, color = thor.theme.foreground, text_wrap = .None}})
+    ui.label(row.value, {key = "value", props = {w = ui.Px(tk(56)), text_align = .Center, color = thor.theme.foreground, text_wrap = .None}})
     if settings_step_button(thor, "inc", "plus", row.number < row.max) {
         step = row.step
     }
@@ -820,12 +816,12 @@ settings_step_button :: proc(thor: ^Thor, key, icon: string, enabled: bool) -> b
             key = key,
             flags = enabled ? {.Clickable} : {},
             props = {
-                w = ui.Px(24),
-                h = ui.Px(24),
+                w = ui.Px(tk(24)),
+                h = ui.Px(tk_h(.Row)),
                 dir = .Row,
                 justify = .Center,
                 align = .Center,
-                radius = ui.rad(4),
+                radius = tk_rad(.Control),
                 bg = thor.theme.buttons,
                 cursor = enabled ? .Pointer : .Not_Allowed,
             },
@@ -843,13 +839,13 @@ settings_toggle_control :: proc(thor: ^Thor, row: ^Settings_Row) {
             key = "toggle",
             flags = {.Clickable},
             props = {
-                w = ui.Px(38),
-                h = ui.Px(22),
+                w = ui.Px(tk(38)),
+                h = ui.Px(tk_h(.Row_Compact)),
                 dir = .Row,
                 align = .Center,
                 justify = row.on ? .End : .Start,
-                pad = ui.all(3),
-                radius = ui.rad(11),
+                pad = tk_pad_all(.XS),
+                radius = tk_pill(tk_h(.Row_Compact)),
                 bg = row.on ? thor.theme.accent_color : thor.theme.buttons,
                 border = {width = ui.all(1), color = row.on ? thor.theme.accent_color : thor.theme.border},
                 cursor = .Pointer,
@@ -857,7 +853,9 @@ settings_toggle_control :: proc(thor: ^Thor, row: ^Settings_Row) {
             hover = {bg = row.on ? thor.theme.accent_color : thor.theme.active},
         },
     )
-    ui.leaf({key = "knob", props = {w = ui.Px(14), h = ui.Px(14), radius = ui.rad(7), bg = row.on ? thor.theme.background : thor.theme.muted_color}})
+    ui.leaf(
+        {key = "knob", props = {w = ui.Px(tk(14)), h = ui.Px(tk(14)), radius = tk_pill(tk(14)), bg = row.on ? thor.theme.background : thor.theme.muted_color}},
+    )
     thor_tip(thor, it.id, row.on ? "On" : "Off")
     if it.clicked {
         thor_on_setting_toggle(thor, row.id, !row.on)
@@ -871,12 +869,12 @@ settings_choice_control :: proc(thor: ^Thor, row: ^Settings_Row) {
             key = "choice",
             flags = {.Clickable},
             props = {
-                h = ui.Px(26),
+                h = ui.Px(tk_h(.Row)),
                 dir = .Row,
                 align = .Center,
-                gap = {8, 0},
-                pad = ui.xy(10, 0),
-                radius = ui.rad(6),
+                gap = tk_gap(.M, .None),
+                pad = tk_pad(.M, .None),
+                radius = tk_rad(.Popup),
                 bg = thor.theme.buttons,
                 cursor = .Pointer,
             },
@@ -901,13 +899,13 @@ settings_keybind_control :: proc(thor: ^Thor, row: ^Settings_Row, row_index: int
             key = "chord",
             flags = {.Clickable},
             props = {
-                w = ui.Px(SETTINGS_CHORD_W),
-                h = ui.Px(26),
+                w = ui.Px(tk(SETTINGS_CHORD_W)),
+                h = ui.Px(tk_h(.Row)),
                 dir = .Row,
                 justify = .Center,
                 align = .Center,
-                pad = ui.xy(10, 0),
-                radius = ui.rad(6),
+                pad = tk_pad(.M, .None),
+                radius = tk_rad(.Popup),
                 bg = capturing ? thor.theme.selection_background : (bound ? thor.theme.buttons : nil),
                 border = {width = ui.all(1), color = capturing ? thor.theme.accent_color : thor.theme.border},
                 cursor = .Pointer,
@@ -945,12 +943,12 @@ settings_button :: proc(
             key = key,
             flags = {.Clickable},
             props = {
-                h = ui.Px(26),
+                h = ui.Px(tk_h(.Row)),
                 dir = .Row,
                 align = .Center,
                 pad = ui.xy(outlined ? 12 : 10, 0),
                 margin = {t = outlined ? 8 : 0},
-                radius = ui.rad(6),
+                radius = tk_rad(.Popup),
                 bg = thor.theme.buttons,
                 border = {width = ui.all(outlined ? 1 : 0), color = color},
                 cursor = .Pointer,

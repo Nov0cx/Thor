@@ -461,13 +461,11 @@ thor_markdown_copy :: proc(thor: ^Thor, text: string) {
 @(private = "file")
 MD_COPY_W :: f32(64)
 
-@(private = "file")
-MD_COPY_H :: f32(22)
 
 // The box of a code block's copy button, at its top right.
 @(private = "file")
 thor_markdown_copy_box :: proc(item: markdown.Item) -> (x, y, w, h: f32) {
-    return item.x + item.w - MD_COPY_W - 6, item.y + 6, MD_COPY_W, MD_COPY_H
+    return item.x + item.w - tk(MD_COPY_W) - 6, item.y + 6, tk(MD_COPY_W), tk_h(.Row_Compact)
 }
 
 // The code block item whose copy button is under a content point, or -1.
@@ -560,7 +558,9 @@ thor_markdown_draw :: proc(thor: ^Thor, view: ^Markdown_View, rect: ui.Rect, lef
                 continue
             }
             ui.push_id_int(i64(index))
-            ui.begin({key = "md", props = {position = .Absolute, inset = {l = x, t = y}, w = ui.Px(16), h = ui.Px(item.h), align = .Center, justify = .Center}})
+            ui.begin(
+                {key = "md", props = {position = .Absolute, inset = {l = x, t = y}, w = ui.Px(tk(16)), h = ui.Px(item.h), align = .Center, justify = .Center}},
+            )
             thor_icon_label(thor, item.size == 1 ? "chevron-down" : "chevron-right", item.color, 14)
             ui.end()
             ui.pop_id()
@@ -593,8 +593,8 @@ thor_markdown_code_chrome :: proc(thor: ^Thor, view: ^Markdown_View, item: markd
                     dir = .Row,
                     align = .Center,
                     justify = .Center,
-                    gap = {4, 0},
-                    radius = ui.rad(4),
+                    gap = tk_gap(.XS, .None),
+                    radius = tk_rad(.Control),
                     bg = hot ? thor.theme.active : thor.theme.buttons,
                     border = {width = ui.all(1), color = thor.theme.border},
                 },

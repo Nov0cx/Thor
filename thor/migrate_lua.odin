@@ -176,7 +176,7 @@ thor_lua_notice_dismiss :: proc(thor: ^Thor) {
     }
 }
 
-LUA_NOTICE_WIDTH :: f32(460)
+LUA_NOTICE_WIDTH :: TK_W_FORM
 
 // The floating card that says the config is Lua now.
 thor_lua_notice_view :: proc(thor: ^Thor) {
@@ -190,22 +190,22 @@ thor_lua_notice_view :: proc(thor: ^Thor) {
             props = {
                 position = .Fixed,
                 inset = {r = 24, b = 24},
-                w = ui.Px(LUA_NOTICE_WIDTH),
-                max_w = ui.viewport().x - 48,
+                w = ui.Px(tk(LUA_NOTICE_WIDTH)),
+                max_w = ui.viewport().x - 2 * TK_MODAL_MARGIN,
                 h = ui.FIT,
                 dir = .Column,
-                pad = ui.all(14),
-                gap = {0, 8},
+                pad = tk_pad_all(.L),
+                gap = tk_gap(.None, .M),
                 z = 310,
                 bg = thor.theme.second_background,
-                radius = ui.rad(8),
+                radius = tk_rad(.Card),
                 border = {width = ui.all(1), color = thor.theme.border},
-                shadow = {offset = {0, 6}, blur = 24, color = thor.theme.contrast},
+                shadow = tk_shadow(thor, .Card),
             },
         },
     )
     {
-        ui.scope({key = "head", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {8, 0}}})
+        ui.scope({key = "head", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.M, .None)}})
         thor_icon_label(thor, "file-code", thor.theme.accent_color)
         ui.label("Settings are now Lua", {key = "title", props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .Ellipsis}})
     }
@@ -223,7 +223,7 @@ thor_lua_notice_view :: proc(thor: ^Thor) {
         ui.pop_id()
     }
     {
-        ui.scope({key = "foot", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {8, 0}, margin = {t = 4}}})
+        ui.scope({key = "foot", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.M, .None), margin = {t = 4}}})
         ui.spacer(ui.Grow(1), {key = "gap"})
         if lua_notice_button(thor, "open", "Open settings.lua", false) {
             thor_lua_notice_dismiss(thor)
@@ -243,7 +243,16 @@ lua_notice_button :: proc(thor: ^Thor, key, label: string, primary: bool) -> boo
         {
             key = key,
             flags = {.Clickable},
-            props = {w = ui.FIT, h = ui.Px(28), dir = .Row, align = .Center, pad = ui.xy(12, 0), radius = ui.rad(6), bg = bg, cursor = .Pointer},
+            props = {
+                w = ui.FIT,
+                h = ui.Px(tk_h(.Control)),
+                dir = .Row,
+                align = .Center,
+                pad = tk_pad(.L, .None),
+                radius = tk_rad(.Popup),
+                bg = bg,
+                cursor = .Pointer,
+            },
             hover = {bg = primary ? bg : thor.theme.active},
         },
     )

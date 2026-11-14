@@ -180,7 +180,7 @@ thor_layout_fits :: proc(thor: ^Thor, layout: Pane_Layout) -> bool {
     }
     cols := f32(layout_columns(layout))
     rows := f32(layout_max_rows(layout))
-    return area.w >= cols * PANE_MIN_W + (cols - 1) * PANE_HANDLE_WIDTH && area.h >= rows * PANE_MIN_H + (rows - 1) * PANE_HANDLE_WIDTH
+    return area.w >= cols * tk(PANE_MIN_W) + (cols - 1) * PANE_HANDLE_WIDTH && area.h >= rows * tk(PANE_MIN_H) + (rows - 1) * PANE_HANDLE_WIDTH
 }
 
 // Whether open file `index` shows in one of the first `count` panes.

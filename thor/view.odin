@@ -14,15 +14,9 @@ import "../render"
 import "../textedit"
 import ui "../vendor/loom/loom"
 
-TITLEBAR_HEIGHT           :: 44
-STATUSBAR_HEIGHT          :: 28
-TAB_HEIGHT                :: 38
-// The terminal strip: shorter than the file tabs, since it sits inside a panel.
-TERMINAL_STRIP_HEIGHT     :: 28
-TERMINAL_STRIP_TAB_HEIGHT :: 22
-TERMINAL_STRIP_NAME_MAX   :: 140
+TERMINAL_STRIP_NAME_MAX :: 140
 // Width of the bar between two dock panels, which is also its drag area.
-DOCK_SPLITTER_WIDTH       :: 3
+DOCK_SPLITTER_WIDTH     :: 3
 
 // What the status bar shows. A field left zero hides its segment.
 Status_Info :: struct {
@@ -97,6 +91,7 @@ thor_push_theme :: proc(thor: ^Thor) {
 }
 
 thor_frame :: proc(thor: ^Thor) {
+    thor_set_ui_scale(thor.config.general.font_size)
     thor_push_theme(thor)
     thor.region_rects = {}
     // Before the tree: a global chord must win over whatever holds the focus.
@@ -198,11 +193,11 @@ thor_titlebar :: proc(thor: ^Thor) {
             key = "titlebar",
             props = {
                 w = ui.Grow(1),
-                h = ui.Px(TITLEBAR_HEIGHT),
+                h = ui.Px(tk_h(.Titlebar)),
                 dir = .Row,
                 align = .Center,
-                gap = {8, 0},
-                pad = ui.xy(12, 8),
+                gap = tk_gap(.M, .None),
+                pad = tk_pad(.L, .M),
                 bg = thor.theme.second_background,
             },
         },
@@ -212,7 +207,7 @@ thor_titlebar :: proc(thor: ^Thor) {
         {
             key = "logo",
             flags = {.Clickable},
-            props = {w = ui.Px(34), h = ui.Px(28), justify = .Center, align = .Center, radius = ui.rad(4), cursor = .Pointer},
+            props = {w = ui.Px(tk(34)), h = ui.Px(tk_h(.Control)), justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
             hover = {bg = thor.theme.buttons},
         },
     )
@@ -227,7 +222,7 @@ thor_titlebar :: proc(thor: ^Thor) {
     menu_bar: ui.Rect
     for label, i in MENU_LABELS {
         ui.push_id_int(i64(i))
-        it := thor_text_button(thor, label, {key = "menu", props = {w = ui.Px(70)}})
+        it := thor_text_button(thor, label, {key = "menu", props = {w = ui.Px(tk(70))}})
         thor_menu_tip(thor, it.id, i)
         ui.pop_id()
         menu_bar = i == 0 ? it.rect : thor_rect_union(menu_bar, it.rect)
@@ -298,7 +293,7 @@ thor_task_controls :: proc(thor: ^Thor) {
         return
     }
 
-    if add := thor_text_button(thor, "+", {key = "task-add", props = {w = ui.Px(28), pad = {}}}); add.clicked {
+    if add := thor_text_button(thor, "+", {key = "task-add", props = {w = ui.Px(tk(28)), pad = {}}}); add.clicked {
         thor_cmd_add_task(thor)
         return
     } else {
@@ -308,7 +303,7 @@ thor_task_controls :: proc(thor: ^Thor) {
     sel := thor_text_button(
         thor,
         thor_task_selector_label(thor),
-        {key = "task-select", props = {max_w = 220, bg = thor.theme.buttons, text_wrap = .Ellipsis}, hover = {bg = thor.theme.active}},
+        {key = "task-select", props = {max_w = tk(220), bg = thor.theme.buttons, text_wrap = .Ellipsis}, hover = {bg = thor.theme.active}},
     )
     thor_task_select_tip(thor, sel.id)
     if sel.clicked {
@@ -321,7 +316,7 @@ thor_task_controls :: proc(thor: ^Thor) {
         {
             key = "task-run",
             flags = {.Clickable},
-            props = {w = ui.Px(28), h = ui.Px(28), justify = .Center, align = .Center, radius = ui.rad(4)},
+            props = {w = ui.Px(tk(28)), h = ui.Px(tk_h(.Control)), justify = .Center, align = .Center, radius = tk_rad(.Control)},
             hover = {bg = thor.theme.buttons},
         },
     )
@@ -345,7 +340,15 @@ thor_update_button :: proc(thor: ^Thor) {
         {
             key = "update",
             flags = {.Clickable},
-            props = {h = ui.Px(28), dir = .Row, align = .Center, gap = {6, 0}, pad = ui.xy(10, 0), radius = ui.rad(4), bg = thor.theme.buttons},
+            props = {
+                h = ui.Px(tk_h(.Control)),
+                dir = .Row,
+                align = .Center,
+                gap = tk_gap(.S, .None),
+                pad = tk_pad(.M, .None),
+                radius = tk_rad(.Control),
+                bg = thor.theme.buttons,
+            },
             hover = {bg = thor.theme.active},
         },
     )
@@ -369,8 +372,10 @@ thor_update_button :: proc(thor: ^Thor) {
 @(private = "file")
 thor_update_bar :: proc(thor: ^Thor, percent: int) {
     UPDATE_BAR_WIDTH :: 48
-    ui.begin({key = "update_bar", props = {w = ui.Px(UPDATE_BAR_WIDTH), h = ui.Px(4), dir = .Row, radius = ui.rad(2), bg = thor.theme.background}})
-    ui.begin({key = "update_fill", props = {w = ui.Px(f32(UPDATE_BAR_WIDTH * percent) / 100), h = ui.Px(4), radius = ui.rad(2), bg = thor.theme.accent_color}})
+    bar_w := tk(UPDATE_BAR_WIDTH)
+    bar_h := tk_sp(.XS)
+    ui.begin({key = "update_bar", props = {w = ui.Px(bar_w), h = ui.Px(bar_h), dir = .Row, radius = tk_pill(bar_h), bg = thor.theme.background}})
+    ui.begin({key = "update_fill", props = {w = ui.Px(bar_w * f32(percent) / 100), h = ui.Px(bar_h), radius = tk_pill(bar_h), bg = thor.theme.accent_color}})
     ui.end()
     ui.end()
 }
@@ -386,7 +391,15 @@ thor_ext_update_button :: proc(thor: ^Thor) {
         {
             key = "ext_update",
             flags = {.Clickable},
-            props = {h = ui.Px(28), dir = .Row, align = .Center, gap = {6, 0}, pad = ui.xy(10, 0), radius = ui.rad(4), bg = thor.theme.buttons},
+            props = {
+                h = ui.Px(tk_h(.Control)),
+                dir = .Row,
+                align = .Center,
+                gap = tk_gap(.S, .None),
+                pad = tk_pad(.M, .None),
+                radius = tk_rad(.Control),
+                bg = thor.theme.buttons,
+            },
             hover = {bg = thor.theme.active},
         },
     )
@@ -411,11 +424,11 @@ thor_text_button :: proc(thor: ^Thor, label: string, el: ui.Element = {}, loc :=
         flags = {.Clickable},
         props = {
             w = ui.FIT,
-            h = ui.Px(28),
-            pad = ui.xy(10, 0),
+            h = ui.Px(tk_h(.Control)),
+            pad = tk_pad(.M, .None),
             text_align = .Center,
             text_align_v = .Center,
-            radius = ui.rad(4),
+            radius = tk_rad(.Control),
             color = thor.theme.foreground,
             cursor = .Pointer,
             text_wrap = .None,
@@ -430,7 +443,12 @@ thor_text_button :: proc(thor: ^Thor, label: string, el: ui.Element = {}, loc :=
 thor_titlebar_button :: proc(thor: ^Thor, icon, key: string, danger := false, tip := "") -> bool {
     hover := danger ? thor.theme.danger_color : thor.theme.buttons
     it    := ui.begin(
-        {key = key, flags = {.Clickable}, props = {w = ui.Px(40), h = ui.Px(28), justify = .Center, align = .Center, radius = ui.rad(4)}, hover = {bg = hover}},
+        {
+            key = key,
+            flags = {.Clickable},
+            props = {w = ui.Px(tk(40)), h = ui.Px(tk_h(.Control)), justify = .Center, align = .Center, radius = tk_rad(.Control)},
+            hover = {bg = hover},
+        },
     )
     thor_icon_label(thor, icon, thor.theme.foreground, 14)
     ui.end()
@@ -448,7 +466,7 @@ thor_workspace :: proc(thor: ^Thor) {
         return
     }
 
-    dock := ui.dockspace("main", {mode = .In_Window, tab_height = TAB_HEIGHT, splitter = DOCK_SPLITTER_WIDTH}, {props = {w = ui.Grow(1), h = ui.Grow(1)}})
+    dock := ui.dockspace("main", {mode = .In_Window, tab_height = tk_h(.Tabs), splitter = DOCK_SPLITTER_WIDTH}, {props = {w = ui.Grow(1), h = ui.Grow(1)}})
     thor_seed_dock(thor, dock)
 
     thor.explorer_open = signal_get(&thor.explorer_visible)
@@ -546,7 +564,7 @@ thor_console_panel :: proc(thor: ^Thor) {
     console := thor_active_console(thor)
     if console == nil {
         thor.console_focused = false
-        ui.label("No terminal", {key = "no-terminal", props = {pad = ui.xy(12, 8), color = thor.theme.disabled}})
+        ui.label("No terminal", {key = "no-terminal", props = {pad = tk_pad(.L, .M), color = thor.theme.disabled}})
         return
     }
     thor_console_view(thor, console)
@@ -563,11 +581,11 @@ thor_terminal_strip :: proc(thor: ^Thor) {
             flags = {.Clip, .Scroll_X, .No_Bars},
             props = {
                 w = ui.Grow(1),
-                h = ui.Px(TERMINAL_STRIP_HEIGHT),
+                h = ui.Px(tk_h(.Bar)),
                 dir = .Row,
                 align = .Center,
-                gap = {2, 0},
-                pad = ui.xy(4, 0),
+                gap = tk_gap(.XXS, .None),
+                pad = tk_pad(.XS, .None),
                 bg = thor.theme.second_background,
             },
         },
@@ -588,12 +606,12 @@ thor_terminal_strip :: proc(thor: ^Thor) {
                 key = "tab",
                 flags = {.Clickable, .Draggable, .Group},
                 props = {
-                    h = ui.Px(TERMINAL_STRIP_TAB_HEIGHT),
+                    h = ui.Px(tk_h(.Row_Compact)),
                     dir = .Row,
                     align = .Center,
-                    gap = {6, 0},
-                    pad = ui.xy(9, 0),
-                    radius = ui.rad(6),
+                    gap = tk_gap(.S, .None),
+                    pad = tk_pad(.M, .None),
+                    radius = tk_rad(.Popup),
                     bg = on ? thor.theme.background : thor.theme.second_background,
                     cursor = .Pointer,
                 },
@@ -607,13 +625,13 @@ thor_terminal_strip :: proc(thor: ^Thor) {
         } else if info.loading {
             dot = thor.theme.info_color
         }
-        ui.leaf({key = "dot", props = {w = ui.Px(6), h = ui.Px(6), radius = ui.rad(3), bg = dot}})
-        ui.label(info.name, {props = {max_w = TERMINAL_STRIP_NAME_MAX, color = on ? thor.theme.foreground : thor.theme.muted_color, text_wrap = .Ellipsis}})
+        ui.leaf({key = "dot", props = {w = ui.Px(tk(6)), h = ui.Px(tk(6)), radius = tk_pill(tk(6)), bg = dot}})
+        ui.label(info.name, {props = {max_w = tk(TERMINAL_STRIP_NAME_MAX), color = on ? thor.theme.foreground : thor.theme.muted_color, text_wrap = .Ellipsis}})
         close := ui.begin(
             {
                 key = "close",
                 flags = {.Clickable},
-                props = {w = ui.Px(16), h = ui.Px(16), justify = .Center, align = .Center, radius = ui.rad(3)},
+                props = {w = ui.Px(tk(16)), h = ui.Px(tk(16)), justify = .Center, align = .Center, radius = tk_rad(.Control)},
                 hover = {bg = thor.theme.danger_color},
             },
         )
@@ -643,7 +661,7 @@ thor_terminal_strip :: proc(thor: ^Thor) {
         {
             key = "add",
             flags = {.Clickable},
-            props = {w = ui.Px(24), h = ui.Px(TERMINAL_STRIP_TAB_HEIGHT), justify = .Center, align = .Center, radius = ui.rad(4), cursor = .Pointer},
+            props = {w = ui.Px(tk(24)), h = ui.Px(tk_h(.Row_Compact)), justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
             hover = {bg = thor.theme.buttons},
         },
     )
@@ -757,12 +775,12 @@ thor_pane_overlays :: proc(thor: ^Thor) {
             {
                 key = "number",
                 props = {
-                    w = ui.Px(64),
-                    h = ui.Px(64),
-                    radius = ui.rad(8),
+                    w = ui.Px(tk(64)),
+                    h = ui.Px(tk(64)),
+                    radius = tk_rad(.Card),
                     bg = thor.theme.accent_color,
                     color = thor.theme.background,
-                    font_size = 36,
+                    font_size = tk_font(thor, .Display),
                     text_align = .Center,
                     text_align_v = .Center,
                 },
@@ -829,7 +847,7 @@ thor_workspace_pane :: proc(thor: ^Thor, view: Workspace_View, pane: int, key: s
 @(private = "file")
 thor_tabbar :: proc(thor: ^Thor) {
     bar := ui.scope(
-        {key = "tabbar", flags = {.Clip}, props = {w = ui.Grow(1), h = ui.Px(TAB_HEIGHT), dir = .Row, align = .Stretch, bg = thor.theme.second_background}},
+        {key = "tabbar", flags = {.Clip}, props = {w = ui.Grow(1), h = ui.Px(tk_h(.Tabs)), dir = .Row, align = .Stretch, bg = thor.theme.second_background}},
     )
     thor.region_rects[.Tabbar] = bar.rect
 
@@ -852,8 +870,8 @@ thor_tabbar :: proc(thor: ^Thor) {
                     h = ui.Grow(1),
                     dir = .Row,
                     align = .Center,
-                    gap = {6, 0},
-                    pad = ui.xy(12, 0),
+                    gap = tk_gap(.S, .None),
+                    pad = tk_pad(.L, .None),
                     bg = on ? thor.theme.background : thor.theme.second_background,
                     border = {width = {0, 0, 0, on ? 2 : 0}, color = thor.theme.accent_color},
                 },
@@ -875,13 +893,13 @@ thor_tabbar :: proc(thor: ^Thor) {
         ui.label(info.name, {props = {color = text, text_wrap = .Ellipsis}})
         thor_tab_pane_badges(thor, i)
         if info.modified {
-            ui.leaf({key = "dot", props = {w = ui.Px(6), h = ui.Px(6), radius = ui.rad(3), bg = thor.theme.accent_color}})
+            ui.leaf({key = "dot", props = {w = ui.Px(tk(6)), h = ui.Px(tk(6)), radius = tk_pill(tk(6)), bg = thor.theme.accent_color}})
         }
         close := ui.begin(
             {
                 key = "close",
                 flags = {.Clickable},
-                props = {w = ui.Px(18), h = ui.Px(18), justify = .Center, align = .Center, radius = ui.rad(3)},
+                props = {w = ui.Px(tk(18)), h = ui.Px(tk(18)), justify = .Center, align = .Center, radius = tk_rad(.Control)},
                 hover = {bg = thor.theme.danger_color},
             },
         )
@@ -947,12 +965,13 @@ thor_tab_pane_badges :: proc(thor: ^Thor, index: int) {
             {
                 key = "pane",
                 props = {
-                    w = ui.Px(14),
-                    h = ui.Px(14),
-                    radius = ui.rad(3),
+                    min_w = tk(18),
+                    h = ui.Px(tk(18)),
+                    pad = tk_pad(.XXS, .None),
+                    radius = tk_rad(.Control),
                     bg = on ? thor.theme.accent_color : thor.theme.buttons,
                     color = on ? thor.theme.background : thor.theme.muted_color,
-                    font_size = 10,
+                    font_size = tk_font(thor, .Small),
                     text_align = .Center,
                 },
             },
@@ -1798,7 +1817,7 @@ BUSY_PULSE_RATE :: 4.0
 thor_status_segment :: proc(thor: ^Thor, key, icon, text: string, color: ui.Color, tip := "", clickable := false) -> ui.Interaction {
     // Hoverable, not clickable: a segment that only explains itself still has
     // to be hit-tested, or the tip never comes up.
-    e := ui.Element{key = key, flags = {.Hoverable}, props = {h = ui.Grow(1), dir = .Row, align = .Center, gap = {4, 0}, color = color}}
+    e := ui.Element{key = key, flags = {.Hoverable}, props = {h = ui.Grow(1), dir = .Row, align = .Center, gap = tk_gap(.XS, .None), color = color}}
     if clickable {
         e.flags = {.Clickable}
         e.props.cursor = .Pointer
@@ -1829,11 +1848,11 @@ thor_statusbar :: proc(thor: ^Thor) {
             flags = {.Clip},
             props = {
                 w = ui.Grow(1),
-                h = ui.Px(STATUSBAR_HEIGHT),
+                h = ui.Px(tk_h(.Bar)),
                 dir = .Row,
                 align = .Stretch,
-                gap = {18, 0},
-                pad = ui.xy(12, 0),
+                gap = tk_gap(.XL, .None),
+                pad = tk_pad(.L, .None),
                 bg = thor.theme.second_background,
                 color = dim,
             },
