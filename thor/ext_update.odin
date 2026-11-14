@@ -36,13 +36,13 @@ EXT_ROW_PREFIX :: "ext:"
 EXT_CHECK_NOW_ROW :: "ext_check_now"
 
 @(private = "file")
-EXT_UPDATE_NOW :: "Update Now"
+EXT_UPDATE_NOW :: "Update now"
 
 @(private = "file")
-EXT_HOLD :: "Hold Updates"
+EXT_HOLD :: "Hold updates"
 
 @(private = "file")
-EXT_RELEASE_HOLD :: "Release Hold"
+EXT_RELEASE_HOLD :: "Release hold"
 
 @(private = "file")
 EXT_OPEN_SOURCE :: "Open Source Page"
@@ -604,10 +604,10 @@ thor_populate_ext_category :: proc(thor: ^Thor, config: ^setting.Settings) {
     if !thor.ext_inflight {
         thor_ext_scan(thor)
     }
-    thor_settings_begin_category(view, EXT_SETTINGS_CATEGORY, "Plugin & Theme Updates", "refresh")
-    thor_settings_add_toggle(view, "check_for_plugin_updates", "Check Automatically", setting.check_for_plugin_updates(config))
+    thor_settings_begin_category(view, EXT_SETTINGS_CATEGORY, "Plugin & theme updates", "refresh")
+    thor_settings_add_toggle(view, "check_for_plugin_updates", "Check automatically", setting.check_for_plugin_updates(config))
     pending   := thor_ext_pending_count(thor)
-    now_label := thor.ext_inflight ? "Checking..." : pending > 0 ? fmt.tprintf("Check Now (%d available)", pending) : "Check Now"
+    now_label := thor.ext_inflight ? "Checking..." : pending > 0 ? fmt.tprintf("Check Now (%d available)", pending) : "Check now"
     thor_settings_add_action(view, EXT_CHECK_NOW_ROW, now_label, "Check")
 
     for item in thor.ext_updates {
@@ -623,7 +623,7 @@ thor_populate_ext_category :: proc(thor: ^Thor, config: ^setting.Settings) {
     groups := [?]struct {
         id, label: string,
         kind:      Ext_Item_Kind,
-    }{{"ext_bundled_plugins", "Bundled Plugins", .Plugin}, {"ext_shipped_themes", "Shipped Themes", .Theme}}
+    }{{"ext_bundled_plugins", "Bundled plugins", .Plugin}, {"ext_shipped_themes", "Shipped themes", .Theme}}
     for group in groups {
         thor_settings_begin_group(view, group.id, group.label, collapsed = true)
         for item in thor.ext_updates {

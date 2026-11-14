@@ -76,6 +76,7 @@ General editor preferences.
 | `indent_guides` | Draw a vertical guide at every indentation stop inside a line's own indent | `true` |
 | `relative_line_numbers` | Number the gutter by distance from the caret line — the count `alt + <digit>` jumps by. Off numbers the lines from 1 | `true` |
 | `tooltips` | Explain a control when the cursor rests on it — title bar buttons, tabs, status bar segments, explorer rows | `true` |
+| `reduce_motion` | Turn off UI motion: fades, scroll inertia, the animated scroll to a target, the blinking terminal cursor and the pulsing busy mark | `false` |
 | `tip_of_the_day` | Show the tip of the day: the card on the welcome page, and the card that opens over the editor on the first start of a day | `true` |
 | `format_on_save` | Format the active buffer before an explicit save (`ctrl + s`, Save All, the palette) — never before an autosave | `false` |
 | `format_on_type` | Dispatch on-type formatting as a trigger character is typed — `}` for Odin, a language server's own choice otherwise | `false` |
@@ -574,7 +575,7 @@ its root, layered on top of the global settings above. This repository's own
   names plugins read through `thor.theme`. A hand edit of the active theme file
   applies at once.
 
-- **Settings > Appearance > Theme Colors > Edit...**, or "Theme: Edit Colors", opens the
+- **Settings > Appearance > Theme colors > Edit...**, or "Theme: Edit Colors", opens the
   theme window. On the left is a preview of code, tabs, the file tree, status
   colors and buttons in the theme's colors; a click on a part selects its color.
   On the right is every color role under a foldable group (Surfaces, Text,

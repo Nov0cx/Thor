@@ -57,7 +57,7 @@ A build from source, or one in a directory it cannot write (`/opt`,
 distributions already ship.
 
 A bundled plugin or shipped theme takes the new copy with the update, unless
-you hold it in **Settings > Plugin & Theme Updates**. A held item keeps your
+you hold it in **Settings > Plugin & theme updates**. A held item keeps your
 local copy. Other plugins and themes have their own update check. See
 [Plugins](plugins.md#updates).
 
@@ -106,7 +106,7 @@ current window's workspace or launch a new window — configurable via the
 `open_folder_in` setting (see [Configuration](configuration.md)).
 
 On Windows, "Settings: Toggle File Manager Menu Entry" (or Settings > Windows >
-Explorer Menu Entry) adds "Open with Thor" to the right-click menu of files,
+Explorer menu entry) adds "Open with Thor" to the right-click menu of files,
 folders and the background of an open folder. It is written for your account only
 (`HKCU`) and needs no admin right. Run the command again to remove it. Moving
 Thor to another folder needs the entry added again.

@@ -86,7 +86,7 @@ thor_open_path :: proc(thor: ^Thor, path: string) {
 
 // The picker rows, in order. Indices line up with Open_Folder_Choice.
 @(private = "file")
-OPEN_FOLDER_CHOICES := [?]string{"This Window", "New Window", "Always This Window", "Always New Window"}
+OPEN_FOLDER_CHOICES := [?]string{"This window", "New window", "Always this window", "Always new window"}
 
 @(private = "file")
 Open_Folder_Choice :: enum {

@@ -780,7 +780,7 @@ git_view_file_section :: proc(thor: ^Thor, staged: bool) {
             },
         )
         ui.label(staged ? "STAGED" : "CHANGES", {key = "title", props = {w = ui.Grow(1), color = thor.theme.muted_color, text_wrap = .None}})
-        if len(list) > 0 && git_view_button(thor, "all", staged ? "Unstage All" : "Stage All", !v.busy) {
+        if len(list) > 0 && git_view_button(thor, "all", staged ? "Unstage all" : "Stage all", !v.busy) {
             thor_on_git_stage(thor, "", !staged)
             return
         }
@@ -1011,7 +1011,7 @@ git_view_commit_box :: proc(thor: ^Thor) {
         v.amend = !v.amend
     }
     ui.leaf({key = "gap", props = {w = ui.Grow(1)}})
-    if git_view_button(thor, "do-commit", v.amend ? "Amend Commit" : "Commit", git_view_can_commit(v)) {
+    if git_view_button(thor, "do-commit", v.amend ? "Amend commit" : "Commit", git_view_can_commit(v)) {
         thor_on_git_commit(thor, strings.trim_space(string(v.subject[:])), strings.trim_right_space(string(v.description[:])), v.amend)
     }
 }
@@ -1109,7 +1109,7 @@ git_view_branches :: proc(thor: ^Thor) {
             ui.pop_id()
             return
         }
-        if kind == .Stash && git_view_row_button(thor, "save", "Stash Changes") {
+        if kind == .Stash && git_view_row_button(thor, "save", "Stash changes") {
             thor_on_git_stash(thor, .Save, "")
             ui.pop_id()
             return
@@ -1370,19 +1370,19 @@ git_view_hosting :: proc(thor: ^Thor) {
     }
 
     if v.host_has_remote {
-        if git_view_row_button(thor, "open-repo", "Open Repository") {
+        if git_view_row_button(thor, "open-repo", "Open repository") {
             thor_on_git_hosting(thor, .Open_Repo, "", "")
             return
         }
-        if git_view_row_button(thor, "open-file", "Open This File") {
+        if git_view_row_button(thor, "open-file", "Open this file") {
             thor_on_git_hosting(thor, .Open_File, "", "")
             return
         }
-        if git_view_row_button(thor, "open-commit", "Open Last Commit") {
+        if git_view_row_button(thor, "open-commit", "Open last commit") {
             thor_on_git_hosting(thor, .Open_Commit, "", "")
             return
         }
-        if git_view_row_button(thor, "create-pr", "Create Pull Request") {
+        if git_view_row_button(thor, "create-pr", "Create pull request") {
             thor_on_git_hosting(thor, .Create_Pr, "", "")
             return
         }

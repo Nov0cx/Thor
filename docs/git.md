@@ -23,8 +23,8 @@ left, the selected file's diff on the right, and the commit box under it.
   the raw pointer text.
 - Hovering a row shows its actions: stage (`+`) or unstage (`−`), and for
   unstaged files discard (trash icon, asks for confirmation; discarding an
-  untracked file deletes it). Each section header has a Stage All / Unstage
-  All action.
+  untracked file deletes it). Each section header has a Stage all / Unstage
+  all action.
 - The commit box takes a subject line and an optional multi-line description;
   **Amend** rewrites the last commit instead. The Commit button needs
   something staged (or Amend) and a non-empty subject.

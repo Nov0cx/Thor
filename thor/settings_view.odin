@@ -716,7 +716,7 @@ settings_workspace_prompt :: proc(thor: ^Thor) {
         "Workspace settings live in .thor/ and override the general ones.",
         {key = "hint", props = {pad = tk_pad(.XS, .XXS), color = thor.theme.muted_color}},
     )
-    if settings_button(thor, "cta", "Create Workspace Settings", thor.theme.accent_color, outlined = true) {
+    if settings_button(thor, "cta", "Create workspace settings", thor.theme.accent_color, outlined = true) {
         thor_cmd_init_workspace(thor)
     }
 }

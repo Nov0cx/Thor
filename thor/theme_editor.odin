@@ -766,7 +766,7 @@ theme_editor_generate :: proc(thor: ^Thor) {
 
     {
         ui.scope({key = "actions", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = tk_gap(.M, .None), margin = {t = tk_sp(.M)}}})
-        if theme_button(thor, "from-current", "refresh", "Seeds From Current Theme", true, false, "Take the seeds from the theme on screen", "") {
+        if theme_button(thor, "from-current", "refresh", "Seeds from current theme", true, false, "Take the seeds from the theme on screen", "") {
             thor_reset_theme_seeds(thor)
             thor_theme_generate_refresh(thor)
         }

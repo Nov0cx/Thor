@@ -133,7 +133,7 @@ thor_lsp_populate_problems :: proc(thor: ^Thor) {
     }
 
     view := &thor.settings
-    thor_settings_begin_group(view, "language_servers.problems", "Configuration Problems", value = fmt.tprintf("%d", len(problems)), tone = .Bad)
+    thor_settings_begin_group(view, "language_servers.problems", "Configuration problems", value = fmt.tprintf("%d", len(problems)), tone = .Bad)
     for problem, index in problems {
         label := problem.id != "" ? problem.id : "lsp.lua"
         if problem.file != "" {
@@ -188,12 +188,12 @@ thor_lsp_populate_server :: proc(thor: ^Thor, id: string) {
     info(view, id, "state", "Status", lsp.server_state_name(status.state), thor_lsp_state_tone(status.state))
     info(view, id, "command", "Program", strings.join(status.command, " ", context.temp_allocator))
     if status.installed {
-        info(view, id, "exe", "Installed At", status.exe)
+        info(view, id, "exe", "Installed at", status.exe)
     } else {
-        info(view, id, "exe", "Installed At", "not found on PATH", .Warn)
+        info(view, id, "exe", "Installed at", "not found on PATH", .Warn)
     }
     if status.root != "" {
-        info(view, id, "root", "Project Root", status.root)
+        info(view, id, "root", "Project root", status.root)
     }
 
     claimed := make([dynamic]string, context.temp_allocator)
@@ -201,21 +201,21 @@ thor_lsp_populate_server :: proc(thor: ^Thor, id: string) {
     append(&claimed, ..status.extensions)
     extensions := strings.join(claimed[:], " ", context.temp_allocator)
     if status.shared_with != "" {
-        info(view, id, "ext", "File Types", fmt.tprintf("%s — also answered by %s", extensions, status.shared_with))
+        info(view, id, "ext", "File types", fmt.tprintf("%s — also answered by %s", extensions, status.shared_with))
     } else {
-        info(view, id, "ext", "File Types", extensions)
+        info(view, id, "ext", "File types", extensions)
     }
     if status.last_error != "" {
-        info(view, id, "error", "Last Error", status.last_error, .Bad)
+        info(view, id, "error", "Last error", status.last_error, .Bad)
     }
 
     thor_settings_add_toggle(view, thor_language_backend_id(id), "Enabled", on)
-    thor_settings_add_action(view, thor_lsp_action_id(.Restart, id), "Restart This Server", "Restart")
+    thor_settings_add_action(view, thor_lsp_action_id(.Restart, id), "Restart this server", "Restart")
     if !status.installed && status.install_command != "" {
-        thor_settings_add_action(view, thor_lsp_action_id(.Install, id), "Install It", "Install")
+        thor_settings_add_action(view, thor_lsp_action_id(.Install, id), "Install it", "Install")
     }
     if status.setup_command != "" {
-        thor_settings_add_action(view, thor_lsp_action_id(.Setup, id), "Set Up This Project", "Configure")
+        thor_settings_add_action(view, thor_lsp_action_id(.Setup, id), "Set up this project", "Configure")
     }
     if status.docs_url != "" {
         thor_settings_add_action(view, thor_lsp_action_id(.Docs, id), "Documentation", "Open")

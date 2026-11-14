@@ -66,7 +66,7 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     thor_settings_add_number(
         view,
         "autosave_delay_ms",
-        "Autosave Delay (ms)",
+        "Autosave delay (ms)",
         setting.autosave_delay_ms(config),
         setting.AUTOSAVE_DELAY_MIN,
         setting.AUTOSAVE_DELAY_MAX,
@@ -75,7 +75,7 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     thor_settings_add_number(
         view,
         "peek_height",
-        "Peek Definition Height (rows)",
+        "Peek definition height (rows)",
         setting.peek_height(config),
         setting.PEEK_HEIGHT_MIN,
         setting.PEEK_HEIGHT_MAX,
@@ -95,7 +95,7 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
         theme = DEFAULT_THEME
     }
     thor_settings_add_choice(view, "theme", "Theme", theme)
-    thor_settings_add_action(view, THEME_EDITOR_SETTING, "Theme Colors", "Edit...")
+    thor_settings_add_action(view, THEME_EDITOR_SETTING, "Theme colors", "Edit...")
     thor_settings_add_choice(view, "font", "Font", font.default_family())
     icon_pack := setting.icon_pack_name(config)
     if icon_pack == "" {
@@ -136,7 +136,7 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     // Servers category owns (thor/lsp_ui.odin) so its state and setup have room.
     thor_settings_begin_category(view, "language", "Language", "brain")
     language_on := setting.language_enabled(config)
-    thor_settings_add_toggle(view, setting.LANGUAGE_SETTING, "Language Intelligence", language_on)
+    thor_settings_add_toggle(view, setting.LANGUAGE_SETTING, "Language intelligence", language_on)
     if language_on {
         for id in lang.manager_gate_ids(&thor.lang_manager) {
             label := lang.manager_gate_label(&thor.lang_manager, id)
@@ -259,7 +259,7 @@ thor_on_setting_choice :: proc(data: rawptr, id: string) {
     case "pane_layout":
         thor_select_open(
             thor,
-            "Editor Pane Layout",
+            "Editor pane layout",
             PANE_LAYOUT_LABELS[:],
             thor_pane_layout_label(&thor.config),
             thor_no_preview,
@@ -287,7 +287,7 @@ thor_default_shell_label :: proc(thor: ^Thor, config: ^setting.Settings) -> stri
 
 // Picker rows for open_folder_in, in Open_Folder_In order.
 @(private = "file")
-OPEN_FOLDER_IN_LABELS := [?]string{"Ask", "This Window", "New Window"}
+OPEN_FOLDER_IN_LABELS := [?]string{"Ask", "This window", "New window"}
 
 // The current open_folder_in setting as its picker row.
 thor_open_folder_in_label :: proc(config: ^setting.Settings) -> string {
@@ -299,7 +299,7 @@ thor_open_folder_in_label :: proc(config: ^setting.Settings) -> string {
 thor_cmd_change_open_folder_in :: proc(thor: ^Thor) {
     thor_select_open(
         thor,
-        "Open Folder In",
+        "Open folder in",
         OPEN_FOLDER_IN_LABELS[:],
         thor_open_folder_in_label(&thor.config),
         thor_open_folder_in_preview,
@@ -496,33 +496,33 @@ LANGUAGE_FEATURE_LABELS := [lang.Request_Kind]string{
     .Definition = "Go to Definition",
     .Type_Definition = "Go to Type Definition",
     .Hover = "Hover",
-    .Document_Symbols = "Document Symbols",
-    .Workspace_Symbols = "Workspace Symbols",
-    .References = "Find References",
-    .Signature_Help = "Signature Help",
+    .Document_Symbols = "Document symbols",
+    .Workspace_Symbols = "Workspace symbols",
+    .References = "Find references",
+    .Signature_Help = "Signature help",
     .Completion = "Completion",
-    .Package_Doc = "Package Documentation",
-    .Rename = "Rename Symbol",
+    .Package_Doc = "Package documentation",
+    .Rename = "Rename symbol",
     .Diagnostics = "Diagnostics",
-    .Syntax_Diagnostics = "Live Syntax Errors",
-    .Code_Actions = "Code Actions",
-    .Semantic_Tokens = "Semantic Highlighting",
-    .Inlay_Hints = "Inlay Hints",
-    .Document_Highlight = "Highlight Uses",
-    .Format = "Format Document",
-    .Format_Range = "Format Selection",
-    .Format_On_Type = "Format On Type",
-    .Execute_Command = "Server Commands",
-    .Resolve_Completion = "Completion Follow-Up Edits",
-    .Resolve_Action = "Refactorings That Ask",
-    .Call_Hierarchy = "Call Hierarchy",
-    .Type_Hierarchy = "Type Hierarchy",
+    .Syntax_Diagnostics = "Live syntax errors",
+    .Code_Actions = "Code actions",
+    .Semantic_Tokens = "Semantic highlighting",
+    .Inlay_Hints = "Inlay hints",
+    .Document_Highlight = "Highlight uses",
+    .Format = "Format document",
+    .Format_Range = "Format selection",
+    .Format_On_Type = "Format on type",
+    .Execute_Command = "Server commands",
+    .Resolve_Completion = "Completion follow-up edits",
+    .Resolve_Action = "Refactorings that ask",
+    .Call_Hierarchy = "Call hierarchy",
+    .Type_Hierarchy = "Type hierarchy",
     .Implementations = "Go to Implementations",
-    .Selection_Range = "Expand Selection",
-    .Code_Lens = "Reference Counts",
-    .Progress = "Progress Notifications",
+    .Selection_Range = "Expand selection",
+    .Code_Lens = "Reference counts",
+    .Progress = "Progress notifications",
     .Apply_Edit = "Server-Applied Edits",
-    .Message = "Server Messages",
+    .Message = "Server messages",
 }
 
 // Preview of a setting that shows nothing until it is committed.

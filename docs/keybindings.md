@@ -402,7 +402,7 @@ program redraws.
 The five "Terminal:" palette actions — New Terminal, Close Terminal, Next
 Terminal, Restart Shell, Select Default Shell — ship unbound; give them chords in
 the `terminal` group of `keybinds.lua`. Which shell new terminals open
-with is the `default_shell` setting (Settings > Terminal > Default Shell);
+with is the `default_shell` setting (Settings > Terminal > Default shell);
 empty means the best shell found on the machine.
 
 ## Autocompletion
@@ -523,7 +523,7 @@ layered from.
 
 ## Theme window
 
-"Theme: Edit Colors" (or Settings > Appearance > Theme Colors > Edit...) opens the theme
+"Theme: Edit Colors" (or Settings > Appearance > Theme colors > Edit...) opens the theme
 window. Inside it:
 
 | Key | Action |
