@@ -10,6 +10,9 @@
 - Each shipped theme meets the contrast minimums of text, hints, status colours and syntax. Material Lighter and Solarized dark change the most.
 - Hints, paths, chords and empty-list text use the muted colour. The disabled colour is only for controls that are off.
 - Settings, git and theme editor labels use sentence case.
+- Command, menu and picker names use sentence case: "View: Toggle word wrap", not "View: Toggle Word Wrap". Keybinds name actions, so they do not change.
+- List rows fade out of their hover: the explorer, the palette, pickers, menus, problems, settings, git and the undo history. A selection moved by the arrow keys still changes at once.
+- Tab close buttons have one size in the editor tabs and the terminal strip.
 - Diff rows in the git view and the undo history take the line height of their font.
 - A dialog is never wider or taller than the window less 32 px on each side.
 - What's new gives the keyboard focus back when it closes.
