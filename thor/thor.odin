@@ -1,6 +1,7 @@
 package thor
 
 import "core:log"
+import "core:math"
 import "core:os"
 import "core:path/filepath"
 import "core:slice"
@@ -251,6 +252,8 @@ Thor :: struct {
     // process now, so this one must not write over it on the way out.
     relaunching:                   bool,
     window_maximized:              bool,
+    window_grab:                   [2]f32, // titlebar grab: x as a share of the width, y in pixels
+    window_resize:                 Window_Resize,
     explorer_width:                f32,
     console_height:                f32,
     layout:                        Pane_Layout,
@@ -755,6 +758,7 @@ init :: proc() -> ^Thor {
     if suppressed {
         dinput_restore()
     }
+    rl.SetWindowMinSize(WINDOW_MIN_W, WINDOW_MIN_H)
     if secs := time.duration_seconds(time.tick_since(phase)); secs > SLOW_WINDOW_WARN_SECS {
         log.warnf("Window creation took %.1f s. A device or graphics driver that answers slowly delays it; see docs/troubleshooting.md.", secs)
     }
@@ -1234,4 +1238,115 @@ shutdown :: proc(thor: ^Thor) {
     rl.UnloadTexture(thor.top_logo_texture)
     rl.CloseWindow()
     free(thor)
+}
+
+// Smallest window an edge drag leaves.
+WINDOW_MIN_W             :: 480
+WINDOW_MIN_H             :: 320
+// Cursor travel that turns a titlebar press on a maximized window into a restore.
+WINDOW_UNMAXIMIZE_TRAVEL :: 4
+
+Window_Edge :: enum u8 {
+    Left,
+    Top,
+    Right,
+    Bottom,
+}
+
+Window_Edges :: bit_set[Window_Edge]
+
+// An edge drag in progress; `edges` is empty when none is.
+Window_Resize :: struct {
+    edges:       Window_Edges,
+    start_rect:  [4]f32, // x, y, w, h in desktop coordinates
+    start_mouse: [2]f32, // desktop coordinates
+}
+
+// The cursor in desktop coordinates. A window that moves under a still cursor
+// keeps raylib's last mouse event, so the OS answer comes first.
+@(private = "file")
+thor_desktop_mouse :: proc() -> [2]f32 {
+    if pos, ok := thor_cursor_screen(); ok {
+        return pos
+    }
+    return rl.GetWindowPosition() + rl.GetMousePosition()
+}
+
+// The window rect after an edge drag of `delta` from `start`. A grabbed left or
+// top edge moves the origin; the opposite edge stays put at the minimum size.
+window_resize_rect :: proc(start: [4]f32, delta: [2]f32, edges: Window_Edges, min_size: [2]f32) -> [4]f32 {
+    x0, y0 := start[0], start[1]
+    x1, y1 := start[0] + start[2], start[1] + start[3]
+    if .Left in edges {
+        x0 = min(x0 + delta[0], x1 - min_size[0])
+    }
+    if .Right in edges {
+        x1 = max(x1 + delta[0], x0 + min_size[0])
+    }
+    if .Top in edges {
+        y0 = min(y0 + delta[1], y1 - min_size[1])
+    }
+    if .Bottom in edges {
+        y1 = max(y1 + delta[1], y0 + min_size[1])
+    }
+    return {x0, y0, x1 - x0, y1 - y0}
+}
+
+thor_window_drag_begin :: proc(thor: ^Thor) {
+    mouse := rl.GetMousePosition()
+    width := f32(rl.GetScreenWidth())
+    thor.window_grab = {width > 0 ? mouse.x / width : 0, mouse.y}
+}
+
+// Keeps the grabbed point under the cursor. Anchored on the grab, not on frame
+// deltas: X11 sends no motion event when the window itself moves.
+thor_window_drag_move :: proc(thor: ^Thor) {
+    mouse := rl.GetMousePosition()
+    grab  := [2]f32{thor.window_grab[0] * f32(rl.GetScreenWidth()), thor.window_grab[1]}
+    if thor.window_maximized {
+        // The restored size lands a frame later; the share of the width then
+        // puts the grabbed point back under the cursor.
+        if abs(mouse.x - grab[0]) > WINDOW_UNMAXIMIZE_TRAVEL || abs(mouse.y - grab[1]) > WINDOW_UNMAXIMIZE_TRAVEL {
+            thor_toggle_maximize(thor)
+        }
+        return
+    }
+    pos    := rl.GetWindowPosition()
+    target := [2]i32{i32(math.round(pos.x + mouse.x - grab[0])), i32(math.round(pos.y + mouse.y - grab[1]))}
+    // A move of zero still costs an X11 round trip.
+    if target != {i32(math.round(pos.x)), i32(math.round(pos.y))} {
+        rl.SetWindowPosition(target[0], target[1])
+    }
+}
+
+thor_window_resize_begin :: proc(thor: ^Thor, edges: Window_Edges) {
+    pos := rl.GetWindowPosition()
+    thor.window_resize = {edges = edges, start_rect = {pos.x, pos.y, f32(rl.GetScreenWidth()), f32(rl.GetScreenHeight())}, start_mouse = thor_desktop_mouse()}
+}
+
+thor_window_resize_move :: proc(thor: ^Thor) {
+    r := &thor.window_resize
+    if r.edges == {} {
+        return
+    }
+    rect := window_resize_rect(r.start_rect, thor_desktop_mouse() - r.start_mouse, r.edges, {WINDOW_MIN_W, WINDOW_MIN_H})
+    pos  := rl.GetWindowPosition()
+    x, y := i32(math.round(rect[0])), i32(math.round(rect[1]))
+    w, h := i32(math.round(rect[2])), i32(math.round(rect[3]))
+    if x != i32(math.round(pos.x)) || y != i32(math.round(pos.y)) {
+        rl.SetWindowPosition(x, y)
+    }
+    if w != rl.GetScreenWidth() || h != rl.GetScreenHeight() {
+        rl.SetWindowSize(w, h)
+    }
+}
+
+thor_window_resize_end :: proc(thor: ^Thor) {
+    thor.window_resize = {}
+}
+
+// Whether the edges take a drag: an undecorated window has no OS border, but a
+// maximized or fullscreen one has nothing to resize.
+thor_window_resizable :: proc(thor: ^Thor) -> bool {
+    return !thor.window_maximized && !rl.IsWindowState({.BORDERLESS_WINDOWED_MODE}) && !rl.IsWindowFullscreen()
 }

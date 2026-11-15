@@ -121,6 +121,10 @@ set_cursor :: proc(c: ui.Cursor, user: rawptr) {
         shape = .RESIZE_EW
     case .Resize_V:
         shape = .RESIZE_NS
+    case .Resize_NWSE:
+        shape = .RESIZE_NWSE
+    case .Resize_NESW:
+        shape = .RESIZE_NESW
     case .Grab:
         shape = .POINTING_HAND
     case .Grabbing:

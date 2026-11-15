@@ -118,6 +118,7 @@ thor_frame :: proc(thor: ^Thor) {
     thor_workspace(thor)
     thor_statusbar(thor)
     thor_overlays(thor)
+    thor_window_grips(thor)
 
     // A request the frame did not reach (a pane that is not on screen) would
     // otherwise sit and steal the next frame's focus.
@@ -143,6 +144,75 @@ thor_overlays :: proc(thor: ^Thor) {
     thor_lua_notice_view(thor)
     thor_tutorial_view(thor)
     thor_whats_new_view(thor)
+}
+
+@(private = "file")
+Window_Grip :: struct {
+    edges:  Window_Edges,
+    cursor: ui.Cursor,
+}
+
+@(private = "file")
+WINDOW_GRIPS := [8]Window_Grip{
+    {{.Left}, .Resize_H},
+    {{.Right}, .Resize_H},
+    {{.Top}, .Resize_V},
+    {{.Bottom}, .Resize_V},
+    {{.Left, .Top}, .Resize_NWSE},
+    {{.Right, .Bottom}, .Resize_NWSE},
+    {{.Right, .Top}, .Resize_NESW},
+    {{.Left, .Bottom}, .Resize_NESW},
+}
+
+// Thin strips along the window edges that resize it. Declared last, so they win
+// the hit test over whatever sits at the edge.
+@(private = "file")
+thor_window_grips :: proc(thor: ^Thor) {
+    if !thor_window_resizable(thor) {
+        thor_window_resize_end(thor)
+        return
+    }
+    view   := ui.viewport()
+    edge   := tk(5)
+    corner := tk(12)
+    for grip, i in WINDOW_GRIPS {
+        r: ui.Rect
+        switch grip.edges {
+        case {.Left}:
+            r = {0, corner, edge, view.y - 2 * corner}
+        case {.Right}:
+            r = {view.x - edge, corner, edge, view.y - 2 * corner}
+        case {.Top}:
+            r = {corner, 0, view.x - 2 * corner, edge}
+        case {.Bottom}:
+            r = {corner, view.y - edge, view.x - 2 * corner, edge}
+        case {.Left, .Top}:
+            r = {0, 0, corner, corner}
+        case {.Right, .Bottom}:
+            r = {view.x - corner, view.y - corner, corner, corner}
+        case {.Right, .Top}:
+            r = {view.x - corner, 0, corner, corner}
+        case {.Left, .Bottom}:
+            r = {0, view.y - corner, corner, corner}
+        }
+        ui.push_id_int(i64(i))
+        it := ui.leaf(
+            {
+                key = "window-grip",
+                flags = {.Draggable},
+                props = {position = .Fixed, inset = {l = r.x, t = r.y}, w = ui.Px(r.w), h = ui.Px(r.h), cursor = grip.cursor},
+            },
+        )
+        ui.pop_id()
+        if it.pressed {
+            thor_window_resize_begin(thor, grip.edges)
+        } else if it.dragging && thor.frame_pass == 0 && thor.window_resize.edges == grip.edges {
+            thor_window_resize_move(thor)
+        }
+        if it.released && thor.window_resize.edges == grip.edges {
+            thor_window_resize_end(thor)
+        }
+    }
 }
 
 // An icon is a glyph of an icon family, so it draws as ordinary text and needs
@@ -190,9 +260,11 @@ MENU_LABELS := [?]string{"File", "Edit", "View", "Git", "Help"}
 
 @(private = "file")
 thor_titlebar :: proc(thor: ^Thor) {
+    // The empty part of the bar moves the window; the controls on it take their own presses.
     bar := ui.scope(
         {
             key = "titlebar",
+            flags = {.Draggable},
             props = {
                 w = ui.Grow(1),
                 h = ui.Px(tk_h(.Titlebar)),
@@ -231,6 +303,13 @@ thor_titlebar :: proc(thor: ^Thor) {
     }
 
     thor.region_rects[.Titlebar] = bar.rect
+    if bar.pressed && bar.press_count >= 2 {
+        thor_toggle_maximize(thor)
+    } else if bar.pressed {
+        thor_window_drag_begin(thor)
+    } else if bar.dragging && thor.frame_pass == 0 {
+        thor_window_drag_move(thor)
+    }
     menu_bar: ui.Rect
     for label, i in MENU_LABELS {
         ui.push_id_int(i64(i))

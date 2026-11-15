@@ -25,6 +25,8 @@ Set_Foreground_Proc :: #type proc "system"(hwnd: win32.HWND) -> win32.BOOL
 Window_Pid_Proc :: #type proc "system"(hwnd: win32.HWND, pid: ^win32.DWORD) -> win32.DWORD
 @(private = "file")
 Is_Zoomed_Proc :: #type proc "system"(hwnd: win32.HWND) -> win32.BOOL
+@(private = "file")
+Get_Cursor_Pos_Proc :: #type proc "system"(point: ^win32.POINT) -> win32.BOOL
 
 @(private = "file")
 User32 :: struct {
@@ -34,6 +36,7 @@ User32 :: struct {
     set_foreground: Set_Foreground_Proc,
     window_pid:     Window_Pid_Proc,
     is_zoomed:      Is_Zoomed_Proc,
+    get_cursor_pos: Get_Cursor_Pos_Proc,
 }
 
 @(private = "file")
@@ -70,6 +73,7 @@ thor_load_user32 :: proc() -> ^User32 {
     user32.set_foreground = cast(Set_Foreground_Proc)GetProcAddress(lib, "SetForegroundWindow")
     user32.window_pid = cast(Window_Pid_Proc)GetProcAddress(lib, "GetWindowThreadProcessId")
     user32.is_zoomed = cast(Is_Zoomed_Proc)GetProcAddress(lib, "IsZoomed")
+    user32.get_cursor_pos = cast(Get_Cursor_Pos_Proc)GetProcAddress(lib, "GetCursorPos")
     return &user32
 }
 
@@ -88,6 +92,19 @@ thor_window_zoomed :: proc() -> (zoomed, known: bool) {
         return false, false
     }
     return u32.is_zoomed(cast(win32.HWND)rl.GetWindowHandle()) != win32.FALSE, true
+}
+
+// The cursor in desktop coordinates. `ok` is false when user32 has no answer.
+thor_cursor_screen :: proc() -> (pos: [2]f32, ok: bool) {
+    u32 := thor_load_user32()
+    if u32.get_cursor_pos == nil {
+        return {}, false
+    }
+    point: win32.POINT
+    if u32.get_cursor_pos(&point) == win32.FALSE {
+        return {}, false
+    }
+    return {f32(point.x), f32(point.y)}, true
 }
 
 // A record is live while its handle names a window the recorded process still
