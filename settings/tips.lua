@@ -94,9 +94,9 @@ return {
             body = "Thor remembers the open tabs and the panel layout per folder. Reopen the folder and you are back where you left it.",
         },
         {
-            title = "Settings per workspace",
+            title = "Project and folder settings",
             action = "open_settings_gui",
-            body = "A .thor/ folder in the workspace overlays your own settings, keybindings, tasks and language servers. Only the keys it names change, so the rest still comes from your defaults.",
+            body = "A .thor/ folder holds what the project shares: indentation, formatting, tasks and language servers. For your own settings in one folder only, such as a theme, use the This folder tab in Settings.",
         },
         {
             title = "Languages are plugins",

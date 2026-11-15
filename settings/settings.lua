@@ -1,5 +1,6 @@
 -- Shipped settings. A build and an update replace this file:
--- set a key in user/settings.lua (or a workspace's .thor/settings.lua) instead.
+-- set a key in user/settings.lua instead. A workspace's .thor/settings.lua
+-- applies only the project keys (indentation, formatting, language).
 -- A config file is Lua: it returns a table, and thor.os, thor.arch and
 -- thor.env(name) are there to branch on.
 
