@@ -278,7 +278,7 @@ thor_open_folder :: proc(thor: ^Thor, dir: string) {
     if len(thor.lua_converted) > converted {
         thor_lua_notice_check(thor, thor.workspace_dir)
     }
-    // The new folder's .thor/ overlay can change theme, font and keybinds.
+    // The new folder's .thor/ overlay and local file can change its settings.
     thor_reload_settings(thor)
     // ... and .thor/plugins/ carries plugins of its own. Reloaded before the
     // session restores any file, since the languages a plugin registers decide

@@ -1,4 +1,4 @@
-// The Settings modal: a sidebar of categories, a General/Workspace scope switch,
+// The Settings modal: a sidebar of categories, a General/Folder/Project scope switch,
 // a search box that filters across every category, and the row list itself. The
 // rows are data — `thor/settings_ui.odin` fills them from the live config and
 // persists each change, so this file keeps no settings knowledge.
@@ -55,9 +55,11 @@ Settings_Category :: struct {
     icon:  string, // owned; a name from assets/icons/icons.json
 }
 
+// Which layer the modal reads and writes: user/, the local file of this folder, or .thor/.
 Settings_Scope :: enum {
     General,
-    Workspace,
+    Folder,
+    Project,
 }
 
 Settings_State :: struct {
@@ -549,7 +551,8 @@ settings_header :: proc(thor: ^Thor) {
     ui.label("Settings", {key = "title", props = {color = thor.theme.foreground, text_wrap = .None}})
 
     settings_scope_tab(thor, .General, "General")
-    settings_scope_tab(thor, .Workspace, "Workspace")
+    settings_scope_tab(thor, .Folder, "This folder")
+    settings_scope_tab(thor, .Project, "Project")
 
     it := ui.input(
         &s.search,
@@ -700,7 +703,7 @@ settings_content :: proc(thor: ^Thor) {
         },
     )
 
-    if s.scope == .Workspace && !s.workspace_available {
+    if s.scope == .Project && !s.workspace_available {
         settings_workspace_prompt(thor)
         return
     }
@@ -716,15 +719,15 @@ settings_content :: proc(thor: ^Thor) {
     }
 }
 
-// The Workspace tab with no .thor/ folder yet: one button that makes it.
+// The Project tab with no .thor/ folder yet: one button that makes it.
 @(private = "file")
 settings_workspace_prompt :: proc(thor: ^Thor) {
-    ui.label("This folder has no workspace settings yet.", {key = "msg", props = {pad = tk_pad(.XS, .M), color = thor.theme.foreground}})
+    ui.label("This folder has no project settings yet.", {key = "msg", props = {pad = tk_pad(.XS, .M), color = thor.theme.foreground}})
     ui.label(
-        "Workspace settings live in .thor/ and override the general ones.",
+        "Project settings live in .thor/ and are shared with everyone who opens the folder.",
         {key = "hint", props = {pad = tk_pad(.XS, .XXS), color = thor.theme.muted_color}},
     )
-    if settings_button(thor, "cta", "Create workspace settings", thor.theme.accent_color, outlined = true) {
+    if settings_button(thor, "cta", "Create project settings", thor.theme.accent_color, outlined = true) {
         thor_cmd_init_workspace(thor)
     }
 }

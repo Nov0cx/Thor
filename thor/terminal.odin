@@ -797,8 +797,9 @@ thor_shell_commit :: proc(data: rawptr, choice: string) {
     if !ok {
         return
     }
-    if err := setting.persist_string(thor_active_settings_path(thor), "default_shell", choice); err != .None {
-        thor_settings_save_failed(thor, thor_active_settings_path(thor), err)
+    path := thor_active_settings_path(thor, "default_shell")
+    if err := setting.persist_string(path, "default_shell", choice); err != .None {
+        thor_settings_save_failed(thor, path, err)
         return
     }
     thor_reload_settings(thor)

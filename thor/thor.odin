@@ -283,6 +283,8 @@ Thor :: struct {
     // True when workspace_dir has a .thor/ directory: its config overlays the
     // global settings, and it is treated as an initialized workspace.
     workspace_initialized:         bool,
+    // The personal keys of .thor/settings.lua last reported, joined by ", ". Owned.
+    ignored_keys_reported:         string,
     // Directory a New File/Folder prompt creates into; set from the explorer
     // right-click target or the workspace root. Owned clone.
     menu_target_dir:               string,
@@ -853,6 +855,7 @@ init :: proc() -> ^Thor {
     lap(&phase, &phase_zone, "load plugins", "restore session")
     thor_set_active_file(thor, -1)
     thor_restore_session(thor)
+    thor_report_ignored_keys(thor)
     // Files passed on the command line open last and in order, so the final one
     // is the active tab. thor_open_file de-dupes, so a path the session already
     // restored is activated rather than opened twice.
@@ -1139,6 +1142,7 @@ shutdown :: proc(thor: ^Thor) {
     thor_package_problems_destroy(thor)
     delete(thor.workspace_dir)
     delete(thor.workspace_prefix)
+    delete(thor.ignored_keys_reported)
     delete(thor.dock_layout)
     delete(thor.plugin_data_root)
     delete(thor.menu_target_dir)

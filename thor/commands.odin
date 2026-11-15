@@ -189,6 +189,7 @@ thor_reload_settings :: proc(thor: ^Thor) {
     // The tips and the chords they name both came from the config just replaced.
     thor_refresh_tip_cards(thor)
     thor_settings_mark_clean(thor)
+    thor_report_ignored_keys(thor)
     if thor_settings_is_open(thor) {
         thor_populate_settings_view(thor)
     }
@@ -219,55 +220,90 @@ thor_settings_save_failed :: proc(thor: ^Thor, path: string, err: luaconf.Patch_
     }
 }
 
-// Path a GUI-driven change writes to. While the Settings modal is open, its
-// General/Workspace tab picks the file explicitly; otherwise (a command bound
-// directly to a shortcut or the palette) the workspace .thor/ overlay wins
-// when initialized, since it is what actually takes effect, else the user/
-// layer. Never settings/, which a build and an update replace wholesale.
-thor_active_settings_path :: proc(thor: ^Thor) -> string {
-    return thor_active_config_path(thor, setting.SETTINGS_FILE)
+// The settings.lua a GUI change of `key` writes to. In the Settings modal the
+// scope tab decides: General is user/, This folder the local file and Project
+// .thor/. Elsewhere a project key goes to .thor/ when the folder has one, and
+// every other key to user/. Never settings/, which a build and an update replace.
+thor_active_settings_path :: proc(thor: ^Thor, key: string) -> string {
+    if thor_settings_is_open(thor) {
+        switch thor_settings_scope(&thor.settings) {
+        case .General:
+        case .Folder:
+            return thor_local_settings_path(thor.workspace_dir)
+        case .Project:
+            return thor_workspace_config_path(thor, setting.SETTINGS_FILE)
+        }
+    } else if thor.workspace_initialized && setting.is_workspace_key(key) {
+        return thor_workspace_config_path(thor, setting.SETTINGS_FILE)
+    }
+    return setting.USER_SETTINGS
 }
 
+// Keybinds are personal: a rebind always goes to user/.
 thor_active_keybinds_path :: proc(thor: ^Thor) -> string {
-    return thor_active_config_path(thor, setting.KEYBINDS_FILE)
+    return strings.concatenate({setting.USER_DIR, "/", setting.KEYBINDS_FILE}, context.temp_allocator)
 }
 
+// The lsp.lua a GUI change writes to: .thor/ on the Project tab or, outside the
+// modal, when the folder has one; else user/.
 thor_active_lsp_path :: proc(thor: ^Thor) -> string {
-    return thor_active_config_path(thor, lsp.WORKSPACE_CONFIG)
+    workspace := thor.workspace_initialized
+    if thor_settings_is_open(thor) {
+        workspace = thor_settings_scope(&thor.settings) == .Project
+    }
+    if workspace {
+        return thor_workspace_config_path(thor, lsp.WORKSPACE_CONFIG)
+    }
+    return strings.concatenate({setting.USER_DIR, "/", lsp.WORKSPACE_CONFIG}, context.temp_allocator)
 }
 
 @(private = "file")
-thor_active_config_path :: proc(thor: ^Thor, name: string) -> string {
-    workspace := false
-    if thor_settings_is_open(thor) {
-        workspace = thor_settings_scope(&thor.settings) == .Workspace
-    } else {
-        workspace = thor.workspace_initialized
-    }
-    if workspace {
-        return strings.concatenate({thor_workspace_config_dir(thor.workspace_dir), "/", name}, context.temp_allocator)
-    }
-    return strings.concatenate({setting.USER_DIR, "/", name}, context.temp_allocator)
+thor_workspace_config_path :: proc(thor: ^Thor, name: string) -> string {
+    return strings.concatenate({thor_workspace_config_dir(thor.workspace_dir), "/", name}, context.temp_allocator)
+}
+
+// The personal settings of one folder: user/workspaces/<path-key>.lua.
+thor_local_settings_path :: proc(workspace_dir: string, allocator := context.temp_allocator) -> string {
+    return strings.concatenate({setting.USER_DIR, "/workspaces/", thor_path_key(workspace_dir), ".lua"}, allocator)
 }
 
 // Loads the shipped settings/ defaults, overlays the user/ layer the GUI writes,
-// then the workspace's .thor/ config when initialized (recorded in
-// workspace_initialized). Shared by startup and reload.
+// the project keys of the workspace's .thor/ when initialized (recorded in
+// workspace_initialized), then the local file of the folder. Shared by startup and reload.
 thor_load_config :: proc(thor: ^Thor, workspace_dir: string) {
     prof.proc_scope()
     thor.config = setting.load(setting.GLOBAL_DIR)
-    setting.load_overlay(&thor.config, setting.USER_DIR)
+    setting.load_overlay(&thor.config, setting.USER_DIR, .User)
     cfg_dir := thor_workspace_config_dir(workspace_dir)
     thor.workspace_initialized = os.is_dir(cfg_dir)
     if thor.workspace_initialized {
-        setting.load_overlay(&thor.config, cfg_dir)
+        setting.load_overlay(&thor.config, cfg_dir, .Workspace)
     }
+    if workspace_dir != "" {
+        setting.load_local(&thor.config, thor_local_settings_path(workspace_dir))
+    }
+}
+
+// Reports the personal keys a .thor/settings.lua set and which were not applied.
+// Reports a set once, so a reload with the same file stays quiet.
+thor_report_ignored_keys :: proc(thor: ^Thor) {
+    names := strings.join(thor.config.ignored_keys[:], ", ", context.temp_allocator)
+    if names == thor.ignored_keys_reported {
+        return
+    }
+    delete(thor.ignored_keys_reported)
+    thor.ignored_keys_reported = strings.clone(names)
+    if names == "" {
+        return
+    }
+    log.warnf(".thor/settings.lua sets personal settings, which are not applied: %s", names)
+    thor_flash_status(thor, fmt.tprintf(".thor/settings.lua sets %s. Personal settings come from your own settings only", names))
 }
 
 // Starter contents for a new .thor/settings.lua: the current defaults, so the
 // file is a ready-to-edit template.
 @(private = "file")
-WORKSPACE_SETTINGS_TEMPLATE :: "-- Settings for this folder. They overlay user/settings.lua.\nreturn {\n    tab_width = 4,\n    font_size = 18,\n    autosave_delay_ms = 1500,\n}\n"
+WORKSPACE_SETTINGS_TEMPLATE :: "-- Project settings, shared with everyone who opens this folder.\n-- Theme, font and other personal settings are not read here.\nreturn {\n    tab_width = 4,\n    insert_spaces = true,\n    format_on_save = false,\n}\n"
 
 // Promotes the current folder to a workspace: creates <workspace>/.thor/ with a
 // starter settings.lua and reloads so the overlay applies immediately.
@@ -995,12 +1031,10 @@ thor_cmd_new_theme :: proc(data: rawptr) {
     thor_open_file(thor, path)
 }
 
-// Opens a config file for hand editing: the same layer a GUI change writes to,
-// so what the palette opens is what actually takes effect. An absent file opens
-// as an empty table rather than not at all — the user layer starts empty.
+// Opens a config file for hand editing. An absent file opens as an empty table
+// rather than not at all — the user layer starts empty.
 @(private = "file")
-thor_open_config_file :: proc(thor: ^Thor, name: string) {
-    path := thor_active_config_path(thor, name)
+thor_open_config_file :: proc(thor: ^Thor, path: string) {
     if !os.exists(path) {
         if !setting.persist_object(path) {
             thor_flash_status(thor, "Could not create the config file", is_error = true)
@@ -1011,13 +1045,19 @@ thor_open_config_file :: proc(thor: ^Thor, name: string) {
 }
 
 thor_cmd_open_keybinds   :: proc(data: rawptr) {
-    thor_open_config_file(cast(^Thor)data, setting.KEYBINDS_FILE)
+    thor := cast(^Thor)data
+    thor_open_config_file(thor, thor_active_keybinds_path(thor))
 }
 thor_cmd_open_comments   :: proc(data: rawptr) {
-    thor_open_config_file(cast(^Thor)data, setting.COMMENTS_FILE)
+    thor := cast(^Thor)data
+    if thor.workspace_initialized {
+        thor_open_config_file(thor, thor_workspace_config_path(thor, setting.COMMENTS_FILE))
+    } else {
+        thor_open_config_file(thor, strings.concatenate({setting.USER_DIR, "/", setting.COMMENTS_FILE}, context.temp_allocator))
+    }
 }
 thor_cmd_open_settings   :: proc(data: rawptr) {
-    thor_open_config_file(cast(^Thor)data, setting.SETTINGS_FILE)
+    thor_open_config_file(cast(^Thor)data, setting.USER_SETTINGS)
 }
 thor_cmd_reload_settings :: proc(data: rawptr) {
     thor_reload_settings(cast(^Thor)data)

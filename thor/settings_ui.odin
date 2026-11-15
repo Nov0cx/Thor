@@ -34,24 +34,27 @@ thor_cmd_open_settings_gui :: proc(data: rawptr) {
 // Rebuilds every row from the config for the view's current scope. Called on
 // open, on a scope switch and after any change reloads, so the displayed
 // values always match what is actually on disk for that scope. General reads a
-// fresh settings/ + user/ snapshot without the workspace overlay (thor.config
-// has that folded in); Workspace reads the live merged thor.config.
+// fresh settings/ + user/ snapshot without the folder layers (thor.config has
+// those folded in); This folder and Project read the live merged thor.config.
+// Project lists only the keys a .thor/ layer applies (setting.is_workspace_key).
 thor_populate_settings_view :: proc(thor: ^Thor) {
     view := &thor.settings
     thor_settings_clear(view)
     thor_settings_set_workspace_available(view, thor.workspace_initialized)
 
     scope := thor_settings_scope(view)
-    if scope == .Workspace && !thor.workspace_initialized {
+    if scope == .Project && !thor.workspace_initialized {
         return
     }
+    personal := scope != .Project
+    general  := scope == .General
 
-    owns_snapshot := scope == .General
+    owns_snapshot := general
     general_snapshot: setting.Settings
     config: ^setting.Settings
     if owns_snapshot {
         general_snapshot = setting.load(setting.GLOBAL_DIR)
-        setting.load_overlay(&general_snapshot, setting.USER_DIR)
+        setting.load_overlay(&general_snapshot, setting.USER_DIR, .User)
         config = &general_snapshot
     } else {
         config = &thor.config
@@ -61,72 +64,90 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     }
 
     thor_settings_begin_category(view, "editor", "Editor", "adjustments")
+    switch scope {
+    case .General:
+    case .Folder:
+        thor_settings_add_info(view, "scope_help", "Only for you, only in this folder. These override your general settings.", "")
+    case .Project:
+        thor_settings_add_info(view, "scope_help", "Shared with everyone who opens this folder, in .thor/settings.lua.", "")
+    }
     thor_settings_add_number(view, "tab_width", "Tab width", setting.tab_width(config), setting.TAB_WIDTH_MIN, setting.TAB_WIDTH_MAX, 1)
-    thor_settings_add_number(view, "font_size", "Font size", setting.font_size(config), setting.FONT_SIZE_MIN, setting.FONT_SIZE_MAX, 1)
-    thor_settings_add_number(
-        view,
-        "autosave_delay_ms",
-        "Autosave delay (ms)",
-        setting.autosave_delay_ms(config),
-        setting.AUTOSAVE_DELAY_MIN,
-        setting.AUTOSAVE_DELAY_MAX,
-        250,
-    )
-    thor_settings_add_number(
-        view,
-        "peek_height",
-        "Peek definition height (rows)",
-        setting.peek_height(config),
-        setting.PEEK_HEIGHT_MIN,
-        setting.PEEK_HEIGHT_MAX,
-        1,
-    )
+    if personal {
+        thor_settings_add_number(view, "font_size", "Font size", setting.font_size(config), setting.FONT_SIZE_MIN, setting.FONT_SIZE_MAX, 1)
+        thor_settings_add_number(
+            view,
+            "autosave_delay_ms",
+            "Autosave delay (ms)",
+            setting.autosave_delay_ms(config),
+            setting.AUTOSAVE_DELAY_MIN,
+            setting.AUTOSAVE_DELAY_MAX,
+            250,
+        )
+        thor_settings_add_number(
+            view,
+            "peek_height",
+            "Peek definition height (rows)",
+            setting.peek_height(config),
+            setting.PEEK_HEIGHT_MIN,
+            setting.PEEK_HEIGHT_MAX,
+            1,
+        )
+    }
     thor_settings_add_toggle(view, "insert_spaces", "Insert spaces", setting.insert_spaces(config))
     thor_settings_add_toggle(view, "detect_indentation", "Detect indentation", setting.detect_indentation(config))
-    thor_settings_add_toggle(view, "indent_guides", "Indent guides", setting.indent_guides(config))
-    thor_settings_add_toggle(view, "relative_line_numbers", "Relative line numbers", setting.relative_line_numbers(config))
+    if personal {
+        thor_settings_add_toggle(view, "indent_guides", "Indent guides", setting.indent_guides(config))
+        thor_settings_add_toggle(view, "relative_line_numbers", "Relative line numbers", setting.relative_line_numbers(config))
+    }
     thor_settings_add_toggle(view, "format_on_save", "Format on save", setting.format_on_save(config))
     thor_settings_add_toggle(view, "format_on_type", "Format on type", setting.format_on_type(config))
-    thor_settings_add_choice(view, "right_alt", "Right Alt key", thor_right_alt_label(config))
-
-    thor_settings_begin_category(view, "appearance", "Appearance", "palette")
-    theme := setting.theme_name(config)
-    if theme == "" {
-        theme = DEFAULT_THEME
-    }
-    thor_settings_add_choice(view, "theme", "Theme", theme)
-    thor_settings_add_action(view, THEME_EDITOR_SETTING, "Theme colors", "Edit...")
-    thor_settings_add_choice(view, "font", "Font", font.default_family())
-    icon_pack := setting.icon_pack_name(config)
-    if icon_pack == "" {
-        icon_pack = font.icon_active_pack(PRIMARY_ICON_PACK_GROUP)
-    }
-    thor_settings_add_choice(view, "icon_pack", "Icon pack", icon_pack)
-    file_icon_pack := setting.file_icon_pack_name(config)
-    if file_icon_pack == "" {
-        file_icon_pack = font.icon_active_pack(FILE_ICON_PACK_GROUP)
-    }
-    thor_settings_add_choice(view, "file_icon_pack", "File icon pack", file_icon_pack)
-    thor_settings_add_choice(view, "ligatures", "Ligatures", thor_ligatures_label(config))
-    thor_settings_add_toggle(view, "tooltips", "Tooltips", setting.tooltips(config))
-    thor_settings_add_toggle(view, "reduce_motion", "Reduce motion", setting.reduce_motion(config))
-
-    thor_settings_begin_category(view, "windows", "Windows", "window")
-    thor_settings_add_choice(view, "open_folder_in", "Open folder in", thor_open_folder_in_label(config))
-    thor_settings_add_choice(view, "pane_layout", "Editor pane layout", thor_pane_layout_label(config))
-    thor_settings_add_toggle(view, "clipboard_history_save", "Save clipboard history", setting.clipboard_history_save(config))
-    thor_settings_add_toggle(view, "tip_of_the_day", "Tip of the day", setting.tip_of_the_day(config))
-    if thor_shell_menu_supported() {
-        thor_settings_add_toggle(view, "shell_menu", "Explorer menu entry", thor_shell_menu_registered())
+    if personal {
+        thor_settings_add_choice(view, "right_alt", "Right Alt key", thor_right_alt_label(config))
     }
 
-    thor_settings_begin_category(view, "terminal", "Terminal", "terminal-2")
-    thor_settings_add_choice(view, "default_shell", "Default shell", thor_default_shell_label(thor, config))
-    thor_settings_add_toggle(view, "terminal_clipboard", "Programs set clipboard", setting.terminal_clipboard(config))
+    if personal {
+        thor_settings_begin_category(view, "appearance", "Appearance", "palette")
+        theme := setting.theme_name(config)
+        if theme == "" {
+            theme = DEFAULT_THEME
+        }
+        thor_settings_add_choice(view, "theme", "Theme", theme)
+        thor_settings_add_action(view, THEME_EDITOR_SETTING, "Theme colors", "Edit...")
+        thor_settings_add_choice(view, "font", "Font", font.default_family())
+        icon_pack := setting.icon_pack_name(config)
+        if icon_pack == "" {
+            icon_pack = font.icon_active_pack(PRIMARY_ICON_PACK_GROUP)
+        }
+        thor_settings_add_choice(view, "icon_pack", "Icon pack", icon_pack)
+        file_icon_pack := setting.file_icon_pack_name(config)
+        if file_icon_pack == "" {
+            file_icon_pack = font.icon_active_pack(FILE_ICON_PACK_GROUP)
+        }
+        thor_settings_add_choice(view, "file_icon_pack", "File icon pack", file_icon_pack)
+        thor_settings_add_choice(view, "ligatures", "Ligatures", thor_ligatures_label(config))
+        thor_settings_add_toggle(view, "tooltips", "Tooltips", setting.tooltips(config))
+        thor_settings_add_toggle(view, "reduce_motion", "Reduce motion", setting.reduce_motion(config))
 
-    thor_settings_begin_category(view, "updates", "Updates", "download")
-    thor_settings_add_toggle(view, "check_for_updates", "Check for updates", setting.check_for_updates(config))
-    if scope == .General {
+        thor_settings_begin_category(view, "windows", "Windows", "window")
+        // A folder is open before its own layer is read, so where it opens is general only.
+        if general {
+            thor_settings_add_choice(view, "open_folder_in", "Open folder in", thor_open_folder_in_label(config))
+        }
+        thor_settings_add_choice(view, "pane_layout", "Editor pane layout", thor_pane_layout_label(config))
+        thor_settings_add_toggle(view, "clipboard_history_save", "Save clipboard history", setting.clipboard_history_save(config))
+        thor_settings_add_toggle(view, "tip_of_the_day", "Tip of the day", setting.tip_of_the_day(config))
+        if general && thor_shell_menu_supported() {
+            thor_settings_add_toggle(view, "shell_menu", "Explorer menu entry", thor_shell_menu_registered())
+        }
+
+        thor_settings_begin_category(view, "terminal", "Terminal", "terminal-2")
+        thor_settings_add_choice(view, "default_shell", "Default shell", thor_default_shell_label(thor, config))
+        thor_settings_add_toggle(view, "terminal_clipboard", "Programs set clipboard", setting.terminal_clipboard(config))
+    }
+
+    if general {
+        thor_settings_begin_category(view, "updates", "Updates", "download")
+        thor_settings_add_toggle(view, "check_for_updates", "Check for updates", setting.check_for_updates(config))
         thor_populate_ext_category(thor, config)
     }
 
@@ -134,6 +155,7 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     // them does anything, and a screenful of dead rows reads as a screenful of
     // broken ones. Every other backend is a language server, which the Language
     // Servers category owns (thor/lsp_ui.odin) so its state and setup have room.
+    // That category writes lsp.lua, which has no layer for one folder alone.
     thor_settings_begin_category(view, "language", "Language", "brain")
     language_on := setting.language_enabled(config)
     thor_settings_add_toggle(view, setting.LANGUAGE_SETTING, "Language intelligence", language_on)
@@ -159,7 +181,9 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
             }
             thor_settings_end_group(view)
         }
-        thor_populate_lsp_category(thor)
+        if scope != .Folder {
+            thor_populate_lsp_category(thor)
+        }
     }
 
     // Bundled plugins only where they want a permission: the language plugins
@@ -192,6 +216,10 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
         }
     }
 
+    // Keybinds are personal and global: user/keybinds.lua alone.
+    if !general {
+        return
+    }
     thor_settings_begin_category(view, "keybindings", "Keybindings", "keyboard")
     actions := make([dynamic]string, context.temp_allocator)
     for action in config.keybinds {
@@ -225,8 +253,9 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
 // applies live (and refreshes the modal's rows).
 thor_on_setting_number :: proc(data: rawptr, id: string, value: int) {
     thor := cast(^Thor)data
-    if err := setting.persist_int(thor_active_settings_path(thor), id, value); err != .None {
-        thor_settings_save_failed(thor, thor_active_settings_path(thor), err)
+    path := thor_active_settings_path(thor, id)
+    if err := setting.persist_int(path, id, value); err != .None {
+        thor_settings_save_failed(thor, path, err)
         return
     }
     thor_reload_settings(thor)
@@ -542,7 +571,7 @@ thor_on_setting_toggle :: proc(data: rawptr, id: string, on: bool) {
     }
     switch id {
     case setting.LANGUAGE_SETTING:
-        path := thor_active_settings_path(thor)
+        path := thor_active_settings_path(thor, setting.LANGUAGE_SETTING)
         if err := setting.persist_nested_bool(path, setting.LANGUAGE_SETTING, setting.LANGUAGE_ENABLED_KEY, on); err != .None {
             thor_settings_save_failed(thor, path, err)
             return
@@ -584,8 +613,9 @@ thor_on_setting_toggle :: proc(data: rawptr, id: string, on: bool) {
 // and changes nothing, so the row keeps reading what is actually on disk.
 @(private = "file")
 thor_persist_bool_setting :: proc(thor: ^Thor, key: string, on: bool) {
-    if err := setting.persist_bool(thor_active_settings_path(thor), key, on); err != .None {
-        thor_settings_save_failed(thor, thor_active_settings_path(thor), err)
+    path := thor_active_settings_path(thor, key)
+    if err := setting.persist_bool(path, key, on); err != .None {
+        thor_settings_save_failed(thor, path, err)
         return
     }
     thor_reload_settings(thor)
@@ -595,7 +625,7 @@ thor_persist_bool_setting :: proc(thor: ^Thor, key: string, on: bool) {
 // reloads. `key` is either LANGUAGE_ENABLED_KEY or a feature name.
 @(private = "file")
 thor_persist_backend_key :: proc(thor: ^Thor, backend_id, key: string, on: bool) {
-    path := thor_active_settings_path(thor)
+    path := thor_active_settings_path(thor, setting.LANGUAGE_BACKENDS_SETTING)
     err  := setting.persist_double_nested_bool(path, setting.LANGUAGE_BACKENDS_SETTING, backend_id, key, on)
     if err != .None {
         thor_settings_save_failed(thor, path, err)

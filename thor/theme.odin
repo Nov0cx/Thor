@@ -272,8 +272,9 @@ thor_ligatures_commit :: proc(data: rawptr, choice: string) {
     thor    := cast(^Thor)data
     enabled := choice == LIGATURE_LABELS[0]
     font.set_ligatures(enabled)
-    if err := setting.persist_bool(thor_active_settings_path(thor), "ligatures", enabled); err != .None {
-        thor_settings_save_failed(thor, thor_active_settings_path(thor), err)
+    path := thor_active_settings_path(thor, "ligatures")
+    if err := setting.persist_bool(path, "ligatures", enabled); err != .None {
+        thor_settings_save_failed(thor, path, err)
         return
     }
     thor_reload_settings(thor)
@@ -338,8 +339,9 @@ thor_icon_pack_apply :: proc(thor: ^Thor, group, key, choice: string) {
 // and changes nothing, so the row keeps reading what is actually on disk.
 @(private)
 thor_persist_string_setting :: proc(thor: ^Thor, key, value: string) {
-    if err := setting.persist_string(thor_active_settings_path(thor), key, value); err != .None {
-        thor_settings_save_failed(thor, thor_active_settings_path(thor), err)
+    path := thor_active_settings_path(thor, key)
+    if err := setting.persist_string(path, key, value); err != .None {
+        thor_settings_save_failed(thor, path, err)
         return
     }
     thor_reload_settings(thor)

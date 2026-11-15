@@ -8,8 +8,8 @@ import "../lang/lsp"
 import "../prof"
 import "../setting"
 
-// Live settings reload. The config files live under settings/ and user/ (and,
-// for an initialized workspace, its .thor/ overlay) rather than the workspace tree the
+// Live settings reload. The config files live under settings/ and user/ (with
+// the local file of the folder, and the .thor/ overlay) rather than the workspace tree the
 // file watcher covers, so they are polled here by modification time. An external
 // edit — from another editor, or Thor's own Settings modal — reloads and
 // re-applies them without a restart.
@@ -32,6 +32,9 @@ thor_settings_files :: proc(thor: ^Thor, out: ^[dynamic]string) {
         for name in names {
             append(out, strings.concatenate({dir, "/", name}, context.temp_allocator))
         }
+    }
+    if thor.workspace_dir != "" {
+        append(out, thor_local_settings_path(thor.workspace_dir))
     }
     // The active theme, so a hand edit of it applies live.
     name := thor_theme_configured_name(thor)
