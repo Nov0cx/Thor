@@ -1,11 +1,11 @@
-# 2026.11.4
+# 2026.11.5
 
-- **Hex view.** A binary file opens in a read-only hex view with offset, hex and ASCII columns. A click, a drag or `shift` + arrow keys select bytes, and `ctrl+c` copies them as hex. An image or 3D model that does not decode opens there too.
-- **Quick open and `.gitignore`.** Quick open and find in files leave out the files `.gitignore` names. With an empty query, quick open lists the open files first.
-- **Better ranking.** The palette and quick open rank a query that appears whole in a row above a scattered match.
-- **Find in files.** The results are grouped under a row per file. The `Aa`, `ab` and `.*` buttons (`alt` + `c`, `w`, `r`) set case, whole word and regular expression.
-- **Find bar.** It marks every match in view and outlines the current one.
-- **`ctrl+r` in strings and comments** opens replace, not the rename prompt.
-- **Menus.** **File** holds Settings, Language servers, Open settings file and Open keybinds file. **Edit** holds Cut, Copy and Paste. The console panel is now called Terminal: **View > Toggle terminal**.
-- **Settings.** An on/off setting is a switch with a line that says what it does, and the search matches that line. Format on Save, Format on Type and Right Alt Key moved to the Editor page, Tip of the Day to Windows.
-- **Narrow windows.** A window narrower than 800 pixels hides the explorer. It comes back when the window is wide again.
+- **Project and personal settings.** `.thor/settings.lua` applies only project settings: indentation, formatting and language. Keys such as `theme` or `font` there are skipped, and the status bar names them once. `.thor/keybinds.lua` is not read.
+- **This folder.** Settings has a "This folder" tab for personal settings of one folder, kept in `user/workspaces/`. The "Workspace" tab is now "Project".
+- **Pickers write `user/`.** The theme, font, icon pack, ligature and default shell pickers write `user/settings.lua`, also in a folder with a `.thor/`.
+- **Keyboard focus.** `tab` reaches the buttons, toggles and chips of the title bar, the status bar and every dialog, and stays inside an open dialog. A ring shows the keyboard focus.
+- **Scales with the font.** Row heights, paddings, corner radii and shadows follow `font_size`, so a large font no longer clips in a row.
+- **Motion.** Buttons, list rows, dialogs and cards fade. The new `reduce_motion` setting turns off the fades, scroll inertia, animated scrolls and blinking.
+- **Window move and resize.** A drag on the empty part of the title bar moves the window, and a double click maximizes it. The edges and corners of a restored window resize it.
+- **Themes.** Each shipped theme meets the contrast minimums. Material Lighter and Solarized dark change the most.
+- **Sentence case.** Command, menu and picker names read "View: Toggle word wrap". Keybinds are unchanged.
