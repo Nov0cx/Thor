@@ -6,19 +6,23 @@ Configuration is layered, each layer overlaying the one before it per key:
 | --- | --- | --- |
 | Shipped defaults | `settings/*.lua` beside the binary | Thor's releases and builds — replaced wholesale by an update |
 | Your settings | `user/*.lua` beside the binary | The Settings view and the command palette |
-| Workspace | `<project>/.thor/*.lua` | You, per project; usually checked in |
+| Project | `<project>/.thor/*.lua` | You, per project; usually checked in. Only the [project keys](#project-and-personal-settings) apply |
+| This folder | `user/workspaces/<folder-key>.lua` beside the binary | The Settings view's **This folder** tab; only you, only this folder |
 
-Both files of a layer above may name only the keys they change. Nothing Thor
+Each file of a layer above may name only the keys it changes. Nothing Thor
 writes ever lands in `settings/`, so an update or a rebuild cannot lose your
 settings; keep your own edits in `user/` for the same reason. `user/` is created
 on the first change and needs no `settings/` counterpart.
 
 Most of it is reachable without editing a file by hand, through the in-editor
 **Settings** view and the command palette (`ctrl + .`). The Settings view's
-**General** tab writes `user/`, its **Workspace** tab writes `.thor/`. The
-palette's "Settings: Open settings file" and its keybinds and comments
-counterparts open whichever of the two a change would go to, creating the file
-when it is not there yet. The same view and files are in the **File** menu. In
+**General** tab writes `user/`, its **This folder** tab the folder's own file
+in `user/workspaces/`, and its **Project** tab `.thor/`. Outside the view, a
+change of a project key goes to `.thor/` when the folder has one, and every
+other change to `user/`. The palette's "Settings: Open settings file" and
+"Settings: Open keybinds file" open the `user/` file; "Open comments file"
+opens `.thor/comments.lua` in a folder with a `.thor/`. Each is created when it
+is not there yet. The same view and files are in the **File** menu. In
 the view, an on/off setting is a switch, and each setting has a line that says
 what it does; the search box matches that line too.
 
@@ -59,6 +63,28 @@ Older versions wrote JSON. At start, Thor converts each `.json` config in
 keeps the old file as `.json.bak`. A `.lua` file that is already there is never
 overwritten. `assets/fonts/fonts.json`, `user/fonts.json`,
 `assets/icons/icons.json` and the records in `sessions/` stay JSON.
+
+## Project and personal settings
+
+`.thor/` is checked in with the project, so everyone who opens the folder gets
+it. It holds what describes the project, and none of your own taste. From a
+`.thor/settings.lua`, only these keys apply:
+
+`tab_width`, `insert_spaces`, `detect_indentation`, `format_on_save`,
+`format_on_type`, `language_intelligence`, `language_backends`,
+`file_languages`, `file_targets`.
+
+Every other key is personal: the theme, the font and its size, the icon packs,
+ligatures, line numbers, the default shell, the window and update settings.
+These come only from `user/settings.lua` and the folder's own file. A
+`.thor/keybinds.lua` is not read: keybinds are personal and global. When a
+`.thor/settings.lua` sets a personal key, the status bar names it once and the
+key is skipped. Thor does not change that file.
+
+For a personal setting in one folder only, such as a different theme per
+project, use the **This folder** tab. It writes
+`user/workspaces/<folder-key>.lua`, which is never checked in and wins over
+both `user/` and `.thor/`. Any `settings.lua` key works there.
 
 ## `settings.lua`
 
@@ -351,6 +377,9 @@ beside the binary, not in your settings.
 An opened folder can carry its own configuration in a `.thor/` directory at
 its root, layered on top of the global settings above. This repository's own
 `.thor/` is a working example.
+
+- **`settings.lua`** — the [project keys](#project-and-personal-settings) of
+  `settings.lua`. Other keys in it are skipped.
 
 - **`tasks.lua`** — named shell commands, surfaced by the task buttons left
   of the window controls and under "Tasks:" in the command palette:

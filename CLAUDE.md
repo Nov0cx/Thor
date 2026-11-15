@@ -559,9 +559,14 @@ Thor moves its working directory to the executable at startup, so `assets/`, `pl
 build, and the updater swaps all four. The folder Thor opens still comes from the directory it was
 launched in.
 
-Configuration is layered in three: the shipped `settings/*.lua` (settings, keybinds, comment
+Configuration is layered: the shipped `settings/*.lua` (settings, keybinds, comment
 prefixes, tips, and `lsp.lua`, the language-server table), overlaid by `user/*.lua`, overlaid by a
-workspace's `.thor/` directory. `settings/` is **read-only to the running editor** — a build and an
+workspace's `.thor/` directory, overlaid by `user/workspaces/<path-key>.lua` (personal settings of one
+folder). `.thor/` is checked in, so it applies only the project keys of `settings.lua`
+(`setting.WORKSPACE_KEYS`: indentation, formatting, language) and no `keybinds.lua`; a personal key there
+lands in `Settings.ignored_keys` and is reported once. A GUI write picks its file with
+`thor_active_settings_path(thor, key)`: the Settings scope tab (General / This folder / Project), else
+`.thor/` for a project key and `user/` for the rest. `settings/` is **read-only to the running editor** — a build and an
 update replace it wholesale, so anything Thor writes goes to `user/` (`setting.USER_DIR`,
 `thor_active_settings_path`) or to `.thor/`, never there; `user/` is gitignored, never staged and
 never swapped. `update_swap.odin` carries a pre-split install's `settings/*.json` into `user/` once,
