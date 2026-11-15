@@ -10,6 +10,11 @@
 - Each shipped theme meets the contrast minimums of text, hints, status colours and syntax. Material Lighter and Solarized dark change the most.
 - Hints, paths, chords and empty-list text use the muted colour. The disabled colour is only for controls that are off.
 - Settings, git and theme editor labels use sentence case.
+- `.thor/settings.lua` applies only project settings: indentation, formatting and language. The status bar names a personal key it sets, such as `theme` or `font`, and the key is skipped.
+- `.thor/keybinds.lua` is not read. Keybinds come from `user/keybinds.lua` only.
+- The theme, font, icon pack, ligature and default shell pickers write `user/settings.lua`, also in a folder with a `.thor/`.
+- Settings has a "This folder" tab: personal settings for one folder only, kept in `user/workspaces/`.
+- The Settings "Workspace" tab is now "Project" and shows only the settings a `.thor/` applies.
 - Command, menu and picker names use sentence case: "View: Toggle word wrap", not "View: Toggle Word Wrap". Keybinds name actions, so they do not change.
 - List rows fade out of their hover: the explorer, the palette, pickers, menus, problems, settings, git and the undo history. A selection moved by the arrow keys still changes at once.
 - Tab close buttons have one size in the editor tabs and the terminal strip.
