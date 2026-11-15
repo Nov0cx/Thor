@@ -63,8 +63,8 @@ A **GIT LFS** group follows the configuration: the installed `git lfs`
 version, the tracked patterns, **Pull LFS files** (`git lfs pull`) and
 **Track pattern...**, which asks for a pattern (e.g. `*.png`) and runs
 `git lfs track` on it. With LFS missing the group says so and offers no
-actions. The palette commands **Git: Pull LFS Files** and **Git: Track LFS
-Pattern** (`git_lfs_pull`, `git_lfs_track` in `keybinds.lua`) open this view
+actions. The palette commands **Git: Pull LFS files** and **Git: Track LFS
+pattern** (`git_lfs_pull`, `git_lfs_track` in `keybinds.lua`) open this view
 and run the same actions.
 
 ## Hosting

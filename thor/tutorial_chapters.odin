@@ -175,7 +175,7 @@ SEARCH := [?]Tutorial_Step{
 PANES := [?]Tutorial_Step{
     {
         title = "Split the editor",
-        body = "Use {key:toggle_split} to show two files side by side. **View: Pane Layout...** in " + "the palette has more layouts, up to six panes.",
+        body = "Use {key:toggle_split} to show two files side by side. **View: Pane layout...** in " + "the palette has more layouts, up to six panes.",
         region = .Editor,
         check = Check_Action{{"toggle_split", "pick_layout", "next_layout"}},
     },

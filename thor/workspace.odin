@@ -376,7 +376,7 @@ thor_poll_dropped_files :: proc(thor: ^Thor) {
 // a new one.
 thor_cmd_open_folder :: proc(data: rawptr) {
     thor := cast(^Thor)data
-    if dir, ok := thor_pick_folder("Open Folder", thor.workspace_dir); ok {
+    if dir, ok := thor_pick_folder("Open folder", thor.workspace_dir); ok {
         defer delete(dir)
         thor_open_folder_request(thor, dir)
     }
@@ -385,7 +385,7 @@ thor_cmd_open_folder :: proc(data: rawptr) {
 // File menu / palette: pick a folder and open it in a new window, no prompt.
 thor_cmd_open_folder_new_window :: proc(data: rawptr) {
     thor := cast(^Thor)data
-    if dir, ok := thor_pick_folder("Open Folder in New Window", thor.workspace_dir); ok {
+    if dir, ok := thor_pick_folder("Open folder in new window", thor.workspace_dir); ok {
         defer delete(dir)
         thor_new_window_for(thor, dir)
     }
@@ -416,7 +416,7 @@ thor_new_window_for :: proc(thor: ^Thor, dir: string) {
 // File menu / palette: pick a file to open as a tab, from anywhere on disk.
 thor_cmd_open_file :: proc(data: rawptr) {
     thor := cast(^Thor)data
-    if path, ok := thor_pick_file("Open File", thor.workspace_dir); ok {
+    if path, ok := thor_pick_file("Open file", thor.workspace_dir); ok {
         defer delete(path)
         thor_open_file(thor, path)
     }

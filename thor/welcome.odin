@@ -94,7 +94,7 @@ thor_cmd_close_workspace :: proc(data: rawptr) {
 // workspace, mirroring the CLI single-file launch case.
 thor_welcome_open_file :: proc(data: rawptr) {
     thor := cast(^Thor)data
-    if path, ok := thor_pick_file("Open File", ""); ok {
+    if path, ok := thor_pick_file("Open file", ""); ok {
         defer delete(path)
         thor_open_folder(thor, filepath.dir(path))
         thor_open_file(thor, path)
@@ -119,11 +119,11 @@ thor_welcome_view :: proc(thor: ^Thor) {
 
     {
         ui.scope({key = "actions", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = tk_gap(.M, .None), margin = {t = tk_sp(.S)}}})
-        if welcome_button(thor, "open-folder", "Open Folder", "folder", "Open a folder as the workspace") {
+        if welcome_button(thor, "open-folder", "Open folder", "folder", "Open a folder as the workspace") {
             thor_cmd_open_folder(thor)
             return
         }
-        if welcome_button(thor, "open-file", "Open File", "file", "Open one file, and its folder as the workspace") {
+        if welcome_button(thor, "open-file", "Open file", "file", "Open one file, and its folder as the workspace") {
             thor_welcome_open_file(thor)
             return
         }

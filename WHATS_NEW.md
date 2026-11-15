@@ -6,6 +6,6 @@
 - **Find in files.** The results are grouped under a row per file. The `Aa`, `ab` and `.*` buttons (`alt` + `c`, `w`, `r`) set case, whole word and regular expression.
 - **Find bar.** It marks every match in view and outlines the current one.
 - **`ctrl+r` in strings and comments** opens replace, not the rename prompt.
-- **Menus.** **File** holds Settings, Language Servers, Open Settings File and Open Keybinds File. **Edit** holds Cut, Copy and Paste. The console panel is now called Terminal: **View > Toggle Terminal**.
+- **Menus.** **File** holds Settings, Language servers, Open settings file and Open keybinds file. **Edit** holds Cut, Copy and Paste. The console panel is now called Terminal: **View > Toggle terminal**.
 - **Settings.** An on/off setting is a switch with a line that says what it does, and the search matches that line. Format on Save, Format on Type and Right Alt Key moved to the Editor page, Tip of the Day to Windows.
 - **Narrow windows.** A window narrower than 800 pixels hides the explorer. It comes back when the window is wide again.

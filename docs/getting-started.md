@@ -29,7 +29,7 @@ file already, and starts with no warning.
 ## Updating
 
 Thor asks GitHub for a newer release shortly after it starts, at most once a
-day. When it finds one it offers to install it; **Help > Check for Updates**
+day. When it finds one it offers to install it; **Help > Check for updates**
 asks at any time and ignores the daily limit.
 
 Answering **no** is remembered: that version is never offered again. The update
@@ -47,7 +47,7 @@ and layout. An install made before those two directories were split gets its
 
 The first start of a new version shows a short summary of what changed.
 **All changes** in it lists the full changelog of the version, and
-**Help > What's New** opens it again at any time.
+**Help > What's new** opens it again at any time.
 
 Thor updates itself only when it is a release build unpacked from an archive.
 A build from source, or one in a directory it cannot write (`/opt`,
@@ -79,12 +79,12 @@ thor src/ main.odin     # open the folder as the workspace and the file as a tab
 
 Several files open as several tabs, in the order given, and the last one is
 active. The first folder becomes the workspace; a second folder argument is
-ignored, because one window holds one workspace. Use `File > Open Folder...`
+ignored, because one window holds one workspace. Use `File > Open folder...`
 with `open_folder_in` set to `new` to get a second folder in its own window.
 
 A bare `thor` with no past session opens a welcome page instead: a tip of the
 day, `Open Folder`, `Open File` and a list of recently opened workspaces. `File
-> Close Workspace` returns to it from an open workspace, and a later bare launch
+> Close workspace` returns to it from an open workspace, and a later bare launch
 comes back to the welcome page too.
 
 The tip card carries one tip a day, with the chord it is about read from your
@@ -95,8 +95,8 @@ With a folder open there is no welcome page, so the same card floats in the
 corner of the editor on the first start of each day. `✕` closes it for now, the
 line under it turns tips off for good, and so does the `tip_of_the_day` setting.
 
-Inside the editor, `File > Open Folder...` switches the workspace and
-`File > Open File...` opens a file from anywhere; dropping a folder or files on
+Inside the editor, `File > Open folder...` switches the workspace and
+`File > Open file...` opens a file from anywhere; dropping a folder or files on
 the window does the same. Each folder keeps its own session (open tabs, and the
 panel layout — which panel sits in which slot, how wide each is, and where a
 panel you toggled off goes back to), restored when you come back to it.
@@ -105,7 +105,7 @@ Opening a second folder while one is already open asks whether to replace the
 current window's workspace or launch a new window — configurable via the
 `open_folder_in` setting (see [Configuration](configuration.md)).
 
-On Windows, "Settings: Toggle File Manager Menu Entry" (or Settings > Windows >
+On Windows, "Settings: Toggle file manager menu entry" (or Settings > Windows >
 Explorer menu entry) adds "Open with Thor" to the right-click menu of files,
 folders and the background of an open folder. It is written for your account only
 (`HKCU`) and needs no admin right. Run the command again to remove it. Moving
@@ -278,19 +278,19 @@ that need a name, a parameter list or a file ask for it in the palette first.
 
 Further requests: call hierarchy (incoming and outgoing calls), type hierarchy
 (supertypes and subtypes), go to implementations of a procedure group or union, and
-expand / shrink selection (`ctrl + alt + shift + right` / `left`). "View: Toggle Reference
-Counts" shows the number of uses of each declaration of the file. Semantic highlighting
+expand / shrink selection (`ctrl + alt + shift + right` / `left`). "View: Toggle reference
+counts" shows the number of uses of each declaration of the file. Semantic highlighting
 also marks `deprecated` declarations, and greys out a `when` branch the build target makes
 false (`inactive`); a plugin colours both through the `inactive` and `deprecated`
 captures (`plugins/odin/plugin.lua`).
 
 The status bar of an Odin file shows its build target (`target`, before the
-language). Click it, or run "Odin: Select Build Target..." (also in the View
-menu), to check that file for another `-target:`; "Workspace Default" removes the
+language). Click it, or run "Odin: Select build target..." (also in the View
+menu), to check that file for another `-target:`; "Workspace default" removes the
 choice. It is kept in `file_targets`, see [Configuration](configuration.md).
 
 Every other language gets these features from a language server.
-**Settings > Language Servers** (or **File > Language Servers**) lists the ones
+**Settings > Language servers** (or **File > Language servers**) lists the ones
 Thor knows: whether each is installed, what state it is in, and a button that
 installs a missing one in the terminal. `clangd`, `rust-analyzer`, `gopls`,
 `basedpyright`, `typescript-language-server`, `lua-language-server` and `zls`
@@ -317,7 +317,7 @@ analyzer's message on it. An edited playground is reset only after you
 confirm.
 
 **Help > Documentation** opens this manual in Thor's
-Markdown preview, and **Help > Open Documentation in Browser** opens it outside the
+Markdown preview, and **Help > Open documentation in browser** opens it outside the
 editor.
 
 ## Next steps

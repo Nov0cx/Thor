@@ -48,7 +48,7 @@ thor_file_settings_path :: proc(thor: ^Thor, path: string) -> string {
     return setting.USER_SETTINGS
 }
 
-AUTO_DETECT_LANGUAGE :: "Auto Detect"
+AUTO_DETECT_LANGUAGE :: "Auto detect"
 
 // Lists the languages for the active file. The choice is kept per file in the
 // workspace's settings.
@@ -75,7 +75,7 @@ thor_cmd_change_language :: proc(data: rawptr) {
             current = name
         }
     }
-    thor_select_open(thor, "Language of the File", labels[:], current, thor_change_language_preview, thor_change_language_commit, thor, values = values[:])
+    thor_select_open(thor, "Language of the file", labels[:], current, thor_change_language_preview, thor_change_language_commit, thor, values = values[:])
 }
 
 @(private = "file")

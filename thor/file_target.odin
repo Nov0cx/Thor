@@ -9,7 +9,7 @@ import "../lang"
 import "../lang/odin"
 import "../setting"
 
-WORKSPACE_DEFAULT_TARGET :: "Workspace Default"
+WORKSPACE_DEFAULT_TARGET :: "Workspace default"
 
 // True when the Odin analyzer serves `file`.
 thor_file_has_build_target :: proc(thor: ^Thor, file: ^Open_File) -> bool {
@@ -52,7 +52,7 @@ thor_cmd_select_build_target :: proc(data: rawptr) {
     triple, own := thor_file_build_target(thor, file)
     thor_select_open(
         thor,
-        "Build Target of the File",
+        "Build target of the file",
         labels[:],
         own ? triple : "",
         thor_build_target_preview,

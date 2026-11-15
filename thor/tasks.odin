@@ -218,10 +218,10 @@ thor_open_tasks_menu :: proc(data: rawptr) {
         thor_menu_add(thor, task.name, thor_menu_select_task, task)
     }
     thor_menu_add_separator(thor)
-    thor_menu_add(thor, "Run Task...", thor_cmd_run_task, thor, len(thor.tasks) > 0)
-    thor_menu_add(thor, "Add Task...", thor_cmd_add_task, thor)
-    thor_menu_add(thor, "Remove Task...", thor_cmd_remove_task, thor, len(thor.tasks) > 0)
-    thor_menu_add(thor, "Edit Tasks (JSON)", thor_cmd_edit_tasks, thor)
+    thor_menu_add(thor, "Run task...", thor_cmd_run_task, thor, len(thor.tasks) > 0)
+    thor_menu_add(thor, "Add task...", thor_cmd_add_task, thor)
+    thor_menu_add(thor, "Remove task...", thor_cmd_remove_task, thor, len(thor.tasks) > 0)
+    thor_menu_add(thor, "Edit tasks (JSON)", thor_cmd_edit_tasks, thor)
     thor_menu_open(thor, thor.menu_anchor)
 }
 

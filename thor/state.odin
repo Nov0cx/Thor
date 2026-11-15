@@ -467,11 +467,11 @@ thor_language_name :: proc(thor: ^Thor, file: ^Open_File) -> string {
     if ext := thor_file_extension(name); len(ext) > 1 {
         return strings.to_upper(ext[1:], context.temp_allocator)
     }
-    return "Plain Text"
+    return "Plain text"
 }
 
 // Names for formats with no language plugin. `ok` is false for a name this does
-// not know, which is what separates a miss from a real "Plain Text".
+// not know, which is what separates a miss from a real "Plain text".
 @(private = "file")
 thor_builtin_language_name :: proc(name: string) -> (string, bool) {
     // Named after the whole file, so the extension says nothing.
@@ -535,7 +535,7 @@ thor_builtin_language_name :: proc(name: string) -> (string, bool) {
     case ".sh", ".bash", ".zsh", ".ksh", ".bashrc", ".zshrc":
         return "Shell", true
     case ".txt":
-        return "Plain Text", true
+        return "Plain text", true
     }
     return "", false
 }

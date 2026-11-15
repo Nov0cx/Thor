@@ -422,7 +422,7 @@ theme_editor_toolbar :: proc(thor: ^Thor) {
     if theme_button(thor, "revert", "arrow-back-up", "", dirty, false, "Revert to the saved colors", "theme_revert") {
         thor_theme_revert(thor)
     }
-    if theme_button(thor, "save-as", "", "Save As...", true, false, "Save as a new theme", "theme_save_as") {
+    if theme_button(thor, "save-as", "", "Save as...", true, false, "Save as a new theme", "theme_save_as") {
         thor_cmd_theme_save_as(thor)
     }
     if theme_button(thor, "save", "device-floppy", "Save", dirty, true, "Save to user/themes", "theme_save", "Ctrl+S") {
@@ -770,7 +770,7 @@ theme_editor_generate :: proc(thor: ^Thor) {
             thor_reset_theme_seeds(thor)
             thor_theme_generate_refresh(thor)
         }
-        if theme_button(thor, "use", "wand", "Use as Draft", true, true, "Edit the generated palette. Save asks for a name", "theme_use_generated") {
+        if theme_button(thor, "use", "wand", "Use as draft", true, true, "Edit the generated palette. Save asks for a name", "theme_use_generated") {
             thor_theme_use_generated(thor)
         }
     }

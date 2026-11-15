@@ -424,7 +424,7 @@ thor_theme_parse_color :: proc(text: string) -> (ui.Color, bool) {
 thor_theme_generate_refresh :: proc(thor: ^Thor) {
     e := &thor.theme_editor
     theme.destroy(&e.generated_theme)
-    e.generated_theme = theme.generate("Generated Theme", thor.theme_seed_background, thor.theme_seed_accent, thor.theme_seed_dark)
+    e.generated_theme = theme.generate("Generated theme", thor.theme_seed_background, thor.theme_seed_accent, thor.theme_seed_dark)
 }
 
 // Sets the generator mode.
@@ -451,7 +451,7 @@ thor_theme_edit_seed :: proc(thor: ^Thor, accent: bool) {
     e.seed_original = accent ? thor.theme_seed_accent : thor.theme_seed_background
     thor_color_picker_open(
         thor,
-        accent ? "Accent Seed" : "Background Seed",
+        accent ? "Accent seed" : "Background seed",
         "seed",
         e.seed_original,
         thor_theme_seed_preview,

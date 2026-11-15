@@ -39,7 +39,7 @@ Start Thor in a folder to open it as a workspace:
 thor .
 ```
 
-`File > Open Folder...` does the same from inside the editor, and so does
+`File > Open folder...` does the same from inside the editor, and so does
 dropping a folder or files on the window. Each folder keeps its own session —
 open tabs and layout — restored when you come back to it.
 

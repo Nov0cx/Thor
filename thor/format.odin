@@ -169,7 +169,7 @@ thor_save_explicit :: proc(thor: ^Thor, file: ^Open_File) {
     thor_save_file(thor, file)
 }
 
-// Ctrl+alt+l / "Edit: Format Document": formats the active buffer.
+// Ctrl+alt+l / "Edit: Format document": formats the active buffer.
 thor_format_document :: proc(thor: ^Thor) {
     file := thor_active_open_file(thor)
     if file == nil {
@@ -184,7 +184,7 @@ thor_cmd_format_document :: proc(data: rawptr) {
     thor_format_document(cast(^Thor)data)
 }
 
-// Ctrl+alt+shift+l / "Edit: Format Selection": formats the selection, or the
+// Ctrl+alt+shift+l / "Edit: Format selection": formats the selection, or the
 // whole document when there is none.
 thor_format_selection_command :: proc(thor: ^Thor) {
     file := thor_active_open_file(thor)

@@ -108,11 +108,11 @@ test_palette_match_spans_stay_on_runes :: proc(t: ^testing.T) {
 // word, which outranks a scattered match.
 @(test)
 test_fuzzy_ranks_substrings_first :: proc(t: ^testing.T) {
-    prefix, prefix_ok := fuzzy_score("fold", "Fold: Toggle Fold")
-    word, word_ok     := fuzzy_score("fold", "File: Open Folder")
-    inner, inner_ok   := fuzzy_score("fold", "Fold: Unfold All")
+    prefix, prefix_ok := fuzzy_score("fold", "Fold: Toggle fold")
+    word, word_ok     := fuzzy_score("fold", "File: Open folder")
+    inner, inner_ok   := fuzzy_score("fold", "Fold: Unfold all")
     middle, middle_ok := fuzzy_score("fold", "Unfold All")
-    loose, loose_ok   := fuzzy_score("fold", "Check for Plugin and Theme Updates")
+    loose, loose_ok   := fuzzy_score("fold", "Check for plugin and theme updates")
     testing.expect(t, prefix_ok && word_ok && inner_ok && middle_ok && loose_ok, "every row must match")
     testing.expect(t, prefix > word, "a prefix must outrank a later word start")
     testing.expect(t, inner > word, "a category prefix must outrank a later word start")

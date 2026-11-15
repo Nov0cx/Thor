@@ -622,7 +622,7 @@ thor_terminal_strip :: proc(thor: ^Thor) {
         ui.end()
         // The close button sits inside the pill, so the pill's own tip would
         // come up over it as well. The inner one wins.
-        thor_tip(thor, close.id, "Close Terminal")
+        thor_tip(thor, close.id, "Close terminal")
         if !close.hovered {
             thor_tip(thor, it.id, info.tooltip)
         }
@@ -652,7 +652,7 @@ thor_terminal_strip :: proc(thor: ^Thor) {
     )
     thor_icon_label(thor, "plus", thor.theme.muted_color, 14)
     ui.end()
-    thor_tip(thor, add.id, "New Terminal")
+    thor_tip(thor, add.id, "New terminal")
 
     if close_index >= 0 {
         thor_terminal_tab_close(thor, close_index)
@@ -897,7 +897,7 @@ thor_tabbar :: proc(thor: ^Thor) {
         ui.end()
         // The close button sits inside the tab, so the tab's own tip would come
         // up over it as well. The inner one wins.
-        thor_tip(thor, close.id, "Close Tab")
+        thor_tip(thor, close.id, "Close tab")
         if !close.hovered {
             thor_tip(thor, it.id, info.tooltip)
         }
@@ -1856,14 +1856,14 @@ thor_statusbar :: proc(thor: ^Thor) {
     if thor.workspace_dir != "" {
         if !signal_get(&thor.explorer_visible) {
             it := thor_status_segment(thor, "show-explorer", "layout-sidebar-left-expand", "", dim, clickable = true)
-            thor_tip(thor, it.id, "Show Explorer", thor_action_shortcut(thor, "toggle_explorer"))
+            thor_tip(thor, it.id, "Show explorer", thor_action_shortcut(thor, "toggle_explorer"))
             if it.clicked {
                 thor_toggle_explorer(thor)
             }
         }
         if !signal_get(&thor.console_visible) {
             it := thor_status_segment(thor, "show-console", "layout-bottombar-expand", "", dim, clickable = true)
-            thor_tip(thor, it.id, "Show Terminal", thor_action_shortcut(thor, "toggle_console"))
+            thor_tip(thor, it.id, "Show terminal", thor_action_shortcut(thor, "toggle_console"))
             if it.clicked {
                 thor_toggle_console(thor)
             }
@@ -1935,7 +1935,7 @@ thor_statusbar :: proc(thor: ^Thor) {
         thor_status_segment(thor, "encoding", "", info.encoding, dim, "Text encoding of the file on disk")
     }
     if info.indent_width > 0 {
-        label := info.indent_spaces ? "Spaces" : "Tab Size"
+        label := info.indent_spaces ? "Spaces" : "Tab size"
         thor_status_segment(thor, "indent", "", fmt.tprintf("%s: %d", label, info.indent_width), dim, "Indentation the file is written with")
     }
     if info.build_target != "" {

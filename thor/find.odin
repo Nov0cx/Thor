@@ -333,13 +333,13 @@ find_query_row :: proc(thor: ^Thor) {
         },
     )
 
-    if find_toggle(thor, "case", "Aa", f.options.case_sensitive, "Match Case", "Alt+C") {
+    if find_toggle(thor, "case", "Aa", f.options.case_sensitive, "Match case", "Alt+C") {
         find_flip(f, &f.options.case_sensitive)
     }
-    if find_toggle(thor, "word", "ab", f.options.whole_word, "Whole Word", "Alt+W") {
+    if find_toggle(thor, "word", "ab", f.options.whole_word, "Whole word", "Alt+W") {
         find_flip(f, &f.options.whole_word)
     }
-    if find_toggle(thor, "regex", ".*", f.options.use_regex, "Regular Expression", "Alt+R") {
+    if find_toggle(thor, "regex", ".*", f.options.use_regex, "Regular expression", "Alt+R") {
         find_flip(f, &f.options.use_regex)
     }
 
@@ -378,7 +378,7 @@ find_replace_row :: proc(thor: ^Thor) {
     if find_text_button(thor, "one", "Replace") {
         find_do_replace(f)
     }
-    if find_text_button(thor, "all", "Replace All") {
+    if find_text_button(thor, "all", "Replace all") {
         find_do_replace_all(f)
     }
 }

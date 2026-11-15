@@ -509,9 +509,8 @@ Where Thor does not follow this document yet.
 
 | # | Rule | Finding | Where |
 | --- | --- | --- | --- |
-| 1 | 5.6 | Command, menu and palette names use Title Case ("View: Toggle Explorer", "Language Servers"): about 130 in `thor/`, more in `plugins/`, and the docs and the tutorial quote them. View labels are in sentence case. | `thor/commands.odin`, `thor/menus.odin`, `plugins/*/plugin.lua`, `docs/` |
-| 2 | 5.9 | List rows switch their hover fill in and out with no fade. A fade on the row would also animate a selection that moves by key (8.3). | `thor/explorer.odin`, `palette.odin`, `select.odin`, `git_view.odin` |
-| 3 | 2.9 | One-off widths are `tk(n)` literals in the views (a menu label, an icon box, a column). They scale, but they are not tokens. | `thor/view.odin`, `git_view.odin`, `settings_view.odin`, … |
+| 1 | 5.9 | List rows switch their hover fill in and out with no fade. A fade on the row would also animate a selection that moves by key (8.3). | `thor/explorer.odin`, `palette.odin`, `select.odin`, `git_view.odin` |
+| 2 | 2.9 | One-off widths are `tk(n)` literals in the views (a menu label, an icon box, a column). They scale, but they are not tokens. | `thor/view.odin`, `git_view.odin`, `settings_view.odin`, … |
 
 Good as it is, and to keep: the tokens in `thor/tokens.odin` and the UI scale, the shared controls
 in `thor/controls.odin` with their keyboard focus ring, a focus scope on each modal, the enter fade,

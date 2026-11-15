@@ -7,7 +7,7 @@ import "../lang"
 import "../lang/lsp"
 import "../plugin"
 
-// The "Language Servers" settings category: what every configured server is,
+// The "Language servers" settings category: what every configured server is,
 // what state it is in, and the actions that get it working. It replaces the
 // seven bundled "*-setup" plugins — the PATH check is native here
 // (lsp.executable_find, no process spawn) and an install runs in the console.
@@ -110,13 +110,13 @@ thor_lsp_pick_restart :: proc(data: rawptr, choice: string) {
 // rebuilt on open, on a scope switch and after every change.
 thor_populate_lsp_category :: proc(thor: ^Thor) {
     view := &thor.settings
-    thor_settings_begin_category(view, LSP_CATEGORY, "Language Servers", "server")
+    thor_settings_begin_category(view, LSP_CATEGORY, "Language servers", "server")
 
     thor_lsp_populate_problems(thor)
 
-    thor_settings_add_action(view, thor_lsp_action_id(.Restart, ""), "Restart Language Servers", "Restart")
-    thor_settings_add_action(view, thor_lsp_action_id(.Add, ""), "Add a Server...", "Add")
-    thor_settings_add_action(view, thor_lsp_action_id(.Rescan, ""), "Look for Installed Servers Again", "Scan")
+    thor_settings_add_action(view, thor_lsp_action_id(.Restart, ""), "Restart language servers", "Restart")
+    thor_settings_add_action(view, thor_lsp_action_id(.Add, ""), "Add a server...", "Add")
+    thor_settings_add_action(view, thor_lsp_action_id(.Rescan, ""), "Look for installed servers again", "Scan")
 
     for id in lsp.client_server_ids(thor.lsp_client, context.temp_allocator) {
         thor_lsp_populate_server(thor, id)

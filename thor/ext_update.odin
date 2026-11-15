@@ -45,7 +45,7 @@ EXT_HOLD :: "Hold updates"
 EXT_RELEASE_HOLD :: "Release hold"
 
 @(private = "file")
-EXT_OPEN_SOURCE :: "Open Source Page"
+EXT_OPEN_SOURCE :: "Open source page"
 
 Ext_Item_Kind :: enum {
     Plugin,
@@ -607,7 +607,7 @@ thor_populate_ext_category :: proc(thor: ^Thor, config: ^setting.Settings) {
     thor_settings_begin_category(view, EXT_SETTINGS_CATEGORY, "Plugin & theme updates", "refresh")
     thor_settings_add_toggle(view, "check_for_plugin_updates", "Check automatically", setting.check_for_plugin_updates(config))
     pending   := thor_ext_pending_count(thor)
-    now_label := thor.ext_inflight ? "Checking..." : pending > 0 ? fmt.tprintf("Check Now (%d available)", pending) : "Check now"
+    now_label := thor.ext_inflight ? "Checking..." : pending > 0 ? fmt.tprintf("Check now (%d available)", pending) : "Check now"
     thor_settings_add_action(view, EXT_CHECK_NOW_ROW, now_label, "Check")
 
     for item in thor.ext_updates {

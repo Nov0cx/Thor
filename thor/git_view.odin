@@ -1327,7 +1327,7 @@ git_view_lfs :: proc(thor: ^Thor) {
         thor_on_git_lfs(thor, .Pull)
         return
     }
-    if git_view_row_button(thor, "lfs-track", "Track a Pattern") {
+    if git_view_row_button(thor, "lfs-track", "Track a pattern") {
         thor_on_git_lfs(thor, .Track)
     }
 }

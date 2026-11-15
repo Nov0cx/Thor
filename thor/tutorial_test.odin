@@ -114,7 +114,7 @@ test_tutorial_expand_placeholders :: proc(t: ^testing.T) {
     got := thor_tutorial_expand(thor, "Press {key:save} now.")
     testing.expect_value(t, got, strings.concatenate({"Press `", chord, "` now."}, context.temp_allocator))
 
-    testing.expect_value(t, thor_tutorial_expand(thor, "{key:toggle_word_wrap}"), "**View: Toggle Word Wrap** in the command palette")
+    testing.expect_value(t, thor_tutorial_expand(thor, "{key:toggle_word_wrap}"), "**View: Toggle word wrap** in the command palette")
     testing.expect_value(t, thor_tutorial_expand(thor, "{key:no_such_action}"), "`no_such_action`")
     testing.expect_value(t, thor_tutorial_expand(thor, "open {key:save"), "open {key:save")
 }

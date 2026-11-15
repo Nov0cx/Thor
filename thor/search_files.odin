@@ -107,15 +107,15 @@ thor_file_search_query_changed :: proc(data: rawptr, query: string) {
 thor_file_search_extras :: proc(thor: ^Thor) {
     o       := &thor.find.options
     flipped := false
-    if find_toggle(thor, "case", "Aa", o.case_sensitive, "Match Case", "Alt+C") || ui.take_key(.C, {.Alt}) {
+    if find_toggle(thor, "case", "Aa", o.case_sensitive, "Match case", "Alt+C") || ui.take_key(.C, {.Alt}) {
         o.case_sensitive = !o.case_sensitive
         flipped = true
     }
-    if find_toggle(thor, "word", "ab", o.whole_word, "Whole Word", "Alt+W") || ui.take_key(.W, {.Alt}) {
+    if find_toggle(thor, "word", "ab", o.whole_word, "Whole word", "Alt+W") || ui.take_key(.W, {.Alt}) {
         o.whole_word = !o.whole_word
         flipped = true
     }
-    if find_toggle(thor, "regex", ".*", o.use_regex, "Regular Expression", "Alt+R") || ui.take_key(.R, {.Alt}) {
+    if find_toggle(thor, "regex", ".*", o.use_regex, "Regular expression", "Alt+R") || ui.take_key(.R, {.Alt}) {
         o.use_regex = !o.use_regex
         flipped = true
     }

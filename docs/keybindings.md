@@ -44,8 +44,8 @@ Every binding below is a default and can be changed in `keybinds.lua`
 | f9 | run the selected task |
 | ctrl + hover | show the declaration of the symbol under the mouse |
 | ctrl + shift + u | code actions: the fixes available at the caret, in a picker (on the lines of the selection for Odin, scoped to the selection on a language-server-backed file) |
-| (unbound) | the palette commands "Show Incoming Calls", "Show Outgoing Calls", "Show Supertypes", "Show Subtypes" and "Go to Implementations" list the callers, callees, parent types, child types or implementations of the symbol at the caret in a picker; bind them under `actions` in `user/keybinds.lua` (`incoming_calls`, `outgoing_calls`, `supertypes`, `subtypes`, `goto_implementations`) |
-| (unbound) | "View: Toggle Reference Counts" (`toggle_code_lens`) shows how many uses each declaration of the file has, in a row above the declaration |
+| (unbound) | the palette commands "Show incoming calls", "Show outgoing calls", "Show supertypes", "Show subtypes" and "Go to implementations" list the callers, callees, parent types, child types or implementations of the symbol at the caret in a picker; bind them under `actions` in `user/keybinds.lua` (`incoming_calls`, `outgoing_calls`, `supertypes`, `subtypes`, `goto_implementations`) |
+| (unbound) | "View: Toggle reference counts" (`toggle_code_lens`) shows how many uses each declaration of the file has, in a row above the declaration |
 | ctrl + shift + m | the Problems panel (`open_problems`, "View: Problems"): the diagnostics of the open files and of the other files of the checked packages, by file; click one to jump to it |
 | ctrl + f | find |
 | ctrl + shift + f | find in files |
@@ -109,7 +109,7 @@ read, and the list stops at 1000 matches.
 | ctrl + c | copy selection (no selection: copy whole line) |
 | ctrl + x | cut selection (no selection: cut whole line) |
 | ctrl + v | paste |
-| ctrl + shift + v | clipboard history: pick an earlier copy, cut or paste and paste it again (also the "Edit: Clipboard History..." command); kept between sessions in `sessions/clipboard.txt` (see `clipboard_history_save` in [Configuration](configuration.md)); "Edit: Clear Clipboard History" empties it |
+| ctrl + shift + v | clipboard history: pick an earlier copy, cut or paste and paste it again (also the "Edit: Clipboard history..." command); kept between sessions in `sessions/clipboard.txt` (see `clipboard_history_save` in [Configuration](configuration.md)); "Edit: Clear clipboard history" empties it |
 
 ## Movement
 
@@ -159,7 +159,7 @@ Add `shift` to any movement to extend the selection.
 | ctrl + z / ctrl + shift + z | undo / redo |
 | ctrl + y | redo |
 | ctrl + alt + z / ctrl + alt + shift + z | undo earlier / undo later: step through every saved state in the order it was made, across undo branches |
-| (unbound) | `undo_history`: open Undo History, a graph of the undo tree with a live preview of each state |
+| (unbound) | `undo_history`: open Undo history, a graph of the undo tree with a live preview of each state |
 | ctrl + backspace / delete | delete word left / right |
 | ctrl + shift + k | delete line |
 | ctrl + shift + delete | delete from the caret to the line end; at the line end, join the next line |
@@ -211,7 +211,7 @@ undone steps stay. Redo follows the branch you were last on. The history keeps
 1024 steps or 16 MB of text; past that, branches off the current path are
 dropped first.
 
-**Undo History** (Edit menu or palette) opens a panel on the right that shows
+**Undo history** (Edit menu or palette) opens a panel on the right that shows
 the tree as a graph, newest state at the top. Each branch has its own lane, and
 a branch joins its lane at the state it started from. Each row says what the
 step did (`Typed "count += 1"`, `Deleted 3 lines`, `Replaced "a" → "b"`,
@@ -245,8 +245,8 @@ context.
 | ctrl + shift + 1 … ctrl + shift + 6 | show the active file in pane 1 … 6 (the layout grows to have it) |
 | f6 / shift + f6 | focus the next / previous pane |
 
-Click the language in the status bar, or run "View: Change Language of
-File..." (`change_language`, unbound), to colour the active file as another
+Click the language in the status bar, or run "View: Change language of
+file..." (`change_language`, unbound), to colour the active file as another
 language. See `file_languages` in [Configuration](configuration.md).
 
 Click the build target in the status bar of an Odin file, or run "Odin: Select
@@ -310,8 +310,8 @@ outside Thor is reloaded into its view.
 ## Git
 
 The Git UI ("Git" in the top bar; the palette actions "Git: Open Git UI",
-"Git: History", "Git: Branches", "Git: Pull LFS Files" and "Git: Track LFS
-Pattern" ship unbound — bindable as `open_git_gui`, `open_git_history`,
+"Git: History", "Git: Branches", "Git: Pull LFS files" and "Git: Track LFS
+pattern" ship unbound — bindable as `open_git_gui`, `open_git_history`,
 `open_git_branches`, `git_lfs_pull`, `git_lfs_track`). Inside the modal:
 
 | Binding | Action |
@@ -336,7 +336,7 @@ The editor area shows up to six panes, arranged by a layout:
 | 3x2 Grid | 6 |
 
 Panes are numbered down each column, then across, so pane 1 is always top left.
-Pick a layout with "View: Pane Layout..." (palette or View menu), step through
+Pick a layout with "View: Pane layout..." (palette or View menu), step through
 them with ctrl + f1, or set the one a folder opens with in
 [`pane_layout`](configuration.md). A layout that would make a pane smaller than
 240 × 120 px is skipped. Each folder remembers its layout, pane files and sizes.
@@ -354,13 +354,13 @@ To open a file in a given pane:
 | quick open | ctrl + enter | open in the next pane ("to the side") |
 | quick open | shift + enter | pick the pane: press 1 … 6 or click it, escape cancels |
 | explorer | alt + click, ctrl + enter | open to the side |
-| explorer | shift + enter, or right click > "Open in Pane..." | pick the pane |
+| explorer | shift + enter, or right click > "Open in pane..." | pick the pane |
 | anywhere | drag a tab or explorer rows onto a pane | open there (the pane is outlined while dragging) |
 | anywhere | ctrl + shift + 1 … 6 | show the active file in that pane |
 
 From a single pane, "to the side" opens the last multi-pane layout first. The
-palette actions "View: Open Active File to the Side" (`open_to_side`),
-"View: Show Active File in Pane..." (`pick_pane`) and "View: Pane Layout..."
+palette actions "View: Open active file to the side" (`open_to_side`),
+"View: Show active file in pane..." (`pick_pane`) and "View: Pane layout..."
 (`pick_layout`) ship unbound.
 
 ## Terminal
@@ -388,7 +388,7 @@ up / down, tab completion and ctrl + r are the shell's, not the editor's.
 | click on a link | open a hyperlink the program marked |
 
 Right-click the terminal for the same actions as a menu: "Copy" (the
-selection, when there is one), "Copy All", "Paste", plus Clear and the
+selection, when there is one), "Copy all", "Paste", plus Clear and the
 terminal-tab actions.
 
 While the terminal holds the keyboard the editor's chords stay out of its way:
@@ -399,8 +399,8 @@ the editor. Everything else is the shell's.
 The grid follows the panel: resize it and the shell re-wraps, and a full-screen
 program redraws.
 
-The five "Terminal:" palette actions — New Terminal, Close Terminal, Next
-Terminal, Restart Shell, Select Default Shell — ship unbound; give them chords in
+The five "Terminal:" palette actions — New terminal, Close terminal, Next
+terminal, Restart shell, Select shell — ship unbound; give them chords in
 the `terminal` group of `keybinds.lua`. Which shell new terminals open
 with is the `default_shell` setting (Settings > Terminal > Default shell);
 empty means the best shell found on the machine.
@@ -488,12 +488,12 @@ still going. Keyboard focus stays in the editor.
 | selector | drop down the workspace's tasks; picking one selects it |
 | ▶ | run the selected task |
 
-The dropdown also carries "Run Task...", "Add Task...", "Remove Task..." and
+The dropdown also carries "Run task...", "Add task...", "Remove task..." and
 "Edit Tasks", which opens the file the tasks live in,
 `<workspace>/.thor/tasks.lua`. That file is committable and reloads as soon as
 it is saved. Which task is selected is personal, so it stays in the session
 rather than the file. The same actions are in the command palette under "Tasks:"
-and can be given chords in `keybinds.lua` — "Tasks: Run Selected Task"
+and can be given chords in `keybinds.lua` — "Tasks: Run selected task"
 is the one worth binding.
 
 ```lua
@@ -509,9 +509,9 @@ return {
 
 `ctrl + .` opens the command palette. Type to fuzzy-filter, arrows/enter to run,
 escape to dismiss. Commands that have a keybinding show the chord right-aligned
-in the list. "Go to File" and "Go to Line" switch it into file / line input
+in the list. "Go to file" and "Go to line" switch it into file / line input
 modes. Three "Language:" actions ship unbound and take chords in `keybinds.lua`
-as `open_language_servers` (Settings' Language Servers page),
+as `open_language_servers` (Settings' Language servers page),
 `restart_language_servers` and `restart_one_language_server` (pick one server
 from a list). Each command a plugin registers is listed as "Plugin: <name>
 (<plugin>)" and takes a chord as `plugin.<name>`, for example
@@ -523,7 +523,7 @@ layered from.
 
 ## Theme window
 
-"Theme: Edit Colors" (or Settings > Appearance > Theme colors > Edit...) opens the theme
+"Theme: Edit colors" (or Settings > Appearance > Theme colors > Edit...) opens the theme
 window. Inside it:
 
 | Key | Action |
@@ -548,8 +548,8 @@ The **Help** menu opens this manual without leaving the editor:
 | entry | what it does |
 | --- | --- |
 | Documentation | opens `docs/index.md` in the rendered Markdown preview |
-| Go to Documentation Page... | picks one page of the manual and opens it the same way |
-| Open Documentation in Browser | opens `docs/html/` in the system browser, or the pages on GitHub when that HTML has not been generated |
+| Go to documentation page... | picks one page of the manual and opens it the same way |
+| Open documentation in browser | opens `docs/html/` in the system browser, or the pages on GitHub when that HTML has not been generated |
 
 The pages ship beside the binary, so they are readable offline. The same three
 actions are in the command palette under "Help:" and take chords in

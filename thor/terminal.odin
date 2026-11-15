@@ -782,7 +782,7 @@ thor_cmd_select_shell :: proc(data: rawptr) {
         labels[i] = profile.name
         ids[i] = profile.id
     }
-    thor_select_open(thor, "Select Shell", labels, thor_terminal_default_profile(thor).name, thor_shell_preview, thor_shell_commit, thor, ids)
+    thor_select_open(thor, "Select shell", labels, thor_terminal_default_profile(thor).name, thor_shell_preview, thor_shell_commit, thor, ids)
 }
 
 // Select_Choice_Proc: nothing to preview, since a shell only starts on commit.

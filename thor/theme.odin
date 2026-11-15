@@ -185,7 +185,7 @@ thor_cmd_change_theme :: proc(data: rawptr) {
     for label, i in labels {
         shown[i] = thor_ext_theme_pending(thor, files[i]) ? strings.concatenate({label, " — update available"}, context.temp_allocator) : label
     }
-    thor_select_open(thor, "Change Theme", shown, current, thor_theme_preview, thor_theme_commit, thor, files)
+    thor_select_open(thor, "Change theme", shown, current, thor_theme_preview, thor_theme_commit, thor, files)
 }
 
 // Loads the theme and applies it live (no persistence): the dialog's preview.
@@ -217,7 +217,7 @@ thor_cmd_change_font :: proc(data: rawptr) {
     // without a main-thread bake.
     sizes := [2]i32{cast(i32)setting.font_size(&thor.config), i32(tk_font(thor, .Display))}
     font.prebake_async(families, sizes[:])
-    thor_select_open(thor, "Change Font", families, font.default_family(), thor_font_preview, thor_font_commit, thor)
+    thor_select_open(thor, "Change font", families, font.default_family(), thor_font_preview, thor_font_commit, thor)
 }
 
 // Makes `name` the default text family. The UI and editor handles name the
@@ -352,7 +352,7 @@ thor_cmd_change_icon_pack :: proc(data: rawptr) {
     thor_open_icon_pack_dialog(
         thor,
         PRIMARY_ICON_PACK_GROUP,
-        "Change Icon Pack",
+        "Change icon pack",
         setting.icon_pack_name(&thor.config),
         thor_icon_pack_preview,
         thor_icon_pack_commit,
@@ -378,7 +378,7 @@ thor_cmd_change_file_icon_pack :: proc(data: rawptr) {
     thor_open_icon_pack_dialog(
         thor,
         FILE_ICON_PACK_GROUP,
-        "Change File Icon Pack",
+        "Change file icon pack",
         setting.file_icon_pack_name(&thor.config),
         thor_file_icon_pack_preview,
         thor_file_icon_pack_commit,

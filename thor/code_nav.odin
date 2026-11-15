@@ -43,11 +43,11 @@ File_Lens :: struct {
 }
 
 thor_cmd_incoming_calls :: proc(data: rawptr) {
-    thor_show_symbol_list(cast(^Thor)data, .Call_Hierarchy, "up", "Incoming Calls...", "No incoming calls")
+    thor_show_symbol_list(cast(^Thor)data, .Call_Hierarchy, "up", "Incoming calls...", "No incoming calls")
 }
 
 thor_cmd_outgoing_calls :: proc(data: rawptr) {
-    thor_show_symbol_list(cast(^Thor)data, .Call_Hierarchy, "down", "Outgoing Calls...", "No outgoing calls")
+    thor_show_symbol_list(cast(^Thor)data, .Call_Hierarchy, "down", "Outgoing calls...", "No outgoing calls")
 }
 
 thor_cmd_supertypes :: proc(data: rawptr) {

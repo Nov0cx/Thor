@@ -75,7 +75,7 @@ updates when it names a source:
   fast-forward `git pull`. A clone with local changes is not updated.
 
 Thor checks shortly after it starts, at most once a day
-(`check_for_plugin_updates`), and **Help > Check for Plugin and Theme Updates**
+(`check_for_plugin_updates`), and **Help > Check for plugin and theme updates**
 checks at any time. When an update is found, a puzzle button with a count shows
 in the title bar, and the theme picker marks the theme. **Settings > Plugin &
 Theme Updates** lists every item and its state. Click an item to update it, to

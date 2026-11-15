@@ -375,7 +375,7 @@ thor_cmd_clipboard_history :: proc(data: rawptr) {
         labels[i] = thor_clipboard_label(entry.text)
         values[i] = entry.text
     }
-    thor_select_open(thor, "Clipboard History", labels, values[0], nil, thor_clipboard_history_commit, thor, values)
+    thor_select_open(thor, "Clipboard history", labels, values[0], nil, thor_clipboard_history_commit, thor, values)
 }
 
 // Puts the chosen entry on the clipboard and pastes it into the active pane.

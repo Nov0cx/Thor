@@ -1,6 +1,6 @@
 -- Detects the project's build system and helps produce the
 -- compile_commands.json clangd needs (see buildsystem.lua). Reached from
--- Settings > Language Servers > clangd > "Set Up This Project", which runs the
+-- Settings > Language servers > clangd > "Set Up This Project", which runs the
 -- `configure-compile-commands` command below; the entry that names it is
 -- `setup_command` in settings/lsp.lua.
 --

@@ -532,7 +532,7 @@ thor_cmd_pick_layout :: proc(data: rawptr) {
     for title, layout in LAYOUT_TITLES {
         titles[int(layout)] = title
     }
-    thor_select_open(thor, "Pane Layout", titles[:], LAYOUT_TITLES[thor.layout], thor_pick_layout_preview, thor_pick_layout_commit, thor)
+    thor_select_open(thor, "Pane layout", titles[:], LAYOUT_TITLES[thor.layout], thor_pick_layout_preview, thor_pick_layout_commit, thor)
 }
 
 @(private = "file")

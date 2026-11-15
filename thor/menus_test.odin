@@ -70,37 +70,37 @@ test_editor_menu_language_items :: proc(t: ^testing.T) {
 
     thor_editor_context_menu(thor, {10, 10})
     testing.expect(t, thor.menu_open, "the menu opened")
-    menu_expect(t, thor, "Go to Definition", true)
-    menu_expect(t, thor, "Go to Type Definition", true)
-    menu_expect(t, thor, "Find References", true)
-    menu_expect(t, thor, "Rename Symbol", false)
-    menu_expect(t, thor, "Code Actions", false)
-    menu_expect(t, thor, "Signature Help", false)
-    menu_expect(t, thor, "Format Document", true)
-    menu_expect(t, thor, "Format Selection", true)
-    menu_expect(t, thor, "Go to Symbol in File", false)
-    menu_expect(t, thor, "Package Documentation", false)
+    menu_expect(t, thor, "Go to definition", true)
+    menu_expect(t, thor, "Go to type definition", true)
+    menu_expect(t, thor, "Find references", true)
+    menu_expect(t, thor, "Rename symbol", false)
+    menu_expect(t, thor, "Code actions", false)
+    menu_expect(t, thor, "Signature help", false)
+    menu_expect(t, thor, "Format document", true)
+    menu_expect(t, thor, "Format selection", true)
+    menu_expect(t, thor, "Go to symbol in file", false)
+    menu_expect(t, thor, "Package documentation", false)
     menu_expect(t, thor, "Copy", true)
 
     // With a selection, Format Selection needs Format_Range, which the stub does not serve.
     textedit.select_range(&file.state, 0, 5)
     thor_editor_context_menu(thor, {10, 10})
-    menu_expect(t, thor, "Format Selection", false)
+    menu_expect(t, thor, "Format selection", false)
 
     // No backend claims a .txt file.
     file.name = "notes.txt"
     file.path = "notes.txt"
     thor_editor_context_menu(thor, {10, 10})
-    menu_expect(t, thor, "Go to Definition", false)
-    menu_expect(t, thor, "Go to Type Definition", false)
-    menu_expect(t, thor, "Find References", false)
-    menu_expect(t, thor, "Format Document", false)
-    menu_expect(t, thor, "Format Selection", false)
-    menu_expect(t, thor, "Select All", true)
+    menu_expect(t, thor, "Go to definition", false)
+    menu_expect(t, thor, "Go to type definition", false)
+    menu_expect(t, thor, "Find references", false)
+    menu_expect(t, thor, "Format document", false)
+    menu_expect(t, thor, "Format selection", false)
+    menu_expect(t, thor, "Select all", true)
 
     // No file open: every language item is disabled.
     signal_set(&thor.active_file, -1)
     thor_editor_context_menu(thor, {10, 10})
-    menu_expect(t, thor, "Go to Definition", false)
-    menu_expect(t, thor, "Select All", false)
+    menu_expect(t, thor, "Go to definition", false)
+    menu_expect(t, thor, "Select all", false)
 }

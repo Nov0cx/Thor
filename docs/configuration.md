@@ -16,7 +16,7 @@ on the first change and needs no `settings/` counterpart.
 Most of it is reachable without editing a file by hand, through the in-editor
 **Settings** view and the command palette (`ctrl + .`). The Settings view's
 **General** tab writes `user/`, its **Workspace** tab writes `.thor/`. The
-palette's "Settings: Open Settings File" and its keybinds and comments
+palette's "Settings: Open settings file" and its keybinds and comments
 counterparts open whichever of the two a change would go to, creating the file
 when it is not there yet. The same view and files are in the **File** menu. In
 the view, an on/off setting is a switch, and each setting has a line that says
@@ -78,14 +78,14 @@ General editor preferences.
 | `tooltips` | Explain a control when the cursor rests on it — title bar buttons, tabs, status bar segments, explorer rows | `true` |
 | `reduce_motion` | Turn off UI motion: fades, scroll inertia, the animated scroll to a target, the blinking terminal cursor and the pulsing busy mark | `false` |
 | `tip_of_the_day` | Show the tip of the day: the card on the welcome page, and the card that opens over the editor on the first start of a day | `true` |
-| `format_on_save` | Format the active buffer before an explicit save (`ctrl + s`, Save All, the palette) — never before an autosave | `false` |
+| `format_on_save` | Format the active buffer before an explicit save (`ctrl + s`, Save all, the palette) — never before an autosave | `false` |
 | `format_on_type` | Dispatch on-type formatting as a trigger character is typed — `}` for Odin, a language server's own choice otherwise | `false` |
 | `theme` | Active color theme, a name with no extension (e.g. `"mjolnir"`), looked up in `user/themes/` first and then `assets/themes/` | built-in default |
 | `font` | Text font family, a name in `assets/fonts/fonts.json` or `user/fonts.json` | built-in default |
 | `icon_pack` | Primary icon pack, a family in `assets/icons/icons.json` | built-in default |
 | `file_icon_pack` | File-icon pack, same set as `icon_pack` | built-in default |
-| `check_for_plugin_updates` | Check plugins and themes that name a source (or are git clones) for updates shortly after start, at most once a day. **Help > Check for Plugin and Theme Updates** checks at any time. See [Plugins](plugins.md#updates) | `true` |
-| `check_for_updates` | Ask GitHub for a newer release shortly after start, at most once a day. **Help > Check for Updates** asks whatever this holds | `true` |
+| `check_for_plugin_updates` | Check plugins and themes that name a source (or are git clones) for updates shortly after start, at most once a day. **Help > Check for plugin and theme updates** checks at any time. See [Plugins](plugins.md#updates) | `true` |
+| `check_for_updates` | Ask GitHub for a newer release shortly after start, at most once a day. **Help > Check for updates** asks whatever this holds | `true` |
 | `open_folder_in` | What opening a folder does: `"ask"`, `"same"` (replace this window's workspace), or `"new"` (open a window) | `"ask"` |
 | `pane_layout` | The editor pane layout a folder opens with: `"remember"` (the folder's saved layout), or `"single"`, `"columns2"`, `"columns3"`, `"rows2"`, `"main_stack"`, `"grid4"`, `"grid6"` — see [Editor panes](keybindings.md#editor-panes) | `"remember"` |
 | `right_alt` | What the right Alt key is: `"auto"` (AltGr when the keyboard layout types characters with it, else Alt; Linux and macOS cannot ask the layout and take AltGr), `"altgr"` (types characters, never part of a shortcut), or `"alt"` (a shortcut modifier like the left one) | `"auto"` |
@@ -103,7 +103,7 @@ disk refuses a file, its tab asks before it closes, and at exit the text goes
 to `sessions/backups/` beside the binary; the next open of that file puts the
 edits back as an unsaved buffer.
 
-Click the language in the status bar, or run "View: Change Language of File..."
+Click the language in the status bar, or run "View: Change language of file..."
 (`change_language`), to pick the language of the active file. The choice goes
 into `file_languages` of the workspace's `.thor/settings.lua` (created when
 missing), or of `user/settings.lua` for a file outside the workspace. "Auto
@@ -117,10 +117,10 @@ file_languages = {
 ```
 
 Click the build target in the status bar of an Odin file (shown while the
-built-in Odin support is on), or run "Odin: Select Build Target..."
+built-in Odin support is on), or run "Odin: Select build target..."
 (`select_build_target`, unbound; also in the View menu), to pick the
 `-target:` value the analyzer and the live checks use for that file. The row
-"Workspace Default" removes the choice. It goes into `file_targets` of the
+"Workspace default" removes the choice. It goes into `file_targets` of the
 workspace's `.thor/settings.lua` for a file in the workspace, else of
 `user/settings.lua`.
 
@@ -140,7 +140,7 @@ watched.
 
 Maps an action name to a key chord. See [Keybindings](keybindings.md) for the
 shipped bindings; rebind in Settings > Keybindings or by editing this file, or
-open it with "Settings: Open Keybinds File". Every palette command has an action name
+open it with "Settings: Open keybinds file". Every palette command has an action name
 here, and most ship with an empty chord, so any command can take a key:
 
 ```lua
@@ -180,10 +180,10 @@ actions, and document/selection/on-type formatting — from the server named her
 A server is started the first time you open a file it claims, never before, and
 is stopped when Thor exits.
 
-## Settings > Language Servers
+## Settings > Language servers
 
 Everything about a server is in one place: **Settings** (`ctrl + ,`) →
-**Language Servers**, also reachable from **File > Language Servers** or the
+**Language servers**, also reachable from **File > Language servers** or the
 `open_language_servers` action. Every configured server has a foldable group
 showing what it is doing, what to do about it and, while it is on, a switch per
 feature:
@@ -202,11 +202,11 @@ feature:
 | Set Up This Project | For clangd, the `compile_commands.json` helper below |
 | Documentation | Opens the server's own install page in a browser |
 
-Above the servers are **Restart Language Servers**, **Add a Server…** (writes a
-skeleton entry into the right `lsp.lua` and opens it) and **Look for Installed
-Servers Again** (`PATH` is only checked when the panel is built). One server on
+Above the servers are **Restart language servers**, **Add a server…** (writes a
+skeleton entry into the right `lsp.lua` and opens it) and **Look for installed
+servers again** (`PATH` is only checked when the panel is built). One server on
 its own is restarted from its **Restart This Server** row, or from the command
-palette with **Language: Restart One Server** (`restart_one_language_server`). A
+palette with **Language: Restart one server** (`restart_one_language_server`). A
 **Configuration Problems** group appears when a config file has something wrong
 with it — a Lua error, an unknown key, a key of the wrong type, or an entry
 with no command — instead of the entry quietly not being there.
@@ -282,7 +282,7 @@ to drop it from the language.
 
 Editing any of the three `lsp.lua` layers reloads the servers where they
 stand: the files are watched, and the change takes effect without reopening the
-folder. **Restart Language Servers** does the same on demand, and every open
+folder. **Restart language servers** does the same on demand, and every open
 file is re-sent to the new servers. Switching a server (or the built-in Odin
 support) on or off, or gating one of its features, needs no reload at all — it
 takes effect on the next request, via the `language_backends` key above. Those
@@ -475,7 +475,7 @@ its root, layered on top of the global settings above. This repository's own
   ```
 
 - **`odin-formatter.lua`** — per-workspace options for formatting `.odin`
-  files — "Edit: Format Document", "Edit: Format Selection", `format_on_save`
+  files — "Edit: Format document", "Edit: Format selection", `format_on_save`
   and `format_on_type` all read it — mirroring the odinfmt (OLS) schema. An
   absent file, or an absent key, uses the default shown. When the file names
   none of `tabs`, `spaces` and `tabs_width`, the indent follows the file being
@@ -515,7 +515,7 @@ its root, layered on top of the global settings above. This repository's own
   left untouched, and so is a file nested deeper than it can safely read (about
   40 parentheses, 100 blocks or a 300-term expression). An import run with a comment in it is left in the order it
   was written, since moving an import would re-attach the comment beside it to
-  a different one. Only Format Document sorts imports. Format Selection and format-on-type reformat only inside the
+  a different one. Only Format document sorts imports. Format selection and format-on-type reformat only inside the
   lines they were given: a change that reaches past them is dropped rather than
   half-applied. `newline_style` only takes effect when the key is present:
   an absent key never flips a file's line ending, since the odinfmt schema's
@@ -575,7 +575,7 @@ its root, layered on top of the global settings above. This repository's own
   names plugins read through `thor.theme`. A hand edit of the active theme file
   applies at once.
 
-- **Settings > Appearance > Theme colors > Edit...**, or "Theme: Edit Colors", opens the
+- **Settings > Appearance > Theme colors > Edit...**, or "Theme: Edit colors", opens the
   theme window. On the left is a preview of code, tabs, the file tree, status
   colors and buttons in the theme's colors; a click on a part selects its color.
   On the right is every color role under a foldable group (Surfaces, Text,
@@ -594,7 +594,7 @@ its root, layered on top of the global settings above. This repository's own
 
 - **Save** writes `user/themes/<name>.lua`. Saving a shipped theme writes a copy
   there that overrides it, since `assets/` is replaced by every build and by
-  every update. **Save As** and **Duplicate** write the draft as a new theme and
+  every update. **Save as** and **Duplicate** write the draft as a new theme and
   switch to it. **Delete** removes a theme you made; **Reset to Shipped**
   removes your copy of a shipped one. **Open Theme File** opens the file for
   hand editing (a shipped theme is copied to `user/themes/` first).
@@ -607,7 +607,7 @@ its root, layered on top of the global settings above. This repository's own
   seed and a Dark/Light mode: the surfaces are shaded from the background, the
   text and syntax colors are held to a WCAG AA contrast floor against it, and
   the syntax palette is rotated off the accent. The preview shows the result.
-  **Use as Draft** makes it the draft, and Save asks for a name.
+  **Use as draft** makes it the draft, and Save asks for a name.
 
 - Every action of the window is a palette command under "Theme:", with an
   action name in the `theme` group of `keybinds.lua`: `theme_editor`,
@@ -617,12 +617,12 @@ its root, layered on top of the global settings above. This repository's own
   `theme_reset_color`, `theme_copy_color` and `theme_paste_color`. None has a
   key by default. A key bound to one also works while the window is open.
 
-- **Preferences: New Theme** writes a copy of the active palette to
+- **Preferences: New theme** writes a copy of the active palette to
   `user/themes/custom.lua` and opens it for hand editing.
 - Fonts and icon packs are named in `assets/fonts/fonts.json` and
   `assets/icons/icons.json`; Settings lists the available names for `font`,
   `icon_pack` and `file_icon_pack`.
-- **Settings: Add Font** opens `user/fonts.json`, the place for your own fonts.
+- **Settings: Add font** opens `user/fonts.json`, the place for your own fonts.
   `assets/fonts/` is replaced by every build and by every update. An entry has
   the same shape as a shipped one, and its `path` is absolute or relative to
   `user/`. A new font is listed after a restart.

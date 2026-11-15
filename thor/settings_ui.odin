@@ -328,7 +328,7 @@ thor_open_folder_in_commit :: proc(data: rawptr, choice: string) {
 // Picker rows for pane_layout: remember, then Pane_Layout order.
 @(private = "file")
 PANE_LAYOUT_LABELS := [1 + len(Pane_Layout)]string{
-    "Remember per Folder",
+    "Remember per folder",
     LAYOUT_TITLES[.Single],
     LAYOUT_TITLES[.Columns2],
     LAYOUT_TITLES[.Columns3],
@@ -493,8 +493,8 @@ thor_language_backend_feature_name :: proc(id: string) -> (backend_id: string, k
 // Row labels for the language features, in Request_Kind order. The user-facing
 // names of the commands each one serves, not the seam's kind names.
 LANGUAGE_FEATURE_LABELS := [lang.Request_Kind]string{
-    .Definition = "Go to Definition",
-    .Type_Definition = "Go to Type Definition",
+    .Definition = "Go to definition",
+    .Type_Definition = "Go to type definition",
     .Hover = "Hover",
     .Document_Symbols = "Document symbols",
     .Workspace_Symbols = "Workspace symbols",
@@ -517,7 +517,7 @@ LANGUAGE_FEATURE_LABELS := [lang.Request_Kind]string{
     .Resolve_Action = "Refactorings that ask",
     .Call_Hierarchy = "Call hierarchy",
     .Type_Hierarchy = "Type hierarchy",
-    .Implementations = "Go to Implementations",
+    .Implementations = "Go to implementations",
     .Selection_Range = "Expand selection",
     .Code_Lens = "Reference counts",
     .Progress = "Progress notifications",
@@ -702,7 +702,7 @@ thor_setting_description :: proc(id: string) -> string {
     case "relative_line_numbers":
         return "Number lines by distance from the caret, the count Alt + digit jumps by."
     case "format_on_save":
-        return "Format the file before Ctrl+S or Save All. Never before an autosave."
+        return "Format the file before Ctrl+S or Save all. Never before an autosave."
     case "format_on_type":
         return "Format as you type a trigger character, such as } in Odin."
     case "right_alt":
@@ -722,7 +722,7 @@ thor_setting_description :: proc(id: string) -> string {
     case "reduce_motion":
         return "No fades, no scroll inertia and no blinking cursor."
     case "open_folder_in":
-        return "What Open Folder does: ask, replace this workspace, or open a window."
+        return "What Open folder does: ask, replace this workspace, or open a window."
     case "pane_layout":
         return "The pane layout a folder opens with. Remember keeps the saved one."
     case "clipboard_history_save":
