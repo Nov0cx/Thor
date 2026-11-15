@@ -353,11 +353,83 @@ test_load_overlay_layers_in_order :: proc(t: ^testing.T) {
     s := load(global)
     defer destroy(&s)
     load_overlay(&s, user)
-    load_overlay(&s, workspace)
+    load_overlay(&s, workspace, .Workspace)
 
     testing.expect_value(t, tab_width(&s), 8)
     testing.expect_value(t, font_size(&s), 20)
     testing.expect_value(t, autosave_delay_ms(&s), 1500)
+}
+
+// A workspace layer applies only the project keys and no keybinds, and names
+// each personal key it skipped. A user layer applies every key.
+@(test)
+test_workspace_layer_skips_personal_keys :: proc(t: ^testing.T) {
+    user      := "thor_scope_user.tmp"
+    workspace := "thor_scope_ws.tmp"
+    defer for dir in ([]string{user, workspace}) {
+        _ = os.remove(concat_for_test(dir, "/settings.lua"))
+        _ = os.remove(concat_for_test(dir, "/keybinds.lua"))
+        _ = os.remove(dir)
+    }
+    user_file := concat_for_test(user, "/settings.lua")
+    ws_file   := concat_for_test(workspace, "/settings.lua")
+    testing.expect_value(t, persist_string(user_file, "theme", "mine"), luaconf.Patch_Error.None)
+    testing.expect_value(t, persist_string(ws_file, "theme", "theirs"), luaconf.Patch_Error.None)
+    testing.expect_value(t, persist_int(ws_file, "font_size", 30), luaconf.Patch_Error.None)
+    testing.expect_value(t, persist_int(ws_file, "tab_width", 2), luaconf.Patch_Error.None)
+    testing.expect_value(t, persist_bool(ws_file, "format_on_save", true), luaconf.Patch_Error.None)
+    testing.expect_value(t, persist_keybind(concat_for_test(workspace, "/keybinds.lua"), "save", "ctrl+f12"), luaconf.Patch_Error.None)
+
+    s := load(user)
+    defer destroy(&s)
+    load_overlay(&s, workspace, .Workspace)
+
+    testing.expect_value(t, theme_name(&s), "mine")
+    testing.expect_value(t, font_size(&s), 18)
+    testing.expect_value(t, tab_width(&s), 2)
+    testing.expect(t, format_on_save(&s), "a project key applies")
+    _, bound := keybind(&s, "save")
+    testing.expect(t, !bound, "a workspace keybinds.lua is not read")
+    testing.expect_value(t, len(s.ignored_keys), 2)
+    for key in s.ignored_keys {
+        testing.expectf(t, key == "theme" || key == "font_size", "%q is not a skipped key", key)
+    }
+
+    // The same file as a user layer applies every key.
+    u := load(user)
+    defer destroy(&u)
+    load_overlay(&u, workspace)
+    testing.expect_value(t, theme_name(&u), "theirs")
+    testing.expect_value(t, font_size(&u), 30)
+    testing.expect_value(t, len(u.ignored_keys), 0)
+}
+
+// The local layer applies every key over the user and workspace layers.
+@(test)
+test_local_layer_wins :: proc(t: ^testing.T) {
+    user      := "thor_local_user.tmp"
+    workspace := "thor_local_ws.tmp"
+    local     := "thor_local.tmp.lua"
+    defer {
+        for dir in ([]string{user, workspace}) {
+            _ = os.remove(concat_for_test(dir, "/settings.lua"))
+            _ = os.remove(dir)
+        }
+        _ = os.remove(local)
+    }
+    testing.expect_value(t, persist_string(concat_for_test(user, "/settings.lua"), "theme", "mine"), luaconf.Patch_Error.None)
+    testing.expect_value(t, persist_int(concat_for_test(workspace, "/settings.lua"), "tab_width", 2), luaconf.Patch_Error.None)
+    testing.expect_value(t, persist_string(local, "theme", "this-folder"), luaconf.Patch_Error.None)
+    testing.expect_value(t, persist_int(local, "tab_width", 3), luaconf.Patch_Error.None)
+
+    s := load(user)
+    defer destroy(&s)
+    load_overlay(&s, workspace, .Workspace)
+    load_local(&s, local)
+
+    testing.expect_value(t, theme_name(&s), "this-folder")
+    testing.expect_value(t, tab_width(&s), 3)
+    testing.expect_value(t, len(s.ignored_keys), 0)
 }
 
 // An integer outside its range loads as the nearest bound; one inside is kept.

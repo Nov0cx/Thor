@@ -3,10 +3,10 @@ package setting
 // Loads Thor's config from a directory of comments.lua, keybinds.lua,
 // settings.lua and tips.lua. Missing or malformed files degrade to empty lookups.
 //
-// Three layers, each overlaying the last per key: GLOBAL_DIR holds the shipped
-// defaults, USER_DIR what the GUI writes, and a workspace's .thor/ its own
-// overlay. Only USER_DIR and .thor/ are ever written — GLOBAL_DIR is replaced
-// wholesale by a build and by an update.
+// Four layers, each overlaying the last per key: GLOBAL_DIR holds the shipped
+// defaults, USER_DIR what the GUI writes, a workspace's .thor/ the project keys
+// (WORKSPACE_KEYS, no keybinds), and the local file the personal keys of one
+// folder. GLOBAL_DIR is never written: a build and an update replace it.
 
 import "core:encoding/json"
 import "core:log"
@@ -183,14 +183,49 @@ Comment_Style :: struct {
 
 Settings :: struct {
     // File extension (".odin") or whole file name -> comment style.
-    comments: map[string]Comment_Style,
+    comments:     map[string]Comment_Style,
     // Action name ("toggle_line_comment") -> bound chord.
-    keybinds: map[string]Keybind,
-    general:  General,
+    keybinds:     map[string]Keybind,
+    general:      General,
     // The tips of every config layer, in load order. Layers append here rather
     // than overlay: a workspace adds its own tips, it does not hide the shipped
     // ones. Owned.
-    tips:     [dynamic]Tip,
+    tips:         [dynamic]Tip,
+    // Personal keys a workspace settings.lua set, which were not applied. Owned.
+    ignored_keys: [dynamic]string,
+}
+
+// Where a config layer comes from. A .Workspace layer is checked in with the
+// project, so it applies only WORKSPACE_KEYS and no keybinds.
+Layer :: enum {
+    Global,
+    User,
+    Workspace,
+    Local,
+}
+
+// The settings.lua keys that describe a project, which a .thor/ layer can set.
+// Every other key is personal and comes from the user and local layers only.
+WORKSPACE_KEYS :: [?]string{
+    "tab_width",
+    "insert_spaces",
+    "detect_indentation",
+    "format_on_save",
+    "format_on_type",
+    LANGUAGE_SETTING,
+    LANGUAGE_BACKENDS_SETTING,
+    FILE_LANGUAGES_SETTING,
+    FILE_TARGETS_SETTING,
+}
+
+// Whether a .thor/ settings.lua can set `key`.
+is_workspace_key :: proc(key: string) -> bool {
+    for k in WORKSPACE_KEYS {
+        if k == key {
+            return true
+        }
+    }
+    return false
 }
 
 // Reads the settings, keybinds, comments and tips files from dir. Always returns
@@ -200,6 +235,7 @@ load :: proc(dir: string) -> Settings {
     s.comments = make(map[string]Comment_Style)
     s.keybinds = make(map[string]Keybind)
     s.tips = make([dynamic]Tip)
+    s.ignored_keys = make([dynamic]string)
     s.general = General{
         tab_width = 4,
         font_size = 18,
@@ -225,21 +261,28 @@ load :: proc(dir: string) -> Settings {
         file_targets = make(map[string]string),
     }
 
-    load_dir(&s, dir)
+    load_dir(&s, dir, .Global)
     return s
 }
 
 // Overlays the config in dir onto an already-loaded Settings: per-key entries
-// win, missing/malformed leaves the base untouched. Layers .thor/ over the defaults.
-load_overlay :: proc(s: ^Settings, dir: string) {
-    load_dir(s, dir)
+// win, missing/malformed leaves the base untouched.
+load_overlay :: proc(s: ^Settings, dir: string, layer := Layer.User) {
+    load_dir(s, dir, layer)
+}
+
+// Overlays one settings file of the local layer: the personal settings of one folder.
+load_local :: proc(s: ^Settings, path: string) {
+    load_general(s, path, .Local)
 }
 
 @(private)
-load_dir :: proc(s: ^Settings, dir: string) {
+load_dir :: proc(s: ^Settings, dir: string, layer: Layer) {
     load_comments(s, strings.concatenate({dir, "/", COMMENTS_FILE}, context.temp_allocator))
-    load_keybinds(s, strings.concatenate({dir, "/", KEYBINDS_FILE}, context.temp_allocator))
-    load_general(s, strings.concatenate({dir, "/", SETTINGS_FILE}, context.temp_allocator))
+    if layer != .Workspace {
+        load_keybinds(s, strings.concatenate({dir, "/", KEYBINDS_FILE}, context.temp_allocator))
+    }
+    load_general(s, strings.concatenate({dir, "/", SETTINGS_FILE}, context.temp_allocator), layer)
     load_tips(s, strings.concatenate({dir, "/", TIPS_FILE}, context.temp_allocator))
 }
 
@@ -288,6 +331,12 @@ destroy :: proc(s: ^Settings) {
     }
     delete(s.tips)
     s.tips = nil
+
+    for key in s.ignored_keys {
+        delete(key)
+    }
+    delete(s.ignored_keys)
+    s.ignored_keys = nil
 }
 
 // Line-comment marker for a file, or "" when the language has none.
@@ -1055,10 +1104,13 @@ put_comment :: proc(s: ^Settings, ext: string, style: Comment_Style) {
 }
 
 @(private)
-load_general :: proc(s: ^Settings, path: string) {
+load_general :: proc(s: ^Settings, path: string, layer := Layer.User) {
     root, ok := parse_object(path)
     if !ok {
         return
+    }
+    if layer == .Workspace {
+        root = workspace_keys_only(s, root)
     }
     read_int(root, "tab_width", &s.general.tab_width, TAB_WIDTH_MIN, TAB_WIDTH_MAX)
     read_int(root, "font_size", &s.general.font_size, FONT_SIZE_MIN, FONT_SIZE_MAX)
@@ -1090,6 +1142,30 @@ load_general :: proc(s: ^Settings, path: string) {
     read_backend_toggles(s, root)
     read_file_entries(root, FILE_LANGUAGES_SETTING, &s.general.file_languages, "a language name")
     read_file_entries(root, FILE_TARGETS_SETTING, &s.general.file_targets, "a build target")
+}
+
+// The project keys of a workspace settings table. Each personal key goes to
+// s.ignored_keys once. The result is temp-allocated and shares the values.
+@(private)
+workspace_keys_only :: proc(s: ^Settings, root: json.Object) -> json.Object {
+    kept := make(json.Object, len(root), context.temp_allocator)
+    for key, value in root {
+        if is_workspace_key(key) {
+            kept[key] = value
+            continue
+        }
+        seen := false
+        for ignored in s.ignored_keys {
+            if ignored == key {
+                seen = true
+                break
+            }
+        }
+        if !seen {
+            append(&s.ignored_keys, strings.clone(key))
+        }
+    }
+    return kept
 }
 
 // Reads the per-file entries of the object `setting_key` into `entries`: path or glob -> string. Each
