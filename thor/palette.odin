@@ -890,6 +890,7 @@ palette_row :: proc(thor: ^Thor, index: int) -> bool {
                 bg = on ? thor.theme.selection_background : ui.Color{0, 0, 0, 0},
             },
             hover = {bg = thor.theme.buttons},
+            transition = TK_ROW_FADE,
         },
     )
 

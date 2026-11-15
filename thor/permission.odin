@@ -225,7 +225,7 @@ permission_button :: proc(thor: ^Thor, key, label: string, color: ui.Color) -> b
                 key = key,
                 flags = {.Clickable},
                 props = {
-                    w = ui.Px(tk(96)),
+                    w = ui.Px(tk_w(.Dialog_Button)),
                     h = ui.Px(tk_h(.Row_Picker)),
                     dir = .Row,
                     justify = .Center,

@@ -352,7 +352,7 @@ theme_editor_header :: proc(thor: ^Thor) {
     }
     dirty := e.generated || (!thor.select_open && thor_theme_dirty(thor))
     if dirty {
-        ui.leaf({key = "dot", props = {w = ui.Px(tk(8)), h = ui.Px(tk(8)), radius = tk_rad(.Control), bg = thor.theme.warning_color}})
+        ui.leaf({key = "dot", props = {w = ui.Px(tk_w(.Mark)), h = ui.Px(tk_w(.Mark)), radius = tk_rad(.Control), bg = thor.theme.warning_color}})
     }
     ui.label(state, {key = "state", props = {w = ui.Grow(1), color = thor.theme.muted_color, text_wrap = .Ellipsis}})
 
@@ -362,7 +362,15 @@ theme_editor_header :: proc(thor: ^Thor) {
             {
                 key = "close",
                 flags = {.Clickable},
-                props = {w = ui.Px(tk(26)), h = ui.Px(tk_h(.Row)), dir = .Row, justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
+                props = {
+                    w = ui.Px(tk_w(.Icon_Row)),
+                    h = ui.Px(tk_h(.Row)),
+                    dir = .Row,
+                    justify = .Center,
+                    align = .Center,
+                    radius = tk_rad(.Control),
+                    cursor = .Pointer,
+                },
                 hover = {bg = thor.theme.buttons},
             },
         ),
@@ -650,7 +658,7 @@ theme_color_row :: proc(thor: ^Thor, index: int) {
         {
             key = "swatch",
             props = {
-                w = ui.Px(tk(30)),
+                w = ui.Px(tk_w(.Swatch)),
                 h = ui.Px(tk_h(.Row_Compact)),
                 radius = tk_rad(.Control),
                 bg = color,
@@ -672,7 +680,7 @@ theme_color_row :: proc(thor: ^Thor, index: int) {
                     key = "reset",
                     flags = {.Clickable},
                     props = {
-                        w = ui.Px(tk(24)),
+                        w = ui.Px(tk_w(.Icon)),
                         h = ui.Px(tk_h(.Row)),
                         dir = .Row,
                         justify = .Center,
@@ -804,7 +812,7 @@ theme_seed_row :: proc(thor: ^Thor, key, label: string, color: ui.Color) -> bool
         {
             key = "swatch",
             props = {
-                w = ui.Px(tk(30)),
+                w = ui.Px(tk_w(.Swatch)),
                 h = ui.Px(tk_h(.Row_Compact)),
                 radius = tk_rad(.Control),
                 bg = color,

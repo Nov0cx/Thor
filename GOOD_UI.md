@@ -146,6 +146,11 @@ predictable.
 
 A code row (editor, diff, peek, terminal) is not a token: its height is the line height of its font.
 
+Widths of a shape that more than one view draws are `Tk_Width` (`tk_w`): a status dot 6, an icon
+button 22, 24 or 26, a swatch 30 or 34, a switch 38, a window button 40, a line number column 44, a
+short data column 56, a menu label 70, a dialog button 96. A width that one view uses once is `tk(n)`
+at its site.
+
 ### 5.3 Radius
 
 Principle: the radius says what layer a thing is on. Larger things on higher layers have a larger
@@ -248,7 +253,7 @@ See section 8 for the rules. The values:
 | Token | Value | Use |
 | --- | --- | --- |
 | Instant | 0 ms | Hover in, press, selection, focus ring, text, caret. |
-| Fast | 100 ms, `Out_Quad` | Hover out, colour and border changes, popup fade. |
+| Fast | 100 ms, `Out_Quad` | Hover out, colour and border changes, popup fade. `TK_FADE` on a control, `TK_ROW_FADE` on a list row (only the hover exit fades, so a selection moved by key does not). |
 | Normal | 150 ms, `Out_Cubic` | A panel or fold that opens, a modal that enters, a scroll-to. |
 | Limit | 200 ms | No UI transition is longer. |
 | Tooltip delay | 500 ms | `TOOLTIP_DELAY`. |
@@ -509,12 +514,11 @@ Where Thor does not follow this document yet.
 
 | # | Rule | Finding | Where |
 | --- | --- | --- | --- |
-| 1 | 5.9 | List rows switch their hover fill in and out with no fade. A fade on the row would also animate a selection that moves by key (8.3). | `thor/explorer.odin`, `palette.odin`, `select.odin`, `git_view.odin` |
-| 2 | 2.9 | One-off widths are `tk(n)` literals in the views (a menu label, an icon box, a column). They scale, but they are not tokens. | `thor/view.odin`, `git_view.odin`, `settings_view.odin`, … |
+| — | — | None open. | — |
 
 Good as it is, and to keep: the tokens in `thor/tokens.odin` and the UI scale, the shared controls
 in `thor/controls.odin` with their keyboard focus ring, a focus scope on each modal, the enter fade,
-`reduce_motion`, the contrast test of each shipped theme (`theme/shipped_themes_test.odin`), chords
+`reduce_motion`, the row fade, the width tokens, sentence case labels, the contrast test of each shipped theme (`theme/shipped_themes_test.odin`), chords
 in tooltips (`thor_tip`), the palette count, the status bar split, the busy delay, a scrim click and
 Escape on each modal, virtual lists in the explorer, role colours for plugin panels
 (`thor_plugin_role_color`).

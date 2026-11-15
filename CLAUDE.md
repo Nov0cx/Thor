@@ -241,8 +241,9 @@ Each view is state on `Thor` plus a `thor_*_view` procedure that declares its no
 change against it.
 
 - Sizes, radii, shadows, scrims, type sizes and durations come from `thor/tokens.odin` (`tk_sp`,
-  `tk_h`, `tk_rad`, `tk_shadow`, `tk_scrim`, `tk_font`, `TK_FADE`, `TK_ENTER`). Each pixel token is
-  scaled by `font_size / 18`; `tk(n)` scales a one-off width. A button or control goes through
+  `tk_h`, `tk_w`, `tk_rad`, `tk_shadow`, `tk_scrim`, `tk_font`, `TK_FADE`, `TK_ROW_FADE`, `TK_ENTER`). Each
+  pixel token is scaled by `font_size / 18`; `tk(n)` scales a width one view uses once. A list row
+  takes `TK_ROW_FADE` and a transparent base fill (`nil` cannot fade). A button or control goes through
   `thor_control` (`thor/controls.odin`): focusable, a ring on keyboard focus, a fade on hover out.
   A modal root sets `focus_scope = true`.
 - `Thor` holds no node or widget pointers. `editors: [MAX_PANES]editview.Editor` are values; the

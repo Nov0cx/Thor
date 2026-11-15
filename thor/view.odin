@@ -211,7 +211,14 @@ thor_titlebar :: proc(thor: ^Thor) {
             {
                 key = "logo",
                 flags = {.Clickable},
-                props = {w = ui.Px(tk(34)), h = ui.Px(tk_h(.Control)), justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
+                props = {
+                    w = ui.Px(tk_w(.Swatch_Large)),
+                    h = ui.Px(tk_h(.Control)),
+                    justify = .Center,
+                    align = .Center,
+                    radius = tk_rad(.Control),
+                    cursor = .Pointer,
+                },
                 hover = {bg = thor.theme.buttons},
             },
         ),
@@ -227,7 +234,7 @@ thor_titlebar :: proc(thor: ^Thor) {
     menu_bar: ui.Rect
     for label, i in MENU_LABELS {
         ui.push_id_int(i64(i))
-        it := thor_text_button(thor, label, {key = "menu", props = {w = ui.Px(tk(70))}})
+        it := thor_text_button(thor, label, {key = "menu", props = {w = ui.Px(tk_w(.Menu))}})
         thor_menu_tip(thor, it.id, i)
         ui.pop_id()
         menu_bar = i == 0 ? it.rect : thor_rect_union(menu_bar, it.rect)
@@ -298,7 +305,7 @@ thor_task_controls :: proc(thor: ^Thor) {
         return
     }
 
-    if add := thor_text_button(thor, "+", {key = "task-add", props = {w = ui.Px(tk(28)), pad = {}}}); add.clicked {
+    if add := thor_text_button(thor, "+", {key = "task-add", props = {w = ui.Px(tk_w(.Task_Button)), pad = {}}}); add.clicked {
         thor_cmd_add_task(thor)
         return
     } else {
@@ -323,7 +330,7 @@ thor_task_controls :: proc(thor: ^Thor) {
             {
                 key = "task-run",
                 flags = {.Clickable},
-                props = {w = ui.Px(tk(28)), h = ui.Px(tk_h(.Control)), justify = .Center, align = .Center, radius = tk_rad(.Control)},
+                props = {w = ui.Px(tk_w(.Task_Button)), h = ui.Px(tk_h(.Control)), justify = .Center, align = .Center, radius = tk_rad(.Control)},
                 hover = {bg = thor.theme.buttons},
             },
         ),
@@ -428,7 +435,7 @@ thor_ext_update_button :: proc(thor: ^Thor) {
 
 @(private = "file")
 thor_titlebar_button :: proc(thor: ^Thor, icon, key: string, danger := false, tip := "") -> bool {
-    return thor_icon_button(thor, icon, key, tip = tip, danger = danger, w = tk(40)).clicked
+    return thor_icon_button(thor, icon, key, tip = tip, danger = danger, w = tk_w(.Titlebar_Button)).clicked
 }
 
 @(private = "file")
@@ -604,7 +611,7 @@ thor_terminal_strip :: proc(thor: ^Thor) {
         } else if info.loading {
             dot = thor.theme.info_color
         }
-        ui.leaf({key = "dot", props = {w = ui.Px(tk(6)), h = ui.Px(tk(6)), radius = tk_pill(tk(6)), bg = dot}})
+        ui.leaf({key = "dot", props = {w = ui.Px(tk_w(.Dot)), h = ui.Px(tk_w(.Dot)), radius = tk_pill(tk_w(.Dot)), bg = dot}})
         ui.label(info.name, {props = {max_w = tk(TERMINAL_STRIP_NAME_MAX), color = on ? thor.theme.foreground : thor.theme.muted_color, text_wrap = .Ellipsis}})
         close := ui.begin(
             thor_control(
@@ -612,7 +619,7 @@ thor_terminal_strip :: proc(thor: ^Thor) {
                 {
                     key = "close",
                     flags = {.Clickable},
-                    props = {w = ui.Px(tk(16)), h = ui.Px(tk(16)), justify = .Center, align = .Center, radius = tk_rad(.Control)},
+                    props = {w = ui.Px(tk_w(.Tab_Close)), h = ui.Px(tk_w(.Tab_Close)), justify = .Center, align = .Center, radius = tk_rad(.Control)},
                     hover = {bg = thor.theme.danger_color},
                 },
             ),
@@ -645,7 +652,14 @@ thor_terminal_strip :: proc(thor: ^Thor) {
             {
                 key = "add",
                 flags = {.Clickable},
-                props = {w = ui.Px(tk(24)), h = ui.Px(tk_h(.Row_Compact)), justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
+                props = {
+                    w = ui.Px(tk_w(.Icon)),
+                    h = ui.Px(tk_h(.Row_Compact)),
+                    justify = .Center,
+                    align = .Center,
+                    radius = tk_rad(.Control),
+                    cursor = .Pointer,
+                },
                 hover = {bg = thor.theme.buttons},
             },
         ),
@@ -879,7 +893,7 @@ thor_tabbar :: proc(thor: ^Thor) {
         ui.label(info.name, {props = {color = text, text_wrap = .Ellipsis}})
         thor_tab_pane_badges(thor, i)
         if info.modified {
-            ui.leaf({key = "dot", props = {w = ui.Px(tk(6)), h = ui.Px(tk(6)), radius = tk_pill(tk(6)), bg = thor.theme.accent_color}})
+            ui.leaf({key = "dot", props = {w = ui.Px(tk_w(.Dot)), h = ui.Px(tk_w(.Dot)), radius = tk_pill(tk_w(.Dot)), bg = thor.theme.accent_color}})
         }
         close := ui.begin(
             thor_control(
@@ -887,7 +901,7 @@ thor_tabbar :: proc(thor: ^Thor) {
                 {
                     key = "close",
                     flags = {.Clickable},
-                    props = {w = ui.Px(tk(18)), h = ui.Px(tk(18)), justify = .Center, align = .Center, radius = tk_rad(.Control)},
+                    props = {w = ui.Px(tk_w(.Tab_Close)), h = ui.Px(tk_w(.Tab_Close)), justify = .Center, align = .Center, radius = tk_rad(.Control)},
                     hover = {bg = thor.theme.danger_color},
                 },
             ),
@@ -954,8 +968,8 @@ thor_tab_pane_badges :: proc(thor: ^Thor, index: int) {
             {
                 key = "pane",
                 props = {
-                    min_w = tk(18),
-                    h = ui.Px(tk(18)),
+                    min_w = tk_w(.Tab_Close),
+                    h = ui.Px(tk_w(.Tab_Close)),
                     pad = tk_pad(.XXS, .None),
                     radius = tk_rad(.Control),
                     bg = on ? thor.theme.accent_color : thor.theme.buttons,

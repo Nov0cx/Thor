@@ -637,7 +637,15 @@ git_view_header :: proc(thor: ^Thor) {
             {
                 key = "close",
                 flags = {.Clickable},
-                props = {w = ui.Px(tk(26)), h = ui.Px(tk_h(.Row)), dir = .Row, justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
+                props = {
+                    w = ui.Px(tk_w(.Icon_Row)),
+                    h = ui.Px(tk_h(.Row)),
+                    dir = .Row,
+                    justify = .Center,
+                    align = .Center,
+                    radius = tk_rad(.Control),
+                    cursor = .Pointer,
+                },
                 hover = {bg = thor.theme.buttons},
             },
         ),
@@ -850,13 +858,14 @@ git_view_file_row :: proc(thor: ^Thor, file: Git_View_File, staged: bool, index:
                 align = .Center,
                 gap = tk_gap(.M, .None),
                 pad = tk_pad(.M, .None),
-                bg = on ? thor.theme.selection_background : nil,
+                bg = on ? thor.theme.selection_background : ui.Color{0, 0, 0, 0},
                 cursor = .Pointer,
             },
             hover = {bg = on ? thor.theme.selection_background : thor.theme.buttons},
+            transition = TK_ROW_FADE,
         },
     )
-    ui.label(git_status_label(file.status), {key = "st", props = {w = ui.Px(tk(12)), color = git_status_color(thor, file.status), text_wrap = .None}})
+    ui.label(git_status_label(file.status), {key = "st", props = {w = ui.Px(tk_w(.Status)), color = git_status_color(thor, file.status), text_wrap = .None}})
     ui.label(file.display, {key = "name", props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .Ellipsis}})
     if file.is_lfs {
         ui.label("LFS", {key = "lfs", props = {color = thor.theme.muted_color, text_wrap = .None}})
@@ -1046,10 +1055,11 @@ git_view_history :: proc(thor: ^Thor) {
                         align = .Center,
                         gap = tk_gap(.M, .None),
                         pad = tk_pad(.XL, .None),
-                        bg = on ? thor.theme.selection_background : nil,
+                        bg = on ? thor.theme.selection_background : ui.Color{0, 0, 0, 0},
                         cursor = .Pointer,
                     },
                     hover = {bg = on ? thor.theme.selection_background : thor.theme.buttons},
+                    transition = TK_ROW_FADE,
                 },
             )
             // Fixed columns, so a long subject or author does not move the others.
@@ -1242,7 +1252,7 @@ git_view_config_row :: proc(thor: ^Thor, index: int) -> bool {
             },
         ),
     )
-    ui.label(row.key, {key = "key", props = {w = ui.Px(tk(240)), color = thor.theme.foreground, text_wrap = .Ellipsis}})
+    ui.label(row.key, {key = "key", props = {w = ui.Px(tk_w(.Col_Key)), color = thor.theme.foreground, text_wrap = .Ellipsis}})
 
     if editing {
         field := ui.input(

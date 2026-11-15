@@ -182,9 +182,11 @@ menu_row :: proc(thor: ^Thor, item: Menu_Item) -> bool {
                 gap = tk_gap(.XL, .None),
                 pad = tk_pad(.M, .None),
                 radius = tk_rad(.Control),
+                bg = ui.Color{0, 0, 0, 0},
                 cursor = item.enabled ? .Pointer : .Not_Allowed,
             },
             hover = {bg = item.enabled ? thor.theme.buttons : nil},
+            transition = TK_ROW_FADE,
         },
     )
     ui.label(item.title, {key = "title", props = {w = ui.Grow(1), color = item.enabled ? thor.theme.foreground : thor.theme.disabled, text_wrap = .None}})

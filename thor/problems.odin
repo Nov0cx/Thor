@@ -361,7 +361,15 @@ problems_header :: proc(thor: ^Thor, groups: []Problem_Group) {
             {
                 key = "close",
                 flags = {.Clickable},
-                props = {w = ui.Px(tk(26)), h = ui.Px(tk_h(.Row)), dir = .Row, justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
+                props = {
+                    w = ui.Px(tk_w(.Icon_Row)),
+                    h = ui.Px(tk_h(.Row)),
+                    dir = .Row,
+                    justify = .Center,
+                    align = .Center,
+                    radius = tk_rad(.Control),
+                    cursor = .Pointer,
+                },
                 hover = {bg = thor.theme.buttons},
             },
         ),
@@ -390,13 +398,15 @@ problem_row :: proc(thor: ^Thor, path: string, p: Problem, index: int) {
                 gap = tk_gap(.M, .None),
                 pad = tk_pad(.M, .XS),
                 radius = tk_rad(.Control),
+                bg = ui.Color{0, 0, 0, 0},
                 cursor = .Pointer,
             },
             hover = {bg = thor.theme.buttons},
+            transition = TK_ROW_FADE,
         },
     )
-    ui.label(problem_label(p.severity), {key = "severity", props = {color = color, text_wrap = .None, min_w = tk(56)}})
-    ui.label(fmt.tprintf("%d", p.line + 1), {key = "line", props = {color = thor.theme.muted_color, text_wrap = .None, min_w = tk(40)}})
+    ui.label(problem_label(p.severity), {key = "severity", props = {color = color, text_wrap = .None, min_w = tk_w(.Col_Short)}})
+    ui.label(fmt.tprintf("%d", p.line + 1), {key = "line", props = {color = thor.theme.muted_color, text_wrap = .None, min_w = tk_w(.Col_Number)}})
     ui.label(p.message, {key = "message", props = {color = thor.theme.foreground, text_wrap = .Ellipsis, w = ui.Grow(1)}})
     if p.code != "" {
         ui.label(p.code, {key = "code", props = {color = thor.theme.muted_color, text_wrap = .None}})

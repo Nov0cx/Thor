@@ -50,6 +50,49 @@ TK_HEIGHT_PX :: [Tk_Height]f32{
     .Row_Two_Line = 46,
 }
 
+// Fixed widths of the shapes more than one view draws. A width one view uses once stays `tk(n)`.
+Tk_Width :: enum u8 {
+    Dot,             // a status dot
+    Mark,            // an unsaved mark
+    Status,          // the git status letter column
+    Knob,            // the knob of a switch
+    Tab_Close,       // the close box of a tab, the pane number
+    Icon_Compact,    // an icon button in a card header
+    Icon,            // an icon button in a row
+    Icon_Row,        // the close button of a modal header, a find option
+    Task_Button,     // a titlebar task button
+    Swatch,          // a colour swatch in a row
+    Swatch_Large,    // a colour swatch in the picker, the logo button
+    Switch,          // a settings switch
+    Titlebar_Button, // a window button
+    Col_Number,      // a line number column
+    Col_Short,       // a severity, age or value column
+    Menu,            // a menu bar label
+    Dialog_Button,   // a dialog button, the find count
+    Col_Key,         // a key column
+}
+
+TK_WIDTH_PX :: [Tk_Width]f32{
+    .Dot = 6,
+    .Mark = 8,
+    .Status = 12,
+    .Knob = 14,
+    .Tab_Close = 18,
+    .Icon_Compact = 22,
+    .Icon = 24,
+    .Icon_Row = 26,
+    .Task_Button = 28,
+    .Swatch = 30,
+    .Swatch_Large = 34,
+    .Switch = 38,
+    .Titlebar_Button = 40,
+    .Col_Number = 44,
+    .Col_Short = 56,
+    .Menu = 70,
+    .Dialog_Button = 96,
+    .Col_Key = 240,
+}
+
 // Corner radius by layer (5.3).
 Tk_Radius :: enum u8 {
     None,
@@ -122,6 +165,11 @@ tk_sp :: proc(s: Tk_Space) -> f32 {
 tk_h :: proc(h: Tk_Height) -> f32 {
     px := TK_HEIGHT_PX
     return tk(px[h])
+}
+
+tk_w :: proc(w: Tk_Width) -> f32 {
+    px := TK_WIDTH_PX
+    return tk(px[w])
 }
 
 tk_rad :: proc(r: Tk_Radius) -> ui.Radius {
@@ -224,6 +272,9 @@ tk_modal_h :: proc(height: f32) -> f32 {
 // The colour fade of a control: hover out, press and border changes (Fast).
 // Hover in and press are instant; the way out fades.
 TK_FADE :: ui.Transition{props = {.Bg, .Color, .Border_Color}, dur = TK_FAST, ease = .Out_Quad, snap = {.Hover, .Active}}
+
+// The fill fade of a list row (Fast). Only the hover exit fades; a selection that moves by key changes at once (8.3).
+TK_ROW_FADE :: ui.Transition{props = {.Bg}, dur = TK_FAST, ease = .Out_Quad, leave = {.Hover}}
 
 // The focus ring of a control: a 1 px inset `accent` ring, shown for keyboard focus (7.4).
 tk_focus_rules :: proc(thor: ^Thor) -> []ui.Rule {

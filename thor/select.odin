@@ -315,6 +315,7 @@ select_row :: proc(thor: ^Thor, index: int) -> ui.Interaction {
                 bg = on ? thor.theme.selection_background : ui.Color{0, 0, 0, 0},
             },
             hover = {bg = thor.theme.buttons},
+            transition = TK_ROW_FADE,
         },
     )
     ui.label(s.options[index], {key = "text", props = {w = ui.Grow(1), color = on ? thor.theme.foreground : thor.theme.muted_color, text_wrap = .Ellipsis}})

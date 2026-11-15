@@ -232,7 +232,7 @@ thor_tutorial_card :: proc(thor: ^Thor, target: ui.Rect, has_target: bool) {
                     key = "close",
                     flags = {.Clickable},
                     props = {
-                        w = ui.Px(tk(22)),
+                        w = ui.Px(tk_w(.Icon_Compact)),
                         h = ui.Px(tk_h(.Row_Compact)),
                         dir = .Row,
                         justify = .Center,
@@ -317,7 +317,7 @@ thor_tutorial_dots :: proc(thor: ^Thor, count, at: int) {
             color = thor.theme.accent_color
         }
         ui.push_id_int(i64(i))
-        ui.leaf({key = "dot", props = {w = ui.Px(tk(6)), h = ui.Px(tk(6)), radius = tk_pill(tk(6)), bg = color}})
+        ui.leaf({key = "dot", props = {w = ui.Px(tk_w(.Dot)), h = ui.Px(tk_w(.Dot)), radius = tk_pill(tk_w(.Dot)), bg = color}})
         ui.pop_id()
     }
 }

@@ -329,7 +329,12 @@ find_query_row :: proc(thor: ^Thor) {
         find_count_label(f),
         {
             key = "count",
-            props = {w = ui.Px(tk(96)), text_align = .Center, color = f.regex_bad ? thor.theme.error_color : thor.theme.muted_color, text_wrap = .None},
+            props = {
+                w = ui.Px(tk_w(.Dialog_Button)),
+                text_align = .Center,
+                color = f.regex_bad ? thor.theme.error_color : thor.theme.muted_color,
+                text_wrap = .None,
+            },
         },
     )
 
@@ -403,7 +408,7 @@ find_toggle :: proc(thor: ^Thor, key, label: string, on: bool, tip, chord: strin
                 key = key,
                 flags = {.Clickable},
                 props = {
-                    w = ui.Px(tk(26)),
+                    w = ui.Px(tk_w(.Icon_Row)),
                     h = ui.Px(tk_h(.Row)),
                     dir = .Row,
                     justify = .Center,
@@ -430,7 +435,15 @@ find_icon_button :: proc(thor: ^Thor, key, icon: string) -> bool {
             {
                 key = key,
                 flags = {.Clickable},
-                props = {w = ui.Px(tk(26)), h = ui.Px(tk_h(.Row)), dir = .Row, justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
+                props = {
+                    w = ui.Px(tk_w(.Icon_Row)),
+                    h = ui.Px(tk_h(.Row)),
+                    dir = .Row,
+                    justify = .Center,
+                    align = .Center,
+                    radius = tk_rad(.Control),
+                    cursor = .Pointer,
+                },
                 hover = {bg = thor.theme.buttons},
             },
         ),
@@ -467,5 +480,5 @@ find_text_button :: proc(thor: ^Thor, key, label: string) -> bool {
 // The width of the controls after the find field: the count, six row-high buttons and their gaps.
 @(private = "file")
 find_trail_w :: proc() -> f32 {
-    return tk(96) + 6 * tk_h(.Row) + 6 * tk_sp(.S)
+    return tk_w(.Dialog_Button) + 6 * tk_h(.Row) + 6 * tk_sp(.S)
 }

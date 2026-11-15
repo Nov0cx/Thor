@@ -360,7 +360,7 @@ color_picker_row :: proc(thor: ^Thor) {
         {
             key = "was",
             props = {
-                w = ui.Px(tk(34)),
+                w = ui.Px(tk_w(.Swatch_Large)),
                 h = ui.Px(tk_h(.Row)),
                 radius = tk_rad(.Control),
                 bg = p.original,
@@ -372,7 +372,7 @@ color_picker_row :: proc(thor: ^Thor) {
         {
             key = "now",
             props = {
-                w = ui.Px(tk(34)),
+                w = ui.Px(tk_w(.Swatch_Large)),
                 h = ui.Px(tk_h(.Row)),
                 radius = tk_rad(.Control),
                 bg = thor_color_picker_color(p),

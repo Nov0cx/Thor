@@ -287,7 +287,7 @@ thor_tip_card_body :: proc(thor: ^Thor, tip: setting.Tip, index, count: int, sho
                         key = "close",
                         flags = {.Clickable},
                         props = {
-                            w = ui.Px(tk(22)),
+                            w = ui.Px(tk_w(.Icon_Compact)),
                             h = ui.Px(tk_h(.Row_Compact)),
                             dir = .Row,
                             justify = .Center,
@@ -356,7 +356,7 @@ thor_tip_arrow :: proc(thor: ^Thor, key, icon, tip: string) -> bool {
                 key = key,
                 flags = {.Clickable},
                 props = {
-                    w = ui.Px(tk(22)),
+                    w = ui.Px(tk_w(.Icon_Compact)),
                     h = ui.Px(tk_h(.Row_Compact)),
                     dir = .Row,
                     justify = .Center,

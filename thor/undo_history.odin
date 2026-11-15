@@ -375,7 +375,15 @@ undo_view_header :: proc(thor: ^Thor, file: ^Open_File) {
             {
                 key = "close",
                 flags = {.Clickable},
-                props = {w = ui.Px(tk(26)), h = ui.Px(tk_h(.Row)), dir = .Row, justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
+                props = {
+                    w = ui.Px(tk_w(.Icon_Row)),
+                    h = ui.Px(tk_h(.Row)),
+                    dir = .Row,
+                    justify = .Center,
+                    align = .Center,
+                    radius = tk_rad(.Control),
+                    cursor = .Pointer,
+                },
                 hover = {bg = thor.theme.buttons},
             },
         ),
@@ -450,6 +458,7 @@ undo_view_row :: proc(thor: ^Thor, file: ^Open_File, index: int, now: time.Time)
                 bg = on ? thor.theme.selection_background : ui.Color{0, 0, 0, 0},
             },
             hover = {bg = on ? thor.theme.selection_background : thor.theme.buttons},
+            transition = TK_ROW_FADE,
         },
     )
     undo_view_graph(thor, v, row, on)
@@ -467,9 +476,9 @@ undo_view_row :: proc(thor: ^Thor, file: ^Open_File, index: int, now: time.Time)
         undo_view_badge(thor, "start", thor.theme.accent_color)
     }
     if !root {
-        ui.label(fmt.tprintf("L%d", node.line + 1), {key = "line", props = {color = thor.theme.muted_color, text_wrap = .None, min_w = tk(44)}})
+        ui.label(fmt.tprintf("L%d", node.line + 1), {key = "line", props = {color = thor.theme.muted_color, text_wrap = .None, min_w = tk_w(.Col_Number)}})
     }
-    ui.label(undo_history_age(time.diff(node.stamp, now)), {key = "age", props = {color = thor.theme.muted_color, text_wrap = .None, min_w = tk(56)}})
+    ui.label(undo_history_age(time.diff(node.stamp, now)), {key = "age", props = {color = thor.theme.muted_color, text_wrap = .None, min_w = tk_w(.Col_Short)}})
     return it.clicked, it.double_clicked
 }
 

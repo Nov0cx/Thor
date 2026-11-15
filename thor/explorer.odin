@@ -558,6 +558,7 @@ explorer_row :: proc(thor: ^Thor, node: ^Explorer_Node, depth: int) -> ui.Intera
                 cursor = .Pointer,
             },
             hover = {bg = on ? thor.theme.selection_background : thor.theme.buttons},
+            transition = TK_ROW_FADE,
         },
     )
 

@@ -576,7 +576,15 @@ settings_header :: proc(thor: ^Thor) {
             {
                 key = "close",
                 flags = {.Clickable},
-                props = {w = ui.Px(tk(26)), h = ui.Px(tk_h(.Row)), dir = .Row, justify = .Center, align = .Center, radius = tk_rad(.Control), cursor = .Pointer},
+                props = {
+                    w = ui.Px(tk_w(.Icon_Row)),
+                    h = ui.Px(tk_h(.Row)),
+                    dir = .Row,
+                    justify = .Center,
+                    align = .Center,
+                    radius = tk_rad(.Control),
+                    cursor = .Pointer,
+                },
                 hover = {bg = thor.theme.buttons},
             },
         ),
@@ -744,8 +752,10 @@ settings_row :: proc(thor: ^Thor, row_index: int) {
                 gap = tk_gap(.L, .None),
                 pad = {l = tk_sp(.M) + indent, r = tk_sp(.M)},
                 radius = tk_rad(.Popup),
+                bg = ui.Color{0, 0, 0, 0},
             },
             hover = {bg = thor.theme.second_background},
+            transition = TK_ROW_FADE,
         },
     )
 
@@ -819,7 +829,7 @@ settings_number_control :: proc(thor: ^Thor, row: ^Settings_Row) {
     if settings_step_button(thor, "dec", "minus", row.number > row.min) {
         step = -row.step
     }
-    ui.label(row.value, {key = "value", props = {w = ui.Px(tk(56)), text_align = .Center, color = thor.theme.foreground, text_wrap = .None}})
+    ui.label(row.value, {key = "value", props = {w = ui.Px(tk_w(.Col_Short)), text_align = .Center, color = thor.theme.foreground, text_wrap = .None}})
     if settings_step_button(thor, "inc", "plus", row.number < row.max) {
         step = row.step
     }
@@ -835,7 +845,7 @@ settings_step_button :: proc(thor: ^Thor, key, icon: string, enabled: bool) -> b
             key = key,
             flags = enabled ? {.Clickable} : {},
             props = {
-                w = ui.Px(tk(24)),
+                w = ui.Px(tk_w(.Icon)),
                 h = ui.Px(tk_h(.Row)),
                 dir = .Row,
                 justify = .Center,
@@ -860,7 +870,7 @@ settings_toggle_control :: proc(thor: ^Thor, row: ^Settings_Row) {
                 key = "toggle",
                 flags = {.Clickable},
                 props = {
-                    w = ui.Px(tk(38)),
+                    w = ui.Px(tk_w(.Switch)),
                     h = ui.Px(tk_h(.Row_Compact)),
                     dir = .Row,
                     align = .Center,
@@ -876,7 +886,15 @@ settings_toggle_control :: proc(thor: ^Thor, row: ^Settings_Row) {
         ),
     )
     ui.leaf(
-        {key = "knob", props = {w = ui.Px(tk(14)), h = ui.Px(tk(14)), radius = tk_pill(tk(14)), bg = row.on ? thor.theme.background : thor.theme.muted_color}},
+        {
+            key = "knob",
+            props = {
+                w = ui.Px(tk_w(.Knob)),
+                h = ui.Px(tk_w(.Knob)),
+                radius = tk_pill(tk_w(.Knob)),
+                bg = row.on ? thor.theme.background : thor.theme.muted_color,
+            },
+        },
     )
     thor_tip(thor, it.id, row.on ? "On" : "Off")
     if it.clicked {
