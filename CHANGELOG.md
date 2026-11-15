@@ -21,6 +21,10 @@
 - Diff rows in the git view and the undo history take the line height of their font.
 - A dialog is never wider or taller than the window less 32 px on each side.
 - What's new gives the keyboard focus back when it closes.
+- The mouse wheel scrolls the editor during a drag selection, and the selection follows.
+- A drag on the empty part of the title bar moves the window. A double click maximizes it, and a drag of a maximized window restores it.
+- The edges and corners of a window that is not maximized resize it.
+- Fixed the terminal moving below the explorer after the explorer is shown again. It stays below the editor.
 
 # 2026.11.4
 
