@@ -294,6 +294,26 @@ return {
             root_markers = { ".marksman.toml", ".git" },
         },
         {
+            id = "texlab",
+            name = "texlab (LaTeX)",
+            command = { "texlab" },
+            docs_url = "https://github.com/latex-lsp/texlab",
+            enabled = true,
+            extensions = { ".tex", ".sty", ".cls", ".ltx", ".dtx", ".bib" },
+            install = {
+                any = "cargo install --locked --git https://github.com/latex-lsp/texlab",
+                darwin = "brew install texlab",
+            },
+            root_markers = { ".latexmkrc", "latexmkrc", "Tectonic.toml", ".texlabroot", "texlabroot", ".git" },
+            -- Thor runs the build itself (latex_build_on_save); texlab reads the log it leaves.
+            settings = {
+                texlab = {
+                    build = { onSave = false, forwardSearchAfter = false },
+                    chktex = { onOpenAndSave = true, onEdit = false },
+                },
+            },
+        },
+        {
             id = "bash-language-server",
             name = "bash-language-server (Shell)",
             command = { "bash-language-server", "start" },

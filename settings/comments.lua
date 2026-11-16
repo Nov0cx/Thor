@@ -7,6 +7,11 @@ return {
         line = "::",
         quotes = "\"",
     },
+    bibtex = {
+        extensions = { ".bib" },
+        line = "%",
+        quotes = "\"",
+    },
     c = {
         block = { "/*", "*/" },
         extensions = { ".c", ".h" },
@@ -128,6 +133,10 @@ return {
         extensions = { ".kt" },
         line = "//",
         quotes = "\"",
+    },
+    latex = {
+        extensions = { ".tex", ".sty", ".cls", ".ltx", ".dtx", ".latex" },
+        line = "%",
     },
     lua = {
         block = { "--[[", "]]" },

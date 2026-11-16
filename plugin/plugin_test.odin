@@ -303,6 +303,79 @@ test_markdown_plugin_highlights :: proc(t: ^testing.T) {
     }
 }
 
+// Loads the real plugins/latex/plugin.lua: commands, environments, math,
+// comments, keys and verbatim bodies take their roles, in ascending order.
+@(test)
+test_latex_plugin_highlights :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+    manager_load(&m)
+    testing.expect(t, supports(&m, ".tex"), "latex language registered")
+    testing.expect(t, supports(&m, ".bib"), "bibtex language registered")
+
+    src   := `\documentclass{article}
+% a comment with $ in it
+\begin{document}
+See \ref{fig:one} and $a^2 + \alpha$ inline.
+\begin{equation*}
+  E = mc^2 \label{eq}
+\end{equation*}
+\newcommand{\twice}[1]{#1#1}
+\begin{verbatim}
+\notacommand $x$
+\end{verbatim}
+\[ x \] 50\% done
+\end{document}
+`
+    spans := highlight(&m, "", src, ".tex", context.allocator)
+    defer {
+        for s in spans {
+            delete(s.role)
+        }
+        delete(spans)
+    }
+
+    expect :: proc(t: ^testing.T, spans: []Span, src, needle, want: string) {
+        got := role_covering(spans, src, needle)
+        testing.expectf(t, got == want, "%q: role %q, want %q", needle, got, want)
+    }
+    expect(t, spans, src, `\documentclass`, "keywords")
+    expect(t, spans, src, "article", "attributes")
+    expect(t, spans, src, "% a comment with $ in it", "comments")
+    expect(t, spans, src, "fig:one", "attributes")
+    expect(t, spans, src, `\alpha`, "functions")
+    expect(t, spans, src, " + ", "numbers")
+    expect(t, spans, src, "equation*", "tags")
+    expect(t, spans, src, " = mc", "numbers")
+    expect(t, spans, src, "#1", "parameters")
+    expect(t, spans, src, `\notacommand $x$`, "strings")
+    expect(t, spans, src, `\%`, "operators")
+    expect(t, spans, src, " done", "")
+
+    for i in 1 ..< len(spans) {
+        testing.expect(t, spans[i - 1].end <= spans[i].start, "spans overlap or unordered")
+    }
+
+    bib   := "% refs\n@article{knuth84,\n  title = {Literate {P}rogramming},\n  year = 1984,\n}\n"
+    bspan := highlight(&m, "", bib, ".bib", context.allocator)
+    defer {
+        for s in bspan {
+            delete(s.role)
+        }
+        delete(bspan)
+    }
+    expect(t, bspan, bib, "% refs", "comments")
+    expect(t, bspan, bib, "@article", "keywords")
+    expect(t, bspan, bib, "knuth84", "attributes")
+    expect(t, bspan, bib, "title", "variables")
+    expect(t, bspan, bib, "{Literate {P}rogramming}", "strings")
+    expect(t, bspan, bib, "1984", "numbers")
+    for i in 1 ..< len(bspan) {
+        testing.expect(t, bspan[i - 1].end <= bspan[i].start, "bib spans overlap or unordered")
+    }
+}
+
 // Emphasis holds over a soft line break, keeps the code spans inside it their
 // own color, and `_` inside an identifier opens none of it. A line lexer left
 // the bold text uncolored, read the orphan ** as italics, and italicized from
