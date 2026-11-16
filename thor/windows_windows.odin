@@ -107,6 +107,11 @@ thor_cursor_screen :: proc() -> (pos: [2]f32, ok: bool) {
     return {f32(point.x), f32(point.y)}, true
 }
 
+// Windows moves the window from the titlebar code; there is no hand-off.
+thor_wm_begin_drag :: proc(edges: Window_Edges) -> bool {
+    return false
+}
+
 // A record is live while its handle names a window the recorded process still
 // owns; a recycled handle describes a dead window.
 thor_window_live :: proc(hwnd: i64, pid: int) -> (Window_Handle, Window_State) {

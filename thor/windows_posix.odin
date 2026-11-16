@@ -31,11 +31,6 @@ thor_window_zoomed :: proc() -> (zoomed, known: bool) {
     return false, false
 }
 
-// No portable answer; the caller adds the window position to the mouse.
-thor_cursor_screen :: proc() -> (pos: [2]f32, ok: bool) {
-    return {}, false
-}
-
 // Whether the recorded process still runs. Signal 0 asks without delivering
 // anything, and EPERM means it runs under another user. A recycled pid reads as
 // live and keeps the folder held.

@@ -252,7 +252,7 @@ Thor :: struct {
     // process now, so this one must not write over it on the way out.
     relaunching:                   bool,
     window_maximized:              bool,
-    window_grab:                   [2]f32, // titlebar grab: x as a share of the width, y in pixels
+    window_drag:                   Window_Drag,
     window_resize:                 Window_Resize,
     explorer_width:                f32,
     console_height:                f32,
@@ -1262,6 +1262,15 @@ Window_Resize :: struct {
     start_mouse: [2]f32, // desktop coordinates
 }
 
+// A titlebar drag in progress.
+Window_Drag :: struct {
+    grab:        [2]f32, // x as a share of the width, y in pixels
+    anchored:    bool,   // start_pos and start_mouse are set
+    handed_off:  bool,   // the window manager moves the window
+    start_pos:   [2]f32, // desktop coordinates
+    start_mouse: [2]f32, // desktop coordinates
+}
+
 // The cursor in desktop coordinates. A window that moves under a still cursor
 // keeps raylib's last mouse event, so the OS answer comes first.
 @(private = "file")
@@ -1292,27 +1301,60 @@ window_resize_rect :: proc(start: [4]f32, delta: [2]f32, edges: Window_Edges, mi
     return {x0, y0, x1 - x0, y1 - y0}
 }
 
+// The window position that keeps the grabbed point under the cursor.
+window_drag_target :: proc(start_pos, start_mouse, mouse: [2]f32) -> [2]f32 {
+    return start_pos + (mouse - start_mouse)
+}
+
 thor_window_drag_begin :: proc(thor: ^Thor) {
     mouse := rl.GetMousePosition()
     width := f32(rl.GetScreenWidth())
-    thor.window_grab = {width > 0 ? mouse.x / width : 0, mouse.y}
+    thor.window_drag = {grab = {width > 0 ? mouse.x / width : 0, mouse.y}}
+    if !thor.window_maximized {
+        thor_window_drag_anchor(thor)
+    }
 }
 
-// Keeps the grabbed point under the cursor. Anchored on the grab, not on frame
-// deltas: X11 sends no motion event when the window itself moves.
+// Gives the drag to the window manager, else records where it starts. The
+// start puts the grabbed share of the current width under the cursor, which is
+// also right after a maximized window restores to a new width.
+@(private = "file")
+thor_window_drag_anchor :: proc(thor: ^Thor) {
+    d := &thor.window_drag
+    if thor_wm_begin_drag({}) {
+        d.handed_off = true
+        return
+    }
+    d.start_mouse = thor_desktop_mouse()
+    d.start_pos = d.start_mouse - {d.grab[0] * f32(rl.GetScreenWidth()), d.grab[1]}
+    d.anchored = true
+}
+
+// Keeps the grabbed point under the cursor. Anchored on the desktop cursor at
+// the start, not on frame deltas: on X11 the window-relative mouse of a queued
+// event is stale once the window has moved, and the sum jitters.
 thor_window_drag_move :: proc(thor: ^Thor) {
-    mouse := rl.GetMousePosition()
-    grab  := [2]f32{thor.window_grab[0] * f32(rl.GetScreenWidth()), thor.window_grab[1]}
+    d := &thor.window_drag
+    if d.handed_off {
+        return
+    }
     if thor.window_maximized {
-        // The restored size lands a frame later; the share of the width then
-        // puts the grabbed point back under the cursor.
+        mouse := rl.GetMousePosition()
+        grab  := [2]f32{d.grab[0] * f32(rl.GetScreenWidth()), d.grab[1]}
         if abs(mouse.x - grab[0]) > WINDOW_UNMAXIMIZE_TRAVEL || abs(mouse.y - grab[1]) > WINDOW_UNMAXIMIZE_TRAVEL {
             thor_toggle_maximize(thor)
+            d.anchored = false
         }
         return
     }
+    // The restored size lands a frame after the toggle.
+    if !d.anchored {
+        thor_window_drag_anchor(thor)
+        return
+    }
+    t      := window_drag_target(d.start_pos, d.start_mouse, thor_desktop_mouse())
     pos    := rl.GetWindowPosition()
-    target := [2]i32{i32(math.round(pos.x + mouse.x - grab[0])), i32(math.round(pos.y + mouse.y - grab[1]))}
+    target := [2]i32{i32(math.round(t.x)), i32(math.round(t.y))}
     // A move of zero still costs an X11 round trip.
     if target != {i32(math.round(pos.x)), i32(math.round(pos.y))} {
         rl.SetWindowPosition(target[0], target[1])
@@ -1320,6 +1362,10 @@ thor_window_drag_move :: proc(thor: ^Thor) {
 }
 
 thor_window_resize_begin :: proc(thor: ^Thor, edges: Window_Edges) {
+    if thor_wm_begin_drag(edges) {
+        thor.window_resize = {}
+        return
+    }
     pos := rl.GetWindowPosition()
     thor.window_resize = {edges = edges, start_rect = {pos.x, pos.y, f32(rl.GetScreenWidth()), f32(rl.GetScreenHeight())}, start_mouse = thor_desktop_mouse()}
 }

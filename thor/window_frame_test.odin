@@ -21,3 +21,9 @@ test_window_resize_rect_holds_the_minimum :: proc(t: ^testing.T) {
     testing.expect_value(t, window_resize_rect(start, {700, 0}, {.Left}, min_size), [4]f32{420, 100, 480, 600})
     testing.expect_value(t, window_resize_rect(start, {0, -700}, {.Bottom}, min_size), [4]f32{100, 100, 800, 320})
 }
+
+@(test)
+test_window_drag_target_follows_the_desktop_cursor :: proc(t: ^testing.T) {
+    testing.expect_value(t, window_drag_target({200, 100}, {500, 120}, {530, 90}), [2]f32{230, 70})
+    testing.expect_value(t, window_drag_target({200, 100}, {500, 120}, {500, 120}), [2]f32{200, 100})
+}

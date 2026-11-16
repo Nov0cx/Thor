@@ -57,8 +57,9 @@ Window_Ref :: struct {
 // procedures — `thor_native_window` returns the handle this process records,
 // `thor_window_live` reads a record's state, `thor_focus_window` brings that
 // window to the front and reports whether it could, `thor_window_zoomed`
-// says whether this window is maximized, and `thor_cursor_screen` gives the
-// cursor in desktop coordinates.
+// says whether this window is maximized. `thor_cursor_screen` gives the cursor
+// in desktop coordinates and `thor_wm_begin_drag` gives a titlebar or edge drag
+// to the window manager; wm_linux.odin and wm_other.odin supply both off Windows.
 
 // Record file for a workspace: sessions/windows/<path-key>.json, keyed exactly
 // like that workspace's session file.

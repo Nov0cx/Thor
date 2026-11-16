@@ -293,7 +293,8 @@ Windows, Linux and macOS all build (one workflow each). No shared file may impor
 forward declarations, so the shared file states the contract — the types and procedures both
 platform files must supply — as a comment. The pairs are `shell/shell_*`, `shell/child_*` (the
 piped child process a language server runs in), `watch/watch_*`,
-`thor/windows_*` (multi-window records), `thor/dialogs_*` (file pickers), `thor/filemap_*` (the
+`thor/windows_*` (multi-window records), `thor/wm_linux.odin` / `thor/wm_other.odin` (the desktop cursor
+and the X11 `_NET_WM_MOVERESIZE` hand-off of a titlebar or edge drag), `thor/dialogs_*` (file pickers), `thor/filemap_*` (the
 load worker's read-only mapping), `thor/reveal_*` (file-manager reveal and the browser open
 behind Help > Documentation) and `thor/dinput_*` (the DirectInput block around window creation:
 raylib's game-controller scan reads every HID device, and one that does not answer costs seconds —
