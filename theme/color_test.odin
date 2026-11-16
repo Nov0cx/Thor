@@ -2,7 +2,6 @@ package theme
 
 import "core:testing"
 
-import rl "vendor:raylib"
 
 import ui "../vendor/loom/loom"
 
@@ -133,14 +132,14 @@ test_color_shade_keeps_alpha :: proc(t: ^testing.T) {
 @(test)
 test_color_rotate_hue_wraps :: proc(t: ^testing.T) {
     // 350 degrees plus 30 is 20, not 380.
-    red := from_rl(rl.ColorFromHSV(350, 0.8, 0.9))
+    red := color_from_hsv(350, 0.8, 0.9)
     red.a = 128
     turned := color_rotate_hue(red, 30)
-    hsv    := rl.ColorToHSV(to_rl(turned))
+    hsv    := color_to_hsv(turned)
 
-    testing.expectf(t, hsv.x > 19 && hsv.x < 21, "the hue wraps past 360, got %v", hsv.x)
-    testing.expectf(t, hsv.y > 0.79 && hsv.y < 0.81, "saturation stays, got %v", hsv.y)
-    testing.expectf(t, hsv.z > 0.89 && hsv.z < 0.91, "value stays, got %v", hsv.z)
+    testing.expectf(t, hsv[0] > 19 && hsv[0] < 21, "the hue wraps past 360, got %v", hsv[0])
+    testing.expectf(t, hsv[1] > 0.79 && hsv[1] < 0.81, "saturation stays, got %v", hsv[1])
+    testing.expectf(t, hsv[2] > 0.89 && hsv[2] < 0.91, "value stays, got %v", hsv[2])
     testing.expect(t, turned.a == 128, "alpha stays")
 }
 
@@ -164,4 +163,37 @@ test_color_ensure_contrast :: proc(t: ^testing.T) {
     grey    := ui.Color{128, 128, 128, 255}
     extreme := color_ensure_contrast(ui.Color{0x40, 0x80, 0xC0, 255}, grey, 21)
     testing.expect(t, color_luminance(extreme) < 0.01, "an impossible ratio settles on the far end")
+}
+
+// The HSV conversions agree with the values raylib's ColorToHSV and ColorFromHSV give.
+@(test)
+test_color_hsv :: proc(t: ^testing.T) {
+    testing.expect_value(t, color_from_hsv(0, 1, 1), ui.Color{255, 0, 0, 255})
+    testing.expect_value(t, color_from_hsv(120, 1, 1), ui.Color{0, 255, 0, 255})
+    testing.expect_value(t, color_from_hsv(240, 1, 1), ui.Color{0, 0, 255, 255})
+    testing.expect_value(t, color_from_hsv(60, 0.5, 0.5), ui.Color{127, 127, 63, 255})
+    testing.expect_value(t, color_from_hsv(200, 0, 1), ui.Color{255, 255, 255, 255})
+
+    testing.expect_value(t, color_to_hsv({255, 0, 0, 255}), [3]f32{0, 1, 1})
+    testing.expect_value(t, color_to_hsv({0, 0, 255, 9}), [3]f32{240, 1, 1})
+    testing.expect_value(t, color_to_hsv({255, 0, 255, 255}), [3]f32{300, 1, 1})
+    testing.expect_value(t, color_to_hsv({0, 0, 0, 255}), [3]f32{0, 0, 0})
+    grey := color_to_hsv({128, 128, 128, 255})
+    testing.expect(t, grey[0] == 0 && grey[1] == 0, "a grey color has no hue or saturation")
+
+    for c in ([?]ui.Color{{18, 52, 86, 255}, {250, 128, 114, 255}, {1, 200, 3, 255}}) {
+        hsv  := color_to_hsv(c)
+        back := color_from_hsv(hsv[0], hsv[1], hsv[2])
+        for i in 0 ..< 3 {
+            testing.expectf(t, abs(int(back[i]) - int(c[i])) <= 1, "%v round trips to %v", c, back)
+        }
+    }
+}
+
+@(test)
+test_color_brightness_and_mix :: proc(t: ^testing.T) {
+    testing.expect_value(t, color_brightness({100, 50, 200, 7}, 0.5), ui.Color{177, 152, 227, 7})
+    testing.expect_value(t, color_brightness({100, 50, 200, 7}, -0.5), ui.Color{50, 25, 100, 7})
+    testing.expect_value(t, color_mix({0, 0, 0, 10}, {255, 255, 255, 255}, 0.5), ui.Color{127, 127, 127, 10})
+    testing.expect_value(t, color_mix({10, 20, 30, 255}, {0, 0, 0, 0}, 2), ui.Color{0, 0, 0, 255})
 }

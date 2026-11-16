@@ -2,7 +2,6 @@ package theme
 
 import "core:math"
 import "core:strings"
-import rl "vendor:raylib"
 
 import ui "../vendor/loom/loom"
 
@@ -83,9 +82,9 @@ generate :: proc(name: string, background, accent: ui.Color, dark: bool) -> Them
 // saturation. color_on then answers for it on its own.
 @(private = "file")
 theme_clamp_background :: proc(background: ui.Color, dark: bool) -> ui.Color {
-    hsv   := rl.ColorToHSV(to_rl(background))
-    value := dark ? min(hsv.z, DARK_BACKGROUND_VALUE) : max(hsv.z, LIGHT_BACKGROUND_VALUE)
-    out   := color_with_hsv(background, hsv.x, hsv.y, value)
+    hsv   := color_to_hsv(background)
+    value := dark ? min(hsv[2], DARK_BACKGROUND_VALUE) : max(hsv[2], LIGHT_BACKGROUND_VALUE)
+    out   := color_with_hsv(background, hsv[0], hsv[1], value)
     out.a = 0xFF
     return out
 }
@@ -101,15 +100,15 @@ theme_alpha :: proc(color: ui.Color, alpha: u8) -> ui.Color {
 // palette stays one family.
 @(private = "file")
 theme_status :: proc(accent, background: ui.Color, hue: f32) -> ui.Color {
-    hsv := rl.ColorToHSV(to_rl(accent))
-    return color_ensure_contrast(color_with_hsv(accent, hue, max(hsv.y, 0.55), hsv.z), background, TEXT_FLOOR)
+    hsv := color_to_hsv(accent)
+    return color_ensure_contrast(color_with_hsv(accent, hue, max(hsv[1], 0.55), hsv[2]), background, TEXT_FLOOR)
 }
 
 // A syntax color: the accent turned `degrees` around the wheel. The rotations skip
 // the accent's own neighbourhood, so the roles stay apart.
 @(private = "file")
 theme_syntax :: proc(accent, background: ui.Color, degrees: f32) -> ui.Color {
-    hsv     := rl.ColorToHSV(to_rl(accent))
-    rotated := color_with_hsv(accent, math.mod(hsv.x + degrees + 360, 360), max(hsv.y, 0.50), hsv.z)
+    hsv     := color_to_hsv(accent)
+    rotated := color_with_hsv(accent, math.mod(hsv[0] + degrees + 360, 360), max(hsv[1], 0.50), hsv[2])
     return color_ensure_contrast(rotated, background, TEXT_FLOOR)
 }

@@ -1,7 +1,6 @@
 package theme
 
 import "core:math"
-import rl "vendor:raylib"
 
 import ui "../vendor/loom/loom"
 
@@ -9,16 +8,57 @@ import ui "../vendor/loom/loom"
 WHITE :: ui.Color{255, 255, 255, 255}
 BLACK :: ui.Color{0, 0, 0, 255}
 
-// The colour maths below is raylib's, so these two are where a Loom colour
-// crosses over and back. `to_rl` is public because the drawing that has not
-// moved to the backend yet still takes a raylib colour.
-to_rl :: proc(c: ui.Color) -> rl.Color {
-    return {c[0], c[1], c[2], c[3]}
+// `color` as hue (0 to 360), saturation and value (0 to 1). Alpha is ignored. A
+// grey color has hue 0.
+color_to_hsv :: proc(color: ui.Color) -> [3]f32 {
+    r, g, b := f32(color.r) / 255, f32(color.g) / 255, f32(color.b) / 255
+    hi    := max(r, g, b)
+    delta := hi - min(r, g, b)
+    if delta < 0.00001 || hi <= 0 {
+        return {0, 0, hi}
+    }
+    hue: f32
+    switch {
+    case r >= hi:
+        hue = (g - b) / delta
+    case g >= hi:
+        hue = 2 + (b - r) / delta
+    case:
+        hue = 4 + (r - g) / delta
+    }
+    hue *= 60
+    if hue < 0 {
+        hue += 360
+    }
+    return {hue, delta / hi, hi}
 }
 
+// The opaque color of hue (degrees), saturation and value (0 to 1).
+color_from_hsv :: proc(hue, saturation, value: f32) -> ui.Color {
+    channel :: proc(n, hue, saturation, value: f32) -> u8 {
+        k := math.mod(n + hue / 60, 6)
+        k = clamp(min(4 - k, k), 0, 1)
+        return u8((value - value * saturation * k) * 255)
+    }
+    return {channel(5, hue, saturation, value), channel(3, hue, saturation, value), channel(1, hue, saturation, value), 255}
+}
+
+// `color` lightened (factor > 0) or darkened (factor < 0) by `factor` (-1 to 1).
+// Alpha stays.
 @(private)
-from_rl :: proc(c: rl.Color) -> ui.Color {
-    return {c.r, c.g, c.b, c.a}
+color_brightness :: proc(color: ui.Color, factor: f32) -> ui.Color {
+    f   := clamp(factor, -1, 1)
+    out := color
+    for i in 0 ..< 3 {
+        c := f32(color[i])
+        if f < 0 {
+            c *= 1 + f
+        } else {
+            c += (255 - c) * f
+        }
+        out[i] = u8(c)
+    }
+    return out
 }
 
 // Text drawn on a light background.
@@ -64,15 +104,14 @@ color_on :: proc(background: ui.Color) -> ui.Color {
 // gets lighter, a dark one darker. The hue stays, and the label contrast only grows.
 color_shade :: proc(color: ui.Color, amount: f32) -> ui.Color {
     factor := color_on(color) == COLOR_ON_DARK ? amount : -amount
-    shaded := from_rl(rl.ColorBrightness(to_rl(color), factor))
+    shaded := color_brightness(color, factor)
     shaded.a = color.a
     return shaded
 }
 
-// `color` with the HSV components given, keeping its alpha. rl.ColorFromHSV
-// always returns an opaque color.
+// `color` with the HSV components given, keeping its alpha.
 color_with_hsv :: proc(color: ui.Color, hue, saturation, value: f32) -> ui.Color {
-    out := from_rl(rl.ColorFromHSV(hue, saturation, value))
+    out := color_from_hsv(hue, saturation, value)
     out.a = color.a
     return out
 }
@@ -80,14 +119,17 @@ color_with_hsv :: proc(color: ui.Color, hue, saturation, value: f32) -> ui.Color
 // `color` turned `degrees` around the hue wheel, keeping saturation, value and
 // alpha. A grey color has no hue to turn and comes back unchanged.
 color_rotate_hue :: proc(color: ui.Color, degrees: f32) -> ui.Color {
-    hsv := rl.ColorToHSV(to_rl(color))
-    return color_with_hsv(color, math.mod(hsv.x + degrees + 360, 360), hsv.y, hsv.z)
+    hsv := color_to_hsv(color)
+    return color_with_hsv(color, math.mod(hsv[0] + degrees + 360, 360), hsv[1], hsv[2])
 }
 
 // `a` blended `t` of the way to `b` (0 to 1), keeping a's alpha.
 color_mix :: proc(a, b: ui.Color, t: f32) -> ui.Color {
-    mixed := from_rl(rl.ColorLerp(to_rl(a), to_rl(b), clamp(t, 0, 1)))
-    mixed.a = a.a
+    f     := clamp(t, 0, 1)
+    mixed := a
+    for i in 0 ..< 3 {
+        mixed[i] = u8((1 - f) * f32(a[i]) + f * f32(b[i]))
+    }
     return mixed
 }
 
@@ -109,8 +151,8 @@ color_ensure_contrast :: proc(foreground, background: ui.Color, ratio: f32) -> u
     // Away from the background is toward white on a dark one, toward black on a
     // light one.
     toward_light := color_on(background) == COLOR_ON_LIGHT
-    hsv          := rl.ColorToHSV(to_rl(foreground))
-    lifted       := color_with_hsv(foreground, hsv.x, hsv.y, toward_light ? 1 : 0)
+    hsv          := color_to_hsv(foreground)
+    lifted       := color_with_hsv(foreground, hsv[0], hsv[1], toward_light ? 1 : 0)
     if color_contrast_ratio(lifted, background) >= ratio {
         return color_bisect(foreground, lifted, background, ratio)
     }

@@ -8,7 +8,6 @@
 package thor
 
 import "core:strings"
-import rl "vendor:raylib"
 
 import "../theme"
 import ui "../vendor/loom/loom"
@@ -95,7 +94,7 @@ thor_color_picker_open :: proc(
 
 // The HSV state as RGBA: the single conversion out.
 thor_color_picker_color :: proc(p: ^Color_Picker) -> ui.Color {
-    color := rl.ColorFromHSV(p.hue, p.sat, p.val)
+    color := theme.color_from_hsv(p.hue, p.sat, p.val)
     return {color.r, color.g, color.b, u8(clamp(p.alpha, 0, 1) * 255 + 0.5)}
 }
 
@@ -103,14 +102,14 @@ thor_color_picker_color :: proc(p: ^Color_Picker) -> ui.Color {
 // no hue and black has no saturation, so those stay as they were.
 @(private = "file")
 color_picker_set_from_color :: proc(p: ^Color_Picker, color: ui.Color) {
-    hsv := rl.ColorToHSV({color[0], color[1], color[2], color[3]})
-    if hsv.y > 0 {
-        p.hue = hsv.x
+    hsv := theme.color_to_hsv(color)
+    if hsv[1] > 0 {
+        p.hue = hsv[0]
     }
-    if hsv.z > 0 {
-        p.sat = hsv.y
+    if hsv[2] > 0 {
+        p.sat = hsv[1]
     }
-    p.val = hsv.z
+    p.val = hsv[2]
     p.alpha = f32(color[3]) / 255
 }
 
@@ -258,7 +257,7 @@ color_picker_box :: proc(thor: ^Thor) {
 @(private = "file")
 color_picker_square :: proc(thor: ^Thor) {
     p     := &thor.color_picker
-    pure  := rl.ColorFromHSV(p.hue, 1, 1)
+    pure  := theme.color_from_hsv(p.hue, 1, 1)
     stops := []ui.Stop{{0, ui.Color{255, 255, 255, 255}}, {0, ui.Color{pure.r, pure.g, pure.b, 255}}, {0, ui.Color{0, 0, 0, 255}}, {0, ui.Color{0, 0, 0, 255}}}
 
     it := ui.scope(
@@ -296,7 +295,7 @@ color_picker_hue :: proc(thor: ^Thor) {
     p     := &thor.color_picker
     stops := make([]ui.Stop, 7, context.temp_allocator)
     for i in 0 ..< 7 {
-        c := rl.ColorFromHSV(f32(i) * 60, 1, 1)
+        c := theme.color_from_hsv(f32(i) * 60, 1, 1)
         stops[i] = {f32(i) / 6, ui.Color{c.r, c.g, c.b, 255}}
     }
 
