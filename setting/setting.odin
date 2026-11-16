@@ -64,6 +64,12 @@ General :: struct {
     format_on_save:           bool,
     // Format as a trigger character the backend asked for is typed. Off by default.
     format_on_type:           bool,
+    // Build a LaTeX document on an explicit save. On by default.
+    latex_build_on_save:      bool,
+    // The shell command that builds a LaTeX document, `{file}` the root file; empty picks latexmk or tectonic. Owned.
+    latex_build_command:      string,
+    // What renders the PDF preview: "auto" (default), "pdftoppm" or "mutool". Owned.
+    latex_pdf_renderer:       string,
     // Check for a newer release after start, at most once a day. On by default.
     check_for_updates:        bool,
     check_for_plugin_updates: bool,
@@ -212,6 +218,7 @@ WORKSPACE_KEYS :: [?]string{
     "detect_indentation",
     "format_on_save",
     "format_on_type",
+    "latex_build_command",
     LANGUAGE_SETTING,
     LANGUAGE_BACKENDS_SETTING,
     FILE_LANGUAGES_SETTING,
@@ -248,6 +255,7 @@ load :: proc(dir: string) -> Settings {
         relative_lines = true,
         format_on_save = false,
         format_on_type = false,
+        latex_build_on_save = true,
         check_for_updates = true,
         check_for_plugin_updates = true,
         tooltips = true,
@@ -306,6 +314,8 @@ destroy :: proc(s: ^Settings) {
     delete(s.general.pane_layout)
     delete(s.general.right_alt)
     delete(s.general.default_shell)
+    delete(s.general.latex_build_command)
+    delete(s.general.latex_pdf_renderer)
 
     for key in s.general.language_backends {
         delete(key)
@@ -439,6 +449,18 @@ relative_line_numbers :: proc(s: ^Settings) -> bool {
 // Whether an explicit save formats the buffer first.
 format_on_save :: proc(s: ^Settings) -> bool {
     return s.general.format_on_save
+}
+
+latex_build_on_save :: proc(s: ^Settings) -> bool {
+    return s.general.latex_build_on_save
+}
+
+latex_build_command :: proc(s: ^Settings) -> string {
+    return s.general.latex_build_command
+}
+
+latex_pdf_renderer :: proc(s: ^Settings) -> string {
+    return s.general.latex_pdf_renderer
 }
 
 // Whether typing a trigger character dispatches on-type formatting.
@@ -1127,6 +1149,9 @@ load_general :: proc(s: ^Settings, path: string, layer := Layer.User) {
     read_bool(root, "relative_line_numbers", &s.general.relative_lines)
     read_bool(root, "format_on_save", &s.general.format_on_save)
     read_bool(root, "format_on_type", &s.general.format_on_type)
+    read_bool(root, "latex_build_on_save", &s.general.latex_build_on_save)
+    read_string(root, "latex_build_command", &s.general.latex_build_command)
+    read_string(root, "latex_pdf_renderer", &s.general.latex_pdf_renderer)
     read_bool(root, "check_for_updates", &s.general.check_for_updates)
     read_bool(root, "check_for_plugin_updates", &s.general.check_for_plugin_updates)
     read_bool(root, "tooltips", &s.general.tooltips)

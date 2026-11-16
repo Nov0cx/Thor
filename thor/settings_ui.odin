@@ -102,6 +102,9 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     thor_settings_add_toggle(view, "format_on_save", "Format on save", setting.format_on_save(config))
     thor_settings_add_toggle(view, "format_on_type", "Format on type", setting.format_on_type(config))
     if personal {
+        thor_settings_add_toggle(view, "latex_build_on_save", "Build LaTeX on save", setting.latex_build_on_save(config))
+    }
+    if personal {
         thor_settings_add_choice(view, "right_alt", "Right Alt key", thor_right_alt_label(config))
     }
 
@@ -595,6 +598,7 @@ thor_on_setting_toggle :: proc(data: rawptr, id: string, on: bool) {
         "detect_indentation",
         "format_on_save",
         "format_on_type",
+        "latex_build_on_save",
         "tooltips",
         "reduce_motion",
         "clipboard_history_save",
@@ -735,6 +739,8 @@ thor_setting_description :: proc(id: string) -> string {
         return "Format the file before Ctrl+S or Save all. Never before an autosave."
     case "format_on_type":
         return "Format as you type a trigger character, such as } in Odin."
+    case "latex_build_on_save":
+        return "Ctrl+S on a .tex file runs latexmk or tectonic and refreshes the PDF preview."
     case "right_alt":
         return "Auto: AltGr when the keyboard layout types characters with it, else Alt."
     case "theme":
