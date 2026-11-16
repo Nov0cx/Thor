@@ -60,6 +60,10 @@ The system HarfBuzz library is used; install it through your package manager
 (e.g. `libharfbuzz-dev`). Lua links statically from the vendor package, so no
 shared library needs copying.
 
+The released Linux archive is built on Ubuntu 20.04, so it runs on any
+distribution with glibc 2.31 or newer. CI fails a build that needs a newer
+glibc. A binary you build yourself needs the glibc of the machine that built it.
+
 ### macOS
 
 HarfBuzz and Lua 5.4 come from Homebrew (`brew install harfbuzz lua@5.4`); see

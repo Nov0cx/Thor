@@ -152,36 +152,64 @@ jobs:
     name: Ubuntu
     needs: meta
     runs-on: ubuntu-latest
+    container: ubuntu:20.04
     env:
+      DEBIAN_FRONTEND: noninteractive
       NAME: thor-${{ needs.meta.outputs.version }}-linux-x86_64
     steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      # System HarfBuzz (foreign import is "system:harfbuzz" on Linux) plus the
-      # X11/Wayland/GL libraries raylib links against.
+      # The oldest glibc the Linux build supports is 2.31, so it builds on Ubuntu
+      # 20.04. A binary links against the glibc of the machine that built it.
       - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential git curl ca-certificates gnupg lsb-release \
+            software-properties-common wget binutils \
             libharfbuzz-dev \
             libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
             libgl1-mesa-dev libwayland-dev libxkbcommon-dev
 
-      - uses: laytan/setup-odin@v2
+      # Ubuntu 20.04 ships LLVM 10; Odin needs a newer one.
+      - name: Install LLVM 18
+        run: |
+          wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
+          bash /tmp/llvm.sh 18
+          apt-get install -y --no-install-recommends llvm-18-dev
+          ln -sf /usr/bin/clang-18 /usr/local/bin/clang
+          ln -sf /usr/bin/clang++-18 /usr/local/bin/clang++
+
+      - uses: actions/checkout@v4
         with:
-          release: latest
-          token: ${{ secrets.GITHUB_TOKEN }}
+          submodules: recursive
+
+      # The container runs as root over runner-owned files.
+      - name: Trust the checked out repository
+        run: git config --global --add safe.directory '*'
+
+      # The prebuilt Linux Odin can need a newer glibc than 2.31, so Odin is
+      # built here from the newest release tag.
+      - name: Build Odin
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag=$(curl -sL -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/repos/odin-lang/Odin/releases/latest \
+            | grep -oE '"tag_name": *"[^"]*"' | cut -d'"' -f4)
+          if [ -z "$tag" ]; then
+            echo "No Odin release tag found" >&2
+            exit 1
+          fi
+          git clone --depth 1 --branch "$tag" https://github.com/odin-lang/Odin.git /opt/odin
+          cd /opt/odin
+          LLVM_CONFIG=llvm-config-18 CXX=clang++-18 ./build_odin.sh release
+          echo /opt/odin >> "$GITHUB_PATH"
 
       # Odin ships prebuilt vendor:stb only for Windows and macOS; font/text.odin
-      # imports stb/truetype, so Linux has to compile them first. Newer Odin
-      # replaced the Makefile with build_stb.sh; older releases still need make.
+      # imports stb/truetype, so Linux has to compile them first.
       - name: Build vendor STB libraries
         run: |
           src="$(odin root)vendor/stb/src"
           if [ -f "$src/build_stb.sh" ]; then
-            sh "$src/build_stb.sh" unix
+            (cd "$src" && sh ./build_stb.sh unix)
           else
             make -C "$src"
           fi
@@ -198,7 +226,7 @@ jobs:
           path: |
             vendor/odin-tree-sitter/tree-sitter
             vendor/odin-tree-sitter/parsers
-          key: tree-sitter-${{ runner.os }}-${{ runner.arch }}-${{ steps.ts.outputs.rev }}-${{ hashFiles('build.odin', 'syntax/syntax.odin') }}-v1
+          key: tree-sitter-focal-${{ runner.arch }}-${{ steps.ts.outputs.rev }}-${{ hashFiles('build.odin', 'syntax/syntax.odin') }}-v1
 
       - name: Build the dependencies
         run: odin run build.odin -file -- deps -verbose
@@ -215,6 +243,17 @@ jobs:
 
       - name: Build Thor
         run: odin run build.odin -file -- all -release -verbose
+
+      # A symbol newer than GLIBC_2.31 would stop the binary from loading on the
+      # oldest supported distribution.
+      - name: Check the glibc version
+        run: |
+          newest=$(objdump -T bin/release/thor | grep -oE 'GLIBC_[0-9]+(\.[0-9]+)*' | sort -uV | tail -1)
+          echo "Newest glibc symbol: $newest"
+          if [ "$(printf '%s\nGLIBC_2.31\n' "$newest" | sort -V | tail -1)" != "GLIBC_2.31" ]; then
+            echo "bin/release/thor needs $newest; the limit is GLIBC_2.31" >&2
+            exit 1
+          fi
 
       - name: Pack
         run: |
