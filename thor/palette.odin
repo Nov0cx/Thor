@@ -694,14 +694,18 @@ palette_box :: proc(thor: ^Thor) {
             ui.label(p.prompt_label, {key = "title", props = {pad = tk_pad(.M, .XXS), color = thor.theme.muted_color, text_wrap = .Ellipsis}})
         }
         row := ui.scope({key = "query-row", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = tk_gap(.M, .None)}})
-        it  := ui.input(
-            &p.query,
-            {
-                key = "query",
-                props = {w = ui.Grow(1), h = ui.Px(tk(PALETTE_INPUT_H) - 12), align = .Center, bg = thor.theme.background, color = thor.theme.foreground},
+        it  := ui.input(&p.query, {
+            key = "query",
+            // No vertical pad: with it the line overflows the fixed height and sits low.
+            props = {
+                w = ui.Grow(1),
+                h = ui.Px(tk(PALETTE_INPUT_H) - 12),
+                pad = {l = tk_sp(.M), r = tk_sp(.M)},
+                align = .Center,
+                bg = thor.theme.background,
+                color = thor.theme.foreground,
             },
-            palette_placeholder(thor, p),
-        )
+        }, palette_placeholder(thor, p))
         // How many rows match, since only PALETTE_MAX_ROWS of them show.
         if count := palette_count_label(p); count != "" {
             ui.label(count, {key = "count", props = {pad = tk_pad(.XS, .None), color = thor.theme.muted_color, text_wrap = .None}})

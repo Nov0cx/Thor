@@ -274,7 +274,7 @@ font_bake_job :: proc(job: ^Font_Load_Job) {
         width, height, offset_x, offset_y: c.int
         bitmap := stbtt.GetGlyphBitmap(&info, scale, scale, cast(c.int)entry.gid, &width, &height, &offset_x, &offset_y)
         glyph.offsetX = offset_x
-        glyph.offsetY = offset_y + cast(c.int)(cast(f32)ascent * scale)
+        glyph.offsetY = offset_y + cast(c.int)math.round(cast(f32)ascent * scale)
 
         if bitmap != nil && width > 0 && height > 0 {
             // A failed copy leaves the zeroed image, so this one glyph draws

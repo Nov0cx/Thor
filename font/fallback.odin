@@ -2,6 +2,7 @@ package font
 
 import "core:c"
 import "core:log"
+import "core:math"
 import "core:mem"
 import "core:os"
 import rl "vendor:raylib"
@@ -165,7 +166,7 @@ fallback_sheet :: proc(family: ^Font_Family, size: i32) -> ^Fallback_Sheet {
         scale := stbtt.ScaleForPixelHeight(&info, f32(size))
         ascent, descent, gap: c.int
         stbtt.GetFontVMetrics(&info, &ascent, &descent, &gap)
-        sheet.baseline = i32(f32(ascent) * scale)
+        sheet.baseline = i32(math.round(f32(ascent) * scale))
         space_advance: c.int
         stbtt.GetCodepointHMetrics(&info, ' ', &space_advance, nil)
         sheet.blank = max(i32(f32(space_advance) * scale), 1)

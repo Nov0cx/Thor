@@ -288,7 +288,7 @@ draw_text :: proc(b: ^Backend, cmd: ui.Cmd_Text) {
     }
     // Loom places a run by its baseline; the font package draws from the top.
     top := cmd.pos.y - cmd.size * ASCENT_FRACTION
-    font.draw(cmd.text, i32(cmd.pos.x), i32(top), i32(cmd.size), raylib_color(cmd.color), family_of(b, cmd.font), 0, style_of(b, cmd.font))
+    font.draw(cmd.text, i32(cmd.pos.x), i32(math.round(top)), i32(cmd.size), raylib_color(cmd.color), family_of(b, cmd.font), 0, style_of(b, cmd.font))
 }
 
 draw_image :: proc(b: ^Backend, cmd: ui.Cmd_Image) {
