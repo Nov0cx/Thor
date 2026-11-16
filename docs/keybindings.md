@@ -271,6 +271,11 @@ alignment, and links — inline, by reference and `<url>`. An image that is a fi
 beside the document is drawn in the page, scaled to the column; a click opens it
 as a tab. An image on the web is not fetched: its text shows as a link.
 
+**LaTeX PDF** (`ctrl + alt + p`, LaTeX files only) shows the built PDF of the
+document beside its source, the same way. `ctrl + alt + b` builds the document,
+and `ctrl + alt + j` scrolls the PDF to the caret line. In the PDF, `ctrl` +
+click goes to the source line, `ctrl` + wheel zooms. See [LaTeX](latex.md).
+
 **Images** (`.png .jpg .jpeg .bmp .gif .tga .psd .hdr .qoi`) open fit to the
 pane, never scaled past 1:1. A checkerboard behind them shows the transparent
 pixels; the name, pixel size and zoom sit in the bottom-left corner.

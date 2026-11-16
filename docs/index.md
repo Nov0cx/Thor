@@ -16,6 +16,8 @@ manual: how to get it running and how to use it. For the codebase itself, see
 - [Keybindings](keybindings.md) — every default shortcut, by area.
 - [Git](git.md) — the built-in Git UI: changes, history, branches, config
   and GitHub/GitLab actions.
+- [LaTeX](latex.md) — what to install, the build on save, the PDF preview and
+  SyncTeX jumps.
 - [Plugins](plugins.md) — syntax highlighting, workspace plugins, and the
   permission prompt.
 - [Troubleshooting](troubleshooting.md) — the log file, a slow start, a language

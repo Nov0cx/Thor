@@ -71,8 +71,8 @@ it. It holds what describes the project, and none of your own taste. From a
 `.thor/settings.lua`, only these keys apply:
 
 `tab_width`, `insert_spaces`, `detect_indentation`, `format_on_save`,
-`format_on_type`, `language_intelligence`, `language_backends`,
-`file_languages`, `file_targets`.
+`format_on_type`, `latex_build_command`, `language_intelligence`,
+`language_backends`, `file_languages`, `file_targets`.
 
 Every other key is personal: the theme, the font and its size, the icon packs,
 ligatures, line numbers, the default shell, the window and update settings.
@@ -106,6 +106,9 @@ General editor preferences.
 | `tip_of_the_day` | Show the tip of the day: the card on the welcome page, and the card that opens over the editor on the first start of a day | `true` |
 | `format_on_save` | Format the active buffer before an explicit save (`ctrl + s`, Save all, the palette) — never before an autosave | `false` |
 | `format_on_type` | Dispatch on-type formatting as a trigger character is typed — `}` for Odin, a language server's own choice otherwise | `false` |
+| `latex_build_on_save` | Build a LaTeX document after an explicit save; see [LaTeX](latex.md) | `true` |
+| `latex_build_command` | The shell command that builds a LaTeX document, `{file}` the root file; empty uses latexmk, then tectonic | `""` |
+| `latex_pdf_renderer` | What renders the LaTeX PDF preview: `"auto"`, `"pdftoppm"` or `"mutool"` | `"auto"` |
 | `theme` | Active color theme, a name with no extension (e.g. `"mjolnir"`), looked up in `user/themes/` first and then `assets/themes/` | built-in default |
 | `font` | Text font family, a name in `assets/fonts/fonts.json` or `user/fonts.json` | built-in default |
 | `icon_pack` | Primary icon pack, a family in `assets/icons/icons.json` | built-in default |
