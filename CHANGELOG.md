@@ -1,3 +1,15 @@
+# 2026.11.6
+
+- Fixed the jitter when the window is dragged by its title bar or resized by its edges on Linux. On X11 and XWayland the window manager moves and resizes the window, so it snaps like other windows.
+- LaTeX highlighting for `.tex`, `.sty`, `.cls`, `.ltx` and `.dtx`, and BibTeX highlighting for `.bib`. `ctrl + k` comments with `%`.
+- texlab language server entry for LaTeX and BibTeX: completion, diagnostics, go to definition, references and rename.
+- `ctrl + s` on a LaTeX document builds it with latexmk, else tectonic. The status bar shows the first error and the terminal shows the full log. `ctrl + alt + b` builds without the setting.
+- A `% !TEX root = main.tex` comment builds and previews the root document of a multi-file project.
+- LaTeX PDF preview beside the source (`ctrl + alt + p`), rendered with pdftoppm or mutool. It reloads when the PDF changes. `ctrl` + wheel zooms.
+- SyncTeX: `ctrl` + click in the PDF opens the source line, and `ctrl + alt + j` scrolls the PDF to the caret line.
+- `latex_build_on_save`, `latex_build_command` and `latex_pdf_renderer` settings. `latex_build_command` is a project key.
+- The Linux release runs on glibc 2.31 (Ubuntu 20.04) and newer.
+
 # 2026.11.5
 
 - Row heights, paddings, corner radii and shadows follow `font_size`, so a large font no longer clips in a row.
