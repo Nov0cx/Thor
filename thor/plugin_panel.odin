@@ -5,9 +5,9 @@
 package thor
 
 import "core:strings"
-import rl "vendor:raylib"
 
 import "../font"
+import "../platform"
 import "../plugin"
 import "../theme"
 import ui "../vendor/loom/loom"
@@ -427,12 +427,12 @@ plugin_canvas_draw :: proc(node: ^ui.Node, user: rawptr) {
 // ctx:rect / ctx:outline inside a canvas draw.
 thor_plugin_draw_rect :: proc(host: rawptr, x, y, w, h: f32, role: string, fill: bool) {
     thor  := cast(^Thor)host
-    rect  := rl.Rectangle{x, y, w, h}
+    rect  := ui.Rect{x, y, w, h}
     color := thor_plugin_role_color(thor, role, thor.theme.foreground)
     if fill {
-        rl.DrawRectangleRec(rect, {color[0], color[1], color[2], color[3]})
+        platform.draw_rect(rect, color)
     } else {
-        rl.DrawRectangleLinesEx(rect, 1, {color[0], color[1], color[2], color[3]})
+        platform.draw_rect_lines(rect, 1, color)
     }
 }
 
@@ -440,14 +440,14 @@ thor_plugin_draw_rect :: proc(host: rawptr, x, y, w, h: f32, role: string, fill:
 thor_plugin_draw_text :: proc(host: rawptr, x, y: f32, text, role: string) {
     thor  := cast(^Thor)host
     color := thor_plugin_role_color(thor, role, thor.theme.foreground)
-    font.draw(text, i32(x), i32(y), i32(tk_font(thor, .Body)), {color[0], color[1], color[2], color[3]})
+    font.draw(text, i32(x), i32(y), i32(tk_font(thor, .Body)), color)
 }
 
 // ctx:line inside a canvas draw.
 thor_plugin_draw_line :: proc(host: rawptr, x0, y0, x1, y1, thickness: f32, role: string) {
     thor  := cast(^Thor)host
     color := thor_plugin_role_color(thor, role, thor.theme.foreground)
-    rl.DrawLineEx(rl.Vector2{x0, y0}, rl.Vector2{x1, y1}, thickness, {color[0], color[1], color[2], color[3]})
+    platform.draw_line({x0, y0}, {x1, y1}, thickness, color)
 }
 
 // ctx:measure: the size ctx:text would take.

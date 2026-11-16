@@ -9,7 +9,6 @@ import "core:path/filepath"
 import "core:slice"
 import "core:strings"
 import "core:unicode/utf8"
-import rl "vendor:raylib"
 
 import hb "../vendor/odin-harfbuzz/harfbuzz"
 
@@ -46,7 +45,7 @@ Font_Family :: struct {
     // Icon families only: every name this family defines, independent of
     // `preload` — the source icon_set_active_pack repoints icon_map from.
     own_icons:     map[string]rune,              // owned
-    cache:         map[i32]rl.Font,              // owned
+    cache:         map[i32]Glyph_Set,            // owned
     // Per preloaded size: glyph index -> atlas entry, for the HarfBuzz
     // shaped draw path (includes ligature glyphs, which have no codepoint).
     shaped:        map[i32]map[u32]Shaped_Glyph, // owned
@@ -121,7 +120,7 @@ register_family :: proc(name, ttf_path: string, codepoints: []rune, preload_size
     family.file_data = data
     family.codepoints = slice.clone(codepoints)
     family.preload_sizes = slice.clone(preload_sizes)
-    family.cache = make(map[i32]rl.Font)
+    family.cache = make(map[i32]Glyph_Set)
     family.shaped = make(map[i32]map[u32]Shaped_Glyph)
     families[family.name] = family
     return family
@@ -500,19 +499,17 @@ set_default_family :: proc(name: string) -> bool {
 shutdown :: proc() {
     prebake_drain()
     fallback_shutdown()
-    // Fonts hold raylib/libc glyph buffers and GPU textures, so unload them
-    // individually; all Odin-side memory goes with the arena.
-    default_texture_id := rl.GetFontDefault().texture.id
+    // A glyph set holds a GPU texture, so unload each one; all Odin-side
+    // memory goes with the arena.
     for _, family in families {
-        for _, font in family.cache {
-            if font.texture.id != default_texture_id {
-                rl.UnloadFont(font)
-            }
+        for _, set in family.cache {
+            glyph_set_destroy(set)
         }
         shape_family_destroy(family)
     }
     shape_shutdown()
 
+    builtin_reset()
     families = nil
     icon_map = nil
     active_pack = nil

@@ -7,7 +7,6 @@ import "core:path/filepath"
 import "core:slice"
 import "core:strings"
 import "core:time"
-import rl "vendor:raylib"
 
 import "../editview"
 import "../font"
@@ -87,7 +86,7 @@ Thor :: struct {
     frame_pass:                    int,
     // A texture changed its pixels, so the next frame is drawn even when its draw list did not change.
     redraw:                        bool,
-    // The signature of the last draw list drawn, and when it was drawn (rl.GetTime).
+    // The signature of the last draw list drawn, and when it was drawn (platform.time).
     frame_sig:                     u64,
     frame_drawn:                   f64,
     config:                        setting.Settings,
@@ -195,9 +194,9 @@ Thor :: struct {
     console_open:                  bool,
     // A panel to raise the next time the dock holds its tab, since a panel
     // behind another tab is never declared and cannot take focus.
-    dock_focus_request:            string,       // borrowed, a panel-name constant
+    dock_focus_request:            string,           // borrowed, a panel-name constant
     // The hammer mark the titlebar and the welcome page draw.
-    top_logo_texture:              rl.Texture2D, // owned, unloaded at shutdown
+    top_logo_texture:              platform.Texture, // owned, unloaded at shutdown
     // Top-bar buttons added by plugins via thor.button, in registration order.
     plugin_buttons:                [dynamic]^Plugin_Top_Button,
     // Panels plugins built (thor.panel) and the two docks holding them. A dock
@@ -776,11 +775,11 @@ init :: proc() -> ^Thor {
     }
     // The mark the titlebar and the welcome page draw. A texture needs the GL
     // context the window just made.
-    thor.top_logo_texture = rl.LoadTexture("assets/branding/hammer.png")
-    if thor.top_logo_texture.id != 0 {
+    if logo, ok := platform.texture_load("assets/branding/hammer.png"); ok {
+        thor.top_logo_texture = logo
         // Drawn far below its size: mipmaps keep the downscale smooth.
-        rl.GenTextureMipmaps(&thor.top_logo_texture)
-        rl.SetTextureFilter(thor.top_logo_texture, .TRILINEAR)
+        platform.texture_gen_mipmaps(&thor.top_logo_texture)
+        platform.texture_set_filter(thor.top_logo_texture, .Trilinear)
     }
     platform.window_set_target_fps(60)
 
@@ -1247,7 +1246,7 @@ shutdown :: proc(thor: ^Thor) {
     ui.destroy(&thor.ui_context)
     render.destroy(&thor.backend)
     font.shutdown()
-    rl.UnloadTexture(thor.top_logo_texture)
+    platform.texture_free(thor.top_logo_texture)
     platform.window_close()
     free(thor)
 }

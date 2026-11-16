@@ -1,7 +1,6 @@
 package render
 
 import "core:testing"
-import rl "vendor:raylib"
 
 import "../font"
 import ui "../vendor/loom/loom"
@@ -65,21 +64,6 @@ test_a_family_handle_round_trips :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_the_key_table_maps_both_ways :: proc(t: ^testing.T) {
-    testing.expect_value(t, ui_key(.F5), ui.Key.F5)
-    testing.expect_value(t, ui_key(.SEMICOLON), ui.Key.Semicolon)
-    testing.expect_value(t, ui_key(.KP_ENTER), ui.Key.Enter)
-    testing.expect_value(t, ui_key(.KP_5), ui.Key.Pad_5)
-    // A key raylib knows and Loom does not is dropped, never mapped to a wrong
-    // one, so a binding cannot fire by accident.
-    testing.expect_value(t, ui_key(.KEY_NULL), ui.Key.None)
-
-    testing.expect(t, is_modifier_key(.LEFT_CONTROL), "ctrl is a modifier")
-    testing.expect(t, is_modifier_key(.RIGHT_ALT), "altgr is a modifier")
-    testing.expect(t, !is_modifier_key(.A), "a letter is not")
-}
-
-@(test)
 test_right_alt_is_alt_unless_it_is_alt_gr :: proc(t: ^testing.T) {
     // Windows reports AltGr as left Ctrl + right Alt.
     alt_gr := Mod_Keys{left_ctrl = true, right_alt = true}
@@ -96,28 +80,4 @@ test_right_alt_is_alt_unless_it_is_alt_gr :: proc(t: ^testing.T) {
     testing.expect(t, right_alt_is_alt_gr(&b), "the setting forces AltGr")
     b.opts.right_alt = .Alt
     testing.expect(t, !right_alt_is_alt_gr(&b), "the setting forces Alt")
-}
-
-@(test)
-test_every_mapped_key_is_distinct :: proc(t: ^testing.T) {
-    // Two raylib keys may share one Loom key on purpose, but a raylib key must
-    // never appear twice, or its release fires against a stale mapping.
-    for a, i in KEYS {
-        for b, j in KEYS {
-            if i >= j {
-                continue
-            }
-            testing.expect(t, a.rk != b.rk, "a raylib key is listed once")
-        }
-    }
-}
-
-@(test)
-test_a_colour_round_trips :: proc(t: ^testing.T) {
-    testing.expect_value(t, raylib_color(ui.Color{12, 34, 56, 78}), rl.Color{12, 34, 56, 78})
-    testing.expect_value(t, raylib_rect(ui.Rect{1, 2, 3, 4}), rl.Rectangle{1, 2, 3, 4})
-    // The one call into raylib.lib of this test binary. The binding removes the
-    // default CRT and takes the one raylib.lib names, so an optimized link with
-    // no raylib object has no CRT.
-    testing.expect_value(t, rl.ColorToInt(raylib_color(ui.Color{12, 34, 56, 78})), 0x0c22384e)
 }

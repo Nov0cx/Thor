@@ -9,8 +9,9 @@
 package thor
 
 import "core:fmt"
+import "core:log"
 import "core:math"
-import rl "vendor:raylib"
+import "core:math/linalg"
 
 import "../platform"
 import "../prof"
@@ -75,7 +76,7 @@ Model_View :: struct {
     file:            ^Open_File, // borrowed, the identity the camera belongs to
     // Framing taken from the model bounds: the orbit pivot, and the size that
     // sets the start distance, the grid step and the zoom limits.
-    pivot:           rl.Vector3,
+    pivot:           [3]f32,
     radius:          f32,
     floor:           f32, // world Y of the model's lowest point; the grid sits here
     mesh_count:      int,
@@ -85,7 +86,7 @@ Model_View :: struct {
     yaw:             f32,
     pitch:           f32,
     distance:        f32,
-    pan:             rl.Vector3,
+    pan:             [3]f32,
     drag:            Model_Drag,
     // Auto-orbit, toggled by the corner button. Paused while a drag is held so
     // the user's own orbit is not fought.
@@ -100,13 +101,13 @@ Model_View :: struct {
     live:            bool,
     // Off-screen target the 3D pass renders into. Owned, grown with slack so a
     // splitter drag does not reallocate every frame.
-    target:          rl.RenderTexture2D,
+    target:          platform.Render_Target,
     // platform.time() when the target first read as bigger than the pane needs, or
     // 0 while it fits. Debounces a shrink.
     shrink_since:    f64,
     // Headlight shader, loaded on the first render (it needs the GL context).
     // Without it an untextured mesh draws as a flat silhouette. Owned.
-    shader:          rl.Shader,
+    shader:          platform.Shader,
     shader_tried:    bool,
     shader_view_dir: i32,
 }
@@ -165,16 +166,11 @@ thor_model_bind :: proc(view: ^Model_View, file: ^Open_File) {
     view.vertex_count = 0
     view.triangle_count = 0
 
-    model := file.model
-    for i in 0 ..< int(model.meshCount) {
-        view.vertex_count += int(model.meshes[i].vertexCount)
-        view.triangle_count += int(model.meshes[i].triangleCount)
-    }
-    view.mesh_count = int(model.meshCount)
+    view.mesh_count, view.vertex_count, view.triangle_count = platform.model_stats(file.model)
 
     size := file.model_bounds.max - file.model_bounds.min
     view.pivot = (file.model_bounds.min + file.model_bounds.max) * 0.5
-    view.radius = max(rl.Vector3Length(size) * 0.5, 0.0001)
+    view.radius = max(linalg.length(size) * 0.5, 0.0001)
     view.floor = file.model_bounds.min.y
     thor_model_reset_camera(view)
 }
@@ -335,13 +331,12 @@ thor_render_model :: proc(thor: ^Thor, view: ^Model_View) {
     thor_model_load_shader(view)
 
     camera := thor_model_camera(view, view.target.texture.height, need_h)
-    rl.BeginTextureMode(view.target)
-    rl.ClearBackground(render.raylib_color(thor.theme.background))
-    rl.BeginMode3D(camera)
+    platform.target_begin(view.target, thor.theme.background)
+    platform.mode_3d_begin(camera)
     thor_model_draw_grid(thor, view)
     thor_model_draw_model(view, camera)
-    rl.EndMode3D()
-    rl.EndTextureMode()
+    platform.mode_3d_end()
+    platform.target_end()
 
     view.need_w, view.need_h = need_w, need_h
     view.live = true
@@ -349,17 +344,17 @@ thor_render_model :: proc(thor: ^Thor, view: ^Model_View) {
 
 // Unit vector from the orbit target to the camera, for the current angles.
 @(private = "file")
-thor_model_offset :: proc(view: ^Model_View) -> rl.Vector3 {
+thor_model_offset :: proc(view: ^Model_View) -> [3]f32 {
     return {math.cos(view.pitch) * math.sin(view.yaw), math.sin(view.pitch), math.cos(view.pitch) * math.cos(view.yaw)}
 }
 
 // Camera axes for the current orbit angles: where it looks, and the screen
 // right and up directions in world space.
 @(private = "file")
-thor_model_basis :: proc(view: ^Model_View) -> (forward, right, up: rl.Vector3) {
-    forward = rl.Vector3Normalize(-thor_model_offset(view))
-    right = rl.Vector3Normalize(rl.Vector3CrossProduct(forward, {0, 1, 0}))
-    up = rl.Vector3CrossProduct(right, forward)
+thor_model_basis :: proc(view: ^Model_View) -> (forward, right, up: [3]f32) {
+    forward = linalg.normalize0(-thor_model_offset(view))
+    right = linalg.normalize0(linalg.cross(forward, [3]f32{0, 1, 0}))
+    up = linalg.cross(right, forward)
     return
 }
 
@@ -377,14 +372,13 @@ thor_model_fovy :: proc(target_h, need_h: i32) -> f32 {
 }
 
 @(private = "file")
-thor_model_camera :: proc(view: ^Model_View, target_h, need_h: i32) -> rl.Camera3D {
+thor_model_camera :: proc(view: ^Model_View, target_h, need_h: i32) -> platform.Camera {
     target := view.pivot + view.pan
-    return rl.Camera3D{
+    return platform.Camera{
         position = target + thor_model_offset(view) * view.distance,
         target = target,
         up = {0, 1, 0},
         fovy = thor_model_fovy(target_h, need_h),
-        projection = .PERSPECTIVE,
     }
 }
 
@@ -437,12 +431,12 @@ thor_model_ensure_target :: proc(thor: ^Thor, view: ^Model_View) -> (need_w, nee
     }
 
     thor_model_drop_target(thor, view)
-    target := rl.LoadRenderTexture(want_w, want_h)
+    target, created := platform.render_target_create(want_w, want_h)
     view.shrink_since = 0
-    if !rl.IsRenderTextureValid(target) {
+    if !created {
         return 0, 0, false
     }
-    rl.SetTextureFilter(target.texture, .BILINEAR)
+    platform.texture_set_filter(target.texture, .Bilinear)
     view.target = target
     return need_w, need_h, true
 }
@@ -453,8 +447,7 @@ thor_model_drop_target :: proc(thor: ^Thor, view: ^Model_View) {
         return
     }
     render.forget_texture(&thor.backend, view.target.texture)
-    rl.UnloadRenderTexture(view.target)
-    view.target = {}
+    platform.render_target_free(&view.target)
 }
 
 // Ground grid at the model's lowest point, centred under it. The step is a
@@ -467,13 +460,13 @@ thor_model_draw_grid :: proc(thor: ^Thor, view: ^Model_View) {
     cz     := math.round(view.pivot.z / step) * step
     y      := view.floor - view.radius * 0.001 // just under, so a flat model does not z-fight
 
-    grid := render.raylib_color(thor.theme.highlight)
-    axis := render.raylib_color(thor.theme.disabled)
+    grid := thor.theme.highlight
+    axis := thor.theme.disabled
     for i in -MODEL_GRID_HALF ..= MODEL_GRID_HALF {
         offset := f32(i) * step
         color  := i == 0 ? axis : grid
-        rl.DrawLine3D({cx - extent, y, cz + offset}, {cx + extent, y, cz + offset}, color)
-        rl.DrawLine3D({cx + offset, y, cz - extent}, {cx + offset, y, cz + extent}, color)
+        platform.draw_line_3d({cx - extent, y, cz + offset}, {cx + extent, y, cz + offset}, color)
+        platform.draw_line_3d({cx + offset, y, cz - extent}, {cx + offset, y, cz + extent}, color)
     }
 }
 
@@ -500,28 +493,11 @@ thor_model_grid_step :: proc(radius: f32) -> f32 {
 // Draws the model under the headlight shader. The materials belong to the open
 // file, so their shaders are swapped in and put back around the one call.
 @(private = "file")
-thor_model_draw_model :: proc(view: ^Model_View, camera: rl.Camera3D) {
-    model := view.file.model
-    if view.shader.id == 0 {
-        rl.DrawModel(model, {0, 0, 0}, 1, rl.WHITE)
-        return
+thor_model_draw_model :: proc(view: ^Model_View, camera: platform.Camera) {
+    if view.shader.id != 0 && view.shader_view_dir >= 0 {
+        platform.shader_set_vec3(view.shader, view.shader_view_dir, linalg.normalize0(camera.target - camera.position))
     }
-
-    direction := rl.Vector3Normalize(camera.target - camera.position)
-    if view.shader_view_dir >= 0 {
-        rl.SetShaderValue(view.shader, view.shader_view_dir, &direction, .VEC3)
-    }
-
-    count := int(model.materialCount)
-    saved := make([]rl.Shader, count, context.temp_allocator)
-    for i in 0 ..< count {
-        saved[i] = model.materials[i].shader
-        model.materials[i].shader = view.shader
-    }
-    rl.DrawModel(model, {0, 0, 0}, 1, rl.WHITE)
-    for i in 0 ..< count {
-        model.materials[i].shader = saved[i]
-    }
+    platform.draw_model(view.file.model, view.shader)
 }
 
 // Diffuse headlight over whatever the material already supplies. raylib fills
@@ -573,21 +549,18 @@ thor_model_load_shader :: proc(view: ^Model_View) {
     view.shader_tried = true
     view.shader_view_dir = -1
 
-    shader := rl.LoadShaderFromMemory(MODEL_VS, MODEL_FS)
-    if !rl.IsShaderValid(shader) {
-        rl.UnloadShader(shader)
+    shader, ok := platform.shader_load(MODEL_VS, MODEL_FS)
+    if !ok {
+        log.warn("Could not compile the model headlight shader")
         return
     }
     view.shader = shader
-    view.shader_view_dir = rl.GetShaderLocation(shader, "viewDir")
+    view.shader_view_dir = platform.shader_location(shader, "viewDir")
 }
 
 // The model itself belongs to the open file; only the target and the shader
 // are freed here.
 thor_model_view_destroy :: proc(thor: ^Thor, view: ^Model_View) {
     thor_model_drop_target(thor, view)
-    if view.shader.id != 0 {
-        rl.UnloadShader(view.shader)
-        view.shader = {}
-    }
+    platform.shader_free(&view.shader)
 }

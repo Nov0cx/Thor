@@ -8,7 +8,8 @@ import "core:slice"
 import "core:sync"
 import "core:testing"
 import "core:time"
-import rl "vendor:raylib"
+
+import "../platform"
 
 // A glyph wider than any atlas this input packs into must not be packed:
 // doing so would overrun into the next row or past the buffer entirely.
@@ -17,21 +18,21 @@ import rl "vendor:raylib"
 // packer must not corrupt memory if that ever stopped being true.
 @(test)
 test_pack_glyph_atlas_rejects_oversized_glyph :: proc(t: ^testing.T) {
-    glyphs := make([]rl.GlyphInfo, 3, context.temp_allocator)
-    glyphs[0].image = {width = 10, height = 10}
-    glyphs[1].image = {width = 100_000, height = 10} // wider than any atlas this produces
-    glyphs[2].image = {width = 10, height = 10}
+    glyphs := make([]Glyph_Bitmap, 3, context.temp_allocator)
+    glyphs[0] = {width = 10, height = 10}
+    glyphs[1] = {width = 100_000, height = 10} // wider than any atlas this produces
+    glyphs[2] = {width = 10, height = 10}
 
-    atlas_data, atlas_w, atlas_h, recs := pack_glyph_atlas(raw_data(glyphs), len(glyphs), 16, "test")
-    defer rl.MemFree(atlas_data)
-    defer rl.MemFree(recs)
+    atlas, atlas_w, atlas_h, recs := pack_glyph_atlas(glyphs, 16, "test")
+    defer delete(atlas)
+    defer delete(recs)
 
-    testing.expect_value(t, recs[1], rl.Rectangle{})
+    testing.expect_value(t, recs[1], platform.Rect{})
     for i in ([2]int{0, 2}) {
         rec := recs[i]
         testing.expect(t, rec.x >= 0 && rec.y >= 0, "negative rec origin")
-        testing.expect(t, rec.x + rec.width <= cast(f32)atlas_w, "rec overruns atlas width")
-        testing.expect(t, rec.y + rec.height <= cast(f32)atlas_h, "rec overruns atlas height")
+        testing.expect(t, rec.x + rec.w <= cast(f32)atlas_w, "rec overruns atlas width")
+        testing.expect(t, rec.y + rec.h <= cast(f32)atlas_h, "rec overruns atlas height")
     }
 }
 
@@ -39,36 +40,36 @@ test_pack_glyph_atlas_rejects_oversized_glyph :: proc(t: ^testing.T) {
 // own bitmap, not just the usual size-based row height.
 @(test)
 test_pack_glyph_atlas_grows_for_tall_glyph :: proc(t: ^testing.T) {
-    glyphs := make([]rl.GlyphInfo, 2, context.temp_allocator)
-    glyphs[0].image = {width = 10, height = 10}
-    glyphs[1].image = {width = 10, height = 500} // far taller than the requested size
+    glyphs := make([]Glyph_Bitmap, 2, context.temp_allocator)
+    glyphs[0] = {width = 10, height = 10}
+    glyphs[1] = {width = 10, height = 500} // far taller than the requested size
 
-    atlas_data, _, atlas_h, recs := pack_glyph_atlas(raw_data(glyphs), len(glyphs), 16, "test")
-    defer rl.MemFree(atlas_data)
-    defer rl.MemFree(recs)
+    atlas, _, atlas_h, recs := pack_glyph_atlas(glyphs, 16, "test")
+    defer delete(atlas)
+    defer delete(recs)
 
     rec := recs[1]
-    testing.expect(t, rec.y + rec.height <= cast(f32)atlas_h, "tall glyph overruns atlas height")
+    testing.expect(t, rec.y + rec.h <= cast(f32)atlas_h, "tall glyph overruns atlas height")
 }
 
 // A row must advance by its tallest glyph: advancing by the nominal size lets
 // a tall glyph overlap the rects of the row packed after it.
 @(test)
 test_pack_glyph_atlas_rows_do_not_overlap :: proc(t: ^testing.T) {
-    glyphs := make([]rl.GlyphInfo, 40, context.temp_allocator)
+    glyphs := make([]Glyph_Bitmap, 40, context.temp_allocator)
     for &glyph in glyphs {
-        glyph.image = {width = 30, height = 10}
+        glyph = {width = 30, height = 10}
     }
-    glyphs[5].image = {width = 30, height = 200} // taller than the nominal row
+    glyphs[5] = {width = 30, height = 200} // taller than the nominal row
 
-    atlas_data, _, _, recs := pack_glyph_atlas(raw_data(glyphs), len(glyphs), 16, "test")
-    defer rl.MemFree(atlas_data)
-    defer rl.MemFree(recs)
+    atlas, _, _, recs := pack_glyph_atlas(glyphs, 16, "test")
+    defer delete(atlas)
+    defer delete(recs)
 
     for i in 0 ..< len(glyphs) {
         for j in i + 1 ..< len(glyphs) {
             a, b := recs[i], recs[j]
-            overlaps := a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+            overlaps := a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
             testing.expectf(t, !overlaps, "rects %d %v and %d %v overlap", i, a, j, b)
         }
     }
@@ -206,11 +207,10 @@ check_full_async_load :: proc(t: ^testing.T) {
             if !ok {
                 continue
             }
-            testing.expect_value(t, font.baseSize, size)
+            testing.expect_value(t, font.size, size)
             // JetBrains Mono covers 325 of the 327 requested codepoints;
             // on top of those the shaping probes bake ligature glyphs.
-            testing.expect(t, font.glyphCount > 325, "expected ligature glyphs beyond the 325 cmap glyphs")
-            testing.expect(t, font.recs != nil, "recs not set")
+            testing.expect(t, len(font.glyphs) > 325, "expected ligature glyphs beyond the 325 cmap glyphs")
             testing.expect(t, font.glyphs != nil, "glyphs not set")
 
             shaped, shaped_ok := mono.shaped[size]
@@ -219,10 +219,10 @@ check_full_async_load :: proc(t: ^testing.T) {
 
             // Every glyph rect must lie inside the atlas dimensions recorded
             // during packing (texture is empty headless, so check via recs).
-            for i in 0 ..< font.glyphCount {
-                rec := font.recs[i]
+            for glyph in font.glyphs {
+                rec := glyph.rect
                 testing.expect(t, rec.x >= 0 && rec.y >= 0, "negative rec origin")
-                testing.expect(t, rec.width >= 0 && rec.height >= 0, "negative rec size")
+                testing.expect(t, rec.w >= 0 && rec.h >= 0, "negative rec size")
             }
         }
     }
@@ -239,7 +239,7 @@ check_full_async_load :: proc(t: ^testing.T) {
             if !ok {
                 continue
             }
-            testing.expect(t, font.glyphCount >= cast(i32)len(iosevka.codepoints), "Iosevka is missing requested codepoints")
+            testing.expect(t, cast(i32)len(font.glyphs) >= cast(i32)len(iosevka.codepoints), "Iosevka is missing requested codepoints")
         }
         // shape_line hands back the shared buffer, so keep the glyph id before
         // shaping again.
@@ -266,7 +266,7 @@ check_full_async_load :: proc(t: ^testing.T) {
                 continue
             }
             // Every preloaded icon name must resolve to a baked glyph.
-            testing.expect_value(t, font.glyphCount, cast(i32)len(icons.codepoints))
+            testing.expect_value(t, cast(i32)len(font.glyphs), cast(i32)len(icons.codepoints))
         }
     }
 
@@ -280,7 +280,7 @@ check_full_async_load :: proc(t: ^testing.T) {
             if !ok {
                 continue
             }
-            testing.expect_value(t, font.glyphCount, cast(i32)len(devicons.codepoints))
+            testing.expect_value(t, cast(i32)len(font.glyphs), cast(i32)len(devicons.codepoints))
         }
     }
 
@@ -297,7 +297,7 @@ check_full_async_load :: proc(t: ^testing.T) {
             }
             // MDI lives in Plane 15, so this also covers astral codepoints
             // surviving the manifest's surrogate pairs into the atlas.
-            testing.expect_value(t, font.glyphCount, cast(i32)len(mdi.codepoints))
+            testing.expect_value(t, cast(i32)len(font.glyphs), cast(i32)len(mdi.codepoints))
         }
     }
 
@@ -311,7 +311,7 @@ check_full_async_load :: proc(t: ^testing.T) {
             if !ok {
                 continue
             }
-            testing.expect_value(t, font.glyphCount, cast(i32)len(odin_icons.codepoints))
+            testing.expect_value(t, cast(i32)len(font.glyphs), cast(i32)len(odin_icons.codepoints))
         }
     }
 
@@ -326,7 +326,7 @@ check_full_async_load :: proc(t: ^testing.T) {
             if !ok {
                 continue
             }
-            testing.expect_value(t, font.glyphCount, cast(i32)len(material.codepoints))
+            testing.expect_value(t, cast(i32)len(font.glyphs), cast(i32)len(material.codepoints))
         }
     }
 
@@ -335,8 +335,8 @@ check_full_async_load :: proc(t: ^testing.T) {
     // draw_line_shaped falls back to it when shaping yields an unbaked glyph id.
     if family, ok := families["JetBrainsMono"]; ok {
         font           := get_font(17, "JetBrainsMono")
-        backtick_index := rl.GetGlyphIndex(font, '`')
-        testing.expect(t, font.glyphs[backtick_index].value == '`', "backtick glyph not baked into the atlas")
+        _, backtick_ok := glyph_index(font, '`')
+        testing.expect(t, backtick_ok, "backtick glyph not baked into the atlas")
 
         fence    := "```"
         infos, n := shape_line(family, fence)
@@ -371,7 +371,7 @@ check_full_async_load :: proc(t: ^testing.T) {
         if missing != 0 {
             glyph, glyph_ok := fallback_glyph(family, 16, missing)
             testing.expect(t, glyph_ok, "an icon family refused the fallback")
-            testing.expect(t, glyph.rect.width > 0, "a non-preloaded icon has no bitmap")
+            testing.expect(t, glyph.rect.w > 0, "a non-preloaded icon has no bitmap")
             testing.expect(t, glyph.advance > 0, "a non-preloaded icon has no advance")
         }
     }
@@ -386,7 +386,7 @@ check_full_async_load :: proc(t: ^testing.T) {
         testing.expect(t, !preloaded, "test size is preloaded, so it proves nothing")
 
         font := get_font(LAZY_SIZE, "JetBrainsMono")
-        testing.expect_value(t, font.baseSize, i32(LAZY_SIZE))
+        testing.expect_value(t, font.size, i32(LAZY_SIZE))
 
         shaped, shaped_ok := family.shaped[LAZY_SIZE]
         testing.expect(t, shaped_ok, "lazily baked size has no shaped map")
@@ -589,7 +589,7 @@ check_full_async_load :: proc(t: ^testing.T) {
     // one no font has draws as a blank that still advances.
     if family, ok := families["JetBrainsMono"]; ok {
         zhe, zhe_ok := fallback_glyph(family, 17, 0x0416)
-        testing.expect(t, zhe_ok && zhe.page >= 1 && zhe.rect.width > 0, "Cyrillic Zhe was not taken from the family file")
+        testing.expect(t, zhe_ok && zhe.page >= 1 && zhe.rect.w > 0, "Cyrillic Zhe was not taken from the family file")
         none, none_ok := fallback_glyph(family, 17, 0x10FFFD)
         testing.expect(t, none_ok && none.page == 0 && none.advance > 0, "a missing character has no blank advance")
         testing.expect(t, measure("\u0416\u0416", 17, "JetBrainsMono") > measure("\u0416", 17, "JetBrainsMono"), "fallback glyphs do not advance")
@@ -620,7 +620,7 @@ check_selective_preload :: proc(t: ^testing.T) {
         font, ok := jetbrains.cache[28]
         testing.expect(t, ok, "extra size 28 not baked")
         if ok {
-            testing.expect_value(t, font.baseSize, i32(28))
+            testing.expect_value(t, font.size, i32(28))
         }
     }
 
@@ -661,7 +661,7 @@ check_selective_preload :: proc(t: ^testing.T) {
     // First use of a deferred family reads, probes and bakes it, ligatures and
     // shaping font included.
     lazy := get_font(17, "CascadiaCode")
-    testing.expect_value(t, lazy.baseSize, i32(17))
+    testing.expect_value(t, lazy.size, i32(17))
     if cascadia_ok {
         testing.expect(t, len(cascadia.file_data) > 0, "lazy bake did not read the file")
         testing.expect(t, cascadia.hb_font != nil, "lazy bake has no shaping font")

@@ -2,7 +2,6 @@ package render
 
 import "core:testing"
 
-import rl "vendor:raylib"
 import ui "../vendor/loom/loom"
 
 @(test)
@@ -12,7 +11,7 @@ test_rrect_path_count_ignores_radius :: proc(t: ^testing.T) {
     defer delete(b.path_a)
     defer delete(b.path_b)
 
-    box := rl.Rectangle{0, 0, 40, 20}
+    box := ui.Rect{0, 0, 40, 20}
     rrect_path(&b, &b.path_a, box, {tl = 1, tr = 1, br = 1, bl = 1})
     // A 1 px border insets the radius to 0; the ring still pairs every point.
     rrect_path(&b, &b.path_b, {1, 1, 38, 18}, {})

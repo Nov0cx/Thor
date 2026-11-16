@@ -9,7 +9,6 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 import "core:time"
-import rl "vendor:raylib"
 
 import "../platform"
 import "../render"
@@ -60,8 +59,8 @@ Pdf_Renderer :: enum {
 }
 
 Pdf_Page :: struct {
-    size:       [2]f32,       // points
-    texture:    rl.Texture2D, // owned while `loaded`
+    size:       [2]f32,           // points
+    texture:    platform.Texture, // owned while `loaded`
     loaded:     bool,
     loading:    bool,
     dpi:        f32, // what the texture, or the last failed render, was made at
@@ -98,7 +97,7 @@ Pdf_View :: struct {
 thor_pdf_unload_page :: proc(thor: ^Thor, page: ^Pdf_Page) {
     if page.loaded {
         render.forget_texture(&thor.backend, page.texture)
-        rl.UnloadTexture(page.texture)
+        platform.texture_free(page.texture)
         page.texture = {}
         page.loaded = false
     }
@@ -286,12 +285,12 @@ thor_pdf_apply_job :: proc(thor: ^Thor, view: ^Pdf_View, job: ^Latex_Job) {
     if !job.ok {
         return
     }
-    texture := rl.LoadTextureFromImage(job.decoded)
-    if texture.id == 0 {
+    texture, uploaded := platform.texture_from_image(job.decoded)
+    if !uploaded {
         log.warnf("Failed to upload page %d of %q", job.page + 1, job.pdf)
         return
     }
-    rl.SetTextureFilter(texture, .BILINEAR)
+    platform.texture_set_filter(texture, .Bilinear)
     thor_pdf_unload_page(thor, page)
     page.texture = texture
     page.loaded = true

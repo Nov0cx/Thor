@@ -3,14 +3,14 @@ package font
 import "core:c"
 import "core:math"
 import "core:unicode/utf8"
-import rl "vendor:raylib"
 
+import "../platform"
 import hb "../vendor/odin-harfbuzz/harfbuzz"
 
 // Atlas glyph keyed by glyph index, so ligature glyphs (which have no
 // codepoint) are drawable.
 Shaped_Glyph :: struct {
-    rect:     rl.Rectangle,
+    rect:     platform.Rect,
     offset_x: i32,
     offset_y: i32,
     advance:  i32,
@@ -195,7 +195,7 @@ LIGATURES_OFF := [?]hb.feature_t{
 // placement, so a measured width is the width that gets drawn.
 @(private)
 Placed_Glyph :: struct {
-    rect:     rl.Rectangle,
+    rect:     platform.Rect,
     offset_x: i32,
     offset_y: i32,
     advance:  i32,
@@ -388,7 +388,7 @@ shape_line_run :: proc(family: ^Font_Family, line: string, run: Shape_Run) -> ([
 // family, size, ligatures and text; an atlas rebake must call shape_cache_clear.
 // The slice is cache-owned until its entry is evicted: do not change or free it.
 @(private = "file")
-shape_place_line :: proc(family: ^Font_Family, font: rl.Font, size: i32, line: string) -> ([]Placed_Glyph, bool) {
+shape_place_line :: proc(family: ^Font_Family, font: Glyph_Set, size: i32, line: string) -> ([]Placed_Glyph, bool) {
     if family == nil || family.hb_font == nil {
         return nil, false
     }
@@ -442,13 +442,12 @@ apply_position :: proc(glyph: ^Placed_Glyph, hb_font: ^hb.font_t, info: hb.glyph
 }
 
 @(private = "file")
-place_glyph :: proc(family: ^Font_Family, size: i32, shaped: map[u32]Shaped_Glyph, font: rl.Font, line: string, info: hb.glyph_info_t) {
+place_glyph :: proc(family: ^Font_Family, size: i32, shaped: map[u32]Shaped_Glyph, font: Glyph_Set, line: string, info: hb.glyph_info_t) {
     cluster := cast(int)info.cluster
     // Before the glyph lookup: a font whose cmap maps U+0009 would otherwise
     // return a mapped glyph and never become a tab.
     if cluster >= 0 && cluster < len(line) && line[cluster] == '\t' {
-        space := rl.GetGlyphIndex(font, ' ')
-        append(&placed, Placed_Glyph{advance = font.glyphs[space].advanceX, cluster = i32(cluster), tab = true})
+        append(&placed, Placed_Glyph{advance = space_advance(font), cluster = i32(cluster), tab = true})
         return
     }
 
@@ -464,13 +463,9 @@ place_glyph :: proc(family: ^Font_Family, size: i32, shaped: map[u32]Shaped_Glyp
     if cluster >= 0 && cluster < len(line) {
         r, _ = utf8.decode_rune_in_string(line[cluster:])
     }
-    index := rl.GetGlyphIndex(font, r)
-    if r >= 32 && font.glyphs[index].value == r {
+    if index, found := glyph_index(font, r); found && r >= 32 {
         baked := font.glyphs[index]
-        append(
-            &placed,
-            Placed_Glyph{rect = font.recs[index], offset_x = baked.offsetX, offset_y = baked.offsetY, advance = baked.advanceX, cluster = i32(cluster)},
-        )
+        append(&placed, Placed_Glyph{rect = baked.rect, offset_x = baked.offset_x, offset_y = baked.offset_y, advance = baked.advance, cluster = i32(cluster)})
         return
     }
     // A character the atlas lacks: from the family's own file or a system face.
@@ -490,15 +485,14 @@ place_glyph :: proc(family: ^Font_Family, size: i32, shaped: map[u32]Shaped_Glyp
             return
         }
     }
-    space := rl.GetGlyphIndex(font, ' ')
-    append(&placed, Placed_Glyph{advance = font.glyphs[space].advanceX, cluster = i32(cluster)})
+    append(&placed, Placed_Glyph{advance = space_advance(font), cluster = i32(cluster)})
 }
 
 // Draws one line via shaping; false when the family/size has no shaping data,
 // so the caller falls back to the codepoint path. `origin` is the distance from
 // the line origin to the start of `line`, so a caller drawing one line in pieces
 // keeps the tab stops on one grid.
-draw_line_shaped :: proc(family: ^Font_Family, font: rl.Font, size: i32, line: string, x, y: i32, color: rl.Color, origin: f32 = 0, style: Style = {}) -> bool {
+draw_line_shaped :: proc(family: ^Font_Family, font: Glyph_Set, size: i32, line: string, x, y: i32, color: platform.Color, origin: f32 = 0, style: Style = {}) -> bool {
     glyphs, ok := shape_place_line(family, font, size, line)
     if !ok {
         return false
@@ -512,11 +506,11 @@ draw_line_shaped :: proc(family: ^Font_Family, font: rl.Font, size: i32, line: s
             pen = base + tab_stop(pen - base, cast(f32)glyph.advance)
             continue
         }
-        if glyph.rect.width > 0 {
+        if glyph.rect.w > 0 {
             texture := glyph.page > 0 ? fallback_page(family, size, glyph.page) : font.texture
-            at      := rl.Vector2{pen + cast(f32)glyph.offset_x, cast(f32)y + cast(f32)glyph.offset_y}
+            at      := [2]f32{pen + cast(f32)glyph.offset_x, cast(f32)y + cast(f32)glyph.offset_y}
             if style == {} {
-                rl.DrawTextureRec(texture, glyph.rect, at, color)
+                platform.draw_texture_at(texture, glyph.rect, at, color)
             } else {
                 draw_glyph_styled(texture, glyph.rect, at, color, style, size, baseline)
             }
@@ -529,7 +523,7 @@ draw_line_shaped :: proc(family: ^Font_Family, font: rl.Font, size: i32, line: s
 // Width of one line via shaping; false when the family/size has no shaping
 // data. A ligature has its own advance, so the shaped sum is the only width
 // that agrees with draw_line_shaped.
-measure_line_shaped :: proc(family: ^Font_Family, font: rl.Font, size: i32, line: string, origin: f32 = 0) -> (f32, bool) {
+measure_line_shaped :: proc(family: ^Font_Family, font: Glyph_Set, size: i32, line: string, origin: f32 = 0) -> (f32, bool) {
     glyphs, ok := shape_place_line(family, font, size, line)
     if !ok {
         return 0, false
@@ -557,7 +551,7 @@ Placed_Cluster :: struct {
 // Walks the clusters of a shaped line in order. False when the line has no
 // shaping data or a right-to-left run, whose clusters do not ascend.
 @(private = "file")
-shape_clusters :: proc(family: ^Font_Family, font: rl.Font, size: i32, line: string, origin: f32, allocator := context.temp_allocator) -> (
+shape_clusters :: proc(family: ^Font_Family, font: Glyph_Set, size: i32, line: string, origin: f32, allocator := context.temp_allocator) -> (
     []Placed_Cluster,
     bool,
 ) {
@@ -592,7 +586,7 @@ shape_clusters :: proc(family: ^Font_Family, font: rl.Font, size: i32, line: str
 
 // The x of byte offset `at` in a shaped line. Inside a ligature the offset is
 // placed in proportion to the runes before it.
-offset_x_shaped :: proc(family: ^Font_Family, font: rl.Font, size: i32, line: string, at: int, origin: f32 = 0) -> (x: f32, ok: bool) {
+offset_x_shaped :: proc(family: ^Font_Family, font: Glyph_Set, size: i32, line: string, at: int, origin: f32 = 0) -> (x: f32, ok: bool) {
     clusters := shape_clusters(family, font, size, line, origin) or_return
     for cl in clusters {
         if at <= cl.start {
@@ -612,7 +606,7 @@ offset_x_shaped :: proc(family: ^Font_Family, font: rl.Font, size: i32, line: st
 }
 
 // The rune boundary of a shaped line nearest `x`.
-index_at_shaped :: proc(family: ^Font_Family, font: rl.Font, size: i32, line: string, x: f32, origin: f32 = 0) -> (index: int, ok: bool) {
+index_at_shaped :: proc(family: ^Font_Family, font: Glyph_Set, size: i32, line: string, x: f32, origin: f32 = 0) -> (index: int, ok: bool) {
     clusters := shape_clusters(family, font, size, line, origin) or_return
     prev, prev_x := 0, f32(0)
     for cl in clusters {

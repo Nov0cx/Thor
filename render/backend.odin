@@ -3,9 +3,9 @@
 // window — the application makes the window and drives the loop.
 package render
 
-import rl "vendor:raylib"
 
 import "../font"
+import "../platform"
 import ui "../vendor/loom/loom"
 
 DEFAULT_ARC_SEGMENTS :: 6
@@ -20,7 +20,7 @@ Options :: struct {
 // A key raylib reports as held. The physical key is what raylib answers about;
 // the mapped one is what the user's layout prints on the cap.
 Held_Key :: struct {
-    physical: rl.KeyboardKey,
+    physical: platform.Scancode,
     mapped:   ui.Key,
 }
 
@@ -33,10 +33,10 @@ Family_Handle :: struct {
 Backend :: struct {
     opts:      Options,
     families:  [dynamic]Family_Handle, // the font package owns the names
-    textures:  map[u32]rl.Texture2D,
-    clip:      [dynamic]rl.Rectangle,
-    path_a:    [dynamic]rl.Vector2,
-    path_b:    [dynamic]rl.Vector2,
+    textures:  map[u32]platform.Texture,
+    clip:      [dynamic]ui.Rect,
+    path_a:    [dynamic]ui.Vec2,
+    path_b:    [dynamic]ui.Vec2,
     held:      [dynamic]Held_Key,
     key_evs:   [dynamic]ui.Key_Event,
     text_buf:  [64]byte,
@@ -55,10 +55,10 @@ init :: proc(b: ^Backend, opts: Options = {}) -> ui.Backend {
     }
 
     b.families = make([dynamic]Family_Handle, 0, 4)
-    b.textures = make(map[u32]rl.Texture2D, 8)
-    b.clip = make([dynamic]rl.Rectangle, 0, 16)
-    b.path_a = make([dynamic]rl.Vector2, 0, 64)
-    b.path_b = make([dynamic]rl.Vector2, 0, 64)
+    b.textures = make(map[u32]platform.Texture, 8)
+    b.clip = make([dynamic]ui.Rect, 0, 16)
+    b.path_a = make([dynamic]ui.Vec2, 0, 64)
+    b.path_b = make([dynamic]ui.Vec2, 0, 64)
     b.held = make([dynamic]Held_Key, 0, 8)
     b.key_evs = make([dynamic]ui.Key_Event, 0, 32)
 
@@ -90,11 +90,11 @@ destroy :: proc(b: ^Backend) {
 }
 
 // Makes a texture the application already loaded addressable by a draw command.
-register_texture :: proc(b: ^Backend, tex: rl.Texture2D) -> ui.Texture {
+register_texture :: proc(b: ^Backend, tex: platform.Texture) -> ui.Texture {
     b.textures[tex.id] = tex
     return ui.Texture(tex.id)
 }
 
-forget_texture :: proc(b: ^Backend, tex: rl.Texture2D) {
+forget_texture :: proc(b: ^Backend, tex: platform.Texture) {
     delete_key(&b.textures, tex.id)
 }

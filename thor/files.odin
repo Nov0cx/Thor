@@ -1,6 +1,5 @@
 package thor
 
-import "core:c"
 import "core:fmt"
 import "core:log"
 import "core:mem"
@@ -11,12 +10,12 @@ import "core:strings"
 import "core:sync"
 import "core:thread"
 import "core:time"
-import rl "vendor:raylib"
 
 import "../atomicfile"
 import "../editview"
 import "../lang"
 import "../lockfree"
+import "../platform"
 import "../prof"
 import "../render"
 import "../setting"
@@ -151,13 +150,13 @@ Open_File :: struct {
     // Image files bypass the text pipeline: the pixels load into a GPU texture
     // and show in the image view instead of the editor. `loaded` stays false.
     is_image:             bool,
-    texture:              rl.Texture2D,
+    texture:              platform.Texture,
     texture_loaded:       bool,
     // 3D model files take the same bypass as images: the meshes upload to the
     // GPU and show in the model view instead of the editor. `loaded` stays false.
     is_model:             bool,
-    model:                rl.Model,
-    model_bounds:         rl.BoundingBox,
+    model:                platform.Model,
+    model_bounds:         platform.Bounds,
     model_loaded:         bool,
     // Any other file with a NUL in its head: the raw bytes show in the hex view. `loaded` stays false.
     is_binary:            bool,
@@ -186,10 +185,9 @@ Load_Job :: struct {
     // This job decodes an image rather than parsing text; skips the NUL probe
     // (an image is binary by definition) and the line-ending prep.
     image:            bool,
-    // raylib-owned pixels. Freed by the worker itself on a failed decode
-    // (UnloadImage is plain CPU memory, safe off the main thread); on success
-    // the reap uploads it to GL and frees it after.
-    decoded:          rl.Image,
+    // Decoded pixels. Empty after a failed decode; on success the reap uploads
+    // them to GL and frees them after.
+    decoded:          platform.Image,
     data:             [^]u8,
     size:             int,
     mapping:          File_Map, // closed by the worker; closed again on reap is a no-op
@@ -342,13 +340,7 @@ load_worker :: proc(job: ^Load_Job) {
     job.size = len(job.buffer)
 
     if job.image {
-        ext := strings.clone_to_cstring(filepath.ext(job.path), context.temp_allocator)
-        job.decoded = rl.LoadImageFromMemory(ext, job.data, cast(c.int)job.size)
-        job.ok = rl.IsImageValid(job.decoded)
-        if !job.ok {
-            rl.UnloadImage(job.decoded)
-            job.decoded = {}
-        }
+        job.decoded, job.ok = platform.image_decode(filepath.ext(job.path), job.data[:job.size])
         return
     }
 
@@ -1058,16 +1050,14 @@ thor_is_model_path :: proc(name: string) -> bool {
 // On failure the tab shows the load-failed placeholder, matching a bad image.
 @(private = "file")
 thor_load_model :: proc(file: ^Open_File) {
-    path  := strings.clone_to_cstring(file.path, context.temp_allocator)
-    model := rl.LoadModel(path)
-    if !rl.IsModelValid(model) {
-        rl.UnloadModel(model) // frees the default material LoadModel still made
+    model, ok := platform.model_load(file.path)
+    if !ok {
         file.load_failed = true
         log.warnf("Failed to load model %q", file.path)
         return
     }
     file.model = model
-    file.model_bounds = rl.GetModelBoundingBox(model)
+    file.model_bounds = platform.model_bounds(model)
     file.model_loaded = true
 }
 
@@ -1078,7 +1068,7 @@ thor_load_model :: proc(file: ^Open_File) {
 @(private = "file")
 thor_reload_gpu_asset :: proc(thor: ^Thor, file: ^Open_File) {
     if file.model_loaded {
-        rl.UnloadModel(file.model)
+        platform.model_free(&file.model)
         file.model_loaded = false
     }
     file.load_failed = false
@@ -1104,8 +1094,8 @@ thor_apply_image :: proc(thor: ^Thor, job: ^Load_Job) {
     }
     // A texture id can be reused, so the draw list alone may not show the new image.
     thor.redraw = true
-    texture := rl.LoadTextureFromImage(job.decoded)
-    if texture.id == 0 {
+    texture, uploaded := platform.texture_from_image(job.decoded)
+    if !uploaded {
         if !job.reload {
             file.load_failed = true
         }
@@ -1113,12 +1103,12 @@ thor_apply_image :: proc(thor: ^Thor, job: ^Load_Job) {
         return
     }
     // Smooths downscaled images; large photos are almost always shown shrunk.
-    rl.SetTextureFilter(texture, .BILINEAR)
+    platform.texture_set_filter(texture, .Bilinear)
     old, old_loaded := file.texture, file.texture_loaded
     file.texture = texture
     file.texture_loaded = true
     if old_loaded {
-        rl.UnloadTexture(old)
+        platform.texture_free(old)
     }
 }
 
@@ -1486,9 +1476,7 @@ thor_process_io :: proc(thor: ^Thor) {
         if job.buffer != nil {
             delete(job.buffer, job.buffer_allocator)
         }
-        if job.decoded.data != nil {
-            rl.UnloadImage(job.decoded)
-        }
+        platform.image_free(&job.decoded)
         free(job)
 
         file.pending_jobs -= 1
@@ -1622,10 +1610,10 @@ thor_free_open_file :: proc(file: ^Open_File, thor: ^Thor = nil) {
         if thor != nil {
             render.forget_texture(&thor.backend, file.texture)
         }
-        rl.UnloadTexture(file.texture)
+        platform.texture_free(file.texture)
     }
     if file.model_loaded {
-        rl.UnloadModel(file.model)
+        platform.model_free(&file.model)
     }
     thor_drop_binary(file)
     textedit.destroy(&file.state)
@@ -2190,7 +2178,7 @@ thor_queue_import :: proc(thor: ^Thor, entries: ^[dynamic]File_Op_Entry, src_pat
 
 // One image a markdown page names, under its absolute path.
 Md_Image :: struct {
-    texture: rl.Texture2D, // owned once `loaded`
+    texture: platform.Texture, // owned once `loaded`
     loaded:  bool,
     loading: bool, // a decode job is in flight
     used:    bool, // the page built last names it
@@ -2202,7 +2190,7 @@ Md_Image_Job :: struct {
     allocator:  mem.Allocator,
     worker:     ^thread.Thread,
     path:       string, // owned
-    decoded:    rl.Image,
+    decoded:    platform.Image,
     ok:         bool,
 }
 
@@ -2232,13 +2220,7 @@ md_image_worker :: proc(job: ^Md_Image_Job) {
     if len(data) == 0 {
         return
     }
-    ext := strings.clone_to_cstring(filepath.ext(job.path), context.temp_allocator)
-    job.decoded = rl.LoadImageFromMemory(ext, raw_data(data), cast(c.int)len(data))
-    job.ok = rl.IsImageValid(job.decoded)
-    if !job.ok {
-        rl.UnloadImage(job.decoded)
-        job.decoded = {}
-    }
+    job.decoded, job.ok = platform.image_decode(filepath.ext(job.path), data)
 }
 
 // Applies a decoded image to the preview that asked for it and lays the page
@@ -2249,9 +2231,7 @@ thor_apply_md_image :: proc(thor: ^Thor, job: ^Md_Image_Job) {
     thread.destroy(job.worker)
     thor.inflight_jobs -= 1
     defer {
-        if job.decoded.data != nil {
-            rl.UnloadImage(job.decoded)
-        }
+        platform.image_free(&job.decoded)
         delete(job.path)
         free(job)
     }
@@ -2269,12 +2249,12 @@ thor_apply_md_image :: proc(thor: ^Thor, job: ^Md_Image_Job) {
     }
     // A texture id can be reused, so the draw list alone may not show the new image.
     thor.redraw = true
-    texture := rl.LoadTextureFromImage(job.decoded)
-    if texture.id == 0 {
+    texture, uploaded := platform.texture_from_image(job.decoded)
+    if !uploaded {
         log.warnf("Failed to upload image %q", job.path)
         return
     }
-    rl.SetTextureFilter(texture, .BILINEAR)
+    platform.texture_set_filter(texture, .Bilinear)
     image.texture = texture
     image.loaded = true
 }
@@ -2283,7 +2263,7 @@ thor_apply_md_image :: proc(thor: ^Thor, job: ^Md_Image_Job) {
 thor_md_image_unload :: proc(thor: ^Thor, image: ^Md_Image) {
     if image.loaded {
         render.forget_texture(&thor.backend, image.texture)
-        rl.UnloadTexture(image.texture)
+        platform.texture_free(image.texture)
     }
     image^ = {}
 }

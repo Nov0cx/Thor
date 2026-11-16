@@ -3,7 +3,6 @@
 // thread applies the result.
 package thor
 
-import "core:c"
 import "core:fmt"
 import "core:log"
 import "core:mem"
@@ -13,9 +12,9 @@ import "core:strings"
 import "core:sync"
 import "core:thread"
 import "core:time"
-import rl "vendor:raylib"
 
 import "../lockfree"
+import "../platform"
 import "../setting"
 import "../shell"
 import "../textedit"
@@ -53,7 +52,7 @@ Latex_Job :: struct {
     output:     string,          // owned
     code:       int,
     ok:         bool,
-    decoded:    rl.Image, // .Page: owned until applied
+    decoded:    platform.Image, // .Page: owned until applied
 }
 
 Latex_State :: struct {
@@ -128,12 +127,7 @@ latex_worker :: proc(job: ^Latex_Job) {
         return
     }
     defer delete(data)
-    job.decoded = rl.LoadImageFromMemory(".png", raw_data(data), cast(c.int)len(data))
-    job.ok = rl.IsImageValid(job.decoded)
-    if !job.ok {
-        rl.UnloadImage(job.decoded)
-        job.decoded = {}
-    }
+    job.decoded, job.ok = platform.image_decode(".png", data)
 }
 
 @(private = "file")
@@ -148,9 +142,7 @@ thor_latex_job_free :: proc(job: ^Latex_Job) {
     delete(job.pdf)
     delete(job.out_png)
     delete(job.output)
-    if job.decoded.data != nil {
-        rl.UnloadImage(job.decoded)
-    }
+    platform.image_free(&job.decoded)
     free(job)
 }
 

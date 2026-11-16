@@ -1,12 +1,13 @@
 package font
 
+import "base:runtime"
 import "core:c"
 import "core:log"
 import "core:math"
-import "core:mem"
 import "core:os"
-import rl "vendor:raylib"
 import stbtt "vendor:stb/truetype"
+
+import "../platform"
 
 // Fonts asked for a character the family's atlas lacks, after the family's
 // own file. The first file of each row that exists is used.
@@ -70,7 +71,7 @@ Fallback_Face :: struct {
 // character, which draws as a blank of `advance`.
 Fallback_Glyph :: struct {
     page:     i32, // 1-based page of the sheet
-    rect:     rl.Rectangle,
+    rect:     platform.Rect,
     offset_x: i32,
     offset_y: i32,
     advance:  i32,
@@ -80,7 +81,7 @@ Fallback_Glyph :: struct {
 // shelves onto pages that grow on demand.
 Fallback_Sheet :: struct {
     glyphs:   map[rune]Fallback_Glyph,
-    pages:    [dynamic]rl.Texture2D,
+    pages:    [dynamic]platform.Texture,
     pen_x:    i32,
     pen_y:    i32,
     row_h:    i32,
@@ -111,9 +112,7 @@ fallback_shutdown :: proc() {
     for _, family in families {
         for _, sheet in family.fallback {
             for page in sheet.pages {
-                if page.id != 0 {
-                    rl.UnloadTexture(page)
-                }
+                platform.texture_free(page)
             }
         }
     }
@@ -140,7 +139,7 @@ fallback_glyph :: proc(family: ^Font_Family, size: i32, r: rune) -> (Fallback_Gl
 
 // The texture of 1-based page `page` of the family's sheet at `size`.
 @(private)
-fallback_page :: proc(family: ^Font_Family, size: i32, page: i32) -> rl.Texture2D {
+fallback_page :: proc(family: ^Font_Family, size: i32, page: i32) -> platform.Texture {
     sheet, ok := family.fallback[size]
     if !ok || page < 1 || int(page) > len(sheet.pages) {
         return {}
@@ -158,7 +157,7 @@ fallback_sheet :: proc(family: ^Font_Family, size: i32) -> ^Fallback_Sheet {
     }
     sheet := new(Fallback_Sheet)
     sheet.glyphs = make(map[rune]Fallback_Glyph)
-    sheet.pages = make([dynamic]rl.Texture2D)
+    sheet.pages = make([dynamic]platform.Texture)
     sheet.baseline = size
     sheet.blank = size / 2
     info: stbtt.fontinfo
@@ -251,7 +250,7 @@ fallback_bake :: proc(info: ^stbtt.fontinfo, sheet: ^Fallback_Sheet, size: i32, 
     }
 
     page := sheet.pages[len(sheet.pages) - 1]
-    rect := rl.Rectangle{f32(sheet.pen_x), f32(sheet.pen_y), f32(width), f32(height)}
+    rect := platform.Rect{f32(sheet.pen_x), f32(sheet.pen_y), f32(width), f32(height)}
     if page.id != 0 {
         // Gray is full, alpha is coverage, the format of the main atlas.
         pixels := make([]u8, int(width * height) * 2, context.temp_allocator)
@@ -259,7 +258,7 @@ fallback_bake :: proc(info: ^stbtt.fontinfo, sheet: ^Fallback_Sheet, size: i32, 
             pixels[2 * i] = 255
             pixels[2 * i + 1] = bitmap[i]
         }
-        rl.UpdateTextureRec(page, rect, raw_data(pixels))
+        platform.texture_update(page, rect, raw_data(pixels))
     }
     sheet.pen_x += width + 1
     sheet.row_h = max(sheet.row_h, height)
@@ -275,23 +274,21 @@ fallback_bake :: proc(info: ^stbtt.fontinfo, sheet: ^Fallback_Sheet, size: i32, 
 // the glyphs keep their places and advances.
 @(private = "file")
 page_add :: proc(sheet: ^Fallback_Sheet) -> bool {
-    texture: rl.Texture2D
-    if rl.IsWindowReady() {
-        bytes := PAGE_SIZE * PAGE_SIZE * 2
-        data  := rl.MemAlloc(c.uint(bytes))
-        if data == nil {
+    texture: platform.Texture
+    if platform.window_ready() {
+        data, err := make([]u8, PAGE_SIZE * PAGE_SIZE * 2, runtime.heap_allocator())
+        if err != nil {
             log.errorf("No memory for a %dx%d fallback glyph page", PAGE_SIZE, PAGE_SIZE)
             return false
         }
-        mem.zero(data, bytes)
-        image := rl.Image{data = data, width = PAGE_SIZE, height = PAGE_SIZE, mipmaps = 1, format = .UNCOMPRESSED_GRAY_ALPHA}
-        texture = rl.LoadTextureFromImage(image)
-        rl.MemFree(data)
-        if texture.id == 0 {
+        ok: bool
+        texture, ok = platform.texture_from_pixels(raw_data(data), PAGE_SIZE, PAGE_SIZE, .Gray_Alpha)
+        delete(data, runtime.heap_allocator())
+        if !ok {
             log.errorf("Could not upload a fallback glyph page")
             return false
         }
-        rl.SetTextureFilter(texture, .BILINEAR)
+        platform.texture_set_filter(texture, .Bilinear)
     }
     append(&sheet.pages, texture)
     sheet.pen_x, sheet.pen_y, sheet.row_h = 0, 0, 0

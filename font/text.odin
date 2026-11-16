@@ -12,9 +12,9 @@ import "core:strings"
 import "core:sync"
 import "core:thread"
 import "core:unicode/utf8"
-import rl "vendor:raylib"
 import stbtt "vendor:stb/truetype"
 
+import "../platform"
 import "../prof"
 
 // Fonts are rasterized per size: drawing a bitmap atlas at any size other
@@ -24,20 +24,20 @@ import "../prof"
 // threads; only the texture upload needs GL, on the main thread.
 @(private = "file")
 Font_Load_Job :: struct {
-    family:      ^Font_Family,
-    size:        i32,
-    glyphs:      [^]rl.GlyphInfo,
-    recs:        [^]rl.Rectangle,
-    glyph_count: i32,
-    atlas:       rl.Image,
-    shaped:      map[u32]Shaped_Glyph,
-    ok:          bool,
-    worker:      ^thread.Thread,
+    family:  ^Font_Family,
+    size:    i32,
+    glyphs:  []Glyph, // font arena
+    atlas:   []u8,    // heap, gray-alpha; freed on publish or discard
+    atlas_w: i32,
+    atlas_h: i32,
+    shaped:  map[u32]Shaped_Glyph,
+    ok:      bool,
+    worker:  ^thread.Thread,
     // The spawning thread's logger: a new thread has none.
-    logger:      log.Logger,
+    logger:  log.Logger,
     // Set by the worker when the bake ends; pump_async polls it so a
     // prebake job is joined only once finished.
-    done:        bool,
+    done:    bool,
 }
 
 // One glyph scheduled for rasterization: cmap glyphs carry their codepoint;
@@ -51,29 +51,38 @@ Bake_Entry :: struct {
 @(private = "file")
 async_jobs: [dynamic]^Font_Load_Job
 
-// Row-packs `count` rasterized glyphs into a freshly allocated grayscale
-// atlas (raylib packMethod 0), sized from their total area and grown taller
-// on a row wrap that runs out of room. A glyph taller than the nominal row
-// height grows the atlas further still; one wider than the atlas itself is
-// skipped with a zero rect rather than packed, which would overrun into the
-// next row or past the buffer entirely. Caller frees atlas_data and recs
-// with rl.MemFree. Returns a nil atlas_data when an allocation fails.
+// One rasterized glyph bitmap before packing: one byte of coverage per pixel.
 @(private)
-pack_glyph_atlas :: proc(glyphs: [^]rl.GlyphInfo, count: int, size: i32, family_name: string) -> (
-    atlas_data: [^]u8,
-    atlas_w, atlas_h: c.int,
-    recs: [^]rl.Rectangle,
+Glyph_Bitmap :: struct {
+    value:  rune,
+    data:   []u8, // nil for a glyph with no pixels
+    width:  i32,
+    height: i32,
+}
+
+// Row-packs rasterized glyphs into a new grayscale atlas (raylib packMethod 0),
+// sized from their total area and grown taller on a row wrap that runs out of
+// room. A glyph taller than the nominal row height grows the atlas further
+// still; one wider than the atlas itself is skipped with a zero rect rather
+// than packed, which would overrun into the next row or past the buffer
+// entirely. The atlas is allocated with `allocator`, the rects with
+// context.allocator. Returns a nil atlas when an allocation fails.
+@(private)
+pack_glyph_atlas :: proc(bitmaps: []Glyph_Bitmap, size: i32, family_name: string, allocator := context.allocator) -> (
+    atlas: []u8,
+    atlas_w, atlas_h: i32,
+    rects: []platform.Rect,
 ) {
     PADDING :: 4
 
-    total_width: c.int = 0
-    for k in 0 ..< count {
-        total_width += glyphs[k].image.width + 2 * PADDING
+    total_width: i32 = 0
+    for b in bitmaps {
+        total_width += b.width + 2 * PADDING
     }
     padded_font_size := size + 2 * PADDING
     total_area       := cast(f32)total_width * cast(f32)padded_font_size * 1.2
     image_min_size   := math.sqrt(total_area)
-    image_size       := cast(c.int)math.pow(2, math.ceil(math.ln(image_min_size) / math.ln(cast(f32)2)))
+    image_size       := cast(i32)math.pow(2, math.ceil(math.ln(image_min_size) / math.ln(cast(f32)2)))
 
     atlas_w = image_size
     atlas_h = image_size
@@ -82,34 +91,32 @@ pack_glyph_atlas :: proc(glyphs: [^]rl.GlyphInfo, count: int, size: i32, family_
     }
 
     // Zeroed: the padding between packed glyphs stays fully transparent.
-    atlas_data = cast([^]u8)rl.MemAlloc(cast(c.uint)(atlas_w * atlas_h))
-    if atlas_data == nil {
+    err: runtime.Allocator_Error
+    atlas, err = make([]u8, int(atlas_w * atlas_h), allocator)
+    if err != nil {
         log.errorf("font %s: no memory for a %dx%d atlas", family_name, atlas_w, atlas_h)
         return nil, 0, 0, nil
     }
-    mem.zero(atlas_data, cast(int)(atlas_w * atlas_h))
-    recs = cast([^]rl.Rectangle)rl.MemAlloc(cast(c.uint)(count * size_of(rl.Rectangle)))
-    if recs == nil {
-        log.errorf("font %s: no memory for %d glyph rects", family_name, count)
-        rl.MemFree(atlas_data)
+    rects, err = make([]platform.Rect, len(bitmaps))
+    if err != nil {
+        log.errorf("font %s: no memory for %d glyph rects", family_name, len(bitmaps))
+        delete(atlas, allocator)
         return nil, 0, 0, nil
     }
 
-    offset_x: c.int = PADDING
-    offset_y: c.int = PADDING
+    offset_x: i32 = PADDING
+    offset_y: i32 = PADDING
     // Tallest glyph placed in the current row: a row advances by that, not by
     // the nominal size, or a glyph taller than the row overlaps the next one.
     row_h := size
-    for k in 0 ..< count {
-        glyph := glyphs[k]
-        gw, gh := glyph.image.width, glyph.image.height
+    for b, k in bitmaps {
+        gw, gh := b.width, b.height
 
         // Wider than a whole row: no wrap ever fits it, and packing it anyway
         // would overrun into the next row or past the buffer. Leaves a zero
         // rect, so this glyph draws nothing instead of corrupting the atlas.
         if gw + 2 * PADDING > atlas_w {
-            log.warnf("font %s: glyph %d is %dpx wide, wider than the %dpx atlas; skipped", family_name, glyph.value, gw, atlas_w)
-            recs[k] = rl.Rectangle{}
+            log.warnf("font %s: glyph %d is %dpx wide, wider than the %dpx atlas; skipped", family_name, b.value, gw, atlas_w)
             continue
         }
 
@@ -125,45 +132,40 @@ pack_glyph_atlas :: proc(glyphs: [^]rl.GlyphInfo, count: int, size: i32, family_
         // Loops since one doubling may still be short for a very tall glyph;
         // checked every row, not only a wrap, so a tall first glyph is covered.
         for offset_y + row_h + PADDING > atlas_h {
-            new_h    := atlas_h * 2
-            new_data := cast([^]u8)rl.MemAlloc(cast(c.uint)(atlas_w * new_h))
-            if new_data == nil {
+            new_h           := atlas_h * 2
+            grown, grow_err := make([]u8, int(atlas_w * new_h), allocator)
+            if grow_err != nil {
                 log.errorf("font %s: no memory to grow the atlas to %dx%d", family_name, atlas_w, new_h)
-                rl.MemFree(atlas_data)
-                rl.MemFree(recs)
+                delete(atlas, allocator)
+                delete(rects)
                 return nil, 0, 0, nil
             }
-            mem.copy(new_data, atlas_data, cast(int)(atlas_w * atlas_h))
-            mem.zero(&new_data[atlas_w * atlas_h], cast(int)(atlas_w * (new_h - atlas_h)))
-            rl.MemFree(atlas_data)
-            atlas_data = new_data
+            copy(grown, atlas)
+            delete(atlas, allocator)
+            atlas = grown
             atlas_h = new_h
         }
 
-        if glyph.image.data != nil {
-            src := cast([^]u8)glyph.image.data
+        if b.data != nil {
             for row in 0 ..< gh {
-                mem.copy(&atlas_data[(offset_y + row) * atlas_w + offset_x], &src[row * gw], cast(int)gw)
+                copy(atlas[(offset_y + row) * atlas_w + offset_x:][:gw], b.data[row * gw:][:gw])
             }
         }
 
-        recs[k] = rl.Rectangle{x = cast(f32)offset_x, y = cast(f32)offset_y, width = cast(f32)gw, height = cast(f32)gh}
+        rects[k] = {x = cast(f32)offset_x, y = cast(f32)offset_y, w = cast(f32)gw, h = cast(f32)gh}
         offset_x += gw + 2 * PADDING
     }
 
     return
 }
 
-// Frees baked glyphs and their bitmaps. Used only before a font is published;
-// after that rl.UnloadFont does the same walk.
+// Frees the glyph bitmaps of a bake.
 @(private = "file")
-free_glyphs :: proc(glyphs: [^]rl.GlyphInfo, count: int) {
-    for k in 0 ..< count {
-        if glyphs[k].image.data != nil {
-            rl.MemFree(glyphs[k].image.data)
-        }
+free_bitmaps :: proc(bitmaps: []Glyph_Bitmap) {
+    for b in bitmaps {
+        delete(b.data, runtime.heap_allocator())
     }
-    rl.MemFree(glyphs)
+    delete(bitmaps, runtime.heap_allocator())
 }
 
 @(private = "file")
@@ -179,24 +181,30 @@ font_load_worker :: proc(job: ^Font_Load_Job) {
 // needs GL. Writes the shaping map with the font, so a size in `cache` is
 // always in `shaped` too — the drawing path skips shaping without it.
 @(private = "file")
-font_job_publish :: proc(job: ^Font_Load_Job) -> rl.Font {
-    font := rl.Font{
-        baseSize = job.size,
-        glyphCount = job.glyph_count,
-        glyphPadding = 4,
-        glyphs = job.glyphs,
-        recs = job.recs,
-        texture = rl.LoadTextureFromImage(job.atlas),
+font_job_publish :: proc(job: ^Font_Load_Job) -> Glyph_Set {
+    set := Glyph_Set{size = job.size, glyphs = job.glyphs}
+    // Without a window (a test) there is no GL context; the metrics still count.
+    if platform.window_ready() {
+        if tex, ok := platform.texture_from_pixels(raw_data(job.atlas), job.atlas_w, job.atlas_h, .Gray_Alpha); ok {
+            set.texture = tex
+        } else {
+            log.errorf("font %s: could not upload the %dx%d atlas at size %d", job.family.name, job.atlas_w, job.atlas_h, job.size)
+        }
     }
-    rl.UnloadImage(job.atlas)
-    job.family.cache[job.size] = font
+    delete(job.atlas, runtime.heap_allocator())
+    job.atlas = nil
+    {
+        context.allocator = font_allocator
+        glyph_set_index(&set)
+    }
+    job.family.cache[job.size] = set
     job.family.shaped[job.size] = job.shaped
-    return font
+    return set
 }
 
 // Rasterizes and packs the atlas with stb_truetype directly: raylib's font
 // procs aren't thread-safe, and its LoadFontData binding corrupts memory.
-// Buffers handed to raylib are libc-allocated so UnloadFont/UnloadImage free them.
+// The bitmaps and the atlas are on the heap; the glyphs go with the font arena.
 // Touches no GL, so it runs on a worker thread at startup and inline on the
 // main thread for a size the manifest never named.
 @(private = "file")
@@ -237,51 +245,55 @@ font_bake_job :: proc(job: ^Font_Load_Job) {
         }
     }
 
-    count  := len(baked)
-    glyphs := cast([^]rl.GlyphInfo)rl.MemAlloc(cast(c.uint)(count * size_of(rl.GlyphInfo)))
-    if glyphs == nil {
+    count              := len(baked)
+    glyphs, glyphs_err := make([]Glyph, count)
+    if glyphs_err != nil {
         log.errorf("font %s: no memory for %d glyphs", job.family.name, count)
         return
     }
-    // A glyph without a bitmap keeps its zeroed image; the packer tests image.data.
-    mem.zero(glyphs, count * size_of(rl.GlyphInfo))
+    // A glyph without pixels keeps a nil bitmap and packs as a zero rect.
+    bitmaps, bitmaps_err := make([]Glyph_Bitmap, count, runtime.heap_allocator())
+    if bitmaps_err != nil {
+        log.errorf("font %s: no memory for %d glyph bitmaps", job.family.name, count)
+        return
+    }
 
     for entry, k in baked {
         cp    := entry.value
         glyph := &glyphs[k]
         glyph.value = cp
+        bitmaps[k].value = cp
 
         advance: c.int
         stbtt.GetGlyphHMetrics(&info, cast(c.int)entry.gid, &advance, nil)
-        glyph.advanceX = cast(c.int)(cast(f32)advance * scale)
+        glyph.advance = cast(i32)(cast(f32)advance * scale)
 
         if cp == 0x20 || cp == 0x3000 {
             // Space has no bitmap; give it a blank image so atlas packing
             // reserves its advance width, exactly like raylib does.
-            if glyph.advanceX > 0 {
-                // Without the image the space keeps its zeroed one and only
-                // loses its reserved atlas width; its advance still counts.
-                if blank := rl.MemAlloc(cast(c.uint)(glyph.advanceX * job.size)); blank != nil {
-                    mem.zero(blank, cast(int)(glyph.advanceX * job.size))
-                    glyph.image = rl.Image{data = blank, width = glyph.advanceX, height = job.size, mipmaps = 1, format = .UNCOMPRESSED_GRAYSCALE}
+            if glyph.advance > 0 {
+                // Without the bitmap the space only loses its reserved atlas
+                // width; its advance still counts.
+                if blank, err := make([]u8, int(glyph.advance * job.size), runtime.heap_allocator()); err == nil {
+                    bitmaps[k] = {value = cp, data = blank, width = glyph.advance, height = job.size}
                 }
             } else {
-                glyph.advanceX = 0
+                glyph.advance = 0
             }
             continue
         }
 
         width, height, offset_x, offset_y: c.int
         bitmap := stbtt.GetGlyphBitmap(&info, scale, scale, cast(c.int)entry.gid, &width, &height, &offset_x, &offset_y)
-        glyph.offsetX = offset_x
-        glyph.offsetY = offset_y + cast(c.int)math.round(cast(f32)ascent * scale)
+        glyph.offset_x = offset_x
+        glyph.offset_y = offset_y + cast(i32)math.round(cast(f32)ascent * scale)
 
         if bitmap != nil && width > 0 && height > 0 {
-            // A failed copy leaves the zeroed image, so this one glyph draws
+            // A failed copy leaves a nil bitmap, so this one glyph draws
             // nothing rather than losing the whole font.
-            if data := rl.MemAlloc(cast(c.uint)(width * height)); data != nil {
-                mem.copy(data, bitmap, cast(int)(width * height))
-                glyph.image = rl.Image{data = data, width = width, height = height, mipmaps = 1, format = .UNCOMPRESSED_GRAYSCALE}
+            if data, err := make([]u8, int(width * height), runtime.heap_allocator()); err == nil {
+                mem.copy(raw_data(data), bitmap, cast(int)(width * height))
+                bitmaps[k] = {value = cp, data = data, width = width, height = height}
             }
         }
         if bitmap != nil {
@@ -289,36 +301,36 @@ font_bake_job :: proc(job: ^Font_Load_Job) {
         }
     }
 
-    atlas_data, atlas_w, atlas_h, recs := pack_glyph_atlas(glyphs, count, job.size, job.family.name)
-    if atlas_data == nil {
-        free_glyphs(glyphs, count)
+    atlas, atlas_w, atlas_h, rects := pack_glyph_atlas(bitmaps, job.size, job.family.name, runtime.heap_allocator())
+    free_bitmaps(bitmaps)
+    if atlas == nil {
         return
     }
 
     // Convert GRAYSCALE to GRAY_ALPHA (gray=255, alpha=coverage).
-    pixel_count := cast(int)(atlas_w * atlas_h)
-    gray_alpha  := cast([^]u8)rl.MemAlloc(cast(c.uint)(pixel_count * 2))
-    if gray_alpha == nil {
+    gray_alpha, gray_err := make([]u8, len(atlas) * 2, runtime.heap_allocator())
+    if gray_err != nil {
         log.errorf("font %s: no memory for the %dx%d gray-alpha atlas", job.family.name, atlas_w, atlas_h)
-        rl.MemFree(atlas_data)
-        rl.MemFree(recs)
-        free_glyphs(glyphs, count)
+        delete(atlas, runtime.heap_allocator())
         return
     }
-    for i in 0 ..< pixel_count {
+    for coverage, i in atlas {
         gray_alpha[2 * i] = 255
-        gray_alpha[2 * i + 1] = atlas_data[i]
+        gray_alpha[2 * i + 1] = coverage
     }
-    rl.MemFree(atlas_data)
+    delete(atlas, runtime.heap_allocator())
 
-    job.atlas = rl.Image{data = gray_alpha, width = atlas_w, height = atlas_h, mipmaps = 1, format = .UNCOMPRESSED_GRAY_ALPHA}
+    for &glyph, k in glyphs {
+        glyph.rect = rects[k]
+    }
+    job.atlas = gray_alpha
+    job.atlas_w = atlas_w
+    job.atlas_h = atlas_h
     job.glyphs = glyphs
-    job.recs = recs
-    job.glyph_count = cast(i32)count
 
     job.shaped = make(map[u32]Shaped_Glyph, count)
     for entry, k in baked {
-        job.shaped[entry.gid] = Shaped_Glyph{rect = recs[k], offset_x = glyphs[k].offsetX, offset_y = glyphs[k].offsetY, advance = glyphs[k].advanceX}
+        job.shaped[entry.gid] = Shaped_Glyph{rect = rects[k], offset_x = glyphs[k].offset_x, offset_y = glyphs[k].offset_y, advance = glyphs[k].advance}
     }
 
     job.ok = true
@@ -483,7 +495,7 @@ finish_async_load :: proc() {
 // data, the same way as a preloaded one: `preload_sizes` only decides what is
 // ready before the first frame, never what shapes. Runs on the main thread
 // (texture upload needs GL).
-get_font :: proc(font_size: i32, family_name := "") -> rl.Font {
+get_font :: proc(font_size: i32, family_name := "") -> Glyph_Set {
     name := family_name
     if name == "" {
         name = default_family_name
@@ -491,7 +503,7 @@ get_font :: proc(font_size: i32, family_name := "") -> rl.Font {
 
     family, found := families[name]
     if !found {
-        return rl.GetFontDefault()
+        return builtin_set()
     }
 
     if font, cached := family.cache[font_size]; cached {
@@ -500,7 +512,7 @@ get_font :: proc(font_size: i32, family_name := "") -> rl.Font {
 
     if !family_ensure_loaded(family) {
         // Recorded so a file that cannot load is tried once, not every frame.
-        fallback := rl.GetFontDefault()
+        fallback := builtin_set()
         family.cache[font_size] = fallback
         return fallback
     }
@@ -510,7 +522,7 @@ get_font :: proc(font_size: i32, family_name := "") -> rl.Font {
     if !job.ok {
         log.warnf("Failed to rasterize font %q at size %d", family.path, font_size)
         // Recorded so a size that cannot bake is tried once, not every frame.
-        fallback := rl.GetFontDefault()
+        fallback := builtin_set()
         family.cache[font_size] = fallback
         return fallback
     }
@@ -533,13 +545,11 @@ prebake_pending :: proc(family: ^Font_Family, size: i32) -> bool {
     return false
 }
 
-// Frees a baked-but-unpublished job's raylib buffers; Odin-side memory is
-// arena-owned.
+// Frees a baked-but-unpublished job's atlas; the rest is arena-owned.
 @(private = "file")
 prebake_discard :: proc(job: ^Font_Load_Job) {
-    rl.UnloadImage(job.atlas)
-    rl.MemFree(job.recs)
-    free_glyphs(job.glyphs, cast(int)job.glyph_count)
+    delete(job.atlas, runtime.heap_allocator())
+    job.atlas = nil
 }
 
 // Bakes the missing sizes of `family_names` on worker threads, so a later
@@ -630,35 +640,39 @@ line_height :: proc(font_size: i32) -> i32 {
     return font_size + 6
 }
 
-// How much of a line the caller's stack scratch holds, NUL included. A label is
-// far shorter; a longer one still draws, off the temp allocator.
+// Walks `text` glyph by glyph on the codepoint path, scaled from the size the
+// set was baked at to `font_size`, and draws it when `draw`. Returns the width.
 @(private = "file")
-LINE_SCRATCH :: 1024
-
-// The text as a cstring the raylib procs take, in the caller's buffer. Only a
-// line too long for it allocates.
-@(private = "file")
-line_cstring :: proc(text: string, buffer: []u8) -> cstring {
-    if len(text) + 1 > len(buffer) {
-        return strings.clone_to_cstring(text, context.temp_allocator)
+codepoint_run :: proc(set: Glyph_Set, text: string, x, y: f32, font_size: i32, color: platform.Color, draw: bool) -> f32 {
+    if len(set.glyphs) == 0 || set.size <= 0 {
+        return 0
     }
-    copy(buffer, text)
-    buffer[len(text)] = 0
-    return cast(cstring)raw_data(buffer)
+    scale := f32(font_size) / f32(set.size)
+    pen: f32 = 0
+    for r in text {
+        index, _ := glyph_index(set, r)
+        g        := set.glyphs[index]
+        if draw && r != ' ' && g.rect.w > 0 && set.texture.id != 0 {
+            dst := platform.Rect{x + pen + f32(g.offset_x) * scale, y + f32(g.offset_y) * scale, g.rect.w * scale, g.rect.h * scale}
+            platform.draw_texture(set.texture, g.rect, dst, color)
+        }
+        advance := g.advance != 0 ? f32(g.advance) : g.rect.w
+        pen += advance * scale
+    }
+    return pen
 }
 
 // Codepoint-path walk of one line, for a family/size with no shaping data.
-// raylib has no tab handling and 0x09 is never baked, so a tab would draw '?';
-// split at the tabs and snap the pen to the next stop between the pieces.
-// Measuring and drawing share this, so the two cannot drift. Returns the width.
+// 0x09 is never baked, so a tab would draw '?'; split at the tabs and snap the
+// pen to the next stop between the pieces. Measuring and drawing share this,
+// so the two cannot drift. Returns the width.
 @(private = "file")
-fallback_line :: proc(font: rl.Font, line: string, x, y: f32, origin: f32, font_size: i32, color: rl.Color, draw: bool) -> f32 {
-    scratch: [LINE_SCRATCH]u8
+fallback_line :: proc(set: Glyph_Set, line: string, x, y: f32, origin: f32, font_size: i32, color: platform.Color, draw: bool) -> f32 {
     // No atlas (a headless run): every width is 0, and a 0 cell makes tab_stop
     // a no-op rather than a null dereference.
     cell: f32 = 0
-    if font.glyphs != nil && font.glyphCount > 0 {
-        cell = cast(f32)font.glyphs[rl.GetGlyphIndex(font, ' ')].advanceX
+    if set.size > 0 {
+        cell = f32(space_advance(set)) * f32(font_size) / f32(set.size)
     }
     pen  := origin
     rest := line
@@ -669,10 +683,7 @@ fallback_line :: proc(font: rl.Font, line: string, x, y: f32, origin: f32, font_
             piece = rest[:tab]
         }
         if piece != "" {
-            if draw {
-                rl.DrawTextEx(font, line_cstring(piece, scratch[:]), rl.Vector2{x - origin + pen, y}, cast(f32)font_size, 0, color)
-            }
-            pen += rl.MeasureTextEx(font, line_cstring(piece, scratch[:]), cast(f32)font_size, 0).x
+            pen += codepoint_run(set, piece, x - origin + pen, y, font_size, color, draw)
         }
         if tab < 0 {
             break
@@ -704,7 +715,7 @@ measure :: proc(text: string, font_size: i32, family := "", tab_origin: i32 = 0,
         // instead of the sum raylib measures per codepoint.
         width, shaped := measure_line_shaped(fam, font, font_size, line, origin)
         if !shaped {
-            width = fallback_line(font, line, 0, 0, origin, font_size, rl.BLANK, false)
+            width = fallback_line(font, line, 0, 0, origin, font_size, {}, false)
         }
         if width > max_width {
             max_width = width
@@ -713,9 +724,7 @@ measure :: proc(text: string, font_size: i32, family := "", tab_origin: i32 = 0,
     }
 
     if max_width == 0 && text != "" {
-        scratch: [LINE_SCRATCH]u8
-        size := rl.MeasureTextEx(font, line_cstring(text, scratch[:]), cast(f32)font_size, 0)
-        max_width = size.x
+        max_width = codepoint_run(font, text, 0, 0, font_size, {}, false)
     }
 
     if max_width > 0 {
@@ -725,7 +734,7 @@ measure :: proc(text: string, font_size: i32, family := "", tab_origin: i32 = 0,
 }
 
 // See measure for `tab_origin`.
-draw :: proc(text: string, x, y, font_size: i32, color: rl.Color, family := "", tab_origin: i32 = 0, style: Style = {}) {
+draw :: proc(text: string, x, y, font_size: i32, color: platform.Color, family := "", tab_origin: i32 = 0, style: Style = {}) {
     if text == "" {
         return
     }
