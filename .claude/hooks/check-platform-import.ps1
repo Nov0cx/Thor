@@ -28,6 +28,21 @@ $rules = @(
     @{ Import = 'core:sys/darwin';  Os = 'macOS';   Suffixes = @('_posix.odin', '_darwin.odin') }
 )
 
+# raylib belongs to platform/ alone; vendor/ holds the binding itself.
+$normalized = $path -replace '\\', '/'
+$inPlatform = $normalized -match '(^|/)(platform|vendor)/'
+if (-not $inPlatform -and $text -match '(?m)^\s*import\s+(\w+\s+)?"vendor:raylib') {
+    [Console]::Error.WriteLine(@"
+Blocked: $leaf imports vendor:raylib, but only platform/ may.
+
+Thor reaches the window, input, GPU, clipboard and 3D models through the
+platform package (platform/*.odin). Add the call there with Thor's own types
+(platform.Texture, platform.Image, platform.Rect, ...) and call it from here.
+build.odin -- check fails on the same import, and so does CI.
+"@)
+    exit 2
+}
+
 foreach ($rule in $rules) {
     if (-not $text.Contains($rule.Import)) { continue }
 

@@ -17,10 +17,11 @@ lets the lower layers be tested headlessly.
 piecetable  ->  textedit
 vendor/loom/loom          (Loom, imported as `ui`; a leaf)
 input / theme             (Loom only)
-font                      (raylib + HarfBuzz, no Loom)
+platform                  (raylib + Loom; the only raylib importer)
+font                      (platform + HarfBuzz, no Loom)
 snippet / search / markdown / vt / msvc   (leaves)
 editview                  (textedit, font, snippet, setting, Loom)
-render                    (font, Loom, raylib)
+render                    (font, platform, Loom)
 syntax / treecache
 plugin                    (input, syntax, treecache)
 lang  ->  lang/odin
@@ -33,10 +34,12 @@ thor      (the application, imports everything)
 - `textedit` is UI-independent: cursors, selection, movement, edits, undo/redo.
 - Loom is the UI library, the `vendor/loom` submodule. There is no `ui/` or
   `widgets/` package; `thor` declares the tree once a frame.
-- `font` owns shaping, the atlas and the raylib fonts.
+- `platform` owns every raylib call: window, input, clipboard, 2D drawing,
+  textures, images, the built-in font and 3D models. It speaks its own handle
+  types and Loom's `Rect`/`Color`/`Vec2`.
+- `font` owns shaping, the atlas and its baked `Glyph_Set`s.
 - `editview` is the editor's state and behaviour with no drawing.
-- `render` is the Loom backend: the only package besides `thor` and `font`
-  that draws through raylib.
+- `render` is the Loom backend: it replays the draw list through `platform`.
 - `syntax` yields capture-name-tagged spans and knows nothing about themes.
 - `thor` owns all state and hosts everything else. `main` only sets up the
   tracking allocator and calls `thor.init/run/shutdown`.
@@ -50,7 +53,9 @@ allow. The ones that matter most:
   callbacks (`Goto_Definition_Proc`, `Hover_Proc`, `Completion_Proc`, …) and
   never by importing `thor`. A new editor-to-app call means a new callback type,
   not an import.
-- `editview` importing `render` or `raylib` — it draws nothing.
+- Any package but `platform` importing `vendor:raylib` or `vendor:raylib/rlgl`.
+  `build.odin -- check` fails on it; the fix is a call in `platform`.
+- `editview` importing `render` or `platform` — it draws nothing.
 - `textedit` or `piecetable` importing Loom, `raylib` or anything drawing.
 - `font` importing Loom, or `render` importing `thor`.
 - `snippet`, `search`, `markdown`, `vt` importing another Thor package

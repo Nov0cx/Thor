@@ -61,7 +61,7 @@ Linking needs MSVC on PATH (Thor links `harfbuzz.lib` and `libtree-sitter.lib`).
 `odin build main` / `odin test <pkg>` requires a developer shell. `odin check` needs neither.
 
 The GUI does start from an agent-spawned process — what read as a hang was `rl.InitWindow` taking
-40 s, which `thor/dinput_windows.odin` now removes. Launch it detached and read `user/thor.log`
+40 s, which `platform/dinput_windows.odin` now removes. Launch it detached and read `user/thor.log`
 beside the binary, never through a pipe the tool waits on:
 
 ```powershell
@@ -76,7 +76,7 @@ $p = Start-Process bin\debug\thor.exe -PassThru -RedirectStandardOutput out.txt
 `.claude/` holds the agent tooling. Two PowerShell hooks in `.claude/hooks/`, wired in
 `.claude/settings.json`, run on every `Edit` and `Write` of an `.odin` file:
 
-- `check-platform-import.ps1` (PreToolUse) — blocks an OS-specific import in a file that is not the
+- `check-platform-import.ps1` (PreToolUse) — blocks a `vendor:raylib` import outside `platform/`, and an OS-specific import in a file that is not the
   matching platform file. `core:sys/windows` needs a `_windows.odin` name, `core:sys/posix` a
   `_posix.odin` one, `core:sys/linux` and `core:sys/darwin` either `_posix.odin` or their own suffix.
   It reads the `Write` content and the `Edit` replacement text, and exits 2 with the split to make.
@@ -147,8 +147,18 @@ be tested headlessly.
   added upstream in Loom and the submodule pointer bumped, not worked around here.
 - `input` — the spelling of keys and modifiers in a chord. Loom owns the set: `setting.Keybind` is
   `{ui.Key, input.Modifiers}`.
+- `platform` — the only package that imports `vendor:raylib`: the window and frame (`window_open`,
+  `frame_begin/end`), time, clipboard, dropped files, raw input (`next_key_press` with the layout
+  remap, `modifiers_down`, mouse), 2D drawing (`list_begin/end`, `triangles_begin`/`vertex`,
+  `draw_texture`, scissor), textures and images (`image_decode` is safe on a worker thread), the
+  built-in font, and 3D models, shaders and render targets. It speaks its own handle types
+  (`Texture`, `Image`, `Model`, `Shader`, `Render_Target`) and Loom's vocabulary (`Rect`, `Color`,
+  `Vec2` are aliases of the `ui` types, so `font` names them without importing Loom). It imports
+  `core:`, `base:`, raylib and Loom. `build.odin -- check` fails on a raylib import anywhere else,
+  and the PreToolUse hook blocks one.
 - `font` — HarfBuzz shaping, the per-size atlas and the shaped-line cache (`font.measure`,
-  `font.draw`, `font.line_height`). Owns the raylib fonts and imports no Loom. A character the
+  `font.draw`, `font.line_height`). Owns its baked `Glyph_Set`s (atlas texture + glyph metrics; the
+  backend's built-in font is one too, `builtin_set`) and imports no Loom. A character the
   atlas lacks is rasterized on demand from the family's own file, then a system face
   (`font/fallback.odin`), onto per-size pages that grow.
 - `theme` — the named roles, `role_color` (public plugin API, do not rename), the contrast helpers
@@ -168,8 +178,8 @@ be tested headlessly.
   painters skip them. `editor_set_on_action` reports each keymap action that ran, by its
   keybinds name.
 - `render` — the Loom backend: answers Loom's measure callbacks from `font`, replays the draw list
-  through rlgl, and `poll_input` turns raylib input into Loom's event stream (AltGr suppression,
-  layout remap, repeat and release synthesis).
+  through `platform`, and `poll_input` turns `platform` input into Loom's event stream (AltGr
+  suppression, repeat and release synthesis).
 - `syntax` / `treecache` — tree-sitter parsing and resident per-buffer trees (incremental re-parse).
   `syntax` yields capture-name-tagged spans and knows nothing about themes or colors.
 - `plugin` — the Lua 5.4 VM, the language registry plugins fill at load, and the mapping from
@@ -218,8 +228,8 @@ be tested headlessly.
   profile) and `build.odin` import, so the lookup exists once.
 - `update` — the self-updater: release check, download, checksum and the file swap. Imports `shell`.
 - `thor` — the application: owns `Thor` (all state), declares the whole tree once a frame
-  (`thor_frame`, `thor/view.odin`), and hosts everything else. Only `thor/thor.odin` (window
-  lifecycle) and `thor/files.odin` (image and model loading) call raylib directly. `main` only sets
+  (`thor_frame`, `thor/view.odin`), and hosts everything else. It reaches the window, the GPU and
+  the clipboard through `platform` alone. `main` only sets
   up the debug tracking allocator and calls `thor.init/run/shutdown`.
 
 `Thor.run` is a plain per-frame loop: poll (dropped files, watcher, settings, IO) → reap async
@@ -231,8 +241,8 @@ temp allocator.
 `ui.frame` runs the build up to three times a frame while a pass changes what the last one laid out
 (an input edge, a `changed` widget, a new node, `set_focus`, a new hovered node). Input edges and
 `dt` reach only the first pass, so code that reacts to input runs once; work that advances with time
-on its own (`rl.GetFrameTime`) must check `thor.frame_pass == 0`. Input is polled once, before the
-loop, since `poll_input` drains raylib's queues.
+on its own (`platform.frame_time`) must check `thor.frame_pass == 0`. Input is polled once, before the
+loop, since `poll_input` drains the backend's queues.
 
 ## UI (Loom)
 
@@ -272,14 +282,13 @@ change against it.
   frames before it asserts.
 - A duplicate node id in one frame panics under `ODIN_DEBUG`. A loop body needs `ui.push_id_int(i)`
   or an explicit `key`.
-- `render.draw` must call `rlgl.DrawRenderBatchActive()` before it restores GL state it set. rlgl
-  uploads the batch late, so the pending tail of the frame otherwise draws under the restored state.
-  The model 3D pass runs before `render.draw` for the same reason.
-- `ui.Color` is `distinct [4]u8` and is not assignable to `rl.Color`; `render.raylib_color` and
-  `theme.to_rl` convert.
+- `render.draw` ends with `platform.list_end`, which drains the batch (`rlgl.DrawRenderBatchActive`)
+  before it restores the GL state. rlgl uploads the batch late, so the pending tail of the frame
+  otherwise draws under the restored state. The model 3D pass runs before `render.draw` for the same
+  reason.
 - Loom's wheel is positive for scroll down. `Cmd_Text.pos.y` is the baseline, `font.draw` takes the
   top, and `font_metrics` must return a negative descent.
-- `render` ignores `Cmd_Push_Clip.radius`: a raylib scissor is axis-aligned.
+- `render` ignores `Cmd_Push_Clip.radius`: a `platform.scissor_begin` clip is axis-aligned.
 - `ui.dockspace` opens and closes its own node; `ui.panel` / `ui.end_panel` are a pair; `ui.scope`
   closes at the end of the enclosing Odin scope.
 - `text_width` bypasses Loom's text cache on purpose; positional queries go to `render`'s backend
@@ -296,7 +305,7 @@ piped child process a language server runs in), `watch/watch_*`,
 `thor/windows_*` (multi-window records), `thor/wm_linux.odin` / `thor/wm_other.odin` (the desktop cursor
 and the X11 `_NET_WM_MOVERESIZE` hand-off of a titlebar or edge drag), `thor/dialogs_*` (file pickers), `thor/filemap_*` (the
 load worker's read-only mapping), `thor/reveal_*` (file-manager reveal and the browser open
-behind Help > Documentation) and `thor/dinput_*` (the DirectInput block around window creation:
+behind Help > Documentation) and `platform/dinput_*` (the DirectInput block around window creation:
 raylib's game-controller scan reads every HID device, and one that does not answer costs seconds —
 the Windows half refuses `dinput8.dll` through its own import table for the length of `InitWindow`). `watch/` is the one three-way split —
 `watch_windows.odin` blocks on ReadDirectoryChangesW, `watch_linux.odin` on inotify, and

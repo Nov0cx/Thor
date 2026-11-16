@@ -198,10 +198,69 @@ stage_resources :: proc() -> bool {
 // reachable from main, so one check covers them all. Test files are not part of
 // a check; the test command covers those.
 check_all :: proc() -> bool {
+    if !raylib_stays_in_platform() {
+        return false
+    }
     args := make([dynamic]string, context.temp_allocator)
     append(&args, "odin", "check", "main")
     append_common_flags(&args)
     return exec(args[:])
+}
+
+// Directories the raylib import check skips: the third-party code, the build
+// output, and the one package that may import raylib.
+RAYLIB_EXEMPT_DIRS :: []string{"vendor", "bin", "platform", "node_modules"}
+
+// True when no .odin file outside platform/ imports vendor:raylib. Prints each one that does.
+raylib_stays_in_platform :: proc() -> bool {
+    offenders := make([dynamic]string, context.temp_allocator)
+    raylib_scan_dir(".", &offenders)
+    for path in offenders {
+        fmt.eprintfln("[build] %s imports vendor:raylib; only platform/ may", path)
+    }
+    return len(offenders) == 0
+}
+
+@(private = "file")
+raylib_scan_dir :: proc(dir: string, offenders: ^[dynamic]string) {
+    entries, err := os.read_all_directory_by_path(dir, context.temp_allocator)
+    if err != nil {
+        fmt.eprintfln("[build] cannot read %s: %v", dir, err)
+        return
+    }
+    for entry in entries {
+        path := join(dir, entry.name)
+        if entry.type == .Directory {
+            if strings.has_prefix(entry.name, ".") || (dir == "." && slice.contains(RAYLIB_EXEMPT_DIRS, entry.name)) {
+                continue
+            }
+            raylib_scan_dir(path, offenders)
+            continue
+        }
+        if !strings.has_suffix(entry.name, ".odin") {
+            continue
+        }
+        data, read_err := os.read_entire_file(path, context.temp_allocator)
+        if read_err != nil {
+            fmt.eprintfln("[build] cannot read %s: %v", path, read_err)
+            continue
+        }
+        if imports_raylib(string(data)) {
+            append(offenders, path)
+        }
+    }
+}
+
+// True when a line of `source` is an import of vendor:raylib or one of its subpackages.
+imports_raylib :: proc(source: string) -> bool {
+    text := source
+    for line in strings.split_lines_iterator(&text) {
+        trimmed := strings.trim_space(line)
+        if strings.has_prefix(trimmed, "import ") && strings.contains(trimmed, "\"vendor:raylib") {
+            return true
+        }
+    }
+    return false
 }
 
 // The test packages that link raylib, directly or through an import. A package
