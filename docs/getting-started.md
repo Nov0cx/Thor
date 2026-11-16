@@ -120,6 +120,27 @@ The same holds at launch. Starting Thor on a folder another window holds brings
 that window forward and the new process exits. With files on the command line,
 or when the window cannot be raised, Thor starts with no folder open.
 
+### Waiting for a file to close
+
+`thor --wait <file>...` (or `-w`) opens a window with only those files and
+returns once all of their tabs are closed, or the window is. Use it to make Thor
+the editor or merge tool of git:
+
+```bash
+git config --global core.editor "thor --wait"
+git config --global merge.tool thor
+git config --global mergetool.thor.cmd 'thor --wait "$MERGED"'
+```
+
+A `--wait` window always opens in its own process, even when another window
+holds the folder. It does not restore or save the folder's session and does not
+install updates. A folder opened from it goes to a new window. Without an
+existing file, `--wait` exits with code `2`.
+
+On Windows the release build has no console of its own: git waits for it, but
+PowerShell and `cmd` do not. From a shell, use `Start-Process -Wait` or
+`start /wait`.
+
 ### Formatting from the command line
 
 `thor fmt` formats Odin source with no window, using the same formatter and the

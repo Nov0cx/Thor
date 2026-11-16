@@ -355,6 +355,10 @@ thor_cancel_update :: proc(thor: ^Thor) {
 // The updater's frame slot, called from the run loop. Everything that takes
 // focus or replaces files happens here rather than in a callback or a drain.
 thor_poll_update :: proc(thor: ^Thor) {
+    // A swap relaunches the process a --wait caller waits on.
+    if thor.wait_mode {
+        return
+    }
     thor_poll_update_bytes(thor)
     if thor.update_swap_pending {
         thor_swap_and_relaunch(thor)

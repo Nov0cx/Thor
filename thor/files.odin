@@ -1198,6 +1198,22 @@ thor_close_file :: proc(thor: ^Thor, index: int) {
     } else {
         thor_free_open_file(file, thor)
     }
+    if thor.wait_mode && thor_wait_satisfied(thor.wait_files[:], thor.open_files[:]) {
+        log.info("Every waited file is closed; exiting")
+        thor.should_close = true
+    }
+}
+
+// True when no file of `wait` has a tab in `open`.
+thor_wait_satisfied :: proc(wait: []string, open: []^Open_File) -> bool {
+    for path in wait {
+        for file in open {
+            if thor_same_path(path, file.path) {
+                return false
+            }
+        }
+    }
+    return true
 }
 
 // `force` writes a buffer that matches its last save, for bytes that change

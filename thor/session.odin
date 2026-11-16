@@ -254,6 +254,9 @@ thor_record_recent_workspace :: proc(workspace: string) {
 // any open-file state is torn down.
 thor_save_session :: proc(thor: ^Thor) {
     prof.proc_scope()
+    if thor.wait_mode {
+        return
+    }
     if !os.is_dir("sessions") {
         if err := os.make_directory("sessions"); err != nil {
             log.errorf("Could not create sessions dir: %v", err)
@@ -388,7 +391,7 @@ thor_session_index :: proc(remap: []int, saved: int) -> int {
 // before thor_apply_layout_state.
 thor_restore_session :: proc(thor: ^Thor) {
     prof.proc_scope()
-    if thor.workspace_dir == "" {
+    if thor.workspace_dir == "" || thor.wait_mode {
         return
     }
     // The dock belongs to the workspace, so it is re-arranged for this one: from

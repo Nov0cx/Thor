@@ -121,6 +121,11 @@ thor_open_folder_request :: proc(thor: ^Thor, dir: string) {
         return
     }
 
+    // A switch would close the tabs a --wait caller waits on.
+    if thor.wait_mode {
+        thor_open_folder_in_new_window(thor, resolved)
+        return
+    }
     switch setting.open_folder_in(&thor.config) {
     case .Same:
         thor_open_folder(thor, resolved)

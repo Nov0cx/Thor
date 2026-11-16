@@ -9,6 +9,7 @@
 - SyncTeX: `ctrl` + click in the PDF opens the source line, and `ctrl + alt + j` scrolls the PDF to the caret line.
 - `latex_build_on_save`, `latex_build_command` and `latex_pdf_renderer` settings. `latex_build_command` is a project key.
 - The Linux release runs on glibc 2.31 (Ubuntu 20.04) and newer.
+- `thor --wait <file>` returns once the tabs of its files are closed, so Thor can be the editor or merge tool of git. The window keeps no session.
 
 # 2026.11.5
 

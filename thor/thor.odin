@@ -655,6 +655,10 @@ Thor :: struct {
     // True when the launch gave up a folder another window holds. That window
     // owns the last-workspace record.
     launch_dropped_held:           bool,
+    // Started with --wait: the window keeps no session and closes when every
+    // file of `wait_files` (owned, absolute) has no tab.
+    wait_mode:                     bool,
+    wait_files:                    [dynamic]string,
 }
 
 // Starts the editor. Returns nil when the launch only raised another window;
@@ -679,6 +683,7 @@ init :: proc() -> ^Thor {
     // exe directory.
     workspace_dir: string
     startup_files: [dynamic]string // owned; opened once the UI and the session are up
+    wait_mode := thor_cli_wait(os.args)
     if len(os.args) > 1 {
         workspace_dir, startup_files = thor_startup_targets(thor_cli_paths(os.args, context.temp_allocator))
     }
@@ -702,7 +707,8 @@ init :: proc() -> ^Thor {
 
     // Two processes on one folder would both autosave its files and write its
     // session, so a folder another window holds is never opened here.
-    held := thor_launch_held(workspace_dir, len(startup_files))
+    // A --wait window never gives its files to another window: the caller waits on this process.
+    held := wait_mode ? Launch_Held.Free : thor_launch_held(workspace_dir, len(startup_files))
     if held == .Exit {
         delete(workspace_dir)
         free_all(context.temp_allocator)
@@ -723,6 +729,12 @@ init :: proc() -> ^Thor {
     // icon packs the startup atlases must cover.
     thor := new(Thor)
     thor.launch_dropped_held = held == .Drop
+    thor.wait_mode = wait_mode
+    if wait_mode {
+        for path in startup_files {
+            append(&thor.wait_files, strings.clone(path))
+        }
+    }
     thor_whats_new_check(thor)
     thor_migrate_startup(thor, workspace_dir)
     thor_load_config(thor, workspace_dir)
@@ -807,7 +819,9 @@ init :: proc() -> ^Thor {
     if workspace_dir != "" {
         thor.workspace_prefix = strings.concatenate({workspace_dir, filepath.SEPARATOR_STRING})
         thor_apply_git_repo(thor, workspace_dir)
-        thor_record_recent_workspace(workspace_dir)
+        if !wait_mode {
+            thor_record_recent_workspace(workspace_dir)
+        }
     }
     thor_load_tasks(thor)
     thor.open_files = make([dynamic]^Open_File)
@@ -877,7 +891,9 @@ init :: proc() -> ^Thor {
     thor_init_watcher(thor)
     // Claim the workspace now that the window handle exists, so another window
     // opening this folder raises us instead of starting a duplicate.
-    thor_register_window(thor)
+    if !wait_mode {
+        thor_register_window(thor)
+    }
     lap(&phase, &phase_zone, "watcher + git + index", "text_finish_async_load")
 
     // Texture upload needs the GL context, so it happens here on the main
@@ -1150,6 +1166,10 @@ shutdown :: proc(thor: ^Thor) {
     thor_package_problems_destroy(thor)
     delete(thor.workspace_dir)
     delete(thor.workspace_prefix)
+    for path in thor.wait_files {
+        delete(path)
+    }
+    delete(thor.wait_files)
     delete(thor.ignored_keys_reported)
     delete(thor.dock_layout)
     delete(thor.plugin_data_root)

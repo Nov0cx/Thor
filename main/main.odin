@@ -16,8 +16,8 @@ main :: proc() {
     if code, handled := thor.cli_fmt(os.args); handled {
         os.exit(code)
     }
-    if thor.cli_handled(os.args) {
-        return
+    if code, handled := thor.cli_handled(os.args); handled {
+        os.exit(code)
     }
 
     // Outside the debug block: a release build starts with no console, so the
