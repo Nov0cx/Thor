@@ -66,7 +66,7 @@ STAMP :: "thor.stamp"
 // third-party bindings under vendor/, which this repository cannot correct.
 // Add a package here when it is new.
 VET_PACKAGES :: "main,thor,atomicfile,lockfree,editview,font,input,lang,lsp,luaconf,odin,odinfmt,odinsema,odinsyntax,syntaxgen,markdown,msvc,piecetable," +
-    "plugin,prof,render,search,setting,shell,snippet,syntax,textedit,theme,treecache," +
+    "platform,plugin,prof,render,search,setting,shell,snippet,syntax,textedit,theme,treecache," +
     "update,vt,watch"
 
 ICON_FILE    :: "assets/branding/thor.ico"
@@ -206,7 +206,7 @@ check_all :: proc() -> bool {
 
 // The test packages that link raylib, directly or through an import. A package
 // missing here fails to link its tests on Windows; an extra one gets a warning.
-RAYLIB_TEST_PACKAGES :: []string{"editview", "font", "render", "theme", "thor"}
+RAYLIB_TEST_PACKAGES :: []string{"editview", "font", "platform", "render", "theme", "thor"}
 
 // Runs the tests of each package that has a _test.odin file. Add a package here
 // when it gets its first test file. The working directory stays the root of the
@@ -237,6 +237,7 @@ run_tests :: proc() -> bool {
         "markdown",
         "msvc",
         "piecetable",
+        "platform",
         "plugin",
         "prof",
         "render",

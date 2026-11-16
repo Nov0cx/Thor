@@ -2,10 +2,10 @@ package thor
 
 import "core:path/filepath"
 import "core:strings"
-import rl "vendor:raylib"
 
 import "../editview"
 import "../lang"
+import "../platform"
 import "../plugin"
 import "../setting"
 import "../textedit"
@@ -315,7 +315,7 @@ thor_status_info :: proc(data: rawptr) -> Status_Info {
         info.busy = true
         info.busy_message = thor_lang_busy_label(thor.lang_busy_kinds)
     }
-    if thor.status_message != "" && rl.GetTime() - thor.status_message_time < STATUS_MESSAGE_SECS {
+    if thor.status_message != "" && platform.time() - thor.status_message_time < STATUS_MESSAGE_SECS {
         info.message = thor.status_message
         info.is_error = thor.status_message_error
     }
@@ -397,7 +397,7 @@ thor_refresh_indent :: proc(file: ^Open_File) {
     if !file.loaded {
         return
     }
-    now := rl.GetTime()
+    now := platform.time()
     if file.indent_ready && (file.indent_revision == file.state.revision || now - file.indent_time < INDENT_SCAN_INTERVAL) {
         return
     }

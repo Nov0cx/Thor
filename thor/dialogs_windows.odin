@@ -9,7 +9,8 @@ package thor
 import "base:runtime"
 import "core:strings"
 import win32 "core:sys/windows"
-import rl "vendor:raylib"
+
+import "../platform"
 
 // Opens the folder browser starting at `initial`. Returns the chosen directory
 // (caller owns) and false when the user cancelled.
@@ -68,7 +69,7 @@ thor_pick_shell_item :: proc(title: string, initial: string, folders: bool, allo
         }
     }
 
-    if win32.FAILED(dialog->Show(cast(win32.HWND)rl.GetWindowHandle())) {
+    if win32.FAILED(dialog->Show(cast(win32.HWND)platform.window_native_handle())) {
         return "", false
     }
 

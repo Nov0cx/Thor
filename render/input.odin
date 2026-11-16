@@ -3,6 +3,7 @@ package render
 import "core:unicode/utf8"
 import rl "vendor:raylib"
 
+import "../platform"
 import "../prof"
 import ui "../vendor/loom/loom"
 
@@ -194,17 +195,17 @@ poll_input :: proc(b: ^Backend) -> ui.Input {
     b.dpi = b.opts.dpi > 0 ? b.opts.dpi : scale.x
 
     // Measured here, not by raylib, which counts a frame only when it is drawn.
-    now := rl.GetTime()
-    dt  := b.last_poll > 0 ? f32(now - b.last_poll) : rl.GetFrameTime()
+    now := platform.time()
+    dt  := b.last_poll > 0 ? f32(now - b.last_poll) : platform.frame_time()
     b.last_poll = now
 
-    pos := rl.GetWindowPosition()
+    pos := platform.window_position()
     out := ui.Input{
         dt = dt,
-        viewport = {f32(rl.GetScreenWidth()), f32(rl.GetScreenHeight())},
+        viewport = {f32(platform.window_size().x), f32(platform.window_size().y)},
         window_pos = {pos.x, pos.y},
         dpi = b.dpi,
-        mouse = ui.Vec2(rl.GetMousePosition()),
+        mouse = ui.Vec2(platform.mouse_position()),
         // raylib counts a wheel rolled away from the hand as positive; Loom
         // counts a scroll down as positive. They are opposite.
         wheel = -ui.Vec2(rl.GetMouseWheelMoveV()),

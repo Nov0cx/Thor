@@ -6,10 +6,10 @@ import "core:fmt"
 import "core:math"
 import "core:strings"
 import "core:unicode/utf8"
-import rl "vendor:raylib"
 
 import "../editview"
 import "../font"
+import "../platform"
 import "../render"
 import "../setting"
 import "../textedit"
@@ -1297,7 +1297,7 @@ thor_paint_fold_marker :: proc(thor: ^Thor, editor: ^editview.Editor, x, row_y: 
 // screen space, which is what the editor works in.
 @(private = "file")
 thor_editor_intents :: proc(thor: ^Thor, editor: ^editview.Editor, it: ui.Interaction) {
-    now := rl.GetTime()
+    now := platform.time()
 
     if it.hover_exited {
         editview.editor_leave(editor)
@@ -1987,7 +1987,7 @@ thor_statusbar :: proc(thor: ^Thor) {
     // Analyzer work in flight. The icon pulses, so it reads as ongoing without
     // a rotating spinner.
     if info.busy {
-        pulse := setting.reduce_motion(&thor.config) ? 1 : 0.5 + 0.5 * math.sin(f32(rl.GetTime()) * BUSY_PULSE_RATE)
+        pulse := setting.reduce_motion(&thor.config) ? 1 : 0.5 + 0.5 * math.sin(f32(platform.time()) * BUSY_PULSE_RATE)
         color := dim
         color[3] = u8(140 + 115 * pulse)
         thor_status_segment(thor, "busy", "loader-2", info.busy_message, color, "Language intelligence is working on this file")

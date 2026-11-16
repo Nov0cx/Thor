@@ -7,8 +7,9 @@ package thor
 
 import "core:log"
 
-import rl "vendor:raylib"
 import "vendor:x11/xlib"
+
+import "../platform"
 
 // GLFW's own connection, in raylib's static library. The pointer grab of a
 // press belongs to this connection, so only it can release the grab.
@@ -33,7 +34,7 @@ wm_state: Wm_State
 @(private = "file")
 thor_x11 :: proc() -> (display: ^xlib.Display, window: xlib.Window, ok: bool) {
     display = glfwGetX11Display()
-    window = xlib.Window(uintptr(rl.GetWindowHandle()))
+    window = xlib.Window(uintptr(platform.window_native_handle()))
     return display, window, display != nil && window != 0
 }
 

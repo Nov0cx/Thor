@@ -10,8 +10,8 @@ import "core:log"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
-import rl "vendor:raylib"
 
+import "../platform"
 import "../setting"
 import ui "../vendor/loom/loom"
 
@@ -311,30 +311,16 @@ thor_open_folder :: proc(thor: ^Thor, dir: string) {
     log.infof("Opened workspace %s", thor.workspace_dir)
 }
 
-// raylib 6.0 lays FilePathList out as {count, capacity, paths}, but the
-// vendor:raylib binding still declares raylib 5's {capacity, count, paths}, so
-// `count` there reads the wrong word and a drop looks empty. Reinterpreting the
-// returned value is the whole fix; the bytes handed back to UnloadDroppedFiles
-// are untouched.
-@(private = "file")
-Dropped_Files :: struct {
-    count:    u32,
-    capacity: u32,
-    paths:    [^]cstring,
-}
-
 // Run-loop tick: what a drop from Explorer means depends on where it landed.
 // Over the file tree it copies into the hovered folder; anywhere else a file
 // opens as a tab and a folder becomes the workspace. A path that already sits in
 // the hovered folder has nothing to copy and falls back to opening, so a drop
 // never comes up silently empty.
 thor_poll_dropped_files :: proc(thor: ^Thor) {
-    if !rl.IsFileDropped() {
+    paths := platform.take_dropped_files()
+    if len(paths) == 0 {
         return
     }
-    dropped := rl.LoadDroppedFiles()
-    defer rl.UnloadDroppedFiles(dropped)
-    files := transmute(Dropped_Files)dropped
 
     // GLFW feeds the drop point through the cursor-position callback before it
     // fires the drop itself, so raylib's cursor is the release point here even
@@ -344,13 +330,11 @@ thor_poll_dropped_files :: proc(thor: ^Thor) {
     if signal_get(&thor.explorer_visible) {
         dst_dir, over_tree = thor_explorer_drop_target_at(thor, ui.mouse_pos())
     }
-    log.debugf("Dropped %d path(s) at %v, folder %q", files.count, rl.GetMousePosition(), dst_dir)
+    log.debugf("Dropped %d path(s) at %v, folder %q", len(paths), platform.mouse_position(), dst_dir)
 
     imports: [dynamic]File_Op_Entry
     folder := ""
-    for index in 0 ..< files.count {
-        path := string(files.paths[index])
-
+    for path in paths {
         if over_tree {
             switch thor_queue_import(thor, &imports, path, dst_dir) {
             case .Queued:

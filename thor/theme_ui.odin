@@ -9,8 +9,8 @@ package thor
 
 import "core:os"
 import "core:strings"
-import rl "vendor:raylib"
 
+import "../platform"
 import "../setting"
 import "../theme"
 import ui "../vendor/loom/loom"
@@ -392,7 +392,7 @@ thor_theme_copy_color :: proc(thor: ^Thor, index: int) {
         return
     }
     hex := theme.to_hex(theme.color_at(&thor.theme, index)^)
-    rl.SetClipboardText(strings.clone_to_cstring(hex, context.temp_allocator))
+    platform.clipboard_set(hex)
     thor_theme_note(thor, strings.concatenate({"Copied ", hex}, context.temp_allocator))
 }
 
@@ -401,7 +401,7 @@ thor_theme_paste_color :: proc(thor: ^Thor, index: int) {
     if index < 0 || index >= len(theme.COLORS) {
         return
     }
-    text      := strings.trim_space(string(rl.GetClipboardText()))
+    text      := strings.trim_space(platform.clipboard_get())
     color, ok := thor_theme_parse_color(text)
     if !ok {
         thor_theme_note(thor, "The clipboard holds no #RRGGBB or #RRGGBBAA color", is_error = true)

@@ -2,9 +2,9 @@ package thor
 
 import "core:os"
 import "core:strings"
-import rl "vendor:raylib"
 
 import "../lang/lsp"
+import "../platform"
 import "../prof"
 import "../setting"
 
@@ -111,7 +111,7 @@ thor_lsp_mark_clean :: proc(thor: ^Thor) {
 // destroys the backend a dispatch here could be standing on.
 thor_poll_settings :: proc(thor: ^Thor) {
     prof.proc_scope()
-    now := rl.GetTime()
+    now := platform.time()
     if now - thor.settings_poll_time < SETTINGS_POLL_INTERVAL {
         return
     }

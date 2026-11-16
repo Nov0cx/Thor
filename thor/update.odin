@@ -20,10 +20,10 @@ import "core:time"
 
 import "../atomicfile"
 import "../lockfree"
+import "../platform"
 import "../setting"
 import "../update"
 
-import rl "vendor:raylib"
 
 // The titlebar button's metrics, matching the task selector beside it.
 @(private = "file")
@@ -364,7 +364,7 @@ thor_poll_update :: proc(thor: ^Thor) {
         thor_swap_and_relaunch(thor)
         return
     }
-    if !thor.update_started && rl.GetTime() >= START_DELAY {
+    if !thor.update_started && platform.time() >= START_DELAY {
         thor.update_started = true
         if setting.check_for_updates(&thor.config) {
             record := thor_read_update_record()
@@ -505,7 +505,7 @@ thor_poll_update_bytes :: proc(thor: ^Thor) {
     if thor_update_phase(thor) == .Verifying || thor_update_phase(thor) == .Extracting {
         return
     }
-    now := rl.GetTime()
+    now := platform.time()
     if now - thor.update_bytes_time < 0.25 {
         return
     }

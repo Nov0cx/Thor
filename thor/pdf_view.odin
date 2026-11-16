@@ -11,6 +11,7 @@ import "core:strings"
 import "core:time"
 import rl "vendor:raylib"
 
+import "../platform"
 import "../render"
 import "../setting"
 import ui "../vendor/loom/loom"
@@ -190,7 +191,7 @@ thor_pdf_bind :: proc(thor: ^Thor, view: ^Pdf_View, file: ^Open_File) {
 // Looks at the PDF's modification time and reads its pages again when it changed.
 @(private = "file")
 thor_pdf_check :: proc(thor: ^Thor, view: ^Pdf_View) {
-    now := rl.GetTime()
+    now := platform.time()
     if view.pdf == "" || now < view.next_check {
         return
     }
@@ -306,7 +307,7 @@ thor_pdf_apply_sync_view :: proc(thor: ^Thor, view: ^Pdf_View, job: ^Latex_Job) 
     view.target = box
     view.has_target = true
     view.flash = box
-    view.flash_until = rl.GetTime() + PDF_FLASH_SECS
+    view.flash_until = platform.time() + PDF_FLASH_SECS
     thor.redraw = true
 }
 
@@ -459,7 +460,7 @@ thor_pdf_draw_page :: proc(thor: ^Thor, view: ^Pdf_View, page: ^Pdf_Page, index:
         )
         ui.pop_id()
     }
-    if index + 1 == view.flash.page && rl.GetTime() < view.flash_until {
+    if index + 1 == view.flash.page && platform.time() < view.flash_until {
         box   := view.flash
         band  := ui.Rect{r.x + box.h * scale, r.y + (box.v - box.height) * scale, max(box.width, 4) * scale, max(box.height, 4) * scale}
         color := thor.theme.accent_color

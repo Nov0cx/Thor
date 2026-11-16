@@ -1,5 +1,5 @@
 #+build windows
-package thor
+package platform
 
 // Windows half of the DirectInput block around window creation.
 //
@@ -126,6 +126,7 @@ write_slot :: proc(target: rawptr) -> bool {
 
 // Refuses the DirectInput load until dinput_restore. False when the entry was
 // not found or could not be written, which only means the slow scan happens.
+@(private)
 dinput_suppress :: proc() -> bool {
     dinput.slot = find_load_library_slot()
     if dinput.slot == nil {
@@ -142,6 +143,7 @@ dinput_suppress :: proc() -> bool {
     return true
 }
 
+@(private)
 dinput_restore :: proc() {
     if dinput.slot == nil {
         return

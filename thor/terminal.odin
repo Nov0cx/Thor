@@ -6,9 +6,9 @@ import "core:log"
 import "core:strings"
 import "core:sync"
 import "core:thread"
-import rl "vendor:raylib"
 
 import "../lockfree"
+import "../platform"
 import "../prof"
 import "../setting"
 import "../shell"
@@ -345,7 +345,7 @@ thor_terminal_pump :: proc(term: ^Terminal) -> bool {
     // The shell is over only once its last output is fed.
     ended := reader_done && lockfree.ring_len(&term.output) == 0
 
-    now := rl.GetTime()
+    now := platform.time()
     if len(chunk) > 0 {
         thor_console_feed(&term.console, chunk)
         term.settle_at = now + SETTLE_DELAY
@@ -395,7 +395,7 @@ thor_terminal_drain_replies :: proc(term: ^Terminal) {
         vt.term_clear_reply(t)
     }
     if text, ok := vt.term_take_clipboard(t); ok && text != "" && setting.terminal_clipboard(&term.owner.config) {
-        rl.SetClipboardText(strings.clone_to_cstring(text, context.temp_allocator))
+        platform.clipboard_set(text)
     }
     // The bell is read so it cannot pile up; the editor does not ring.
     vt.term_take_bell(t)

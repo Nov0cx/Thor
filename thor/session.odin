@@ -10,10 +10,10 @@ import "core:hash"
 import "core:log"
 import "core:os"
 import "core:strings"
-import rl "vendor:raylib"
 
 import "../atomicfile"
 import "../editview"
+import "../platform"
 import "../prof"
 import "../textedit"
 import ui "../vendor/loom/loom"
@@ -459,7 +459,7 @@ thor_restore_session :: proc(thor: ^Thor) {
         thor.last_multi_layout = thor.layout
     }
     if session.window_maximized {
-        rl.MaximizeWindow()
+        platform.window_maximize()
         thor.window_maximized = true
     }
     // Ignored when the task is gone from tasks.json; the selector falls back.

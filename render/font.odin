@@ -1,8 +1,8 @@
 package render
 
-import rl "vendor:raylib"
 
 import "../font"
+import "../platform"
 import ui "../vendor/loom/loom"
 
 // Loom names a font by handle; the font package names one by family, so a
@@ -109,37 +109,13 @@ set_cursor :: proc(c: ui.Cursor, user: rawptr) {
     }
     b.cursor = c
 
-    shape: rl.MouseCursor
-    switch c {
-    case .Default:
-        shape = .DEFAULT
-    case .Pointer:
-        shape = .POINTING_HAND
-    case .Text:
-        shape = .IBEAM
-    case .Resize_H:
-        shape = .RESIZE_EW
-    case .Resize_V:
-        shape = .RESIZE_NS
-    case .Resize_NWSE:
-        shape = .RESIZE_NWSE
-    case .Resize_NESW:
-        shape = .RESIZE_NESW
-    case .Grab:
-        shape = .POINTING_HAND
-    case .Grabbing:
-        shape = .RESIZE_ALL
-    case .Not_Allowed:
-        shape = .NOT_ALLOWED
-    }
-    rl.SetMouseCursor(shape)
+    platform.window_set_cursor(c)
 }
 
 clipboard_get :: proc(user: rawptr) -> string {
-    return string(rl.GetClipboardText())
+    return platform.clipboard_get()
 }
 
 clipboard_set :: proc(text: string, user: rawptr) {
-    b := (^Backend)(user)
-    rl.SetClipboardText(cstr(b, text))
+    platform.clipboard_set(text)
 }

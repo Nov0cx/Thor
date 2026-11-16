@@ -37,7 +37,6 @@ Backend :: struct {
     clip:      [dynamic]rl.Rectangle,
     path_a:    [dynamic]rl.Vector2,
     path_b:    [dynamic]rl.Vector2,
-    scratch:   [dynamic]byte,
     held:      [dynamic]Held_Key,
     key_evs:   [dynamic]ui.Key_Event,
     text_buf:  [64]byte,
@@ -60,7 +59,6 @@ init :: proc(b: ^Backend, opts: Options = {}) -> ui.Backend {
     b.clip = make([dynamic]rl.Rectangle, 0, 16)
     b.path_a = make([dynamic]rl.Vector2, 0, 64)
     b.path_b = make([dynamic]rl.Vector2, 0, 64)
-    b.scratch = make([dynamic]byte, 0, 256)
     b.held = make([dynamic]Held_Key, 0, 8)
     b.key_evs = make([dynamic]ui.Key_Event, 0, 32)
 
@@ -86,7 +84,6 @@ destroy :: proc(b: ^Backend) {
     delete(b.clip)
     delete(b.path_a)
     delete(b.path_b)
-    delete(b.scratch)
     delete(b.held)
     delete(b.key_evs)
     b^ = {}
@@ -100,12 +97,4 @@ register_texture :: proc(b: ^Backend, tex: rl.Texture2D) -> ui.Texture {
 
 forget_texture :: proc(b: ^Backend, tex: rl.Texture2D) {
     delete_key(&b.textures, tex.id)
-}
-
-@(private)
-cstr :: proc(b: ^Backend, s: string) -> cstring {
-    clear(&b.scratch)
-    append(&b.scratch, s)
-    append(&b.scratch, 0)
-    return cstring(raw_data(b.scratch))
 }

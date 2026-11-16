@@ -15,6 +15,7 @@ import "../lang"
 import "../lang/lsp"
 import "../lang/odin"
 import "../lockfree"
+import "../platform"
 import "../plugin"
 import "../prof"
 import "../render"
@@ -761,28 +762,17 @@ init :: proc() -> ^Thor {
     )
     lap(&phase, &phase_zone, "text_begin_async_load", "InitWindow")
 
-    when !ODIN_DEBUG {
-        rl.SetTraceLogLevel(.WARNING)
+    if !platform.window_open(1280, 800, "Thor", {.Undecorated, .Resizable}) {
+        log.error("No window; Thor cannot start")
     }
-    rl.SetConfigFlags({.WINDOW_UNDECORATED, .WINDOW_RESIZABLE})
-    // The game controller scan raylib makes here reads every HID device on
-    // Windows and stalls on one that does not answer (thor/dinput_windows.odin).
-    suppressed := dinput_suppress()
-    rl.InitWindow(1280, 800, "Thor")
-    if suppressed {
-        dinput_restore()
-    }
-    rl.SetWindowMinSize(WINDOW_MIN_W, WINDOW_MIN_H)
+    platform.window_set_min_size(WINDOW_MIN_W, WINDOW_MIN_H)
     if secs := time.duration_seconds(time.tick_since(phase)); secs > SLOW_WINDOW_WARN_SECS {
         log.warnf("Window creation took %.1f s. A device or graphics driver that answers slowly delays it; see docs/troubleshooting.md.", secs)
     }
     lap(&phase, &phase_zone, "InitWindow", "lang init")
 
-    // Window/taskbar icon; freed once raylib has copied it.
-    icon := rl.LoadImage("assets/branding/thor.png")
-    if icon.data != nil {
-        rl.SetWindowIcon(icon)
-        rl.UnloadImage(icon)
+    if !platform.window_set_icon("assets/branding/thor.png") {
+        log.warn("Could not load the window icon")
     }
     // The mark the titlebar and the welcome page draw. A texture needs the GL
     // context the window just made.
@@ -792,8 +782,7 @@ init :: proc() -> ^Thor {
         rl.GenTextureMipmaps(&thor.top_logo_texture)
         rl.SetTextureFilter(thor.top_logo_texture, .TRILINEAR)
     }
-    rl.SetTargetFPS(60)
-    rl.SetExitKey(.KEY_NULL)
+    platform.window_set_target_fps(60)
 
     // Loom draws through the raylib backend and nothing below it knows about
     // raylib. The fonts register after the async load, which needs the GL
@@ -1016,9 +1005,9 @@ thor_read_git_branch :: proc(git_dir: string) -> string {
 }
 
 run :: proc(thor: ^Thor) {
-    for !rl.WindowShouldClose() && !thor.should_close {
+    for !platform.window_should_close() && !thor.should_close {
         prof.scope("frame")
-        frame_start := rl.GetTime()
+        frame_start := platform.time()
         poll_zone   := prof.zone_begin("poll")
         thor_poll_dropped_files(thor)
         thor_poll_window_state(thor)
@@ -1070,8 +1059,8 @@ run :: proc(thor: ^Thor) {
         if thor_frame_unchanged(thor, list) {
             // The window keeps the last frame. raylib polls the input in EndDrawing, so poll it here.
             prof.scope("idle")
-            rl.PollInputEvents()
-            if wait := FRAME_TIME - (rl.GetTime() - frame_start); wait > 0 {
+            platform.poll_events()
+            if wait := FRAME_TIME - (platform.time() - frame_start); wait > 0 {
                 time.sleep(time.Duration(wait * f64(time.Second)))
             }
             free_all(context.temp_allocator)
@@ -1079,8 +1068,7 @@ run :: proc(thor: ^Thor) {
         }
 
         prof.scope("present")
-        rl.BeginDrawing()
-        rl.ClearBackground(render.raylib_color(thor.theme.contrast))
+        platform.frame_begin(thor.theme.contrast)
         // The 3D pass owns the whole GL state for its target, so it runs before
         // the draw list rather than from inside it.
         models_zone := prof.zone_begin("models")
@@ -1091,7 +1079,7 @@ run :: proc(thor: ^Thor) {
         prof.zone_end(draw_zone)
         // The swap, the vsync wait and the frame-rate wait.
         swap_zone := prof.zone_begin("swap")
-        rl.EndDrawing()
+        platform.frame_end()
         prof.zone_end(swap_zone)
 
         free_all(context.temp_allocator)
@@ -1108,7 +1096,7 @@ REDRAW_INTERVAL :: 1.0
 // signature of a frame that is drawn.
 thor_frame_unchanged :: proc(thor: ^Thor, list: ui.Draw_List) -> bool {
     sig, stable := render.list_signature(list)
-    now         := rl.GetTime()
+    now         := platform.time()
     unchanged   := stable && !thor.redraw && sig == thor.frame_sig && now - thor.frame_drawn < REDRAW_INTERVAL && !thor_models_showing(thor)
     if !unchanged {
         thor.frame_sig = stable ? sig : 0
@@ -1260,7 +1248,7 @@ shutdown :: proc(thor: ^Thor) {
     render.destroy(&thor.backend)
     font.shutdown()
     rl.UnloadTexture(thor.top_logo_texture)
-    rl.CloseWindow()
+    platform.window_close()
     free(thor)
 }
 
@@ -1302,7 +1290,7 @@ thor_desktop_mouse :: proc() -> [2]f32 {
     if pos, ok := thor_cursor_screen(); ok {
         return pos
     }
-    return rl.GetWindowPosition() + rl.GetMousePosition()
+    return platform.window_position() + platform.mouse_position()
 }
 
 // The window rect after an edge drag of `delta` from `start`. A grabbed left or
@@ -1331,8 +1319,8 @@ window_drag_target :: proc(start_pos, start_mouse, mouse: [2]f32) -> [2]f32 {
 }
 
 thor_window_drag_begin :: proc(thor: ^Thor) {
-    mouse := rl.GetMousePosition()
-    width := f32(rl.GetScreenWidth())
+    mouse := platform.mouse_position()
+    width := f32(platform.window_size().x)
     thor.window_drag = {grab = {width > 0 ? mouse.x / width : 0, mouse.y}}
     if !thor.window_maximized {
         thor_window_drag_anchor(thor)
@@ -1350,7 +1338,7 @@ thor_window_drag_anchor :: proc(thor: ^Thor) {
         return
     }
     d.start_mouse = thor_desktop_mouse()
-    d.start_pos = d.start_mouse - {d.grab[0] * f32(rl.GetScreenWidth()), d.grab[1]}
+    d.start_pos = d.start_mouse - {d.grab[0] * f32(platform.window_size().x), d.grab[1]}
     d.anchored = true
 }
 
@@ -1363,8 +1351,8 @@ thor_window_drag_move :: proc(thor: ^Thor) {
         return
     }
     if thor.window_maximized {
-        mouse := rl.GetMousePosition()
-        grab  := [2]f32{d.grab[0] * f32(rl.GetScreenWidth()), d.grab[1]}
+        mouse := platform.mouse_position()
+        grab  := [2]f32{d.grab[0] * f32(platform.window_size().x), d.grab[1]}
         if abs(mouse.x - grab[0]) > WINDOW_UNMAXIMIZE_TRAVEL || abs(mouse.y - grab[1]) > WINDOW_UNMAXIMIZE_TRAVEL {
             thor_toggle_maximize(thor)
             d.anchored = false
@@ -1377,11 +1365,11 @@ thor_window_drag_move :: proc(thor: ^Thor) {
         return
     }
     t      := window_drag_target(d.start_pos, d.start_mouse, thor_desktop_mouse())
-    pos    := rl.GetWindowPosition()
+    pos    := platform.window_position()
     target := [2]i32{i32(math.round(t.x)), i32(math.round(t.y))}
     // A move of zero still costs an X11 round trip.
     if target != {i32(math.round(pos.x)), i32(math.round(pos.y))} {
-        rl.SetWindowPosition(target[0], target[1])
+        platform.window_set_position(target[0], target[1])
     }
 }
 
@@ -1390,8 +1378,12 @@ thor_window_resize_begin :: proc(thor: ^Thor, edges: Window_Edges) {
         thor.window_resize = {}
         return
     }
-    pos := rl.GetWindowPosition()
-    thor.window_resize = {edges = edges, start_rect = {pos.x, pos.y, f32(rl.GetScreenWidth()), f32(rl.GetScreenHeight())}, start_mouse = thor_desktop_mouse()}
+    pos := platform.window_position()
+    thor.window_resize = {
+        edges = edges,
+        start_rect = {pos.x, pos.y, f32(platform.window_size().x), f32(platform.window_size().y)},
+        start_mouse = thor_desktop_mouse(),
+    }
 }
 
 thor_window_resize_move :: proc(thor: ^Thor) {
@@ -1400,14 +1392,14 @@ thor_window_resize_move :: proc(thor: ^Thor) {
         return
     }
     rect := window_resize_rect(r.start_rect, thor_desktop_mouse() - r.start_mouse, r.edges, {WINDOW_MIN_W, WINDOW_MIN_H})
-    pos  := rl.GetWindowPosition()
+    pos  := platform.window_position()
     x, y := i32(math.round(rect[0])), i32(math.round(rect[1]))
     w, h := i32(math.round(rect[2])), i32(math.round(rect[3]))
     if x != i32(math.round(pos.x)) || y != i32(math.round(pos.y)) {
-        rl.SetWindowPosition(x, y)
+        platform.window_set_position(x, y)
     }
-    if w != rl.GetScreenWidth() || h != rl.GetScreenHeight() {
-        rl.SetWindowSize(w, h)
+    if w != platform.window_size().x || h != platform.window_size().y {
+        platform.window_set_size(w, h)
     }
 }
 
@@ -1418,5 +1410,5 @@ thor_window_resize_end :: proc(thor: ^Thor) {
 // Whether the edges take a drag: an undecorated window has no OS border, but a
 // maximized or fullscreen one has nothing to resize.
 thor_window_resizable :: proc(thor: ^Thor) -> bool {
-    return !thor.window_maximized && !rl.IsWindowState({.BORDERLESS_WINDOWED_MODE}) && !rl.IsWindowFullscreen()
+    return !thor.window_maximized && !platform.window_covers_screen()
 }

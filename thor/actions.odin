@@ -1,21 +1,21 @@
 package thor
 
-import rl "vendor:raylib"
 
+import "../platform"
 import "../plugin"
 import "../setting"
 import ui "../vendor/loom/loom"
 thor_minimize_window :: proc() {
-    rl.MinimizeWindow()
+    platform.window_minimize()
 }
 
 thor_toggle_maximize :: proc(thor: ^Thor) {
     // IsWindowMaximized() can report false after MaximizeWindow() on an
     // undecorated window, so track the state ourselves to keep the toggle symmetric.
     if thor.window_maximized {
-        rl.RestoreWindow()
+        platform.window_restore()
     } else {
-        rl.MaximizeWindow()
+        platform.window_maximize()
     }
     thor.window_maximized = !thor.window_maximized
 }
@@ -23,7 +23,7 @@ thor_toggle_maximize :: proc(thor: ^Thor) {
 // Follows a maximize or restore the OS did (Win+Up, a snap, a double click), so
 // the titlebar toggle and the session see it.
 thor_poll_window_state :: proc(thor: ^Thor) {
-    if !rl.IsWindowResized() {
+    if !platform.window_resized() {
         return
     }
     if zoomed, known := thor_window_zoomed(); known {
@@ -32,7 +32,7 @@ thor_poll_window_state :: proc(thor: ^Thor) {
 }
 
 thor_toggle_fullscreen :: proc(_: ^Thor) {
-    rl.ToggleBorderlessWindowed()
+    platform.window_toggle_borderless()
 }
 
 // Matches one global app chord and tells the tutorial its action ran.

@@ -6,7 +6,8 @@ package thor
 
 import "core:log"
 import win32 "core:sys/windows"
-import rl "vendor:raylib"
+
+import "../platform"
 
 Window_Handle :: win32.HWND
 
@@ -82,7 +83,7 @@ SW_RESTORE :: 9
 
 // This window's handle, widened for the record.
 thor_native_window :: proc() -> i64 {
-    return cast(i64)cast(uintptr)rl.GetWindowHandle()
+    return cast(i64)cast(uintptr)platform.window_native_handle()
 }
 
 // Whether this window is maximized. `known` is false when user32 has no answer.
@@ -91,7 +92,7 @@ thor_window_zoomed :: proc() -> (zoomed, known: bool) {
     if u32.is_zoomed == nil {
         return false, false
     }
-    return u32.is_zoomed(cast(win32.HWND)rl.GetWindowHandle()) != win32.FALSE, true
+    return u32.is_zoomed(cast(win32.HWND)platform.window_native_handle()) != win32.FALSE, true
 }
 
 // The cursor in desktop coordinates. `ok` is false when user32 has no answer.

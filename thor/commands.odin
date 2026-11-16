@@ -9,13 +9,13 @@ import "core:strings"
 import "core:thread"
 import "core:time"
 import "core:unicode/utf8"
-import rl "vendor:raylib"
 
 import "../editview"
 import "../font"
 import "../lang/lsp"
 import "../lockfree"
 import "../luaconf"
+import "../platform"
 import "../prof"
 import "../setting"
 import "../shell"
@@ -970,7 +970,7 @@ thor_cmd_copy_path :: proc(data: rawptr) {
     if file == nil {
         return
     }
-    rl.SetClipboardText(strings.clone_to_cstring(file.path, context.temp_allocator))
+    platform.clipboard_set(file.path)
 }
 
 thor_cmd_reveal :: proc(data: rawptr) {

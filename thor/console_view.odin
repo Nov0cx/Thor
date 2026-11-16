@@ -5,9 +5,9 @@
 package thor
 
 import "core:strings"
-import rl "vendor:raylib"
 
 import "../font"
+import "../platform"
 import "../setting"
 import ui "../vendor/loom/loom"
 import "../vt"
@@ -211,7 +211,7 @@ thor_console_has_selection :: proc(console: ^Console) -> bool {
 thor_console_copy_all :: proc(console: ^Console) {
     text := thor_console_text(console)
     if text != "" {
-        rl.SetClipboardText(strings.clone_to_cstring(text, context.temp_allocator))
+        platform.clipboard_set(text)
     }
 }
 
@@ -225,17 +225,17 @@ thor_console_copy :: proc(console: ^Console) {
     if text == "" {
         return
     }
-    rl.SetClipboardText(strings.clone_to_cstring(text, context.temp_allocator))
+    platform.clipboard_set(text)
 }
 
 // Pastes the system clipboard into the shell, fenced when the program asked for
 // bracketed paste.
 thor_console_paste :: proc(console: ^Console) {
-    clip := rl.GetClipboardText()
-    if clip == nil || console.term == nil {
+    clip := platform.clipboard_get()
+    if clip == "" || console.term == nil {
         return
     }
-    thor_console_write(console, vt.encode_paste(console.term, string(clip), context.temp_allocator))
+    thor_console_write(console, vt.encode_paste(console.term, clip, context.temp_allocator))
 }
 
 // Runs `command` as if it had been typed at the prompt, for a task or a code
@@ -538,7 +538,7 @@ console_row_cursor :: proc(thor: ^Thor, console: ^Console, index: int, cell_w, r
         return
     }
     if term.cursor_blink && console.focused && !setting.reduce_motion(&thor.config) {
-        phase := rl.GetTime() - console.blink_base
+        phase := platform.time() - console.blink_base
         if phase - f64(int(phase / CURSOR_BLINK_PERIOD)) * CURSOR_BLINK_PERIOD > CURSOR_BLINK_PERIOD * 0.5 {
             return
         }
@@ -590,7 +590,7 @@ console_input :: proc(thor: ^Thor, console: ^Console, grid: ui.Interaction, cell
     console.focused = ui.focus_within(grid.node)
     thor.console_focused = console.focused
     if console.focused != was_focused {
-        console.blink_base = rl.GetTime()
+        console.blink_base = platform.time()
         if report, ok := vt.encode_focus(console.term, console.focused); ok {
             thor_console_write(console, report)
         }
@@ -767,7 +767,7 @@ console_text :: proc(console: ^Console) {
     if text == "" {
         return
     }
-    console.blink_base = rl.GetTime()
+    console.blink_base = platform.time()
     thor_console_write(console, text)
 }
 
@@ -779,7 +779,7 @@ console_keys :: proc(thor: ^Thor, console: ^Console) {
         }
         if console_handle_key(thor, console, event) {
             event.consumed = true
-            console.blink_base = rl.GetTime()
+            console.blink_base = platform.time()
         }
     }
 }

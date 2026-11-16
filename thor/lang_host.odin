@@ -6,13 +6,13 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 import "core:time"
-import rl "vendor:raylib"
 
 import "../atomicfile"
 import "../editview"
 import "../lang"
 import "../lang/lsp"
 import "../lang/odin"
+import "../platform"
 import "../plugin"
 import "../prof"
 import "../setting"
@@ -68,7 +68,7 @@ LANG_BUSY_DELAY_SECS :: 0.25
 // Reads the analyzer's in-flight work for the statusline indicator. Called once
 // per frame, after the results of the frame are reaped.
 thor_poll_lang_busy :: proc(thor: ^Thor) {
-    thor_lang_busy_update(thor, lang.manager_busy_kinds(&thor.lang_manager), rl.GetTime())
+    thor_lang_busy_update(thor, lang.manager_busy_kinds(&thor.lang_manager), platform.time())
 }
 
 // Folds this frame's in-flight kinds into the indicator state. The flag waits
@@ -383,7 +383,7 @@ thor_lsp_health_flash :: proc(previous, current: lsp.Server_State) -> (message: 
 // Run-loop tick: says once when a server gives up, crashes or comes back. One
 // atomic load per server, so the throttle is about noise and not cost.
 thor_poll_lsp_health :: proc(thor: ^Thor) {
-    now := rl.GetTime()
+    now := platform.time()
     if now - thor.lsp_health_poll_time < LSP_HEALTH_INTERVAL {
         return
     }
@@ -2386,7 +2386,7 @@ thor_symbol_color :: proc(thor: ^Thor, kind: string) -> ui.Color {
 thor_flash_status :: proc(thor: ^Thor, message: string, is_error := false) {
     delete(thor.status_message)
     thor.status_message = strings.clone(message)
-    thor.status_message_time = rl.GetTime()
+    thor.status_message_time = platform.time()
     thor.status_message_error = is_error
 }
 

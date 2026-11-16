@@ -12,6 +12,7 @@ import "core:fmt"
 import "core:math"
 import rl "vendor:raylib"
 
+import "../platform"
 import "../prof"
 import "../render"
 import ui "../vendor/loom/loom"
@@ -100,7 +101,7 @@ Model_View :: struct {
     // Off-screen target the 3D pass renders into. Owned, grown with slack so a
     // splitter drag does not reallocate every frame.
     target:          rl.RenderTexture2D,
-    // rl.GetTime() when the target first read as bigger than the pane needs, or
+    // platform.time() when the target first read as bigger than the pane needs, or
     // 0 while it fits. Debounces a shrink.
     shrink_since:    f64,
     // Headlight shader, loaded on the first render (it needs the GL context).
@@ -240,7 +241,7 @@ thor_model_spin :: proc(thor: ^Thor, view: ^Model_View) {
     }
     // Wrapped, or a view left spinning drifts into f32 sizes where the angle
     // step stops resolving.
-    view.yaw = math.mod(view.yaw - rl.GetFrameTime() * MODEL_SPIN_SPEED, math.TAU)
+    view.yaw = math.mod(view.yaw - platform.frame_time() * MODEL_SPIN_SPEED, math.TAU)
 }
 
 // Bottom-left overlay: file name and the mesh, vertex and triangle totals.
@@ -428,9 +429,9 @@ thor_model_ensure_target :: proc(thor: ^Thor, view: ^Model_View) -> (need_w, nee
     }
     if oversized {
         if view.shrink_since == 0 {
-            view.shrink_since = rl.GetTime()
+            view.shrink_since = platform.time()
         }
-        if rl.GetTime() - view.shrink_since < MODEL_TARGET_DWELL {
+        if platform.time() - view.shrink_since < MODEL_TARGET_DWELL {
             return need_w, need_h, true
         }
     }

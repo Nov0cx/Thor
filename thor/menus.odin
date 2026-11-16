@@ -4,10 +4,10 @@ import "core:log"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
-import rl "vendor:raylib"
 
 import "../editview"
 import "../lang"
+import "../platform"
 import "../textedit"
 import ui "../vendor/loom/loom"
 // Points both editor panes at the shared context menu. Called once at startup;
@@ -295,7 +295,7 @@ thor_menu_explorer_reveal :: proc(data: rawptr) {
 thor_menu_explorer_copy_path :: proc(data: rawptr) {
     thor := cast(^Thor)data
     if thor_explorer_selected(thor) != "" {
-        rl.SetClipboardText(strings.clone_to_cstring(thor_explorer_selected(thor), context.temp_allocator))
+        platform.clipboard_set(thor_explorer_selected(thor))
     }
 }
 
