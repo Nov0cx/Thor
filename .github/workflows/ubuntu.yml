@@ -25,7 +25,7 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            build-essential git curl ca-certificates gnupg lsb-release \
+            build-essential git git-lfs curl ca-certificates gnupg lsb-release \
             software-properties-common wget binutils \
             libharfbuzz-dev \
             libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
@@ -62,6 +62,9 @@ jobs:
           fi
           git clone --depth 1 --branch "$tag" https://github.com/odin-lang/Odin.git /opt/odin
           cd /opt/odin
+          # The vendored libraries (vendor/lua, vendor/box2d) are Git LFS objects.
+          git lfs install --local
+          git lfs pull
           LLVM_CONFIG=llvm-config-18 CXX=clang++-18 ./build_odin.sh release
           echo /opt/odin >> "$GITHUB_PATH"
 
