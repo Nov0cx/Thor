@@ -9,7 +9,7 @@ import "core:os"
 
 // Release version, year.month.patch. The same value the top CHANGELOG.md
 // heading carries.
-VERSION :: "2026.11.5"
+VERSION :: "2026.11.6"
 
 USAGE :: `Usage: thor [path...]
        thor [option]

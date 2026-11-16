@@ -1,11 +1,9 @@
-# 2026.11.5
+# 2026.11.6
 
-- **Project and personal settings.** `.thor/settings.lua` applies only project settings: indentation, formatting and language. Keys such as `theme` or `font` there are skipped, and the status bar names them once. `.thor/keybinds.lua` is not read.
-- **This folder.** Settings has a "This folder" tab for personal settings of one folder, kept in `user/workspaces/`. The "Workspace" tab is now "Project".
-- **Pickers write `user/`.** The theme, font, icon pack, ligature and default shell pickers write `user/settings.lua`, also in a folder with a `.thor/`.
-- **Keyboard focus.** `tab` reaches the buttons, toggles and chips of the title bar, the status bar and every dialog, and stays inside an open dialog. A ring shows the keyboard focus.
-- **Scales with the font.** Row heights, paddings, corner radii and shadows follow `font_size`, so a large font no longer clips in a row.
-- **Motion.** Buttons, list rows, dialogs and cards fade. The new `reduce_motion` setting turns off the fades, scroll inertia, animated scrolls and blinking.
-- **Window move and resize.** A drag on the empty part of the title bar moves the window, and a double click maximizes it. The edges and corners of a restored window resize it.
-- **Themes.** Each shipped theme meets the contrast minimums. Material Lighter and Solarized dark change the most.
-- **Sentence case.** Command, menu and picker names read "View: Toggle word wrap". Keybinds are unchanged.
+- **LaTeX.** Highlighting for `.tex`, `.sty`, `.cls`, `.ltx`, `.dtx` and `.bib`, and a texlab language server entry for completion, diagnostics, go to definition, references and rename.
+- **Build on save.** `ctrl + s` on a LaTeX document builds it with latexmk, else tectonic. `ctrl + alt + b` builds on demand. A `% !TEX root = main.tex` comment builds the root of a multi-file project.
+- **PDF preview.** `ctrl + alt + p` shows the PDF beside the source, rendered with pdftoppm or mutool. It reloads when the PDF changes.
+- **SyncTeX.** `ctrl` + click in the PDF opens the source line, and `ctrl + alt + j` scrolls the PDF to the caret line.
+- **New settings.** `latex_build_on_save`, `latex_build_command` and `latex_pdf_renderer`.
+- **`thor --wait`.** `thor --wait <file>` returns once the tabs of its files are closed, so Thor can be the editor or merge tool of git.
+- **Linux.** A title bar drag or an edge resize goes to the window manager, so the window no longer jitters. The release runs on glibc 2.31 (Ubuntu 20.04) and newer.
