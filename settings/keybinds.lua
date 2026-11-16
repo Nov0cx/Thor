@@ -106,6 +106,10 @@ return {
         toggle_fold = "ctrl+shift+comma",
         unfold_all = "",
     },
+    latex = {
+        latex_build = "ctrl+alt+b",
+        latex_forward_search = "ctrl+alt+j",
+    },
     movement = {
         file_end = "ctrl+end",
         file_end_down = "ctrl+down",
@@ -212,6 +216,7 @@ return {
         recenter = "ctrl+shift+j",
         reset_zoom = "",
         toggle_fullscreen = "f12",
+        toggle_latex_preview = "ctrl+alt+p",
         toggle_markdown_preview = "f4",
         toggle_maximize = "",
         toggle_split = "f1",

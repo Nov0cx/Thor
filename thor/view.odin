@@ -912,6 +912,8 @@ thor_workspace_pane :: proc(thor: ^Thor, view: Workspace_View, pane: int, key: s
     switch view.pane[pane] {
     case .Markdown:
         thor_markdown_pane(thor, view.files[pane], key)
+    case .Pdf:
+        thor_pdf_pane(thor, view.files[pane], key)
     case .Image:
         thor_image_view(thor, &thor.image_view[pane], view.files[pane], key)
     case .Model:

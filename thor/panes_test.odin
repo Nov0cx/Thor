@@ -228,3 +228,30 @@ restore_pane_session :: proc(t: ^testing.T, workspace, fields: string) -> ^Thor 
     thor.dock_layout = ""
     return thor
 }
+
+// The LaTeX preview takes the pane beside the focused one, and the source keeps its own.
+@(test)
+test_latex_preview_takes_the_other_pane :: proc(t: ^testing.T) {
+    thor := pane_test_thor(2)
+    defer pane_test_destroy(thor)
+    delete(thor.open_files[0].name)
+    thor.open_files[0].name = strings.clone("main.tex")
+    thor.open_files[0].loaded = true
+    testing.expect(t, thor_set_layout(thor, .Columns2))
+    signal_set(&thor.active_file, 0)
+
+    view := thor_workspace_view(thor)
+    testing.expect_value(t, view.pane[1], Pane_Content.Editor)
+
+    thor.latex.preview = true
+    view = thor_workspace_view(thor)
+    testing.expect_value(t, view.pane[0], Pane_Content.Editor)
+    testing.expect_value(t, view.pane[1], Pane_Content.Pdf)
+    testing.expect_value(t, view.files[1], thor.open_files[0])
+
+    // A file that is not LaTeX shows no preview.
+    delete(thor.open_files[0].name)
+    thor.open_files[0].name = strings.clone("notes.txt")
+    view = thor_workspace_view(thor)
+    testing.expect_value(t, view.pane[1], Pane_Content.Editor)
+}

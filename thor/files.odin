@@ -41,6 +41,8 @@ Open_File :: struct {
     // Base name, plus a directory suffix on a collision. Owned; set by thor_update_tab_labels.
     tab_label:            string,
     state:                textedit.State,
+    // An explicit save of a LaTeX source is in flight, and a build follows it.
+    latex_build_pending:  bool,
     loaded:               bool,
     // Byte offset of the top row when a pane last showed this file; the view comes back to it.
     view_top:             int,
@@ -1531,7 +1533,14 @@ thor_process_io :: proc(thor: ^Thor) {
                 thor_lang_notify(thor, file, .Saved)
                 thor_request_diagnostics(thor, file)
             }
+            if file.latex_build_pending && !file.saving {
+                file.latex_build_pending = false
+                if !file.closed {
+                    thor_latex_build_file(thor, file)
+                }
+            }
         } else if !job.cancelled {
+            file.latex_build_pending = false
             file.save_failed = true
             file.failed_revision = file.state.revision
             // Nothing can ask about a closed tab: its edits go to a backup.
@@ -1581,6 +1590,7 @@ thor_process_io :: proc(thor: ^Thor) {
     for job in md_images {
         thor_apply_md_image(thor, job)
     }
+    thor_reap_latex(thor)
 
     // A save may have changed the working tree; refresh the status so the
     // explorer highlighting stays current.

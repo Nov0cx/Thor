@@ -424,6 +424,9 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_add_bindable_command(thor, "View: Open active file to the side", "open_to_side", thor_cmd_open_to_side, thor)
     thor_add_bindable_command(thor, "View: Show active file in pane...", "pick_pane", thor_cmd_pick_pane, thor)
     thor_add_bindable_command(thor, "View: Toggle Markdown preview", "toggle_markdown_preview", thor_cmd_toggle_markdown_preview, thor)
+    thor_add_bindable_command(thor, "View: Toggle LaTeX PDF preview", "toggle_latex_preview", thor_cmd_toggle_latex_preview, thor)
+    thor_add_bindable_command(thor, "LaTeX: Build", "latex_build", thor_cmd_latex_build, thor)
+    thor_add_bindable_command(thor, "LaTeX: Go to PDF position", "latex_forward_search", thor_cmd_latex_forward_search, thor)
     thor_palette_add(thor, "View: Recenter", thor_cmd_recenter, thor, action = "recenter")
 
     thor_add_bindable_command(thor, "Terminal: New terminal", "new_terminal", thor_cmd_new_terminal, thor)

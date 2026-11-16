@@ -158,6 +158,14 @@ thor_save_explicit :: proc(thor: ^Thor, file: ^Open_File) {
     if file == nil || !file.loaded || file.closed {
         return
     }
+    // The build reads the file from disk, so it waits for the save.
+    defer if thor_latex_builds_on_save(thor, file) {
+        if file.saving || thor.format_save_pending {
+            file.latex_build_pending = true
+        } else {
+            thor_latex_build_file(thor, file)
+        }
+    }
     if file.state.revision == file.saved_revision || !setting.format_on_save(&thor.config) {
         thor_save_file(thor, file)
         return

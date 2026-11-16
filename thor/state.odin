@@ -186,6 +186,7 @@ thor_sync_pane_diff :: proc(thor: ^Thor, pane: int) {
 Pane_Content :: enum {
     Editor,
     Markdown,
+    Pdf,
     Image,
     Model,
     Hex,
@@ -205,8 +206,8 @@ Workspace_View :: struct {
 }
 
 // Decides what each pane shows: the image view for an image, the model view for
-// a 3D model, and the markdown preview in the pane beside the focused one when
-// the active file is markdown and preview is on. The focused pane keeps the source,
+// a 3D model, and the markdown or PDF preview in the pane beside the focused one
+// when the active file is markdown or LaTeX and its preview is on. The focused pane keeps the source,
 // like opening the preview to the side. Called once a frame, so it tracks tab
 // switches, splits, toggles and closes without each having to poke it.
 thor_workspace_view :: proc(thor: ^Thor) -> Workspace_View {
@@ -223,11 +224,18 @@ thor_workspace_view :: proc(thor: ^Thor) -> Workspace_View {
         out.pane[pane] = thor_pane_content(out.files[pane])
     }
 
-    show_md := thor.markdown_preview && file != nil && file.loaded && thor_is_markdown(file.name)
+    preview: Pane_Content
+    if file != nil && file.loaded {
+        if thor.markdown_preview && thor_is_markdown(file.name) {
+            preview = .Markdown
+        } else if thor.latex.preview && latex_is_source(file.name) {
+            preview = .Pdf
+        }
+    }
 
     // The preview needs a second pane to sit beside the source; open the split
     // first if it is not already on, without moving focus off the source.
-    if show_md && thor_pane_count(thor) == 1 && thor_ensure_pane(thor, 1) {
+    if preview != .Editor && thor_pane_count(thor) == 1 && thor_ensure_pane(thor, 1) {
         for pane in 1 ..< thor_pane_count(thor) {
             if index := thor.pane_file[pane]; index >= 0 && index < len(thor.open_files) {
                 out.files[pane] = thor.open_files[index]
@@ -237,9 +245,9 @@ thor_workspace_view :: proc(thor: ^Thor) -> Workspace_View {
     }
     out.count = thor_pane_count(thor)
 
-    if show_md && out.count > 1 {
+    if preview != .Editor && out.count > 1 {
         other := (thor.active_pane + 1) % out.count
-        out.pane[other] = .Markdown
+        out.pane[other] = preview
         out.files[other] = file
     }
     return out

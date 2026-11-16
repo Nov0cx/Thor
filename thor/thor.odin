@@ -120,6 +120,7 @@ Thor :: struct {
     // focused while preview is on and the active file is markdown. Toggled by
     // "View: Toggle Markdown preview".
     markdown_preview:              bool,
+    latex:                         Latex_State,
     markdown_view:                 Markdown_View,
     tutorial:                      Tutorial,
     // Last frame's rect of each region a tutorial step can point at.
@@ -333,6 +334,7 @@ Thor :: struct {
     // Worker threads push finished jobs here; drained on the main thread every frame.
     finished_loads:                lockfree.Stack(Load_Job),
     finished_saves:                lockfree.Stack(Save_Job),
+    finished_latex:                lockfree.Stack(Latex_Job),
     finished_git:                  lockfree.Stack(Git_Status_Job),
     finished_git_ops:              lockfree.Stack(Git_Op_Job),
     finished_file_ops:             lockfree.Stack(File_Op_Job),
@@ -1118,6 +1120,7 @@ shutdown :: proc(thor: ^Thor) {
     // A download in flight would otherwise hold the drain for the rest of the
     // archive; asked to stop, it gives up after the current slice.
     thor_cancel_update(thor)
+    thor_latex_cancel_all(thor)
     thor_drain_io(thor)
     thor_free_plugin_execs(thor)
 
@@ -1135,6 +1138,7 @@ shutdown :: proc(thor: ^Thor) {
         thor_model_view_destroy(thor, &view)
     }
     thor_markdown_view_destroy(thor, &thor.markdown_view)
+    thor_latex_destroy(thor)
     thor_markdown_view_destroy(thor, &thor.completion_doc_view)
     thor_tutorial_destroy(thor)
     thor_whats_new_destroy(thor)
