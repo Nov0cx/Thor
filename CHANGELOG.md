@@ -1,3 +1,10 @@
+# 2026.11.7
+
+- Two-step keybinds: a `keybinds.lua` entry such as `"ctrl+m c"` runs after two presses. `"prefix c"` follows the new `chord_prefix` bind (`ctrl + m` by default).
+- The status bar shows a pressed chord prefix until the second key. `esc` cancels it.
+- Settings > Keybindings records a two-step bind when the chord prefix is pressed first.
+- Odin live diagnostics check only the declarations an edit changed. On a large file they take about half the time.
+
 # 2026.11.6
 
 - Fixed the jitter when the window is dragged by its title bar or resized by its edges on Linux. On X11 and XWayland the window manager moves and resizes the window, so it snaps like other windows.
