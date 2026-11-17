@@ -92,10 +92,11 @@ thor_apply_settings :: proc(thor: ^Thor) {
     prof.proc_scope()
     // The editing keys: the built-in chord unless a keybinds.lua names one. An
     // empty chord in a file takes the key away.
+    setting.keybind_warn_lead_conflicts(&thor.config)
     editview.keymap_reset()
     for action in editview.Action {
         if kb, ok := setting.keybind(&thor.config, editview.action_name(action)); ok && action != .None {
-            editview.keymap_bind(action, {kb.key, kb.mods})
+            editview.keymap_bind(action, {kb.key, kb.mods}, {kb.lead.key, kb.lead.mods})
         }
     }
     // The app keys: the built-in chord unless a keybinds.lua names one.
@@ -392,7 +393,7 @@ thor_add_bindable_command :: proc(thor: ^Thor, title, action: string, run: proc(
 // limits the match to the actions it starts.
 thor_dispatch_app_bind :: proc(thor: ^Thor, event: ui.Key_Event, prefix := "") -> bool {
     for bind in thor.app_binds {
-        if bind.key.key != .None && strings.has_prefix(bind.action, prefix) && setting.keybind_matches(bind.key, event.key, event.mods) {
+        if bind.key.key != .None && strings.has_prefix(bind.action, prefix) && setting.keybind_matches(bind.key, event.key, event.mods, thor.chord_lead) {
             thor_note_action(thor, bind.action)
             if bind.run != nil {
                 bind.run(bind.data)

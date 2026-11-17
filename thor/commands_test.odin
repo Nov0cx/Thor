@@ -213,3 +213,49 @@ test_update_button_shows_the_install_step :: proc(t: ^testing.T) {
     label, _, _ = thor_update_button_state(&thor)
     testing.expect_value(t, label, "Installing...")
 }
+
+@(private = "file")
+chord_test_ran: int
+
+// The chord prefix waits for the second key, which runs the two-step bind and types nothing; Esc cancels.
+@(test)
+test_two_step_bind_runs_after_the_prefix :: proc(t: ^testing.T) {
+    ctx := new(ui.Context)
+    defer free(ctx)
+    ui.init(ctx, ui.Config{backend = ui.noop_backend()})
+    defer ui.destroy(ctx)
+
+    thor: Thor
+    defer delete(thor.app_binds)
+    defer delete(thor.config.keybinds)
+    thor.config.keybinds[setting.CHORD_PREFIX_ACTION] = setting.Keybind{key = .M, mods = {.Ctrl}}
+    bind, _ := setting.parse_keybind("prefix c")
+    thor.config.keybinds["test_two_step"] = bind
+    resolved, _ := setting.keybind(&thor.config, "test_two_step")
+    append(&thor.app_binds, App_Bind{action = "test_two_step", key = resolved, run = proc(_: rawptr) {
+        chord_test_ran += 1
+    }})
+    chord_test_ran = 0
+
+    ui.begin_frame(ui.Input{text = "c"})
+    defer ui.end_frame()
+    testing.expect(t, thor_global_key(&thor, ui.Key_Event{key = .M, mods = {.Ctrl}}), "the prefix is taken")
+    testing.expect(t, thor.chord_pending.key == .M, "the prefix waits")
+    thor_global_key(&thor, ui.Key_Event{key = .Left_Ctrl, action = .Release})
+    testing.expect(t, thor.chord_pending.key == .M, "a release keeps the prefix")
+    testing.expect(t, thor_global_key(&thor, ui.Key_Event{key = .C}), "the second key is taken")
+    testing.expect_value(t, chord_test_ran, 1)
+    testing.expect_value(t, ui.typed_text(), "")
+    testing.expect(t, thor.chord_pending.key == .None, "the sequence ended")
+
+    // A bare C is not the bind, and Esc cancels a sequence.
+    thor_global_key(&thor, ui.Key_Event{key = .C})
+    testing.expect_value(t, chord_test_ran, 1)
+    thor_global_key(&thor, ui.Key_Event{key = .M, mods = {.Ctrl}})
+    testing.expect(t, thor.chord_pending.key == .M, "the prefix waits again")
+    thor_global_key(&thor, ui.Key_Event{key = .Escape})
+    testing.expect(t, thor.chord_pending.key == .None, "Esc ends the sequence")
+    testing.expect_value(t, chord_test_ran, 1)
+    thor_global_key(&thor, ui.Key_Event{key = .C})
+    testing.expect_value(t, chord_test_ran, 1)
+}

@@ -1595,3 +1595,16 @@ test_patched_rows_match_rebuild_with_folds :: proc(t: ^testing.T) {
     }
     testing.expect(t, patched_rounds > 0, "some edits are patched through the folds")
 }
+
+// A two-step chord answers only after its lead.
+@(test)
+test_keymap_two_step_chord :: proc(t: ^testing.T) {
+    defer keymap_reset()
+    keymap_bind(.File_End, {.E, {}}, {.M, {.Ctrl}})
+    action, _ := keymap_lookup(.E, {})
+    testing.expect_value(t, action, Action.None)
+    action, _ = keymap_lookup(.E, {}, .M, {.Ctrl})
+    testing.expect_value(t, action, Action.File_End)
+    action, _ = keymap_lookup(.End, {.Ctrl}, .M, {.Ctrl})
+    testing.expect_value(t, action, Action.None)
+}

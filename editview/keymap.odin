@@ -139,6 +139,10 @@ ACTIONS := [Action]Action_Info{
 @(private = "file")
 g_keymap: [Action]Chord
 
+// The first press of each action's two-step chord. A key of .None is a one-step chord.
+@(private = "file")
+g_keymap_lead: [Action]Chord
+
 @(private = "file")
 g_keymap_ready: bool
 
@@ -151,21 +155,25 @@ action_name :: proc(action: Action) -> string {
 keymap_reset :: proc() {
     for info, action in ACTIONS {
         g_keymap[action] = info.key
+        g_keymap_lead[action] = {}
     }
     g_keymap_ready = true
 }
 
 // Gives an action its chord. A chord with key .None takes the chord away.
-keymap_bind :: proc(action: Action, chord: Chord) {
+// `lead` is the first press of a two-step chord.
+keymap_bind :: proc(action: Action, chord: Chord, lead := Chord{}) {
     if !g_keymap_ready {
         keymap_reset()
     }
     g_keymap[action] = chord
+    g_keymap_lead[action] = lead
 }
 
 // The action a chord runs. `extend` is set when the chord is an action's chord
-// with shift added, for the actions that extend a selection.
-keymap_lookup :: proc(key: ui.Key, mods: ui.Mod_Set) -> (action: Action, extend: bool) {
+// with shift added, for the actions that extend a selection. `lead_key` and
+// `lead_mods` are the pending first press of a two-step chord.
+keymap_lookup :: proc(key: ui.Key, mods: ui.Mod_Set, lead_key := ui.Key.None, lead_mods := ui.Mod_Set{}) -> (action: Action, extend: bool) {
     if !g_keymap_ready {
         keymap_reset()
     }
@@ -173,7 +181,7 @@ keymap_lookup :: proc(key: ui.Key, mods: ui.Mod_Set) -> (action: Action, extend:
         return .None, false
     }
     for chord, candidate in g_keymap {
-        if candidate != .None && chord.key == key && chord.mods == mods {
+        if candidate != .None && chord.key == key && chord.mods == mods && g_keymap_lead[candidate] == {lead_key, lead_mods} {
             return candidate, false
         }
     }
@@ -182,7 +190,7 @@ keymap_lookup :: proc(key: ui.Key, mods: ui.Mod_Set) -> (action: Action, extend:
     }
     plain := mods - {.Shift}
     for chord, candidate in g_keymap {
-        if ACTIONS[candidate].extends && chord.key == key && chord.mods == plain {
+        if ACTIONS[candidate].extends && chord.key == key && chord.mods == plain && g_keymap_lead[candidate] == {lead_key, lead_mods} {
             return candidate, true
         }
     }

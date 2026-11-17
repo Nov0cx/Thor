@@ -1,5 +1,6 @@
 -- Shipped key bindings, grouped for reading only: action names share one namespace.
 -- Rebind in user/keybinds.lua; an empty string unbinds an action.
+-- A two-step bind is two presses split by a space: "ctrl+m c", or "prefix c" for chord_prefix.
 
 return {
     clipboard = {
@@ -105,6 +106,9 @@ return {
         fold_all = "",
         toggle_fold = "ctrl+shift+comma",
         unfold_all = "",
+    },
+    keys = {
+        chord_prefix = "ctrl+m",
     },
     latex = {
         latex_build = "ctrl+alt+b",

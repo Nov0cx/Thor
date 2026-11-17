@@ -3482,6 +3482,26 @@ editor_text :: proc(editor: ^Editor, codepoint: rune, mods: ui.Mod_Set) -> bool 
     return true
 }
 
+// The second press of a two-step chord whose first press was `lead_key` +
+// `lead_mods`. Runs the editor action bound to the pair; false when none is.
+editor_key_after_lead :: proc(editor: ^Editor, lead_key: ui.Key, lead_mods: ui.Mod_Set, event: ui.Key_Event) -> bool {
+    if editor == nil || editor.state == nil || event.action == .Release {
+        return false
+    }
+    action, extend := keymap_lookup(event.key, event.mods, lead_key, lead_mods)
+    if action == .None {
+        return false
+    }
+    editor_sync(editor)
+    editor_cancel_jump(editor)
+    handled := editor_run_action(editor, action, extend)
+    if handled && editor.on_action != nil {
+        editor.on_action(editor.action_data, action_name(action))
+    }
+    editor_sync(editor)
+    return handled
+}
+
 // A key event. The alt release ends a relative-line jump.
 editor_key :: proc(editor: ^Editor, event: ui.Key_Event) -> bool {
     if editor == nil || editor.state == nil {

@@ -387,13 +387,13 @@ thor_key_digit :: proc(key: ui.Key) -> (int, bool) {
 }
 
 // Like keybind_matches, but a number-row digit also matches its keypad twin.
-thor_digit_bind_matches :: proc(bind: setting.Keybind, event: ui.Key_Event) -> bool {
-    if setting.keybind_matches(bind, event.key, event.mods) {
+thor_digit_bind_matches :: proc(bind: setting.Keybind, event: ui.Key_Event, lead := setting.Key_Step{}) -> bool {
+    if setting.keybind_matches(bind, event.key, event.mods, lead) {
         return true
     }
     want, want_ok := thor_key_digit(bind.key)
     got, got_ok   := thor_key_digit(event.key)
-    return want_ok && got_ok && want == got && setting.keybind_matches(bind, bind.key, event.mods)
+    return want_ok && got_ok && want == got && setting.keybind_matches(bind, bind.key, event.mods, lead)
 }
 
 // Moves the boundary after entry `i` of `weights` by `moved` pixels of `avail`.
@@ -438,13 +438,13 @@ thor_pane_sizes :: proc(weights: []f32, n: int, avail: f32) -> (sizes: [LAYOUT_M
 // previous pane, next layout.
 thor_pane_global_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
     for bind, pane in thor.focus_pane_keys {
-        if thor_digit_bind_matches(bind, event) {
+        if thor_digit_bind_matches(bind, event, thor.chord_lead) {
             thor_focus_pane(thor, pane)
             return true
         }
     }
     for bind, pane in thor.file_to_pane_keys {
-        if thor_digit_bind_matches(bind, event) {
+        if thor_digit_bind_matches(bind, event, thor.chord_lead) {
             thor_file_to_pane(thor, pane)
             return true
         }

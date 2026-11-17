@@ -1,6 +1,7 @@
 package thor
 
 
+import "../editview"
 import "../platform"
 import "../plugin"
 import "../setting"
@@ -37,7 +38,7 @@ thor_toggle_fullscreen :: proc(_: ^Thor) {
 
 // Matches one global app chord and tells the tutorial its action ran.
 thor_app_key_hit :: proc(thor: ^Thor, bind: setting.Keybind, action: string, event: ui.Key_Event) -> bool {
-    if !setting.keybind_matches(bind, event.key, event.mods) {
+    if !setting.keybind_matches(bind, event.key, event.mods, thor.chord_lead) {
         return false
     }
     thor_note_action(thor, action)
@@ -47,6 +48,11 @@ thor_app_key_hit :: proc(thor: ^Thor, bind: setting.Keybind, action: string, eve
 // App-level shortcuts, read from the key stream before the tree is built, so
 // they work no matter what holds the focus.
 thor_global_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
+    // A pending chord prefix lives only while this path reads the keys; a modal
+    // or a focused terminal drops it.
+    pending := thor.chord_pending
+    thor.chord_pending = {}
+
     // The pane picker owns the keyboard until a pane is picked.
     if thor.pane_pick.open {
         thor_pane_pick_key(thor, event)
@@ -81,6 +87,7 @@ thor_global_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
 
     // A release only reaches the plugins: every shortcut here acts on the press.
     if event.action == .Release {
+        thor.chord_pending = pending
         if chord == "" {
             return false
         }
@@ -90,7 +97,20 @@ thor_global_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
     // A held key only continues the undo/redo trail; every other shortcut here
     // is a one-shot that must not fire once per repeat tick.
     if event.action == .Repeat {
+        if pending.key != .None {
+            thor.chord_pending = pending
+            return true
+        }
         return thor_global_undo_redo(thor, event)
+    }
+
+    if pending.key != .None {
+        return thor_chord_second_key(thor, pending, event)
+    }
+    // The first press of a two-step bind waits for the second.
+    if setting.keybind_is_lead(&thor.config, event.key, event.mods) {
+        thor.chord_pending = {event.key, event.mods}
+        return true
     }
 
     // Let plugins observe every key press. The chord matches thor.keybind's
@@ -100,7 +120,35 @@ thor_global_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
             return true
         }
     }
+    return thor_global_press(thor, event)
+}
 
+// The second press after the chord prefix `lead`. It runs the two-step bind it
+// completes, or cancels the sequence; either way the key types nothing.
+@(private = "file")
+thor_chord_second_key :: proc(thor: ^Thor, lead: setting.Key_Step, event: ui.Key_Event) -> bool {
+    if editview.key_is_modifier(event.key) {
+        thor.chord_pending = lead
+        return true
+    }
+    ui.drop_typed_text()
+    if event.key == .Escape && event.mods == {} {
+        return true
+    }
+    thor.chord_lead = lead
+    defer thor.chord_lead = {}
+    if thor_global_press(thor, event) {
+        return true
+    }
+    if editor := thor_pane_editor(thor, thor.active_pane); editor.focused {
+        editview.editor_key_after_lead(editor, lead.key, lead.mods, event)
+    }
+    return true
+}
+
+// The app chords of one press, matched against `thor.chord_lead`.
+@(private = "file")
+thor_global_press :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
     // The command palette toggle works no matter what is focused.
     if thor_app_key_hit(thor, thor.command_palette_key, "command_palette", event) {
         thor_toggle_command_palette(thor)
@@ -210,7 +258,7 @@ thor_global_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
     }
 
     // Escape closes the tip of the day before anything else reads it.
-    if event.key == .Escape && event.mods == {} && thor_tip_close_on_escape(thor) {
+    if event.key == .Escape && event.mods == {} && thor.chord_lead.key == .None && thor_tip_close_on_escape(thor) {
         return true
     }
 
@@ -220,7 +268,7 @@ thor_global_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
         return true
     }
     when ODIN_OS == .Darwin {
-        if event.key == .Comma && event.mods == {.Super} {
+        if event.key == .Comma && event.mods == {.Super} && thor.chord_lead.key == .None {
             thor_note_action(thor, "open_settings_gui")
             thor_cmd_open_settings_gui(thor)
             return true
@@ -295,7 +343,7 @@ thor_global_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
 // buffer twice.
 @(private = "file")
 thor_global_undo_redo :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
-    if !(.Ctrl in event.mods) || (.Alt in event.mods) {
+    if !(.Ctrl in event.mods) || (.Alt in event.mods) || thor.chord_lead.key != .None {
         return false
     }
 

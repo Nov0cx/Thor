@@ -196,6 +196,27 @@ A chord is modifiers and one key, joined with `+`, in any order — for example
 The shipped bindings all use `ctrl`; bind `cmd` here to reach the Command key on
 macOS. An empty string unbinds an action.
 
+A two-step bind is two chords split by a space: press the first, release it,
+then press the second. `prefix` as the first step names the `chord_prefix`
+bind (`ctrl+m` by default), so changing the prefix moves every `prefix` bind
+with it:
+
+```lua
+-- user/keybinds.lua
+return {
+    keys = { chord_prefix = "ctrl+m" },
+    editing = { toggle_line_comment = "prefix c", join_lines = "ctrl+m j" },
+}
+```
+
+After the first step the status bar shows it (`Ctrl+M …`) and waits; there is
+no timeout. The next key runs the bind it completes, or cancels the sequence
+when it completes none; Esc cancels too. The second key never types. A chord
+that starts any two-step bind no longer runs a one-step bind of its own, and
+the log names such a bind. In Settings > Keybindings, press the prefix and then
+a key to record a `prefix` bind. A focused terminal keeps the prefix for its
+shell.
+
 ## `lsp.lua`
 
 The language servers Thor may start. Odin formatting, diagnostics,

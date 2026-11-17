@@ -146,7 +146,9 @@ be tested headlessly.
   `widgets/` package: the tree is declared once a frame from plain state. A missing capability is
   added upstream in Loom and the submodule pointer bumped, not worked around here.
 - `input` — the spelling of keys and modifiers in a chord. Loom owns the set: `setting.Keybind` is
-  `{ui.Key, input.Modifiers}`.
+  `{ui.Key, input.Modifiers}` plus an optional `lead` press for a two-step bind (`"ctrl+m c"`,
+  `"prefix c"` follows the `chord_prefix` bind). `thor_global_key` holds the pending lead in
+  `thor.chord_pending` and matches the second press against `thor.chord_lead`.
 - `platform` — the only package that imports `vendor:raylib`: the window and frame (`window_open`,
   `frame_begin/end`), time, clipboard, dropped files, raw input (`next_key_press` with the layout
   remap, `modifiers_down`, mouse), 2D drawing (`list_begin/end`, `triangles_begin`/`vertex`,

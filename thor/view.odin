@@ -1999,6 +1999,13 @@ thor_statusbar :: proc(thor: ^Thor) {
         thor_status_segment(thor, "jump", "", jump, thor.theme.accent_color, "The relative jump you are typing. Enter runs it")
     }
 
+    // The chord prefix waiting for the second key of a two-step bind.
+    if thor.chord_pending.key != .None {
+        lead  := setting.Keybind{key = thor.chord_pending.key, mods = thor.chord_pending.mods}
+        label := fmt.tprintf("%s …", setting.keybind_to_string(lead, context.temp_allocator))
+        thor_status_segment(thor, "chord", "", label, thor.theme.accent_color, "Press the second key of a two-step shortcut. Esc cancels")
+    }
+
     // Transient notice; errors in red, everything else accented, so it stands
     // out against the segments.
     if info.message != "" {

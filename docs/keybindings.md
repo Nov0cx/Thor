@@ -10,7 +10,8 @@ those act once per press.
 
 Every binding below is a default and can be changed in `keybinds.lua`
 — see [Configuration](configuration.md) for the chord format, including the
-`cmd` token that reaches the Command key on macOS.
+`cmd` token that reaches the Command key on macOS and two-step binds such as
+`prefix c`. The chord prefix is ctrl + m (`chord_prefix`); no default uses it.
 
 ## Files & app
 

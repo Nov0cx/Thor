@@ -7,6 +7,7 @@ package thor
 import "core:strconv"
 import "core:strings"
 
+import "../setting"
 import ui "../vendor/loom/loom"
 
 SETTINGS_WIDTH     :: TK_W_TOOL
@@ -86,6 +87,8 @@ Settings_State :: struct {
     // this, never the index: a repopulate rebuilds every row, so the index can
     // come to name another action.
     capturing_id:        string,
+    // The capture took the chord prefix and waits for the second press.
+    capturing_prefix:    bool,
     // Pane key the focus goes back to when the modal closes.
     return_focus:        string,
     // Set by an open, consumed by the view: the search box takes the keyboard on
@@ -337,6 +340,7 @@ settings_begin_capture :: proc(s: ^Settings_State, index: int) {
     delete(s.capturing_id)
     s.capturing_id = strings.clone(s.rows[index].id)
     s.capturing = index
+    s.capturing_prefix = false
 }
 
 @(private = "file")
@@ -344,6 +348,7 @@ settings_end_capture :: proc(s: ^Settings_State) {
     delete(s.capturing_id)
     s.capturing_id = ""
     s.capturing = -1
+    s.capturing_prefix = false
 }
 
 // Switches scope, resetting the category and search state that no longer
@@ -487,12 +492,21 @@ settings_capture_key :: proc(thor: ^Thor) {
             settings_end_capture(s)
             return
         }
+        // The chord prefix starts a two-step bind; the prefix row itself takes it whole.
+        if !s.capturing_prefix && s.capturing_id != setting.CHORD_PREFIX_ACTION {
+            prefix, _ := setting.keybind(&thor.config, setting.CHORD_PREFIX_ACTION)
+            if prefix.key != .None && setting.keybind_matches(prefix, event.key, event.mods) {
+                s.capturing_prefix = true
+                continue
+            }
+        }
+        after_prefix := s.capturing_prefix
         // The handler repopulates the rows, so the capture ends first and the id
         // outlives the row it came from.
-        id := strings.clone(s.capturing_id, context.temp_allocator)
+        id           := strings.clone(s.capturing_id, context.temp_allocator)
         settings_end_capture(s)
         if id != "" {
-            thor_on_setting_keybind(thor, id, event.key, event.mods)
+            thor_on_setting_keybind(thor, id, event.key, event.mods, after_prefix)
         }
         return
     }
@@ -962,7 +976,7 @@ settings_keybind_control :: proc(thor: ^Thor, row: ^Settings_Row, row_index: int
             },
         ),
     )
-    text := capturing ? "Press shortcut..." : (bound ? row.value : "Add shortcut")
+    text := capturing ? (s.capturing_prefix ? "Prefix, then a key..." : "Press shortcut...") : (bound ? row.value : "Add shortcut")
     ui.label(
         text,
         {key = "text", props = {color = capturing ? thor.theme.accent_color : (bound ? thor.theme.foreground : thor.theme.disabled), text_wrap = .Ellipsis}},

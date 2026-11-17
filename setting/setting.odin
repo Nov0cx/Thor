@@ -19,11 +19,24 @@ import "../input"
 import "../lang"
 import "../luaconf"
 
-// A parsed key chord, e.g. "ctrl+shift+k" -> {key = .K, mods = {.Ctrl, .Shift}}.
-Keybind :: struct {
+// One key press with its modifiers.
+Key_Step :: struct {
     key:  ui.Key,
     mods: input.Modifiers,
 }
+
+// A parsed key chord, e.g. "ctrl+shift+k" -> {key = .K, mods = {.Ctrl, .Shift}}.
+// A two-step bind ("ctrl+m c") puts its first press in `lead`.
+Keybind :: struct {
+    key:         ui.Key,
+    mods:        input.Modifiers,
+    lead:        Key_Step, // key .None for a one-step bind
+    lead_prefix: bool,     // the spec wrote "prefix"; `lead` follows the chord_prefix bind
+}
+
+// The keybind action whose chord the "prefix" token names.
+CHORD_PREFIX_ACTION :: "chord_prefix"
+
 
 // General editor preferences, overridable via settings.lua.
 General :: struct {
@@ -372,9 +385,60 @@ comment_style :: proc(s: ^Settings, filename: string) -> Comment_Style {
     return s.comments[base[dot:]]
 }
 
+// The bind of an action. A "prefix" lead resolves to the chord_prefix bind; with
+// no prefix bound, the bind is unset.
 keybind :: proc(s: ^Settings, action: string) -> (Keybind, bool) {
     kb, ok := s.keybinds[action]
+    if ok && kb.lead_prefix {
+        kb = keybind_resolve_prefix(kb, s.keybinds[CHORD_PREFIX_ACTION] or_else {})
+    }
     return kb, ok
+}
+
+// True when a press starts a two-step bind: the chord prefix, or the lead of any bind.
+keybind_is_lead :: proc(s: ^Settings, key: ui.Key, mods: input.Modifiers) -> bool {
+    if key == .None {
+        return false
+    }
+    step   := Key_Step{key, mods}
+    prefix := s.keybinds[CHORD_PREFIX_ACTION] or_else {}
+    if prefix.key != .None && prefix.lead.key == .None && prefix.key == key && prefix.mods == mods {
+        return true
+    }
+    for action in s.keybinds {
+        kb, _ := keybind(s, action)
+        if kb.key != .None && kb.lead == step {
+            return true
+        }
+    }
+    return false
+}
+
+// Warns once for each one-step bind that a two-step bind's lead hides. The lead
+// wins, so such a bind never runs.
+keybind_warn_lead_conflicts :: proc(s: ^Settings) {
+    for action in s.keybinds {
+        kb, _ := keybind(s, action)
+        if kb.key == .None || kb.lead.key != .None || action == CHORD_PREFIX_ACTION {
+            continue
+        }
+        if keybind_is_lead(s, kb.key, kb.mods) {
+            log.warnf("Keybind %s (%s) starts a two-step bind, so it never runs", action, keybind_to_string(kb, context.temp_allocator))
+        }
+    }
+}
+
+// Sets the lead of a "prefix" bind from the prefix chord.
+keybind_resolve_prefix :: proc(kb: Keybind, prefix: Keybind) -> Keybind {
+    kb := kb
+    if !kb.lead_prefix {
+        return kb
+    }
+    if prefix.key == .None || prefix.lead.key != .None {
+        return {}
+    }
+    kb.lead = {prefix.key, prefix.mods}
+    return kb
 }
 
 tab_width :: proc(s: ^Settings) -> int {
@@ -796,9 +860,10 @@ persist_keybind :: proc(path, action, spec: string) -> luaconf.Patch_Error {
 }
 
 // True when an incoming key event exactly matches the chord (modifiers must
-// match precisely so ctrl+k and ctrl+shift+k stay distinct).
-keybind_matches :: proc(kb: Keybind, key: ui.Key, mods: input.Modifiers) -> bool {
-    return kb.key == key && kb.mods == mods
+// match precisely so ctrl+k and ctrl+shift+k stay distinct). `lead` is the
+// pending first press of a two-step bind, empty for none.
+keybind_matches :: proc(kb: Keybind, key: ui.Key, mods: input.Modifiers, lead := Key_Step{}) -> bool {
+    return kb.key == key && kb.mods == mods && kb.lead == lead
 }
 
 // Formats a chord for display, e.g. {key = .K, mods = {.Ctrl, .Shift}} ->
@@ -809,6 +874,11 @@ keybind_to_string :: proc(kb: Keybind, allocator := context.temp_allocator) -> s
         return ""
     }
     b := strings.builder_make(allocator)
+    if kb.lead.key != .None {
+        input.write_names(&b, kb.lead.mods)
+        write_key_name(&b, kb.lead.key)
+        strings.write_byte(&b, ' ')
+    }
     input.write_names(&b, kb.mods)
     write_key_name(&b, kb.key)
     return strings.to_string(b)
@@ -822,6 +892,13 @@ keybind_spec :: proc(kb: Keybind, allocator := context.temp_allocator) -> string
         return strings.clone("", allocator)
     }
     b := strings.builder_make(allocator)
+    if kb.lead_prefix {
+        strings.write_string(&b, "prefix ")
+    } else if kb.lead.key != .None {
+        input.write_tokens(&b, kb.lead.mods)
+        write_key_token(&b, kb.lead.key)
+        strings.write_byte(&b, ' ')
+    }
     input.write_tokens(&b, kb.mods)
     write_key_token(&b, kb.key)
     return strings.to_string(b)
@@ -949,31 +1026,63 @@ write_key_name :: proc(b: ^strings.Builder, key: ui.Key) {
 }
 
 // Parses "ctrl+shift+k" into a Keybind. Modifiers are order-insensitive; the
-// single non-modifier token names the key (see key_from_name). An empty (or
-// whitespace-only) spec is an explicit unbind: a valid Keybind whose key is
-// KEY_NULL, which keybind_matches never matches against a real press.
+// single non-modifier token names the key (see key_from_name). Two steps split
+// by a space ("ctrl+m c") make a two-step bind; the first step may be "prefix",
+// the chord_prefix bind. An empty (or whitespace-only) spec is an explicit
+// unbind: a valid Keybind whose key is .None, which keybind_matches never
+// matches against a real press.
 parse_keybind :: proc(spec: string) -> (Keybind, bool) {
     kb: Keybind
-    if strings.trim_space(spec) == "" {
+    trimmed := strings.trim_space(spec)
+    if trimmed == "" {
         return kb, true
     }
-    key_set := false
+    steps := strings.fields(trimmed, context.temp_allocator)
+    switch len(steps) {
+    case 1:
+        step, ok := parse_step(steps[0])
+        kb.key, kb.mods = step.key, step.mods
+        return kb, ok
+    case 2:
+        if strings.equal_fold(steps[0], "prefix") {
+            kb.lead_prefix = true
+        } else {
+            lead, ok := parse_step(steps[0])
+            if !ok {
+                return {}, false
+            }
+            kb.lead = lead
+        }
+        step, ok := parse_step(steps[1])
+        if !ok {
+            return {}, false
+        }
+        kb.key, kb.mods = step.key, step.mods
+        return kb, true
+    }
+    return {}, false
+}
 
-    parts := strings.split(spec, "+", context.temp_allocator)
+// Parses one press, e.g. "ctrl+shift+k".
+@(private)
+parse_step :: proc(spec: string) -> (Key_Step, bool) {
+    step: Key_Step
+    key_set := false
+    parts   := strings.split(spec, "+", context.temp_allocator)
     for part in parts {
         token := strings.to_lower(strings.trim_space(part), context.temp_allocator)
         if mod, is_mod := input.modifier_from_token(token); is_mod {
-            kb.mods += {mod}
+            step.mods += {mod}
             continue
         }
         key, ok := key_from_name(token)
         if !ok {
-            return kb, false
+            return step, false
         }
-        kb.key = key
+        step.key = key
         key_set = true
     }
-    return kb, key_set
+    return step, key_set
 }
 
 @(private)

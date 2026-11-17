@@ -146,6 +146,10 @@ Thor :: struct {
     settings_sig:                  i64,
     settings_poll_time:            f64,
     command_palette_key:           setting.Keybind,
+    // The chord prefix pressed last, waiting for the second press; key .None when none.
+    chord_pending:                 setting.Key_Step,
+    // The lead the app chords of the current press match against.
+    chord_lead:                    setting.Key_Step,
     quick_open_key:                setting.Keybind,
     fullscreen_key:                setting.Keybind,
     console_toggle_key:            setting.Keybind,

@@ -719,3 +719,45 @@ test_file_target_lookup :: proc(t: ^testing.T) {
     testing.expect_value(t, file_target(&r, "src/x_linux.odin"), "linux_amd64")
     testing.expect_value(t, file_language(&r, "src/x_linux.odin"), "Odin")
 }
+
+// A two-step spec round-trips, displays both presses and matches only after its lead.
+@(test)
+test_two_step_keybind :: proc(t: ^testing.T) {
+    for spec in ([?]string{"ctrl+m c", "ctrl+shift+k ctrl+u", "prefix f5"}) {
+        kb, ok := parse_keybind(spec)
+        testing.expectf(t, ok, "%q did not parse", spec)
+        testing.expect_value(t, keybind_spec(kb, context.temp_allocator), spec)
+    }
+    kb, _ := parse_keybind("ctrl+m c")
+    testing.expect_value(t, keybind_to_string(kb, context.temp_allocator), "Ctrl+M C")
+    testing.expect(t, keybind_matches(kb, .C, {}, {.M, {.Ctrl}}))
+    testing.expect(t, !keybind_matches(kb, .C, {}))
+
+    _, three := parse_keybind("ctrl+m c d")
+    testing.expect(t, !three, "a bind has two steps at most")
+    _, bad := parse_keybind("ctrl+m hyper+c")
+    testing.expect(t, !bad, "a bad second step does not parse")
+}
+
+// A "prefix" bind follows the chord_prefix bind, and the prefix is a lead.
+@(test)
+test_prefix_bind_follows_chord_prefix :: proc(t: ^testing.T) {
+    s: Settings
+    defer delete(s.keybinds)
+    s.keybinds["comment"], _ = parse_keybind("prefix c")
+    s.keybinds["plain"], _ = parse_keybind("ctrl+j")
+    s.keybinds[CHORD_PREFIX_ACTION], _ = parse_keybind("ctrl+m")
+
+    kb, _ := keybind(&s, "comment")
+    testing.expect(t, kb.lead == Key_Step{.M, {.Ctrl}}, "the lead is the prefix")
+    testing.expect(t, keybind_is_lead(&s, .M, {.Ctrl}))
+    testing.expect(t, !keybind_is_lead(&s, .J, {.Ctrl}))
+
+    s.keybinds[CHORD_PREFIX_ACTION], _ = parse_keybind("alt+g")
+    kb, _ = keybind(&s, "comment")
+    testing.expect(t, kb.lead == Key_Step{.G, {.Alt}}, "the lead follows a rebound prefix")
+
+    s.keybinds[CHORD_PREFIX_ACTION] = {}
+    kb, _ = keybind(&s, "comment")
+    testing.expect(t, kb.key == .None, "with no prefix the bind is unset")
+}

@@ -244,9 +244,14 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     slice.sort_by(entries, proc(a, b: Keybind_Entry) -> bool {
         return a.title < b.title
     })
-    thor_settings_add_info(view, "keybind_help", "Click a shortcut, then press the new chord. Esc cancels.", "")
+    thor_settings_add_info(
+        view,
+        "keybind_help",
+        "Click a shortcut, then press the new chord. Press the chord prefix first for a two-step bind. Esc cancels.",
+        "",
+    )
     for entry in entries {
-        kb    := config.keybinds[entry.action] or_else {}
+        kb, _ := setting.keybind(config, entry.action)
         chord := setting.keybind_to_string(kb, context.temp_allocator)
         thor_settings_add_keybind(view, entry.action, entry.title, chord)
     }
@@ -703,10 +708,10 @@ thor_plugin_permission_commit :: proc(data: rawptr, choice: string) {
 }
 
 // Persists a captured (or cleared) chord to keybinds.lua, then reloads so the
-// binding takes effect immediately.
-thor_on_setting_keybind :: proc(data: rawptr, id: string, key: ui.Key, mods: input.Modifiers) {
+// binding takes effect immediately. `after_prefix` makes it a "prefix" two-step bind.
+thor_on_setting_keybind :: proc(data: rawptr, id: string, key: ui.Key, mods: input.Modifiers, after_prefix := false) {
     thor := cast(^Thor)data
-    kb   := setting.Keybind{key = key, mods = mods}
+    kb   := setting.Keybind{key = key, mods = mods, lead_prefix = after_prefix}
     spec := setting.keybind_spec(kb, context.temp_allocator)
     if err := setting.persist_keybind(thor_active_keybinds_path(thor), id, spec); err != .None {
         thor_settings_save_failed(thor, thor_active_keybinds_path(thor), err)
