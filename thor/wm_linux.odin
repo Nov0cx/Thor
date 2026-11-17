@@ -16,6 +16,35 @@ import "../platform"
 @(default_calling_convention = "c")
 foreign _ {
     glfwGetX11Display :: proc() -> ^xlib.Display ---
+    glfwGetX11Window  :: proc(window: rawptr) -> xlib.Window ---
+}
+
+@(private = "file")
+x11_error_code: u8
+
+@(private = "file")
+x11_error_record :: proc "c"(display: ^xlib.Display, event: ^xlib.XErrorEvent) -> i32 {
+    x11_error_code = event.error_code
+    return 0
+}
+
+// Xlib's default error handler ends the process, so X calls here run under a handler that records the error.
+@(private = "file")
+x11_trap_begin :: proc() -> proc "c"(display: ^xlib.Display, event: ^xlib.XErrorEvent) -> i32 {
+    x11_error_code = 0
+    return xlib.SetErrorHandler(x11_error_record)
+}
+
+// Waits for the server to answer the trapped calls, then restores the old handler. False when one failed.
+@(private = "file")
+x11_trap_end :: proc(display: ^xlib.Display, old: proc "c"(display: ^xlib.Display, event: ^xlib.XErrorEvent) -> i32) -> bool {
+    xlib.Sync(display, false)
+    xlib.SetErrorHandler(old)
+    if x11_error_code != 0 {
+        log.warnf("X11 request failed with error code %d", x11_error_code)
+        return false
+    }
+    return true
 }
 
 @(private = "file")
@@ -33,9 +62,17 @@ wm_state: Wm_State
 
 @(private = "file")
 thor_x11 :: proc() -> (display: ^xlib.Display, window: xlib.Window, ok: bool) {
+    // raylib's window handle on Linux is the GLFWwindow, not the X11 window.
+    handle := platform.window_native_handle()
+    if handle == nil {
+        return nil, 0, false
+    }
     display = glfwGetX11Display()
-    window = xlib.Window(uintptr(platform.window_native_handle()))
-    return display, window, display != nil && window != 0
+    if display == nil {
+        return nil, 0, false
+    }
+    window = glfwGetX11Window(handle)
+    return display, window, window != 0
 }
 
 // Whether the window manager lists _NET_WM_MOVERESIZE in _NET_SUPPORTED. Asked once.
@@ -110,7 +147,9 @@ thor_cursor_screen :: proc() -> (pos: [2]f32, ok: bool) {
     root, child: xlib.Window
     root_x, root_y, win_x, win_y: i32
     mask: xlib.KeyMask
-    if !xlib.QueryPointer(display, window, &root, &child, &root_x, &root_y, &win_x, &win_y, &mask) {
+    old     := x11_trap_begin()
+    queried := xlib.QueryPointer(display, window, &root, &child, &root_x, &root_y, &win_x, &win_y, &mask)
+    if !x11_trap_end(display, old) || !queried {
         return {}, false
     }
     return {f32(root_x), f32(root_y)}, true
@@ -127,9 +166,14 @@ thor_wm_begin_drag :: proc(edges: Window_Edges) -> bool {
     root, child: xlib.Window
     root_x, root_y, win_x, win_y: i32
     mask: xlib.KeyMask
-    if !xlib.QueryPointer(display, window, &root, &child, &root_x, &root_y, &win_x, &win_y, &mask) {
+    old     := x11_trap_begin()
+    queried := xlib.QueryPointer(display, window, &root, &child, &root_x, &root_y, &win_x, &win_y, &mask)
+    if !x11_trap_end(display, old) || !queried {
         return false
     }
+
+    old = x11_trap_begin()
+    defer x11_trap_end(display, old)
 
     xlib.UngrabPointer(display, xlib.CurrentTime)
 
