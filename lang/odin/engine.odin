@@ -25,6 +25,7 @@ Engine :: struct {
     tree_cache:     Tree_Cache_File,
     packages:       Package_Index,  // the packages completion offers to import
     counts:         Count_Cache,    // identifier counts of disk files; see count_cache.odin
+    bodies:         Body_Cache,     // live body errors per declaration; see body_cache.odin
     warm:           ^thread.Thread, // the prewarm thread; joined by engine_destroy
     warm_joined:    bool,
     warm_workspace: string, // owned; read by the prewarm thread
@@ -326,5 +327,6 @@ engine_destroy :: proc(data: rawptr) {
     odin_root_clear(&e.root)
     package_index_destroy(&e.packages)
     count_cache_destroy(&e.counts)
+    body_cache_destroy(&e.bodies)
     free(e)
 }

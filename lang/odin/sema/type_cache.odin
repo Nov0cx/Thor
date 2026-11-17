@@ -167,7 +167,14 @@ type_state_matches :: proc(s: ^Type_State, config: u32, exclude: File_Id, home_k
 // True when every file and package the state read is as it was.
 @(private = "file")
 type_state_valid :: proc(snap: ^Snapshot, s: ^Type_State) -> bool {
-    for id, stamp in s.stamps {
+    return stamps_valid(snap, s.stamps, s.package_stamps)
+}
+
+// True when each file of `stamps` has the same changed_at and each package of `package_stamps`
+// the same files and shapes.
+@(private)
+stamps_valid :: proc(snap: ^Snapshot, stamps: map[File_Id]u64, package_stamps: map[Package_Id]Package_Stamp) -> bool {
+    for id, stamp in stamps {
         if snapshot_cancelled(snap) {
             return false
         }
@@ -176,7 +183,7 @@ type_state_valid :: proc(snap: ^Snapshot, s: ^Type_State) -> bool {
             return false
         }
     }
-    for pkg, ps in s.package_stamps {
+    for pkg, ps in package_stamps {
         if snapshot_cancelled(snap) {
             return false
         }

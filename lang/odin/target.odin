@@ -41,6 +41,7 @@ Request_Context :: struct {
     formatters_known:                bool,
     workspace_formatters:            odinsema.User_Formatters, // those of the workspace; read when a named type needs them
     workspace_formatters_known:      bool,
+    read_formatters:                 bool, // the body check asked for a user formatter; set by user_formatted
 }
 
 // The state of the checker of a request.

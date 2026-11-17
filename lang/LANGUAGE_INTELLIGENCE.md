@@ -304,13 +304,22 @@ size, the format and a schema hash. Any mismatch rebuilds silently. Parses stay 
 | `Code_Lens` | `lens.odin` | Reference counts. |
 | `Package_Doc` | `package_doc.odin` | A Markdown page of a package. |
 | `Diagnostics` | `check.odin` | Runs `odin check` on save. |
-| `Syntax_Diagnostics` | `syntax_check.odin`, `name_check.odin`, `body_check.odin`, `vet_check.odin`, `package_live.odin` | The live report. |
+| `Syntax_Diagnostics` | `syntax_check.odin`, `name_check.odin`, `body_check.odin`, `body_cache.odin`, `vet_check.odin`, `package_live.odin` | The live report. `body_cache.odin` keeps the body errors of each file-scope declaration (below). |
 | `Format*` | `formatter.odin`, `format/` | Section 6. |
 
 Refactorings: inline variable, `if` chain to `switch` and back, extract variable, extract procedure,
 change signature, move declaration (to another file or package).
 
 `engine.odin` holds `IMPLEMENTED`, the set of kinds `supports` accepts.
+
+**Body cache.** `body_cache.odin` keeps the body errors of each root child of the tree, by a hash
+of its text and at an offset from its start, on `Engine.bodies`. The entry of a file is valid while
+the snapshot configuration, the outline hash (the buffer with every procedure body left out), the
+check settings (naming, vet, ownership lints, in build) and the files and package views the checker
+read (`odinsema.Checker_Inputs`) are unchanged; otherwise it is dropped whole. A declaration whose
+walk read another procedure body of the buffer (`checker_watch`, set by `node_of_kind` for a
+`Proc_Lit`) or asked for a user formatter is not kept, so it is walked on each request. Items are
+kept before `apply_ignores` and `apply_severities`.
 
 ### 4.4 Configuration
 
@@ -335,11 +344,13 @@ and the picker "Build Target of the File" with a "Workspace Default" row.
 | --- | --- | --- |
 | Parse a 10k-line file | about 7 ms | 8 ms |
 | Reparse after one keystroke | about 0.12 ms | 0.5 ms |
-| Live diagnostics, warm | about 32 ms | 50 ms |
+| Live diagnostics, warm | about 17 ms | 50 ms |
+| Live diagnostics after an edit in one body | about 19 ms (body walk about 6 ms) | 50 ms |
 | First request, cold | about 110 ms (about 21 ms after prewarm) | — |
 
 `odin run build.odin -file -- bench [-strict]` times parse, reparse, diagnostics and completion with
-release flags. A measure over budget is a log warning, an error with `-strict`.
+release flags. `test_bench_diagnostics_edit` adds and removes a space in one body per sample and
+logs the mean time of each phase of the name check. A measure over budget is a log warning, an error with `-strict`.
 
 ### 4.6 Tests
 
@@ -859,13 +870,6 @@ Things that do not exist yet. Each is a candidate for future work.
   slot) and the `TYPE_STATE_SLOTS` (4) type caches churn. The result is correct but slower.
 - **Workspace disk cache.** Only the stdlib item trees persist. Item trees of workspace files keyed
   by content hash are not cached.
-- **Per-declaration body diagnostics.** `body_diagnostics` types every body of the buffer on each
-  live check (about 28 of 45 ms on `editview/editor.odin`). Plan: keep the items of each top-level
-  declaration keyed by a hash of its body text and a hash of the file's top-level declarations
-  (signatures, types, constants, imports) and the configuration and package state the checker read.
-  A request then types only the declarations whose body or inputs changed. Any change outside a
-  body clears the file's entries, since a body can read every top-level name. `undeclared_names`
-  (about 10 ms) can be cached the same way. Measure with `build.odin -- bench`.
 - **Custom lints from Lua plugins.** The sema API is not exposed to plugins.
 - **Other compiler messages as quick fixes.** `compiler_fixes.odin` handles a few; more remain. The
   indented `Suggestion:` lines of the compiler output are not read.
@@ -919,8 +923,8 @@ Behaviour that is wrong, partial, or surprising today.
 - **Cold start.** The first request takes about 110 ms; the first live check of `thor/view.odin`
   about 440 ms. The prewarm thread reads the item trees of the workspace, so the first workspace
   symbols query costs what a warm one does (85 ms on this repository, 480 ms without). Warm live
-  diagnostics take about 30 ms (median under edits, p90 36 ms); two thirds of it is
-  `body_diagnostics`, which types every body of the file on each request.
+  diagnostics take about 19 ms after an edit in one body. A change outside a body walks every
+  declaration again (about 45 ms on `editview/editor.odin`).
   Warm references on a widely used field take about 0.7 s in a debug build; most of it is the
   importer walk.
 - **References without a checker.** With no memory left for a checker, a member falls back to a name

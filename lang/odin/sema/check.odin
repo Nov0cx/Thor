@@ -111,6 +111,11 @@ Checker :: struct {
     scratch:        virtual.Arena,                   // temporary arrays, freed by scratch_end
     tmp:            mem.Allocator,                   // of `scratch`
     err:            mem.Allocator_Error,
+    // The range of the request's buffer a caller watches (see checker_watch); empty when none.
+    watch_lo:       int,
+    watch_hi:       int,
+    // A procedure body of the request's buffer outside the watched range was read.
+    read_outside:   bool,
 }
 
 // The dependency node of a memo entry from a frozen state, or of no entry.

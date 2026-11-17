@@ -101,6 +101,55 @@ test_bench_diagnostics :: proc(t: ^testing.T) {
     over_budget(t, p95 <= BUDGET_DIAGNOSTICS_MS, "diagnostics p95 %.1f ms is over %.0f", p95, BUDGET_DIAGNOSTICS_MS)
 }
 
+// Live diagnostics after an edit inside one procedure body: each sample adds or
+// removes a trailing space there, so no sample sees the text of the one before.
+@(test)
+test_bench_diagnostics_edit :: proc(t: ^testing.T) {
+    when !BENCH {
+        return
+    }
+    context.allocator = runtime.heap_allocator()
+    src, ok := bench_source()
+    if !testing.expect(t, ok, "the benchmark file could not be read") {
+        return
+    }
+    defer delete(src)
+    anchor := strings.index(src, "\n    return")
+    if !testing.expect(t, anchor >= 0, "no return statement in the benchmark file") {
+        return
+    }
+    spaced := strings.concatenate({src[:anchor], " ", src[anchor:]})
+    defer delete(spaced)
+    e := engine_create()
+    defer engine_destroy(e)
+
+    first := live_check(e, src, ".", BENCH_FILE)
+    free_live(&first)
+    live_phase_times = {}
+    samples: [20]time.Duration
+    for i in 0 ..< len(samples) {
+        text  := i % 2 == 0 ? spaced : src
+        start := time.tick_now()
+        res   := live_check(e, text, ".", BENCH_FILE)
+        samples[i] = time.tick_since(start)
+        free_live(&res)
+        free_all(context.temp_allocator)
+    }
+    median, p95 := percentiles(samples[:])
+    n           := f64(len(samples))
+    log.infof(
+        "bench diagnostics after an edit: median %.1f ms, p95 %.1f ms (budget %.0f); mean scope map %.1f, undeclared %.1f, body %.1f, vet %.1f ms",
+        median,
+        p95,
+        BUDGET_DIAGNOSTICS_MS,
+        time.duration_milliseconds(live_phase_times.scope_map) / n,
+        time.duration_milliseconds(live_phase_times.undeclared) / n,
+        time.duration_milliseconds(live_phase_times.body) / n,
+        time.duration_milliseconds(live_phase_times.vet) / n,
+    )
+    over_budget(t, p95 <= BUDGET_DIAGNOSTICS_MS, "diagnostics after an edit p95 %.1f ms is over %.0f", p95, BUDGET_DIAGNOSTICS_MS)
+}
+
 // A completion list for a name prefix typed in a function body of the file.
 @(test)
 test_bench_completion :: proc(t: ^testing.T) {

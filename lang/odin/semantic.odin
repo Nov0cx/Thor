@@ -75,8 +75,12 @@ semantic_tokens :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
 
 // The classified identifiers of [lo, hi) of the request's buffer, sorted, with no overlap. Temp-allocated.
 // With `strict`, a name that only an inactive declaration binds is undeclared, as the compiler sees it.
+// With `free_only`, only the free names are classified.
 @(private)
-semantic_classify :: proc(rc: ^Request_Context, lo, hi: int, strict := false, whole: ^odinsema.Scope_Map = nil) -> (tokens: []lang.Semantic_Token, ok: bool) {
+semantic_classify :: proc(rc: ^Request_Context, lo, hi: int, strict := false, whole: ^odinsema.Scope_Map = nil, free_only := false) -> (
+    tokens: []lang.Semantic_Token,
+    ok: bool,
+) {
     req := rc.req
     if rc.parsed.tree == nil || rc.parsed.tree.root == nil {
         return nil, false
@@ -118,7 +122,7 @@ semantic_classify :: proc(rc: ^Request_Context, lo, hi: int, strict := false, wh
         if i % SEMANTIC_CANCEL_STEP == 0 && lang.request_cancelled(req) {
             return nil, false
         }
-        if ref.end <= lo || ref.start >= hi || ref.kind == .None {
+        if ref.end <= lo || ref.start >= hi || ref.kind == .None || (free_only && ref.kind != .Free) {
             continue
         }
         if class := classify_ref(&ctx, i); class.emit {

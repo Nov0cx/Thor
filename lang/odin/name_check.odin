@@ -4,6 +4,7 @@ package odin
 import "core:fmt"
 import "core:slice"
 import "core:strings"
+import "core:time"
 
 import lang ".."
 import odinsema "sema"
@@ -14,6 +15,28 @@ import odinsyntax "syntax"
 Span :: struct {
     start: int,
     end:   int,
+}
+
+// Set by `build.odin -- bench`: the live name check times its phases into `live_phase_times`.
+LIVE_PHASES :: #config(THOR_BENCH, false)
+
+// The time of each phase of the live name checks since the last reset. Bench builds only.
+Live_Phase_Times :: struct {
+    scope_map:  time.Duration,
+    undeclared: time.Duration,
+    body:       time.Duration,
+    vet:        time.Duration,
+}
+
+@(private)
+live_phase_times: Live_Phase_Times
+
+// Adds the time since `start` to `phase` in a bench build.
+@(private = "file")
+phase_add :: #force_inline proc(phase: ^time.Duration, start: time.Tick) {
+    when LIVE_PHASES {
+        phase^ += time.tick_since(start)
+    }
 }
 
 // Appends the name errors of the request's buffer to `report`.
@@ -27,7 +50,9 @@ name_diagnostics :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) 
     import_cycles(rc, report)
     package_redeclarations(rc, report)
     import_redeclarations(rc, report)
+    start  := time.tick_now()
     m, err := odinsema.scope_map(rc.parsed, context.temp_allocator)
+    phase_add(&live_phase_times.scope_map, start)
     if err != nil || lang.request_cancelled(rc.req) {
         return
     }
@@ -40,13 +65,19 @@ name_diagnostics :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) 
     if lang.request_cancelled(rc.req) {
         return
     }
+    start = time.tick_now()
     undeclared_names(rc, m, whens[:], report)
+    phase_add(&live_phase_times.undeclared, start)
     // An unresolved name leaves the types of a body unknown.
     if len(report.items) == first && !lang.request_cancelled(rc.req) {
+        start = time.tick_now()
         body_diagnostics(rc, m, whens[:], report)
+        phase_add(&live_phase_times.body, start)
     }
     if !lang.request_cancelled(rc.req) {
+        start = time.tick_now()
         vet_diagnostics(rc, m, whens[:], report)
+        phase_add(&live_phase_times.vet, start)
     }
 }
 
@@ -54,7 +85,7 @@ name_diagnostics :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) 
 // target may not take.
 @(private = "file")
 undeclared_names :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, whens: []Branch, report: ^lang.Diagnostic_Report) {
-    tokens, ok := semantic_classify(rc, 0, len(rc.req.source), strict = true, whole = m)
+    tokens, ok := semantic_classify(rc, 0, len(rc.req.source), strict = true, whole = m, free_only = true)
     if !ok {
         return
     }

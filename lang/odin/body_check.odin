@@ -25,10 +25,15 @@ body_diagnostics :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, whens: []
     rc.own_leak = severities[CODE_LEAK] != .Off && CODE_LEAK in severities
     rc.own_double = severities[CODE_DOUBLE_FREE] != .Off && CODE_DOUBLE_FREE in severities
     rc.own_after = severities[CODE_USE_AFTER_FREE] != .Off && CODE_USE_AFTER_FREE in severities
-    walk_body(rc, c, m, whens, odinsyntax.node_root(rc.parsed.tree), report)
+    root := odinsyntax.node_root(rc.parsed.tree)
+    if rc.live.key == "" || rc.live.id == odinsema.ANON_FILE {
+        walk_body(rc, c, m, whens, root, report)
+        return
+    }
+    body_walk_cached(rc, c, m, whens, root, report)
 }
 
-@(private = "file")
+@(private)
 walk_body :: proc(
     rc: ^Request_Context,
     c: ^odinsema.Checker,
@@ -419,6 +424,7 @@ format_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odinsynt
 // registration of a type the analysis cannot read frees every named type.
 @(private = "file")
 user_formatted :: proc(rc: ^Request_Context, c: ^odinsema.Checker, type: odinsema.Type_Id) -> bool {
+    rc.read_formatters = true
     if !rc.formatters_known {
         rc.formatters_known = true
         files := make([dynamic]odinsema.File_Id, context.temp_allocator)

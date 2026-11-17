@@ -257,6 +257,9 @@ deref_base :: proc(c: ^Checker, t: Type_Id) -> Type_Id {
 // The innermost node of `kind` that starts at `offset` of `file`. Its parent is not set.
 @(private)
 node_of_kind :: proc(c: ^Checker, file: File_Id, offset: int, kind: odinsyntax.Syntax_Kind) -> (odinsyntax.Syntax_Node, bool) {
+    if kind == .Proc_Lit && file == c.exclude && c.watch_lo < c.watch_hi && (offset < c.watch_lo || offset >= c.watch_hi) {
+        c.read_outside = true
+    }
     found: odinsyntax.Syntax_Node
     ok := false
     for n in node_path(c, file, offset) {
