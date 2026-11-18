@@ -61,7 +61,7 @@ Git_Lfs_Op :: enum {
     Track,
 }
 
-@(private = "file")
+@(private)
 Git_View_File :: struct {
     path:    string, // owned; repo-relative, the key handed back to the actions
     display: string, // owned
@@ -554,15 +554,69 @@ thor_git_panel_view :: proc(thor: ^Thor) {
         },
     )
 
-    git_view_box(thor)
+    box_id := git_view_box(thor)
 
-    if backdrop.clicked || ui.take_key(.Escape) {
+    focused := ui.focused()
+    if focused != nil && focused.id == box_id {
+        git_view_keys(thor)
+        if ui.take_key(.Escape) {
+            thor_git_view_close(thor)
+        }
+    } else if ui.take_key(.Escape) {
+        ui.set_focus(box_id)
+    }
+    if backdrop.clicked {
         thor_git_view_close(thor)
     }
 }
 
+// The file after `delta` steps in the list of unstaged files followed by the staged ones, clamped;
+// ok is false when there is no file.
+git_view_step_selection :: proc(v: ^Git_View, delta: int) -> (staged: bool, index: int, ok: bool) {
+    total := len(v.unstaged) + len(v.staged)
+    if total == 0 {
+        return false, -1, false
+    }
+    at := -1
+    if v.sel_index >= 0 {
+        at = v.sel_staged ? len(v.unstaged) + v.sel_index : v.sel_index
+    }
+    next := clamp(at < 0 ? (delta > 0 ? 0 : total - 1) : at + delta, 0, total - 1)
+    if next >= len(v.unstaged) {
+        return true, next - len(v.unstaged), true
+    }
+    return false, next, true
+}
+
+// Up and Down move through the changed files, Space stages or unstages the selected one. The box
+// has the focus, so no text field reads these keys.
 @(private = "file")
-git_view_box :: proc(thor: ^Thor) {
+git_view_keys :: proc(thor: ^Thor) {
+    v := &thor.git
+    if v.kind != .Changes {
+        return
+    }
+    delta := 0
+    if ui.take_key(.Up) {
+        delta = -1
+    } else if ui.take_key(.Down) {
+        delta = 1
+    }
+    if delta != 0 {
+        if staged, index, ok := git_view_step_selection(v, delta); ok {
+            git_view_select_file(thor, staged, index)
+        }
+    }
+    if ui.take_key(.Space) && !v.busy && v.sel_index >= 0 {
+        list := v.sel_staged ? &v.staged : &v.unstaged
+        if v.sel_index < len(list) {
+            thor_on_git_stage(thor, list[v.sel_index].path, !v.sel_staged)
+        }
+    }
+}
+
+@(private = "file")
+git_view_box :: proc(thor: ^Thor) -> ui.Id {
     v   := &thor.git
     box := ui.scope(
         {
@@ -597,6 +651,7 @@ git_view_box :: proc(thor: ^Thor) {
         git_view_content(thor)
     }
     git_view_footer(thor)
+    return box.id
 }
 
 @(private = "file")

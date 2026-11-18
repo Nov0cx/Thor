@@ -324,3 +324,33 @@ test_git_status_failure_keeps_the_old_marks :: proc(t: ^testing.T) {
     testing.expect(t, !thor.git_status_inflight)
     testing.expect_value(t, thor.inflight_jobs, 0)
 }
+
+// Stepping walks the unstaged files, then the staged ones, and stops at both ends.
+@(test)
+test_git_view_step_selection :: proc(t: ^testing.T) {
+    v: Git_View
+    defer {
+        delete(v.unstaged)
+        delete(v.staged)
+    }
+    _, _, found := git_view_step_selection(&v, 1)
+    testing.expect(t, !found, "no files, no selection")
+
+    append(&v.unstaged, Git_View_File{path = "a"}, Git_View_File{path = "b"})
+    append(&v.staged, Git_View_File{path = "c"})
+    v.sel_index = -1
+
+    staged, index, _ := git_view_step_selection(&v, 1)
+    testing.expect(t, !staged && index == 0, "Down from nothing picks the first file")
+    staged, index, _ = git_view_step_selection(&v, -1)
+    testing.expect(t, staged && index == 0, "Up from nothing picks the last file")
+
+    v.sel_index = 1
+    staged, index, _ = git_view_step_selection(&v, 1)
+    testing.expect(t, staged && index == 0, "Down leaves the unstaged list for the staged one")
+    v.sel_staged, v.sel_index = true, 0
+    staged, index, _ = git_view_step_selection(&v, 1)
+    testing.expect(t, staged && index == 0, "Down stops at the last file")
+    staged, index, _ = git_view_step_selection(&v, -1)
+    testing.expect(t, !staged && index == 1, "Up returns to the unstaged list")
+}

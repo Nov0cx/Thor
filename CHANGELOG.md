@@ -21,6 +21,7 @@
 - Constants above the 64-bit range fold in sums, products, shifts and comparisons, and `size_of(string)` and `size_of(any)` decide `when` conditions.
 - Settings > Keybindings refuses a chord another action already uses, or one that a two-step bind's first key hides, and names the action.
 - Settings no longer offers "This folder" when no folder is open.
+- Git window: `up` and `down` pick a changed file, `space` stages or unstages it, and `esc` leaves a text field before it closes the window.
 - Completion of struct literal fields works after a comment that follows a comma.
 - Shell here-documents (`<<EOF`, `<<-EOF`, `<<'EOF'`) colour their body and delimiter. LaTeX verbatim text after the verb command is a string.
 
