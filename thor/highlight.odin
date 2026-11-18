@@ -349,11 +349,5 @@ thor_modifier_capture :: proc(mod: lang.Token_Modifier) -> string {
 // plugin claims it, else the bare filename ("Dockerfile", "Makefile") so files
 // with no extension can still map to a language. Falls back to the extension.
 thor_highlight_key :: proc(plugins: ^plugin.Manager, name: string) -> string {
-    if ext := thor_file_extension(name); ext != "" && plugin.supports(plugins, ext) {
-        return ext
-    }
-    if base := thor_file_base(name); plugin.supports(plugins, base) {
-        return base
-    }
-    return thor_file_extension(name)
+    return plugin.key_for_name(plugins, thor_file_base(name))
 }

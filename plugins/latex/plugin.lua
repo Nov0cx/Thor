@@ -79,6 +79,16 @@ local function lex(src)
         return nl and nl - 1 or n
     end
 
+    -- The closing delimiter of a erb whose command ends at e: the delimiter is
+    -- the next byte, the close the same byte later on the line. nil when absent.
+    local function verb_body(e, last)
+        local d = src:sub(e + 1, e + 1)
+        if d == "" or d:match("[%a%s*]") then return nil end
+        local close = src:find(d, e + 2, true)
+        if not close or close > last or close > line_end(e + 1) then return nil end
+        return close
+    end
+
     -- A braced group at p, after spaces: its two brace positions, or nil.
     local function braced(p)
         local s = src:find("^%s*{", p)
@@ -164,6 +174,11 @@ local function lex(src)
                                 end
                             end
                         end
+                    elseif name == "verb" and not default and verb_body(e, last) then
+                        local close = verb_body(e, last)
+                        push(s, e, t.functions)
+                        push(e + 1, close, t.strings)
+                        p = close + 1
                     else
                         if default then
                             push(s, e, t.functions)

@@ -95,6 +95,34 @@ test_language_name_reads_the_registry :: proc(t: ^testing.T) {
     testing.expect_value(t, language_name(&m, ".nothing-claims-this"), "")
 }
 
+// Bare names route to a language by name, dotfile extension or first dot segment.
+@(test)
+test_key_for_name_routes_bare_names :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+    manager_load(&m)
+
+    Case :: struct {
+        name: string,
+        want: string,
+    }
+    cases := []Case{
+        {"main.odin", ".odin"},
+        {"Dockerfile", "Dockerfile"},
+        {"Dockerfile.dev", "Dockerfile"},
+        {".env.local", ".env"},
+        {".profile", ".profile"},
+        {".envrc", ".envrc"},
+        {".gitmodules", ".gitmodules"},
+        {".ignore", ".ignore"},
+        {"x.nothing-claims-this", ".nothing-claims-this"},
+    }
+    for c in cases {
+        testing.expectf(t, key_for_name(&m, c.name) == c.want, "%q: key %q, want %q", c.name, key_for_name(&m, c.name), c.want)
+    }
+}
+
 // Loads the real plugins/odin/plugin.lua and highlights Odin through the
 // tree-sitter grammar, confirming captures resolve to the mapped color roles
 // (including the named-parameter-in-#type-proc case).
@@ -326,6 +354,7 @@ See \ref{fig:one} and $a^2 + \alpha$ inline.
 \notacommand $x$
 \end{verbatim}
 \[ x \] 50\% done
+\verb|a % b $c| and \verb*+x+
 \end{document}
 `
     spans := highlight(&m, "", src, ".tex", context.allocator)
@@ -347,6 +376,8 @@ See \ref{fig:one} and $a^2 + \alpha$ inline.
     expect(t, spans, src, `\alpha`, "functions")
     expect(t, spans, src, " + ", "numbers")
     expect(t, spans, src, "equation*", "tags")
+    expect(t, spans, src, "|a % b $c|", "strings")
+    expect(t, spans, src, "+x+", "strings")
     expect(t, spans, src, " = mc", "numbers")
     expect(t, spans, src, "#1", "parameters")
     expect(t, spans, src, `\notacommand $x$`, "strings")
@@ -643,6 +674,32 @@ test_shell_plugin_highlights :: proc(t: ^testing.T) {
     expect(t, spans, src, "greet", "functions")
     expect(t, spans, src, "echo", "keywords")
 
+    for i in 1 ..< len(spans) {
+        testing.expect(t, spans[i - 1].end <= spans[i].start, "spans overlap or unordered")
+    }
+}
+
+// Loads plugins/shell/plugin.lua and checks here-document bodies and delimiters.
+@(test)
+test_shell_plugin_heredoc :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+    manager_load(&m)
+
+    src   := "cat <<'EOF'\n# not comment $x\nEOF\necho $y\ncat <<-END\n\t$z\n\tEND\n"
+    spans := highlight(&m, "", src, ".sh", context.allocator)
+    defer {
+        for s in spans {
+            delete(s.role)
+        }
+        delete(spans)
+    }
+
+    testing.expect(t, role_covering(spans, src, "# not comment") == "strings", "quoted body is a string")
+    testing.expect(t, role_covering(spans, src, "$x") == "strings", "quoted body keeps $x plain")
+    testing.expect(t, role_covering(spans, src, "$y") == "variables", "code after the heredoc")
+    testing.expect(t, role_covering(spans, src, "$z") == "variables", "unquoted body expands $z")
     for i in 1 ..< len(spans) {
         testing.expect(t, spans[i - 1].end <= spans[i].start, "spans overlap or unordered")
     }

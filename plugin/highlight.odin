@@ -26,6 +26,28 @@ supports :: proc(m: ^Manager, ext: string) -> bool {
     return ext in m.by_ext
 }
 
+// The key a file name routes by: its extension when claimed, else the whole name,
+// else its first dot segment (".env.local" -> ".env", "Dockerfile.dev" -> "Dockerfile"),
+// else the extension. `base` carries no directory.
+key_for_name :: proc(m: ^Manager, base: string) -> string {
+    dot := strings.last_index_byte(base, '.')
+    ext := dot < 0 ? "" : base[dot:]
+    if ext != "" && supports(m, ext) {
+        return ext
+    }
+    if supports(m, base) {
+        return base
+    }
+    if len(base) > 1 {
+        if head := strings.index_byte(base[1:], '.'); head >= 0 {
+            if prefix := base[:head + 1]; supports(m, prefix) {
+                return prefix
+            }
+        }
+    }
+    return ext
+}
+
 // Display name of the language registered for `ext` ("Odin", "Dockerfile"), ""
 // when no plugin claims it. Borrowed from the plugin's own registration.
 language_name :: proc(m: ^Manager, ext: string) -> string {

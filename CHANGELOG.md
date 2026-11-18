@@ -16,6 +16,8 @@
 - A refactoring whose edits overlap, such as Change Signature on a nested call, is refused instead of crashing the editor.
 - A recursive union or a generic type that names itself with new arguments no longer crashes or hangs the Odin analyzer.
 - Switching a setting that rebuilds the list, such as "Language intelligence" in Settings, no longer crashes.
+- Files named `.env.local`, `Dockerfile.dev`, `.profile`, `.envrc`, `.gitmodules` and `.ignore` get their language highlighting.
+- Shell here-documents (`<<EOF`, `<<-EOF`, `<<'EOF'`) colour their body and delimiter. LaTeX verbatim text after the verb command is a string.
 
 # 2026.11.6
 

@@ -102,7 +102,7 @@ thor.register_language {
     name       = "gitignore",
     extensions = {
         ".gitignore", ".gitattributes", ".dockerignore", ".npmignore",
-        ".eslintignore", ".prettierignore",
+        ".eslintignore", ".prettierignore", ".ignore",
     },
     highlight  = lex,
     line_based = true,

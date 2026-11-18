@@ -155,12 +155,8 @@ api_ts_supports :: proc "c"(L: ^lua.State) -> c.int {
 // Makefile). "" when no plugin claims the file or the language has no grammar.
 @(private)
 buffer_grammar :: proc(m: ^Manager, path: string) -> string {
-    dot     := strings.last_index_byte(path, '.')
-    idx, ok := m.by_ext[dot < 0 ? "" : path[dot:]]
-    if !ok {
-        slash := max(strings.last_index_byte(path, '/'), strings.last_index_byte(path, '\\'))
-        idx, ok = m.by_ext[path[slash + 1:]]
-    }
+    slash   := max(strings.last_index_byte(path, '/'), strings.last_index_byte(path, '\\'))
+    idx, ok := m.by_ext[key_for_name(m, path[slash + 1:])]
     if !ok {
         return ""
     }

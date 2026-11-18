@@ -41,6 +41,9 @@ local function lex(src)
         end
     end
 
+    -- Open here-documents: { word, strip_tabs, raw }, oldest first.
+    local pending = {}
+
     -- Scans line[p..] (p is 1-based) for spans, appending them with the line's
     -- 0-based byte offset `base`. `^` anchors each pattern to the cursor.
     local function inline(line, base, p)
@@ -75,6 +78,22 @@ local function lex(src)
             if not s then s, e = line:find("^%$%d", p) end
             if not s then s, e = line:find("^%$[@%*#%?%$!%-]", p) end
             if s then push(base + s - 1, base + e, t.variables); p = e + 1; goto continue end
+
+            -- here-document opener: <<WORD, <<-WORD, <<'WORD', <<"WORD", <<\WORD
+            if not line:find("^<<<", p) then
+                local dash, q, bs, word
+                s, e, dash, q, bs, word = line:find("^<<(%-?)%s*(['\"]?)(\\?)([%a_][%w_]*)", p)
+                if s then
+                    push(base + s - 1, base + s + #dash + 1, t.operators)
+                    push(base + e - #word, base + e, t.tags)
+                    if q ~= "" and line:sub(e + 1, e + 1) == q then
+                        e = e + 1
+                    end
+                    pending[#pending + 1] = { word, dash == "-", q ~= "" or bs ~= "" }
+                    p = e + 1
+                    goto continue
+                end
+            end
 
             -- operators: separators and redirection
             s, e = line:find("^&&", p)
@@ -117,7 +136,41 @@ local function lex(src)
         local base = i - 1
         i = (nl or n) + 1
 
-        inline(line, base, 1)
+        local doc = pending[1]
+        if doc then
+            local text = line:gsub("\r$", "")
+            local lead = 0
+            if doc[2] then
+                lead = #text:match("^\t*")
+                text = text:sub(lead + 1)
+            end
+            if text == doc[1] then
+                push(base + lead, base + lead + #text, t.tags)
+                table.remove(pending, 1)
+            elseif doc[3] then
+                push(base, base + #line, t.strings)
+            else
+                local from = 1
+                while true do
+                    local vs, ve = line:find("^%${[^}]*}", from)
+                    local pos = from
+                    while not vs do
+                        pos = line:find("%$", pos)
+                        if not pos then break end
+                        vs, ve = line:find("^%${[^}]*}", pos)
+                        if not vs then vs, ve = line:find("^%$[%a_][%w_]*", pos) end
+                        if not vs then pos = pos + 1 end
+                    end
+                    if not vs then break end
+                    push(base + from - 1, base + vs - 1, t.strings)
+                    push(base + vs - 1, base + ve, t.variables)
+                    from = ve + 1
+                end
+                push(base + from - 1, base + #line, t.strings)
+            end
+        else
+            inline(line, base, 1)
+        end
     end
 
     return spans
@@ -125,7 +178,6 @@ end
 
 thor.register_language {
     name       = "Shell",
-    extensions = { ".sh", ".bash", ".zsh", ".ksh", ".bashrc", ".zshrc" },
+    extensions = { ".sh", ".bash", ".zsh", ".ksh", ".bashrc", ".zshrc", ".profile", ".envrc" },
     highlight  = lex,
-    line_based = true,
 }
