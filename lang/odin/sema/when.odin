@@ -724,6 +724,10 @@ type_size :: proc(name: string, target: Target) -> i64 {
         return ptr
     case "typeid":
         return 8
+    case "string":
+        return ptr + word
+    case "any":
+        return ptr + 8
     }
     return 0
 }

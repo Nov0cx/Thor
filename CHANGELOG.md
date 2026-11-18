@@ -18,6 +18,7 @@
 - Switching a setting that rebuilds the list, such as "Language intelligence" in Settings, no longer crashes.
 - Files named `.env.local`, `Dockerfile.dev`, `.profile`, `.envrc`, `.gitmodules` and `.ignore` get their language highlighting.
 - Rename refuses a new name that the scope already declares or uses, and says so.
+- Constants above the 64-bit range fold in sums, products, shifts and comparisons, and `size_of(string)` and `size_of(any)` decide `when` conditions.
 - Completion of struct literal fields works after a comment that follows a comma.
 - Shell here-documents (`<<EOF`, `<<-EOF`, `<<'EOF'`) colour their body and delimiter. LaTeX verbatim text after the verb command is a string.
 

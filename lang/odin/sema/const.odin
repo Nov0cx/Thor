@@ -449,6 +449,9 @@ const_binary :: proc(c: ^Checker, op: odinsyntax.Token_Kind, l, r: Const_Value) 
         }
         return nil, false
     }
+    if wide, wide_ok, is_wide := const_wide_fold(c, op, l, r, false); is_wide {
+        return wide, wide_ok
+    }
     a, aok := const_to_i64(l)
     b, bok := const_to_i64(r)
     if !aok || !bok {
@@ -456,7 +459,13 @@ const_binary :: proc(c: ^Checker, op: odinsyntax.Token_Kind, l, r: Const_Value) 
     }
     v, ok := int_binary(op, a, b)
     if !ok {
-        return nil, false
+        _, l_rune := l.(rune)
+        _, r_rune := r.(rune)
+        if l_rune || r_rune {
+            return nil, false
+        }
+        wide, wide_ok, _ := const_wide_fold(c, op, l, r, true)
+        return wide, wide_ok
     }
     _, l_rune := l.(rune)
     _, r_rune := r.(rune)
@@ -609,6 +618,33 @@ const_wide_binary :: proc(c: ^Checker, t: Type_Id, op: odinsyntax.Token_Kind, a,
     return s, wide_holds(c, t, neg, mag), true
 }
 
+// `l op r` when one side is a Wide_Int and the other an integer, or when `force` is set: the exact result as a constant, or
+// not ok when it does not fit 128 bits or `op` is not `+ - * / <<`. `is_wide` is false when neither
+// side is wide.
+@(private = "file")
+const_wide_fold :: proc(c: ^Checker, op: odinsyntax.Token_Kind, l, r: Const_Value, force: bool) -> (value: Const_Value, ok: bool, is_wide: bool) {
+    _, l_wide := l.(Wide_Int)
+    _, r_wide := r.(Wide_Int)
+    if !force && !l_wide && !r_wide {
+        return nil, false, false
+    }
+    an, am, aok := wide_parts(l)
+    bn, bm, bok := wide_parts(r)
+    if !aok || !bok {
+        return nil, false, true
+    }
+    text, _, folded := const_wide_binary(c, INVALID_TYPE, op, Wide_Int{an, am}, Wide_Int{bn, bm}, context.temp_allocator)
+    if !folded {
+        return nil, false, true
+    }
+    neg         := strings.has_prefix(text, "-")
+    mag, parsed := strconv.parse_u128(neg ? text[1:] : text)
+    if !parsed {
+        return nil, false, true
+    }
+    return wide_value(neg && mag != 0, mag), true, true
+}
+
 @(private = "file")
 wide_to_big :: proc(dest: ^big.Int, w: Wide_Int) -> bool {
     if big.int_set_from_integer(dest, w.mag) != nil {
@@ -632,6 +668,28 @@ wide_holds :: proc(c: ^Checker, t: Type_Id, neg: bool, mag: u128) -> bool {
     }
     limit := u128(1) << u128(bits - 1)
     return neg ? mag <= limit : mag < limit
+}
+
+// -1, 0 or 1 for the order of two integer constants, one of them wide.
+@(private = "file")
+wide_order :: proc(l, r: Const_Value) -> (order: int, ok: bool) {
+    an, am, aok := wide_parts(l)
+    bn, bm, bok := wide_parts(r)
+    if !aok || !bok {
+        return 0, false
+    }
+    an, bn = an && am != 0, bn && bm != 0
+    switch {
+    case an != bn:
+        return an ? -1 : 1, true
+    case am == bm:
+        return 0, true
+    }
+    less := am < bm
+    if an {
+        less = !less
+    }
+    return less ? -1 : 1, true
 }
 
 @(private = "file")
@@ -660,6 +718,18 @@ const_compare :: proc(op: odinsyntax.Token_Kind, l, r: Const_Value) -> (Const_Va
                 return nil, false
             }
             order = a < b ? -1 : a > b ? 1 : 0
+        } else if _, l_wide := l.(Wide_Int); l_wide {
+            wide_ok: bool
+            order, wide_ok = wide_order(l, r)
+            if !wide_ok {
+                return nil, false
+            }
+        } else if _, r_wide := r.(Wide_Int); r_wide {
+            wide_ok: bool
+            order, wide_ok = wide_order(l, r)
+            if !wide_ok {
+                return nil, false
+            }
         } else {
             a, aok := const_to_i64(l)
             b, bok := const_to_i64(r)

@@ -376,6 +376,13 @@ I11 :: 0b1010 >> 1
 I12 :: -BIG
 BIG :: 9_223_372_036_854_775_807
 OVER :: BIG + 1
+OVER2 :: OVER * 2 - OVER
+OVER3 :: -OVER - 1
+OVER4 :: OVER > BIG
+OVER5 :: -OVER < 0
+OVER6 :: OVER == OVER
+OVER7 :: OVER >= OVER
+OVER8 :: OVER != OVER + 1
 DIV0 :: 1 / 0
 MOD0 :: 1 % 0
 F1 :: 1.5 * 2
@@ -423,7 +430,14 @@ Color :: enum {Red, Green, Blue}
         {"I11", i64(5)},
         {"I12", i64(-9_223_372_036_854_775_807)},
         {"BIG", i64(9_223_372_036_854_775_807)},
-        {"OVER", nil},
+        {"OVER", Wide_Int{false, 9_223_372_036_854_775_808}},
+        {"OVER2", Wide_Int{false, 9_223_372_036_854_775_808}},
+        {"OVER3", Wide_Int{true, 9_223_372_036_854_775_809}},
+        {"OVER4", true},
+        {"OVER5", true},
+        {"OVER6", true},
+        {"OVER7", true},
+        {"OVER8", true},
         {"DIV0", nil},
         {"MOD0", nil},
         {"F1", f64(3)},

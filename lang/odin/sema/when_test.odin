@@ -69,6 +69,8 @@ test_when_conditions :: proc(t: ^testing.T) {
         {"ODIN_OS in {.Windows, .Darwin}", .True, .False},
         {"ODIN_OS not_in {.Windows, .Darwin}", .False, .True},
         {"size_of(rawptr) == 8", .True, .False},
+        {"size_of(string) == 16", .True, .False},
+        {"size_of(any) == 16", .True, .False},
         {"size_of(int) == 8 || ODIN_ARCH == .i386", .True, .True},
         {"size_of(u16) == 2", .True, .True},
         {"size_of(Float) == 8", .Unknown, .Unknown},
