@@ -1,9 +1,8 @@
-# 2026.11.6
+# 2026.11.7
 
-- **LaTeX.** Highlighting for `.tex`, `.sty`, `.cls`, `.ltx`, `.dtx` and `.bib`, and a texlab language server entry for completion, diagnostics, go to definition, references and rename.
-- **Build on save.** `ctrl + s` on a LaTeX document builds it with latexmk, else tectonic. `ctrl + alt + b` builds on demand. A `% !TEX root = main.tex` comment builds the root of a multi-file project.
-- **PDF preview.** `ctrl + alt + p` shows the PDF beside the source, rendered with pdftoppm or mutool. It reloads when the PDF changes.
-- **SyncTeX.** `ctrl` + click in the PDF opens the source line, and `ctrl + alt + j` scrolls the PDF to the caret line.
-- **New settings.** `latex_build_on_save`, `latex_build_command` and `latex_pdf_renderer`.
-- **`thor --wait`.** `thor --wait <file>` returns once the tabs of its files are closed, so Thor can be the editor or merge tool of git.
-- **Linux.** A title bar drag or an edge resize goes to the window manager, so the window no longer jitters. The release runs on glibc 2.31 (Ubuntu 20.04) and newer.
+- **Two-step keybinds.** A `keybinds.lua` entry such as `"ctrl+m c"` runs after two presses. `"prefix c"` follows the new `chord_prefix` bind (`ctrl + m` by default). The status bar shows a pressed prefix, and `esc` cancels it.
+- **Keybinding settings.** Settings > Keybindings records a two-step bind, and refuses a chord another action already uses.
+- **Git window.** `up` and `down` pick a changed file, `space` stages or unstages it, and `esc` leaves a text field before it closes the window.
+- **Odin analyzer.** Live diagnostics check only the changed declarations, so a large file takes about half the time. Rename refuses a name the scope already uses. Big integer constants fold in `when` conditions.
+- **Plugins and config.** `latex_build_command` is now a personal setting that `.thor/settings.lua` cannot set. A Lua pattern that would backtrack without end is refused. Plugin update checks skip a folder plugin until you allow it.
+- **Languages.** Shell here-documents and LaTeX verbatim text are coloured. `.env.local`, `Dockerfile.dev`, `.profile`, `.envrc`, `.gitmodules` and `.ignore` get highlighting.
