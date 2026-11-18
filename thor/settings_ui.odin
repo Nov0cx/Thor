@@ -42,6 +42,9 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     thor_settings_clear(view)
     thor_settings_set_workspace_available(view, thor.workspace_initialized)
 
+    if view.scope == .Folder && thor.workspace_dir == "" {
+        view.scope = .General
+    }
     scope := thor_settings_scope(view)
     if scope == .Project && !thor.workspace_initialized {
         return

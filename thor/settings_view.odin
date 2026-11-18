@@ -4,6 +4,7 @@
 // persists each change, so this file keeps no settings knowledge.
 package thor
 
+import "core:fmt"
 import "core:strconv"
 import "core:strings"
 
@@ -505,6 +506,11 @@ settings_capture_key :: proc(thor: ^Thor) {
         // outlives the row it came from.
         id           := strings.clone(s.capturing_id, context.temp_allocator)
         settings_end_capture(s)
+        kb := setting.Keybind{key = event.key, mods = event.mods, lead_prefix = after_prefix}
+        if other, taken := setting.keybind_find_conflict(&thor.config, kb, id); taken && id != "" {
+            thor_flash_status(thor, fmt.tprintf("%s is already bound to %s", setting.keybind_to_string(kb, context.temp_allocator), other), is_error = true)
+            return
+        }
         if id != "" {
             thor_on_setting_keybind(thor, id, event.key, event.mods, after_prefix)
         }
@@ -565,7 +571,9 @@ settings_header :: proc(thor: ^Thor) {
     ui.label("Settings", {key = "title", props = {color = thor.theme.foreground, text_wrap = .None}})
 
     settings_scope_tab(thor, .General, "General")
-    settings_scope_tab(thor, .Folder, "This folder")
+    if thor.workspace_dir != "" {
+        settings_scope_tab(thor, .Folder, "This folder")
+    }
     settings_scope_tab(thor, .Project, "Project")
 
     it := ui.input(

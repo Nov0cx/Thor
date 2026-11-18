@@ -781,3 +781,34 @@ test_prefix_bind_follows_chord_prefix :: proc(t: ^testing.T) {
     kb, _ = keybind(&s, "comment")
     testing.expect(t, kb.key == .None, "with no prefix the bind is unset")
 }
+
+// A chord already bound, hidden by a lead or hiding a two-step bind is a conflict; the action's own bind is not.
+@(test)
+test_keybind_find_conflict :: proc(t: ^testing.T) {
+    s: Settings
+    defer delete(s.keybinds)
+    s.keybinds["save"], _ = parse_keybind("ctrl+s")
+    s.keybinds["comment"], _ = parse_keybind("ctrl+m c")
+    s.keybinds["none"] = {}
+
+    Case :: struct {
+        spec:   string,
+        except: string,
+        taken:  string,
+    }
+    cases := []Case{
+        {"ctrl+s", "other", "save"},
+        {"ctrl+s", "save", ""},
+        {"ctrl+j", "other", ""},
+        {"ctrl+m", "other", "comment"},
+        {"ctrl+s x", "other", "save"},
+        {"ctrl+m c", "other", "comment"},
+        {"ctrl+m d", "other", ""},
+    }
+    for c in cases {
+        kb, ok := parse_keybind(c.spec)
+        testing.expectf(t, ok, "%q did not parse", c.spec)
+        action, found := keybind_find_conflict(&s, kb, c.except)
+        testing.expectf(t, action == c.taken && found == (c.taken != ""), "%q: got %q, want %q", c.spec, action, c.taken)
+    }
+}

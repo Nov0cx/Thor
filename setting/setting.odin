@@ -413,6 +413,31 @@ keybind_is_lead :: proc(s: ^Settings, key: ui.Key, mods: input.Modifiers) -> boo
     return false
 }
 
+// The action other than `except` that already runs `candidate`: the same chord, a one-step bind that the
+// lead of `candidate` would hide, or a two-step bind whose lead is the one-step chord `candidate`.
+keybind_find_conflict :: proc(s: ^Settings, candidate: Keybind, except: string) -> (action: string, found: bool) {
+    kb := keybind_resolve_prefix(candidate, s.keybinds[CHORD_PREFIX_ACTION] or_else {})
+    if kb.key == .None {
+        return "", false
+    }
+    for name in s.keybinds {
+        if name == except {
+            continue
+        }
+        other, _ := keybind(s, name)
+        if other.key == .None {
+            continue
+        }
+        same   := other.key == kb.key && other.mods == kb.mods && other.lead == kb.lead
+        hides  := kb.lead.key != .None && other.lead.key == .None && other.key == kb.lead.key && other.mods == kb.lead.mods
+        hidden := kb.lead.key == .None && other.lead.key != .None && other.lead == Key_Step{kb.key, kb.mods}
+        if same || hides || hidden {
+            return name, true
+        }
+    }
+    return "", false
+}
+
 // Warns once for each one-step bind that a two-step bind's lead hides. The lead
 // wins, so such a bind never runs.
 keybind_warn_lead_conflicts :: proc(s: ^Settings) {

@@ -140,3 +140,16 @@ test_settings_write_routing :: proc(t: ^testing.T) {
     thor.settings_open = false
     testing.expect_value(t, thor_active_settings_path(thor, "tab_width"), setting.USER_SETTINGS)
 }
+
+// With no folder open the "This folder" scope falls back to General.
+@(test)
+test_settings_folder_scope_needs_a_folder :: proc(t: ^testing.T) {
+    thor := settings_test_thor()
+    defer settings_test_destroy(thor)
+
+    thor.workspace_dir = ""
+    thor.settings.scope = .Folder
+    thor_populate_settings_view(thor)
+
+    testing.expect_value(t, thor.settings.scope, Settings_Scope.General)
+}
