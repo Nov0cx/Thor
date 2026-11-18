@@ -72,6 +72,9 @@ Callback :: struct {
     ref:   int, // registry ref, or NOREF
 }
 
+// Longest subject a plugin's string.find, match, gmatch or gsub takes.
+MAX_PATTERN_SUBJECT :: 16 * 1024 * 1024
+
 // Opens only the standard libraries a plugin may use, then trims what is left.
 // io, package and debug are never loaded at all, so no path through the VM can
 // reach them.
@@ -83,6 +86,7 @@ open_safe_libs :: proc(L: ^lua.State) {
     lua.pop(L, 1)
     lua.L_requiref(L, lua.STRLIBNAME, lua.open_string, 1)
     lua.pop(L, 1)
+    luaconf.guard_string_patterns(L, MAX_PATTERN_SUBJECT)
     lua.L_requiref(L, lua.MATHLIBNAME, lua.open_math, 1)
     lua.pop(L, 1)
     lua.L_requiref(L, lua.UTF8LIBNAME, lua.open_utf8, 1)
@@ -446,9 +450,11 @@ call_guarded :: proc(m: ^Manager, L: ^lua.State, owner: int, nargs, nres: c.int,
         m.budget_spent = false
         m.active_start = time.tick_now()
         lua.sethook(L, budget_hook, lua.MASKCOUNT, HOOK_STEP)
+        m.in_call = true
     }
     status := lua.pcall(L, nargs, nres, 0)
     if !nested {
+        m.in_call = false
         lua.sethook(L, nil, lua.HookMask{}, 0)
     }
     if status != 0 {

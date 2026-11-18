@@ -199,6 +199,7 @@ Manager :: struct {
     // Bytes the Lua state holds, and the most it may hold (see lua_alloc).
     mem_used:          uint,
     mem_cap:           uint,
+    in_call:           bool, // a plugin's Lua runs now; the host push reserve is off
     // The logger of the context manager_init ran under, for lua_panic.
     logger:            runtime.Logger,
 }
@@ -327,7 +328,10 @@ manager_destroy :: proc(m: ^Manager) {
 // Most memory the Lua state shared by all plugins may hold.
 MEMORY_CAP :: 256 * 1024 * 1024
 
-// The Lua allocator. It refuses a grow past m.mem_cap, which Lua raises as a memory error.
+// Extra memory the host may use between plugin calls, so a push outside a protected call cannot fail on a full heap.
+HOST_RESERVE :: 64 * 1024 * 1024
+
+// The Lua allocator. It refuses a grow past m.mem_cap inside a plugin call, which Lua raises as a memory error.
 @(private)
 lua_alloc :: proc "c"(ud: rawptr, ptr: rawptr, osize, nsize: c.size_t) -> rawptr {
     m   := (^Manager)(ud)
@@ -338,7 +342,8 @@ lua_alloc :: proc "c"(ud: rawptr, ptr: rawptr, osize, nsize: c.size_t) -> rawptr
         m.mem_used -= old
         return nil
     }
-    if uint(nsize) > old && m.mem_used - old + uint(nsize) > m.mem_cap {
+    cap := m.in_call ? m.mem_cap : m.mem_cap + HOST_RESERVE
+    if uint(nsize) > old && m.mem_used - old + uint(nsize) > cap {
         return nil
     }
     block := runtime.heap_resize(ptr, int(nsize))

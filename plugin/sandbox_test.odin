@@ -1070,3 +1070,44 @@ thor.register_language { name = "Plain", extensions = { ".pl0" }, highlight = le
     plain := fold_ranges(&m, "", "a\n  b\n", ".pl0", context.temp_allocator)
     testing.expect_value(t, len(plain), 1)
 }
+
+// With the heap at its cap, a host push outside a plugin call still succeeds.
+@(test)
+test_host_push_has_a_reserve_at_the_cap :: proc(t: ^testing.T) {
+    r: Recorder
+    recorder_init(&r)
+    defer recorder_destroy(&r)
+    m: Manager
+    recording_manager(&m, &r)
+    defer manager_destroy(&m)
+    m.mem_cap = m.mem_used
+
+    source := strings.repeat("x", 1024 * 1024)
+    defer delete(source)
+    lua.pushlstring(m.state, cstring(raw_data(source)), c.size_t(len(source)))
+    testing.expect_value(t, lua.type(m.state, -1), lua.Type.STRING)
+    lua.pop(m.state, 1)
+}
+
+// A backtracking pattern over a long subject is refused instead of hanging the host.
+@(test)
+test_sandbox_refuses_catastrophic_pattern :: proc(t: ^testing.T) {
+    r: Recorder
+    recorder_init(&r)
+    defer recorder_destroy(&r)
+    m: Manager
+    recording_manager(&m, &r)
+    defer manager_destroy(&m)
+
+    start := time.tick_now()
+    ok    := manager_load_source(
+        &m,
+        "pat",
+        "plugins/pat",
+        `local ok = pcall(function() return string.rep("a", 20000):find(".-.-.-b") end) if ok then thor.print("ran") end`,
+        {},
+    )
+    testing.expect(t, time.tick_since(start) < time.Second, "the pattern ran")
+    testing.expect(t, ok, "pcall should catch the refusal")
+    testing.expect(t, !strings.contains(strings.to_string(r.output), "ran"), "the pattern was not refused")
+}

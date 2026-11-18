@@ -231,3 +231,22 @@ test_patch_keeps_crlf :: proc(t: ^testing.T) {
     testing.expect_value(t, err, Patch_Error.None)
     testing.expect_value(t, out, "return {\r\n    a = 1,\r\n    b = 2,\r\n}\r\n")
 }
+
+@(test)
+test_pattern_items_counts_quantifiers :: proc(t: ^testing.T) {
+    testing.expect_value(t, pattern_items(".-.-.-b"), 3)
+    testing.expect_value(t, pattern_items("^(%w+)%s*=%s*(.-)$"), 2)
+    testing.expect_value(t, pattern_items("[a-z+*]x"), 0)
+    testing.expect_value(t, pattern_items("%+%-%*"), 0)
+    testing.expect_value(t, pattern_items("a*a*a*"), 2)
+    testing.expect_value(t, pattern_items("%b()a*"), 0)
+}
+
+@(test)
+test_pattern_backtracking_is_refused :: proc(t: ^testing.T) {
+    eval_fails(t, `return { x = string.rep("a", 20000):find(".-.-.-b") }`, "too complex")
+    eval_fails(t, `return { x = ("a"):rep(40):find(("a*"):rep(20) .. "b") }`, "too complex")
+    eval_fails(t, `return { x = ("a"):find(("a"):rep(300)) }`, "too long")
+    v := eval_ok(t, `return { x = ("key = value"):match("^(%w+)%s*=%s*(.-)$"), y = ("a.b"):find(".", 1, true) }`)
+    _ = v
+}

@@ -22,6 +22,9 @@ BUDGET :: 1 * time.Second
 // Most memory one config file may hold.
 MEMORY_CAP :: 64 * 1024 * 1024
 
+// Longest subject a config's string.find, match, gmatch or gsub takes.
+CONFIG_MAX_SUBJECT :: 1 * 1024 * 1024
+
 // Deepest table nesting a result may have; a cycle stops here.
 MAX_DEPTH :: 64
 
@@ -113,6 +116,7 @@ open_config_libs :: proc(L: ^lua.State) {
     lua.pop(L, 1)
     lua.L_requiref(L, lua.UTF8LIBNAME, lua.open_utf8, 1)
     lua.pop(L, 1)
+    guard_string_patterns(L, CONFIG_MAX_SUBJECT)
     for name in UNSAFE_BASE {
         lua.pushnil(L)
         lua.setglobal(L, name)

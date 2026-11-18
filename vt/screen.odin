@@ -8,6 +8,9 @@ import "core:strings"
 
 TAB_WIDTH :: 8
 
+// Most bytes one cell's base and combining marks hold; later marks are dropped.
+MAX_GRAPHEME_BYTES :: 32
+
 @(private)
 tabs_reset :: proc(t: ^Term) {
     resize(&t.tabs, t.cols)
@@ -517,7 +520,10 @@ combine_with_previous :: proc(t: ^Term, r: rune) {
     cell := &line.cells[x]
 
     context.allocator = t.allocator
-    base    := term_grapheme(t, cell.grapheme)
+    base := term_grapheme(t, cell.grapheme)
+    if len(base) >= MAX_GRAPHEME_BYTES {
+        return
+    }
     builder := strings.builder_make(context.temp_allocator)
     if base != "" {
         strings.write_string(&builder, base)

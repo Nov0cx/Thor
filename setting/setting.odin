@@ -231,7 +231,6 @@ WORKSPACE_KEYS :: [?]string{
     "detect_indentation",
     "format_on_save",
     "format_on_type",
-    "latex_build_command",
     LANGUAGE_SETTING,
     LANGUAGE_BACKENDS_SETTING,
     FILE_LANGUAGES_SETTING,

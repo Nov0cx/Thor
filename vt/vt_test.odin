@@ -353,6 +353,20 @@ test_grapheme_pool_dedups :: proc(h: ^testing.T) {
     testing.expect_value(h, term_grapheme(t, cells[1].grapheme), "e\xcc\x81")
 }
 
+// A flood of combining marks on one cell stops growing its string at the cap.
+@(test)
+test_combining_mark_flood_is_capped :: proc(h: ^testing.T) {
+    t := term_make(8, 2)
+    defer term_destroy(t)
+
+    flood := strings.repeat("\xcc\x81", 16_000)
+    defer delete(flood)
+    feed(t, strings.concatenate({"e", flood}, context.temp_allocator))
+    cells := t.primary[0].cells
+    testing.expect(h, cells[0].grapheme != 0)
+    testing.expect(h, len(term_grapheme(t, cells[0].grapheme)) <= MAX_GRAPHEME_BYTES + 2)
+}
+
 @(test)
 test_dec_graphics_charset :: proc(h: ^testing.T) {
     t := term_make(4, 2)

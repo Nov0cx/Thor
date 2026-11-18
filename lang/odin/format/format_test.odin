@@ -1080,6 +1080,16 @@ test_byte_order_mark_is_kept :: proc(t: ^testing.T) {
     testing.expect_value(t, out, "\xef\xbb\xbfpackage p\n")
 }
 
+// A window that holds a comment the printer would not emit is declined, never printed without it.
+@(test)
+test_format_window_never_drops_a_comment :: proc(t: ^testing.T) {
+    src     := "package p\n\n@(private)\n// doc\nX :: 1\n"
+    lo      := strings.index(src, "X ::")
+    out, ok := format_window(src, lo, lo + 1, default_options())
+    defer delete(out)
+    testing.expect(t, !ok || strings.contains(out, "// doc"), "the comment survives or the window is declined")
+}
+
 // An integer option out of its range takes its default and is named.
 @(test)
 test_validate_options_resets_out_of_range :: proc(t: ^testing.T) {

@@ -71,7 +71,7 @@ it. It holds what describes the project, and none of your own taste. From a
 `.thor/settings.lua`, only these keys apply:
 
 `tab_width`, `insert_spaces`, `detect_indentation`, `format_on_save`,
-`format_on_type`, `latex_build_command`, `language_intelligence`,
+`format_on_type`, `language_intelligence`,
 `language_backends`, `file_languages`, `file_targets`.
 
 Every other key is personal: the theme, the font and its size, the icon packs,

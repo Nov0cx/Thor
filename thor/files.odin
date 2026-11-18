@@ -1165,6 +1165,11 @@ thor_close_file :: proc(thor: ^Thor, index: int) {
     if thor.close_prompt_file == file {
         thor.close_prompt_file = nil
     }
+    if thor.peek.open && thor.peek.file == file {
+        thor.peek.file = nil
+        thor.peek.opened_here = false
+        thor_peek_close(thor)
+    }
     thor_lang_notify(thor, file, .Closed)
     ordered_remove(&thor.open_files, index)
     thor_update_tab_labels(thor)
@@ -1179,8 +1184,9 @@ thor_close_file :: proc(thor: ^Thor, index: int) {
         }
     }
     thor_sync_active_signal(thor)
-    thor_bind_pane(thor, 0)
-    thor_bind_pane(thor, 1)
+    for pane in 0 ..< thor_pane_count(thor) {
+        thor_bind_pane(thor, pane)
+    }
 
     if file.pending_jobs > 0 {
         file.closed = true

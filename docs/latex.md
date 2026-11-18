@@ -92,7 +92,7 @@ Both directions use the `synctex` command from the TeX distribution and the
 | Key | Meaning | Default |
 | --- | --- | --- |
 | `latex_build_on_save` | Build a LaTeX document after `ctrl + s` | `true` |
-| `latex_build_command` | Shell command for the build, run in the root's folder; `{file}` is the quoted root file name. It is a project key, so `.thor/settings.lua` can set it | `""` (latexmk, then tectonic) |
+| `latex_build_command` | Shell command for the build, run in the root's folder; `{file}` is the quoted root file name. It runs a shell command, so it is a personal key: `.thor/settings.lua` cannot set it | `""` (latexmk, then tectonic) |
 | `latex_pdf_renderer` | `"auto"`, `"pdftoppm"` or `"mutool"` | `"auto"` (Poppler, then MuPDF) |
 
 For example, to build with LuaLaTeX:

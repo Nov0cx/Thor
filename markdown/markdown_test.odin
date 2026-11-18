@@ -70,6 +70,17 @@ test_partial_link_has_no_target :: proc(t: ^testing.T) {
     testing.expect_value(t, first_url(&page), "x")
 }
 
+// A line of 100,000 quote marks nests no deeper than MAX_DEPTH, so it lays out.
+@(test)
+test_deep_nesting_is_bounded :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    source := strings.repeat(">", 100_000)
+    defer delete(source)
+    lay(&page, source)
+    testing.expect(t, len(page.items) > 0, "the deep quote still lays out")
+}
+
 // The url has to survive parsing and layout: it is what a click opens.
 @(test)
 test_layout_keeps_link_url :: proc(t: ^testing.T) {

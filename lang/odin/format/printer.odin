@@ -119,6 +119,10 @@ format_window :: proc(source: string, lo, hi: int, opts: Options, allocator := c
     if pr.too_deep {
         return "", false
     }
+    // A comment inside the window the printer did not emit would be deleted by the replace.
+    if pr.comment_idx < len(pr.comments) && pr.comments[pr.comment_idx].start < decls[last].end {
+        return "", false
+    }
     rendered := render(concat_dynamic(body), &pr.opts, context.temp_allocator)
     return strings.concatenate({source[:start], rendered, source[end:]}, allocator), true
 }

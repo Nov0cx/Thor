@@ -96,7 +96,13 @@ thor_welcome_open_file :: proc(data: rawptr) {
     thor := cast(^Thor)data
     if path, ok := thor_pick_file("Open file", ""); ok {
         defer delete(path)
-        thor_open_folder(thor, filepath.dir(path))
+        dir := filepath.dir(path)
+        // A folder another window holds is raised, never opened twice.
+        if _, taken := thor_workspace_window(dir); taken {
+            thor_open_folder_request(thor, dir)
+            return
+        }
+        thor_open_folder(thor, dir)
         thor_open_file(thor, path)
     }
 }

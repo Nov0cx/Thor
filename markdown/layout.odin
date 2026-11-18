@@ -20,7 +20,11 @@ Build :: struct {
     footnotes: [dynamic]Footnote,
     slugs:     map[string]int, // how often each heading slug was taken
     details:   int,            // the `<details>` blocks laid out so far
+    depth:     int,            // the parse_blocks calls on the stack
 }
+
+// Most container levels (quote, list, details) parsed; deeper lines stay plain text.
+MAX_DEPTH :: 32
 
 @(private)
 Align :: enum {

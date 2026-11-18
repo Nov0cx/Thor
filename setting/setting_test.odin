@@ -404,6 +404,26 @@ test_workspace_layer_skips_personal_keys :: proc(t: ^testing.T) {
     testing.expect_value(t, len(u.ignored_keys), 0)
 }
 
+// A checked-in .thor/settings.lua cannot set the shell command a LaTeX build runs.
+@(test)
+test_workspace_layer_skips_latex_build_command :: proc(t: ^testing.T) {
+    user      := "thor_latex_user.tmp"
+    workspace := "thor_latex_ws.tmp"
+    defer for dir in ([]string{user, workspace}) {
+        _ = os.remove(concat_for_test(dir, "/settings.lua"))
+        _ = os.remove(dir)
+    }
+    ws_file := concat_for_test(workspace, "/settings.lua")
+    testing.expect_value(t, persist_string(ws_file, "latex_build_command", "evil"), luaconf.Patch_Error.None)
+
+    s := load(user)
+    defer destroy(&s)
+    load_overlay(&s, workspace, .Workspace)
+
+    testing.expect_value(t, latex_build_command(&s), "")
+    testing.expect_value(t, len(s.ignored_keys), 1)
+}
+
 // The local layer applies every key over the user and workspace layers.
 @(test)
 test_local_layer_wins :: proc(t: ^testing.T) {

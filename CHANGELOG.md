@@ -4,6 +4,13 @@
 - The status bar shows a pressed chord prefix until the second key. `esc` cancels it.
 - Settings > Keybindings records a two-step bind when the chord prefix is pressed first.
 - Odin live diagnostics check only the declarations an edit changed. On a large file they take about half the time.
+- A Lua string pattern that would backtrack without end is refused in plugins and config files, so it no longer hangs the editor.
+- A plugin that fills its memory no longer closes the editor on the next key press or highlight.
+- `latex_build_command` is a personal setting. A `.thor/settings.lua` cannot set it.
+- Fixed a crash after closing a tab that a third to sixth pane showed, and one after closing a file shown in a peek.
+- Welcome page "Open file" raises a folder another window holds instead of opening it twice.
+- Deep markdown nesting and a flood of combining marks in the terminal no longer crash or stall the editor.
+- Format Range and format on type no longer delete a comment inside the range.
 
 # 2026.11.6
 

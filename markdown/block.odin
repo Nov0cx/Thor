@@ -109,7 +109,18 @@ strip_columns :: proc(line: string, n: int) -> string {
 @(private)
 parse_blocks :: proc(b: ^Build, lines: []string) -> [dynamic]^Block {
     out := make([dynamic]^Block, context.temp_allocator)
-    i   := 0
+    if b.depth >= MAX_DEPTH {
+        // Deeper nesting stays plain text, so the recursion is bounded.
+        if len(lines) > 0 {
+            blk := new_block(.Paragraph)
+            blk.lines = lines
+            append(&out, blk)
+        }
+        return out
+    }
+    b.depth += 1
+    defer b.depth -= 1
+    i := 0
     for i < len(lines) {
         line := lines[i]
         if is_blank(line) {
