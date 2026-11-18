@@ -329,3 +329,59 @@ test_named_argument_expected :: proc(t: ^testing.T) {
     }
     testing.expect_value(t, c.err, nil)
 }
+
+@(private = "file")
+SELF_UNION_SRC :: `package p
+
+A :: union { A }
+B :: union { C }
+C :: union { B }
+x: A = .Foo
+y: B = .Foo
+`
+
+// A union that holds itself, alone or through another, ends the implicit selector search.
+@(test)
+test_implicit_selector_recursive_union :: proc(t: ^testing.T) {
+    env: Check_Env
+    if !check_begin(t, &env, Snapshot_Input{has_live = true, live_text = SELF_UNION_SRC}) {
+        return
+    }
+    defer check_end(&env)
+    c := &env.c
+    for text in ([]string{"x: A = .Foo", "y: B = .Foo"}) {
+        at := strings.index(SELF_UNION_SRC, text)
+        if !testing.expectf(t, at >= 0, "%q: not in the source", text) {
+            continue
+        }
+        at += len(text) - len(".Foo")
+        expected := expected_type_at(c, ANON_FILE, at)
+        op       := implicit_operand(c, "Foo", expected)
+        testing.expectf(t, op.mode == .Invalid, "%q: found a member in a union without one", text)
+    }
+}
+
+@(private = "file")
+GENERIC_BLOWUP_SRC :: `package p
+
+Foo :: struct($T: typeid) { a: Foo([]T), b: Foo([^]T) }
+y := Foo(int)
+`
+
+// A generic record that names itself twice with a new argument is cut off, not expanded to the depth limit.
+@(test)
+test_generic_record_instance_cap :: proc(t: ^testing.T) {
+    env: Check_Env
+    if !check_begin(t, &env, Snapshot_Input{has_live = true, live_text = GENERIC_BLOWUP_SRC}) {
+        return
+    }
+    defer check_end(&env)
+    c     := &env.c
+    at    := strings.index(GENERIC_BLOWUP_SRC, "Foo(int)")
+    n, ok := expr_node_at(c, ANON_FILE, at, "Foo(int)")
+    if !testing.expect(t, ok, "no call node") {
+        return
+    }
+    _ = expr_type(c, ANON_FILE, n)
+    testing.expectf(t, len(c.instances) <= INSTANCES_MAX + 1, "made %d instances", len(c.instances))
+}

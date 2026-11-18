@@ -1304,6 +1304,11 @@ instantiate :: proc(c: ^Checker, generic: Type_Id, args: []Call_Arg) -> Operand 
         dep_use(c, memo.node)
         return {mode = .Type, type = memo.type}
     }
+    if len(c.instances) >= INSTANCES_MAX || c.depth >= EXPR_DEPTH {
+        return {} // `Foo :: struct($T: typeid) { a: Foo([]T), b: Foo([^]T) }` grows without end
+    }
+    c.depth += 1
+    defer c.depth -= 1
     node, saved_frame := dep_enter(c)
     defer dep_leave(c, saved_frame)
     name := strings.builder_make(c.tmp)

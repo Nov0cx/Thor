@@ -680,3 +680,39 @@ test_file_targets_apply_and_refresh :: proc(t: ^testing.T) {
     testing.expect(t, own)
     testing.expect(t, c.semantic_ready, "an open asks nothing again")
 }
+
+// Nested call rewrites give edits that overlap; the batch is refused before any file is written.
+@(test)
+test_apply_edits_refuses_overlap :: proc(t: ^testing.T) {
+    PATH     :: "thor_edit_overlap.tmp"
+    ORIGINAL :: "add(add(1, 2), 3)\n"
+
+    testing.expect(t, os.write_entire_file(PATH, ORIGINAL) == nil, "could not create test file")
+    defer thor_remove_settled(PATH)
+
+    thor := new(Thor)
+    defer free(thor)
+    defer thor_clear_edit_undo(thor)
+    defer thor_clear_edit_redo(thor)
+    defer delete(thor.status_message)
+
+    edits            := []lang.Text_Edit{
+        {path = PATH, start = 4, end = 13, old_text = ORIGINAL[4:13], new_text = "x"},
+        {path = PATH, start = 4, end = 16, old_text = ORIGINAL[4:16], new_text = "y"},
+    }
+    _, _, ok, reason := thor_apply_edits(thor, edits, "", 0)
+    testing.expect(t, !ok, "overlapping edits were applied")
+    testing.expect_value(t, reason, "the edits overlap")
+
+    kept, _ := os.read_entire_file(PATH, context.temp_allocator)
+    testing.expect_value(t, string(kept), ORIGINAL)
+}
+
+@(test)
+test_md_image_path_safe :: proc(t: ^testing.T) {
+    testing.expect(t, !thor_md_image_path_safe(""), "empty")
+    testing.expect(t, !thor_md_image_path_safe(`\\host\share\a.png`), "UNC")
+    testing.expect(t, !thor_md_image_path_safe("//host/share/a.png"), "UNC slashes")
+    testing.expect(t, !thor_md_image_path_safe("/dev/zero"), "device")
+    testing.expect(t, thor_md_image_path_safe("docs/a.png"), "plain relative path")
+}

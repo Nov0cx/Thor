@@ -8,6 +8,12 @@ import odinsyntax "../syntax"
 // The deepest nesting expr_type follows before it gives an Invalid operand.
 EXPR_DEPTH :: 64
 
+// The most polymorphic record instances one Checker makes.
+INSTANCES_MAX :: 512
+
+// The deepest union nesting implicit_operand follows.
+IMPLICIT_DEPTH :: 8
+
 // The operand an expression gives in a single-value use: its mode, its type and, for a constant,
 // its value. `expected` types an untyped composite literal, an implicit selector and `auto_cast`.
 expr_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, expected := INVALID_TYPE) -> Operand {
@@ -956,14 +962,20 @@ selector_operand :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) 
 
 // `.Member` against the type the context expects: an enum, the enum of a bit_set, or an enum variant of a union.
 @(private)
-implicit_operand :: proc(c: ^Checker, name: string, expected: Type_Id) -> Operand {
+implicit_operand :: proc(c: ^Checker, name: string, expected: Type_Id, depth := 0) -> Operand {
     t := expected
     #partial switch v in type_get(&c.table, type_base(&c.table, t)) {
     case Bit_Set_Type:
         t = v.elem
     case Union_Type:
+        if depth >= IMPLICIT_DEPTH {
+            return {}
+        }
         for variant in v.variants {
-            if op := implicit_operand(c, name, variant); op.mode != .Invalid {
+            if variant == expected {
+                continue
+            }
+            if op := implicit_operand(c, name, variant, depth + 1); op.mode != .Invalid {
                 return op
             }
         }

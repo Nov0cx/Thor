@@ -11,6 +11,11 @@
 - Welcome page "Open file" raises a folder another window holds instead of opening it twice.
 - Deep markdown nesting and a flood of combining marks in the terminal no longer crash or stall the editor.
 - Format Range and format on type no longer delete a comment inside the range.
+- The markdown preview skips images on network shares and device paths, skips files over 32 MB and loads four images at a time.
+- Plugin update checks skip a folder plugin until you allow it, so a cloned repo cannot run git before that.
+- A refactoring whose edits overlap, such as Change Signature on a nested call, is refused instead of crashing the editor.
+- A recursive union or a generic type that names itself with new arguments no longer crashes or hangs the Odin analyzer.
+- Switching a setting that rebuilds the list, such as "Language intelligence" in Settings, no longer crashes.
 
 # 2026.11.6
 

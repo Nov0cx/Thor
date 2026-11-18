@@ -77,14 +77,27 @@ thor_markdown_image_path :: proc(view: ^Markdown_View, src: string) -> string {
     if rel == "" {
         return ""
     }
+    path: string
     if filepath.is_abs(rel) {
-        return filepath.clean(rel, context.temp_allocator) or_else ""
+        path = filepath.clean(rel, context.temp_allocator) or_else ""
+    } else if view.dir != "" {
+        joined, err := filepath.join({view.dir, rel}, context.temp_allocator)
+        path = err == nil ? joined : ""
     }
-    if view.dir == "" {
-        return ""
+    return thor_md_image_path_safe(path) ? path : ""
+}
+
+// Whether a markdown image path may be read: a UNC share or a device path is not.
+thor_md_image_path_safe :: proc(path: string) -> bool {
+    if path == "" {
+        return false
     }
-    path, err := filepath.join({view.dir, rel}, context.temp_allocator)
-    return err == nil ? path : ""
+    for prefix in ([]string{`\\`, `//`, "/dev/", "/proc/", "/sys/"}) {
+        if strings.has_prefix(path, prefix) {
+            return false
+        }
+    }
+    return true
 }
 
 // The pixel size of an image the page names. The first ask starts its load;
@@ -103,6 +116,9 @@ thor_markdown_image_size :: proc(src: string, user: rawptr) -> (w, h: f32, ok: b
     }
     image, found := &view.images[path]
     if !found {
+        if thor.md_images_running >= MD_IMAGE_JOBS_MAX {
+            return // a landing job lays the page out again, which asks once more
+        }
         view.images[strings.clone(path)] = Md_Image{loading = true, used = true}
         thor_md_image_start(thor, path)
         return

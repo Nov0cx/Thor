@@ -726,7 +726,12 @@ settings_content :: proc(thor: ^Thor) {
         return
     }
 
-    for row_index, position in s.visible_rows {
+    // A toggle rebuilds rows and visible_rows mid-loop, so read both by index each pass.
+    for position := 0; position < len(s.visible_rows); position += 1 {
+        row_index := s.visible_rows[position]
+        if row_index < 0 || row_index >= len(s.rows) {
+            break
+        }
         ui.push_id_int(i64(position))
         settings_row(thor, row_index)
         ui.pop_id()

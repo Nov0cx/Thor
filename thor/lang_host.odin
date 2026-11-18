@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:log"
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 import "core:time"
 
@@ -978,10 +979,20 @@ thor_apply_text_batch :: proc(thor: ^Thor, run: ^Apply_Run, edits: []lang.Text_E
             return false, "save the affected files first"
         }
         target := &targets[index]
-        if edit.start < 0 || edit.end > len(target.text) || target.text[edit.start:edit.end] != edit.old_text {
+        if edit.start < 0 || edit.start > edit.end || edit.end > len(target.text) || target.text[edit.start:edit.end] != edit.old_text {
             return false, "the files changed under it"
         }
         append(&target.edits, edit)
+    }
+    for &target in targets {
+        slice.sort_by(target.edits[:], proc(a, b: lang.Text_Edit) -> bool {
+            return a.start != b.start ? a.start < b.start : a.end < b.end
+        })
+        for i in 1 ..< len(target.edits) {
+            if target.edits[i].start < target.edits[i - 1].end {
+                return false, "the edits overlap"
+            }
+        }
     }
 
     for &target in targets {

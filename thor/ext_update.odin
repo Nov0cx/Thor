@@ -244,7 +244,13 @@ thor_ext_scan :: proc(thor: ^Thor) {
         repo            := thor_is_clone(p.dir) ? p.dir : ""
         thor_ext_add(&list, .Plugin, p.id, p.dir, true, false, version, source, repo, held)
     }
+    _, workspace_grants := thor_read_grant_file()
     for p in thor_scan_workspace_plugins(thor) {
+        // A repo-supplied folder with a .git must not run git before the user allowed it.
+        allowed, known := thor_find_workspace_grant(workspace_grants[:], thor.workspace_dir, p.id)
+        if !known || p.perms - allowed != {} {
+            continue
+        }
         version, source := plugin.manifest_info(p.dir)
         repo            := thor_is_clone(p.dir) ? p.dir : ""
         thor_ext_add(&list, .Plugin, p.id, p.dir, false, true, version, source, repo, held)

@@ -349,6 +349,7 @@ Thor :: struct {
     finished_ext_updates:          lockfree.Stack(Ext_Job),
     finished_outside_stats:        lockfree.Stack(Outside_Stat_Job),
     finished_md_images:            lockfree.Stack(Md_Image_Job),
+    md_images_running:             int, // image jobs started and not yet applied
     finished_plugin_execs:         lockfree.Stack(Plugin_Exec_Job),
     // Reaped thor.exec results waiting for the run loop to call their plugin. Owned.
     plugin_exec_results:           [dynamic]^Plugin_Exec_Job,

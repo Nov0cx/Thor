@@ -2200,8 +2200,12 @@ Md_Image_Job :: struct {
     ok:         bool,
 }
 
+MD_IMAGE_JOBS_MAX  :: 4
+MD_IMAGE_BYTES_MAX :: 32 << 20
+
 // Starts the decode of one image file for the markdown preview.
 thor_md_image_start :: proc(thor: ^Thor, path: string) {
+    thor.md_images_running += 1
     job := new(Md_Image_Job)
     job.owner = thor
     job.allocator = context.allocator
@@ -2218,12 +2222,16 @@ md_image_worker :: proc(job: ^Md_Image_Job) {
         lockfree.stack_push(&job.owner.finished_md_images, job)
     }
 
+    info, serr := os.stat(job.path, context.temp_allocator)
+    if serr != nil || info.type != .Regular || info.size <= 0 || info.size > MD_IMAGE_BYTES_MAX {
+        return
+    }
     data, err := os.read_entire_file(job.path, context.allocator)
     if err != nil {
         return
     }
     defer delete(data)
-    if len(data) == 0 {
+    if len(data) == 0 || len(data) > MD_IMAGE_BYTES_MAX {
         return
     }
     job.decoded, job.ok = platform.image_decode(filepath.ext(job.path), data)
@@ -2236,6 +2244,7 @@ thor_apply_md_image :: proc(thor: ^Thor, job: ^Md_Image_Job) {
     thread.join(job.worker)
     thread.destroy(job.worker)
     thor.inflight_jobs -= 1
+    thor.md_images_running -= 1
     defer {
         platform.image_free(&job.decoded)
         delete(job.path)
