@@ -93,6 +93,7 @@ test_settings_scope_rows :: proc(t: ^testing.T) {
     thor.config = setting.load(setting.GLOBAL_DIR)
     defer setting.destroy(&thor.config)
     thor.workspace_initialized = true
+    thor.workspace_dir = "proj"
 
     thor_open_settings_view(thor)
     thor.settings.scope = .Project
