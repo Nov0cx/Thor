@@ -801,3 +801,30 @@ test_completion_postfix_types :: proc(t: ^testing.T) {
     expect_labels(t, &res, {"switch", "if"}, {"defer_free", "ifnil"})
     completions_free(&res)
 }
+
+// A comment between the comma and the word does not hide the fields.
+@(test)
+test_completion_comp_lit_fields_after_comment :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+Rect :: struct {
+    width, height: int,
+    wrap: bool,
+}
+
+main :: proc() {
+    a := Rect{
+        width = 1, // set
+        /* more */
+        w
+    }
+    _ = a
+}
+`
+    res := complete_at(e, src, "more */\n        w|")
+    expect_labels(t, &res, {"wrap"}, {"width"})
+    completions_free(&res)
+}

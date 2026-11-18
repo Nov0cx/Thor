@@ -58,6 +58,7 @@ free_edits :: proc(res: ^lang.Result) {
         delete(edit.new_text)
     }
     delete(res.edits)
+    delete(res.message.text)
     res^ = {}
 }
 
@@ -840,4 +841,40 @@ test_code_lens_matches_references :: proc(t: ^testing.T) {
     testing.expect_value(t, counts["shared"], 3)
     testing.expect_value(t, counts["hid"], 1)
     testing.expect_value(t, counts["run"], 0)
+}
+// A rename onto a name the scope already declares or uses is refused with a message.
+@(test)
+test_rename_refuses_a_clash :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    Case :: struct {
+        src:      string,
+        needle:   string,
+        new_name: string,
+        ok:       bool,
+    }
+    cases := []Case{
+        {"package demo\n\nmain :: proc() {\n\ta := 1\n\tb := 2\n\t_ = a + b\n}\n", "a :=", "b", false},
+        {"package demo\n\nmain :: proc() {\n\ta := 1\n\tb := 2\n\t_ = a + b\n}\n", "a :=", "c", true},
+        {"package demo\n\nmain :: proc(x: int) {\n\ty := 2\n\t_ = x + y\n}\n", "x:", "y", false},
+        {"package demo\n\nf :: proc() {\n\tb := 1\n\t_ = b\n}\n\ng :: proc() {\n\ta := 1\n\t_ = a\n}\n", "a :=", "b", true},
+        {"package demo\n\nfoo :: 1\nbar :: 2\n", "foo ::", "bar", false},
+    }
+    for c in cases {
+        res := rename_at(e, c.src, c.needle, c.new_name)
+        testing.expectf(t, res.ok == c.ok, "rename %q to %q: ok %v, want %v", c.needle, c.new_name, res.ok, c.ok)
+        if !c.ok {
+            testing.expectf(
+                t,
+                len(res.edits) == 0 && res.message.error && res.message.text != "",
+                "rename %q to %q: edits %d, message %q",
+                c.needle,
+                c.new_name,
+                len(res.edits),
+                res.message.text,
+            )
+        }
+        free_edits(&res)
+    }
 }

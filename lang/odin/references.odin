@@ -6,6 +6,7 @@
 package odin
 
 import "base:runtime"
+import "core:fmt"
 import "core:path/filepath"
 import "core:slice"
 import "core:strings"
@@ -195,6 +196,13 @@ rename :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     if target.kind == .Unbound || target.name == req.new_name || !rename_allowed(&ctx, target) {
         return
     }
+    if clash := rename_conflict(&ctx, target, req.new_name); clash {
+        text, text_err := strings.clone(fmt.tprintf("'%s' is already used here", req.new_name))
+        if text_err == nil {
+            res.message = lang.Server_Message{text = text, error = true}
+        }
+        return
+    }
     s := Ref_Scan{ctx = &ctx, target = target, with_decl = true}
     if !scan(&s) {
         hits_free(s.hits[:])
@@ -221,6 +229,58 @@ rename :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
         delete(hit.signature)
     }
     res.ok = len(res.edits) > 0
+}
+
+// True when renaming `target` to `new_name` would merge it with another name of the buffer: a local
+// or parameter whose scope already declares or uses the name, or a file-scope item the buffer
+// already declares or uses under it. A `using` statement refuses every local rename.
+@(private)
+rename_conflict :: proc(ctx: ^Request_Context, target: Ref_Target, new_name: string) -> bool {
+    if target.kind != .Local && target.kind != .Param && target.kind != .Package_Item {
+        return false
+    }
+    m, err := odinsema.scope_map(ctx.parsed)
+    if err != nil {
+        return true
+    }
+    defer odinsema.scope_map_destroy(m)
+    if target.kind == .Package_Item {
+        for ref in m.refs {
+            if ref.name == new_name && (ref.kind == .Top_Level || ref.kind == .Free) {
+                return true
+            }
+        }
+        return false
+    }
+    if m.has_using {
+        return true
+    }
+    scope := -1
+    for l in m.locals {
+        if l.name_offset == target.decl {
+            scope = l.scope
+            break
+        }
+    }
+    if scope < 0 {
+        return false
+    }
+    low, high := m.scopes[scope].start, m.scopes[scope].end
+    for l in m.locals {
+        if l.name == new_name && l.name_offset >= low && l.name_offset < high {
+            return true
+        }
+    }
+    for ref in m.refs {
+        if ref.name != new_name || ref.start < low || ref.start >= high {
+            continue
+        }
+        #partial switch ref.kind {
+        case .Local, .Top_Level, .Free:
+            return true
+        }
+    }
+    return false
 }
 
 // Fills `res.highlights` with the identifiers of the buffer that name the declaration under the

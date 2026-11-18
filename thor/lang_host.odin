@@ -1307,7 +1307,7 @@ thor_apply_rename :: proc(thor: ^Thor, res: ^lang.Result) {
     }
     thor.rename_request_id = 0
     if !res.ok || (len(res.edits) == 0 && len(res.resource_ops) == 0) {
-        thor_flash_status(thor, "Nothing to rename here", is_error = true)
+        thor_flash_status(thor, res.message.text != "" ? fmt.tprintf("Rename refused: %s", res.message.text) : "Nothing to rename here", is_error = true)
         return
     }
     applied, files, ok, reason := thor_apply_edits(thor, res.edits[:], thor.rename_path, res.revision, res.resource_ops[:])

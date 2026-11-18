@@ -1161,10 +1161,18 @@ add_field_names :: proc(cm: ^Completer, start: int) {
     for b >= 0 && (src[b] == ' ' || src[b] == '\t' || src[b] == '\r' || src[b] == '\n') {
         b -= 1
     }
+    root := odinsyntax.node_root(ctx.parsed.tree)
+    for b >= 0 {
+        trivia, in_trivia := odinsyntax.node_token_at(root, u32(b), context.temp_allocator)
+        if !in_trivia || !odinsyntax.token_is_trivia(trivia.green.kind) {
+            break
+        }
+        b = int(trivia.offset) - 1
+    }
     if b < 0 || (src[b] != '{' && src[b] != ',') {
         return
     }
-    tok, ok := odinsyntax.node_token_at(odinsyntax.node_root(ctx.parsed.tree), u32(b), context.temp_allocator)
+    tok, ok := odinsyntax.node_token_at(root, u32(b), context.temp_allocator)
     if !ok || tok.parent == nil || tok.parent.green.kind != .Comp_Lit {
         return
     }
