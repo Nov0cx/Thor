@@ -60,7 +60,7 @@ Watcher :: struct {
 }
 
 // The worker is platform code: watch_windows.odin blocks on
-// ReadDirectoryChangesW, watch_posix.odin polls the tree. Each platform file
+// ReadDirectoryChangesW, watch_linux.odin on inotify, watch_posix.odin on kqueue. Each platform file
 // supplies `Platform` plus four procedures — `watch_start` opens what the worker
 // needs and reports whether the tree can be watched, `watch_worker` is the
 // worker body, `watch_stop` makes that body return, and `watch_release` frees

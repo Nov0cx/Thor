@@ -311,9 +311,10 @@ behind Help > Documentation) and `platform/dinput_*` (the DirectInput block arou
 raylib's game-controller scan reads every HID device, and one that does not answer costs seconds —
 the Windows half refuses `dinput8.dll` through its own import table for the length of `InitWindow`). `watch/` is the one three-way split —
 `watch_windows.odin` blocks on ReadDirectoryChangesW, `watch_linux.odin` on inotify, and
-`watch_posix.odin` (`#+build darwin, freebsd, openbsd, netbsd`) polls the tree. `watch/scan.odin`
-and `watch/poll.odin` are deliberately platform-free, so the polling watcher's diff is testable on
-Windows and Linux can fall back to it when inotify does not start or runs out of watches — the
+`watch_posix.odin` (`#+build darwin, freebsd, openbsd, netbsd`) on kqueue, one descriptor per path,
+listing a directory again when it changes. `watch/scan.odin` and `watch/poll.odin` are deliberately
+platform-free, so the polling watcher's diff is testable on Windows, and Linux and the kqueue worker
+fall back to it when their interface does not start or runs out of watches or descriptors — the
 latter mid-session, since the cap is only met part-way through the tree.
 
 Only Windows can be run here, so a POSIX change is verified by cross type-check:
