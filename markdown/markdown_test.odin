@@ -957,3 +957,40 @@ test_selection_round_trip :: proc(t: ^testing.T) {
     part := selection_text(&page, strings.index(source, "pha"), strings.index(source, "gam") + 3, context.temp_allocator)
     testing.expect_value(t, part, "pha beta gam")
 }
+
+// A bare `#` is an empty heading: it draws its rule and ends the paragraph above.
+@(test)
+test_bare_hash_is_an_empty_heading :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    lay(&page, "before\n#\nbody\n")
+
+    rules := 0
+    for item in page.items {
+        if item.kind == .Rect {
+            rules += 1
+        }
+    }
+    testing.expect_value(t, rules, 1)
+    before, ok_before := text_named(&page, "before")
+    body, ok_body     := text_named(&page, "body")
+    testing.expect(t, ok_before && ok_body, "both paragraphs are drawn")
+    testing.expect(t, body.y > before.y, "the body is under the heading")
+}
+
+// Five columns after a list marker open indented code, and the indent past the
+// fourth column stays in the code.
+@(test)
+test_list_item_opens_indented_code :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    lay(&page, "-     code\n-       deep\n")
+
+    code, ok := text_named(&page, "code")
+    testing.expect(t, ok, "the code line is drawn")
+    testing.expect_value(t, code.color, test_palette().code)
+    deep: Item
+    deep, ok = text_named(&page, "  deep")
+    testing.expect(t, ok, "the deeper line keeps its indent")
+    testing.expect_value(t, deep.color, test_palette().code)
+}

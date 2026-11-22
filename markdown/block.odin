@@ -388,12 +388,17 @@ parse_list :: proc(b: ^Build, out: ^[dynamic]^Block, lines: []string, at: int) -
         }
 
         column := indent_columns(lines[i]) + marker
-        if !is_blank(content) {
-            column += min(max(indent_columns(content), 1), 4)
-        } else {
+        if is_blank(content) {
             column += 1
+            content = strings.trim_left_space(content)
+        } else if gap := indent_columns(content); gap >= 5 {
+            // Five columns or more after the marker open indented code one column in.
+            column += 1
+            content = strip_columns(content, 1)
+        } else {
+            column += max(gap, 1)
+            content = strings.trim_left_space(content)
         }
-        content = strings.trim_left_space(content)
 
         item := new_block(.Item)
         item.task, content = task_marker(content)
@@ -655,7 +660,7 @@ heading :: proc(s: string) -> (level: int, rest: string, ok: bool) {
         return 0, "", false
     }
     if n >= len(s) {
-        return 0, "", false
+        return n, "", true
     }
     rest = strings.trim_space(s[n + 1:])
     end := len(rest)
