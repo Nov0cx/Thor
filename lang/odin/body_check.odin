@@ -753,7 +753,7 @@ nil_errors :: proc(
     }
 }
 
-// Reports a `cast` or `transmute` to the type its operand already has.
+// Reports a `cast` or `transmute` to the type its operand already has, and a `transmute` a `cast` can do.
 @(private = "file")
 cast_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, n: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
     v, ok := odinsema.vet_cast(c, rc.live.id, n)
@@ -761,6 +761,18 @@ cast_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, n: odinsyntax.Sy
         return
     }
     type := odinsema.type_string(&c.table, v.type, context.temp_allocator)
+    if v.prefer_cast {
+        from := odinsema.type_string(&c.table, v.from, context.temp_allocator)
+        report_error(
+            rc,
+            report,
+            v.offset,
+            CODE_CAST,
+            fmt.aprintf("Use of 'transmute' where 'cast' would be preferred since both are integers of the same endianness, from '%s' to '%s'", from, type),
+            .Warning,
+        )
+        return
+    }
     what := v.is_transmute ? "transmute" : "cast"
     report_error(rc, report, v.offset, CODE_CAST, fmt.aprintf("Unneeded %s of '%s' to identical type '%s'", what, v.operand, type), .Warning)
 }

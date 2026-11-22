@@ -70,6 +70,20 @@ UNNEEDED_CAST :: "Unneeded cast of '"
 @(private = "file")
 UNNEEDED_TRANSMUTE :: "Unneeded transmute of '"
 
+// The `-vet-cast` message of a `transmute` between integers of one endianness.
+@(private)
+PREFER_CAST :: "Use of 'transmute' where 'cast' would be preferred"
+
+// Replaces the `transmute` keyword the compiler names with `cast`.
+@(private = "file")
+prefer_cast_fix :: proc(rc: ^Request_Context, offset: int, res: ^lang.Result) {
+    src := rc.req.source
+    if !strings.has_prefix(src[offset:], "transmute") {
+        return
+    }
+    push_action(res, rc.req, "Use cast instead of transmute", Edit_Spec{offset, offset + len("transmute"), "cast"})
+}
+
 // Replaces the conversion the compiler names with its operand. A cast is named at its operand, a
 // transmute at its keyword.
 @(private = "file")
@@ -168,9 +182,15 @@ tabs_fix :: proc(rc: ^Request_Context, offset: int, res: ^lang.Result) {
 // Offers a fix for each error of the request's diagnostics that the compiler words in a known way.
 @(private)
 compiler_fixes :: proc(rc: ^Request_Context, res: ^lang.Result) {
-    for d in rc.req.diagnostics {
-        if d.start < 0 || d.start >= len(rc.req.source) {
+    for ref in rc.req.diagnostics {
+        if ref.start < 0 || ref.start >= len(rc.req.source) {
             continue
+        }
+        d := ref
+        suggestion: string
+        d.message, suggestion = split_suggestion(ref.message)
+        if strings.has_prefix(suggestion, DID_YOU_MEAN) {
+            did_you_mean_fix(rc, d.start, d.message, suggestion[len(DID_YOU_MEAN):], res)
         }
         if d.message == UNNEEDED_SEMICOLON {
             semicolon_fix(rc, d.start, res)
@@ -188,6 +208,10 @@ compiler_fixes :: proc(rc: ^Request_Context, res: ^lang.Result) {
             unneeded_cast_fix(rc, d.start, true, res)
             continue
         }
+        if strings.has_prefix(d.message, PREFER_CAST) {
+            prefer_cast_fix(rc, d.start, res)
+            continue
+        }
         if d.message == SPACED_INDENT {
             tabs_fix(rc, d.start, res)
             continue
@@ -203,6 +227,52 @@ compiler_fixes :: proc(rc: ^Request_Context, res: ^lang.Result) {
             redeclaration_fix(rc, d.start, name, res)
         } else if message_quotes(d.message, PARAM_ASSIGN_PREFIX) || message_quotes(d.message, PARAM_ADDRESS_PREFIX) {
             immutable_fix(rc, d.start, res)
+        }
+    }
+}
+
+@(private = "file")
+DID_YOU_MEAN :: "Did you mean?"
+
+// The most names of one suggestion offered as fixes.
+@(private = "file")
+DID_YOU_MEAN_MAX :: 3
+
+// Replaces the misspelled name with each name the compiler suggests. The misspelled name is the
+// identifier at or after `offset` on its line that the message quotes and that is nearest the first
+// suggestion.
+@(private = "file")
+did_you_mean_fix :: proc(rc: ^Request_Context, offset: int, message, names: string, res: ^lang.Result) {
+    candidates := strings.fields(names, context.temp_allocator)
+    if len(candidates) == 0 {
+        return
+    }
+    src := rc.req.source
+    hi  := offset
+    for hi < len(src) && src[hi] != '\n' {
+        hi += 1
+    }
+    best_start, best_end, best := -1, -1, max(int)
+    for tok in odinsyntax.lex_all(src[offset:hi], context.temp_allocator) {
+        if tok.kind != .Ident {
+            continue
+        }
+        text   := src[offset + int(tok.offset):offset + int(tok.offset + tok.len)]
+        quoted := strings.contains(message, strings.concatenate({"'", text, "'"}, context.temp_allocator)) ||
+            strings.has_suffix(message, strings.concatenate({": ", text}, context.temp_allocator))
+        if !quoted {
+            continue
+        }
+        if distance := strings.levenshtein_distance(text, candidates[0], context.temp_allocator); distance < best {
+            best, best_start, best_end = distance, offset + int(tok.offset), offset + int(tok.offset + tok.len)
+        }
+    }
+    if best_start < 0 {
+        return
+    }
+    for name in candidates[:min(len(candidates), DID_YOU_MEAN_MAX)] {
+        if toks := odinsyntax.lex_all(name, context.temp_allocator); len(toks) == 2 && toks[0].kind == .Ident && int(toks[0].len) == len(name) {
+            push_action(res, rc.req, fmt.tprintf("Change to '%s'", name), Edit_Spec{best_start, best_end, name})
         }
     }
 }

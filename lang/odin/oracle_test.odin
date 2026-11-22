@@ -921,6 +921,7 @@ test_oracle_clean_corpus :: proc(t: ^testing.T) {
     testing.expect(t, packages > 0, "no package checked")
     testing.expect_value(t, found, 0)
     testing.expect_value(t, vet_false, 0)
+    testing.expect_value(t, vet_missed, 0)
 }
 
 // A compiler line by file name and line.

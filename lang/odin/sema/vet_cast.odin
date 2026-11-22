@@ -4,12 +4,14 @@ import "core:strings"
 
 import odinsyntax "../syntax"
 
-// A `cast` or `transmute` to the type its operand already has.
+// A `cast` or `transmute` to the type its operand already has, or a `transmute` a `cast` can do.
 Vet_Cast :: struct {
     offset:       int,    // the operand of a `cast`, the expression of a `transmute`
     operand:      string, // borrows the text of the parse
     type:         Type_Id,
     is_transmute: bool,
+    prefer_cast:  bool, // a `transmute` between integers of one endianness; `from` is the operand's type
+    from:         Type_Id,
 }
 
 // The redundant conversion `n` holds, as `-vet-cast` reports it: the operand already has the type,
@@ -30,11 +32,27 @@ vet_cast :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (out:
     }
     to   := type_expr(c, file, type_node)
     from := expr_type(c, file, operand)
-    if to == INVALID_TYPE || from.mode != .Value || from.type != to {
+    if to == INVALID_TYPE || from.mode != .Value || from.type == INVALID_TYPE {
         return
     }
-    if type_has_unknown(&c.table, to) {
+    if type_has_unknown(&c.table, to) || type_has_unknown(&c.table, from.type) {
         return
+    }
+    if from.type != to {
+        if !is_transmute || type_is_untyped(&c.table, from.type) || !type_is_integer(&c.table, from.type) || !type_is_integer(&c.table, to) {
+            return
+        }
+        if integer_endian(&c.table, from.type) != integer_endian(&c.table, to) {
+            return
+        }
+        return Vet_Cast{
+            offset = int(n.offset),
+            operand = strings.trim_space(odinsyntax.node_text(n)),
+            type = to,
+            is_transmute = true,
+            prefer_cast = true,
+            from = from.type,
+        }, true
     }
     out = Vet_Cast{offset = int(operand.offset), operand = strings.trim_space(odinsyntax.node_text(operand)), type = to, is_transmute = is_transmute}
     if is_transmute {
@@ -42,6 +60,21 @@ vet_cast :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (out:
         out.operand = strings.trim_space(odinsyntax.node_text(n))
     }
     return out, true
+}
+
+// How an integer type states its byte order: 0 native, 1 `le`, 2 `be`. The compiler compares the
+// spelling, so `u16le` and `i16` differ even on a little-endian target.
+@(private = "file")
+integer_endian :: proc(t: ^Type_Table, id: Type_Id) -> int {
+    if b, ok := type_get(t, type_base(t, id)).(Basic_Type); ok {
+        #partial switch b.kind {
+        case .I16le ..= .U128le:
+            return 1
+        case .I16be ..= .U128be:
+            return 2
+        }
+    }
+    return 0
 }
 
 // True when a procedure literal around `n` has a polymorphic parameter or result.

@@ -315,7 +315,7 @@ size, the format and a schema hash. Any mismatch rebuilds silently. Parses stay 
 | `Completion` | `completion.odin`, `auto_import.odin` | Scope and member completion, expected-type ranking, struct-literal fields, snippets, postfix templates, auto-import. |
 | `Semantic_Tokens` | `semantic.odin` | Kinds plus modifiers (`deprecated`, `distinct`) and inactive `when` ranges. Sparse by design. |
 | `Inlay_Hints` | `inlay.odin` | Types of `:=` and `::`, parameter names at calls. |
-| `Code_Actions`, `Resolve_Action` | `actions.odin`, `fixes.odin`, `compiler_fixes.odin`, `create_decl.odin`, `refactor.odin`, `extract.odin`, `change_signature.odin`, `move_decl.odin` | Quick fixes and refactorings. Compiler-message fixes include `&` for an immutable `for`/`switch` variable, removing an unneeded cast or `transmute`, and indenting a `-vet-tabs` line with tabs. Four refactorings ask for a name or path through `Code_Action.prompt`. |
+| `Code_Actions`, `Resolve_Action` | `actions.odin`, `fixes.odin`, `compiler_fixes.odin`, `create_decl.odin`, `refactor.odin`, `extract.odin`, `change_signature.odin`, `move_decl.odin` | Quick fixes and refactorings. Compiler-message fixes include `&` for an immutable `for`/`switch` variable, removing an unneeded cast or `transmute`, `cast` for a `transmute` between integers, indenting a `-vet-tabs` line with tabs, and a "Change to" fix for each name a compiler `Did you mean?` suggestion lists. The save's `odin check` joins each indented `Suggestion:` line, and the names under it, to the message before it (`SUGGESTION_SEP`); `split_suggestion` gives the two parts back. Four refactorings ask for a name or path through `Code_Action.prompt`. |
 | `Call_Hierarchy`, `Type_Hierarchy`, `Implementations` | `hierarchy.odin` | |
 | `Selection_Range` | `selection.odin` | |
 | `Code_Lens` | `lens.odin` | Reference counts; a server's lens carries a `title` instead. |
@@ -402,7 +402,15 @@ mark. LSP severities 3 and 4 map to `Hint`.
 `vet/unused-variable`, `vet/unused-import`, `vet/shadowing`, `vet/using-stmt`, `vet/when-shadowing`,
 `vet/cast`. Opt-in: `vet/unused-procedure`, `vet/style`, `vet/semicolon`, `vet/tabs`. `#+vet` tags
 add and `!name` removes checks per file. The save's `odin check` passes the matching `-vet-*` flag
-and `-vet-packages:<package>`, and maps its lines to the same ids.
+and `-vet-packages:<package>`, and maps its lines to the same ids. A `-vet-style`, `-vet-semicolon`
+or `-vet-tabs` line stops the compiler before it types the package, so a run that reports one is
+followed by a second run without those three flags; the report keeps the syntax-level lines of the
+first and everything of the second.
+
+`vet/cast` reports a `cast` or `transmute` to the type the operand already has, and a `transmute`
+between two integer types with the same endian spelling (native, `le` or `be`, compared as the
+compiler does: `u16le` and `i16` differ). The quick fix of the second replaces `transmute` with
+`cast`.
 
 ### Tier 3 — lints the compiler does not have (hints, each switchable)
 
@@ -907,8 +915,8 @@ Things that do not exist yet. Each is a candidate for future work.
 - **Workspace disk cache.** Only the stdlib item trees persist. Item trees of workspace files keyed
   by content hash are not cached.
 - **Custom lints from Lua plugins.** The sema API is not exposed to plugins.
-- **Other compiler messages as quick fixes.** `compiler_fixes.odin` handles a few; more remain. The
-  indented `Suggestion:` lines of the compiler output are not read.
+- **Other compiler messages as quick fixes.** A compiler message with no suggestion and none of the
+  wordings `compiler_fixes.odin` knows has no fix of its own; the live check's fixes still apply.
 
 ### LSP
 
@@ -926,14 +934,10 @@ Behaviour that is wrong, partial, or surprising today.
 
 ### Analyzer
 
-- **`vet/cast` oracle miss.** `test_oracle_clean_corpus` misses one `-vet-cast` line that a `#+vet`
-  tag asks for (88 live vet items matched the compiler, none false, one missed).
 - **Float constants.** An integral hex float of 2^63 or more put in an integer is not reported: the
   compiler saturates it and prints corrupted digits, so there is no message to match. A constant from
   another package (`pkg.F`), one of a multi-value declaration and a typed constant's own value are
   checked like a literal. Unknown struct tags are accepted, as the compiler does.
-- **`vet-style`, `vet-semicolon`, `vet-tabs`** are live-only; the on-save `odin check` does not
-  report them. `-vet-unused-procedures` does reach the save.
 - **`nil/deref`** follows the elements of a fixed array at a constant index, a named constant or a
   constant expression (`a[N - 1]`, folded through `const_eval`). A store at a variable index can
   reach any element, so it resets them all.

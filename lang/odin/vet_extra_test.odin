@@ -55,6 +55,37 @@ poly :: proc(v: $T) -> T {
     }
 }
 
+// A transmute between integers of one endianness spelling is a cast; `be`, `le` against native, or a float is not.
+@(test)
+test_live_vet_prefer_cast :: proc(t: ^testing.T) {
+    root := fixture(t, "live_vet_prefer_cast", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
+    e    := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+f :: proc(a: u64, b: u32be, r: rune, l: u16le) -> i64 {
+	x := transmute(i64)a
+	y := transmute(u32)b
+	z := transmute(i32)r
+	w := transmute(f64)a
+	v := transmute(i16)l
+	return x + i64(y) + i64(z) + i64(w) + i64(v)
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(
+        t,
+        &res,
+        src,
+        {
+            {"transmute(i64)a", "Use of 'transmute' where 'cast' would be preferred since both are integers of the same endianness, from 'u64' to 'i64'", 0},
+            {"transmute(i32)r", "Use of 'transmute' where 'cast' would be preferred since both are integers of the same endianness, from 'rune' to 'i32'", 0},
+        },
+    )
+}
+
 @(test)
 test_live_vet_cast_off :: proc(t: ^testing.T) {
     root := fixture(

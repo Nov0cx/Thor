@@ -121,6 +121,74 @@ test_check_reports_package_error :: proc(t: ^testing.T) {
     testing.expectf(t, strings.contains(d.message, "nope"), "message should name the symbol: %q", d.message)
 }
 
+// A syntax-level vet error stops the compiler before it types the package, so the save checks
+// again without it: the semicolon and the type error both come back.
+@(test)
+test_check_syntax_vet_keeps_type_errors :: proc(t: ^testing.T) {
+    rel        := fixture(
+        t,
+        "check_syntax_vet",
+        {
+            {".thor/odin-analyzer.lua", `return { diagnostics = { ["vet/semicolon"] = "warning" } }`},
+            {"app/main.odin", "package app\n\nbad :: proc() -> int {\n\tx := 1;\n\t_ = x\n\treturn nope\n}\n"},
+        },
+    )
+    root, aerr := filepath.abs(rel, context.temp_allocator)
+    if aerr != nil {
+        testing.fail_now(t, "could not resolve the fixture directory")
+    }
+    if !odin_on_path(root) {
+        log.info("odin is not on PATH; skipping the compiler check test")
+        return
+    }
+    e := engine_create()
+    defer engine_destroy(e)
+
+    req := lang.Request{kind = .Diagnostics, path = fixture_path(root, "app/main.odin"), ext = ".odin", workspace = root}
+    res := lang.Result{kind = .Diagnostics}
+    resolve(e, &req, &res)
+    defer free_report(&res)
+
+    testing.expect(t, res.ok, "the check should have run")
+    semicolon, undeclared := false, false
+    for d in res.report.items {
+        semicolon ||= d.code == CODE_SEMICOLON && d.line == 4
+        undeclared ||= d.line == 6 && strings.contains(d.message, "nope")
+    }
+    testing.expect(t, semicolon, "the semicolon was not reported on save")
+    testing.expect(t, undeclared, "the semicolon hid the type error")
+}
+
+// The compiler's `Suggestion:` line and the names indented under it join the message before them.
+@(test)
+test_check_reads_suggestions :: proc(t: ^testing.T) {
+    rel        := fixture(
+        t,
+        "check_suggestion",
+        {{"app/main.odin", "package app\n\nPoint :: struct { width: int }\n\nf :: proc() -> int {\n\tp: Point\n\treturn p.widht\n}\n"}},
+    )
+    root, aerr := filepath.abs(rel, context.temp_allocator)
+    if aerr != nil {
+        testing.fail_now(t, "could not resolve the fixture directory")
+    }
+    if !odin_on_path(root) {
+        log.info("odin is not on PATH; skipping the compiler check test")
+        return
+    }
+    e := engine_create()
+    defer engine_destroy(e)
+
+    req := lang.Request{kind = .Diagnostics, path = fixture_path(root, "app/main.odin"), ext = ".odin", workspace = root}
+    res := lang.Result{kind = .Diagnostics}
+    resolve(e, &req, &res)
+    defer free_report(&res)
+
+    testing.expect(t, res.ok, "the check should have run")
+    if testing.expect_value(t, len(res.report.items), 1) {
+        testing.expect_value(t, res.report.items[0].message, "'p' of type 'Point' has no field 'widht'\nSuggestion: Did you mean? width")
+    }
+}
+
 // An empty check of the same package must come back ok with no items — that is
 // how the editor learns a file it flagged is clean again.
 @(test)

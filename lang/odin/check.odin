@@ -53,15 +53,8 @@ check_package :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     // The workspace is the natural place to run from — it is what the console and
     // git use, and what a relative path in the output would be relative to. With
     // no workspace open, the package's own directory serves.
-    cwd  := req.workspace != "" ? req.workspace : dir
-    args := make([dynamic]string, context.temp_allocator)
-    append(&args, "check", dir, "-no-entry-point")
-    collection_flags(e, req.workspace, &args)
-    target_flags(e, req.workspace, &args, req.path)
-    vet_flag_args(e, req.workspace, req.path, &args)
-    // An argument list, not a shell line: the directory and the collection
-    // roots come from the workspace.
-    output, code, ran := shell.exec_status("odin", args[:], cwd, CHECK_TIMEOUT)
+    cwd               := req.workspace != "" ? req.workspace : dir
+    output, code, ran := check_run(e, req, dir, cwd, true)
     defer delete(output)
     if !ran {
         return
@@ -69,26 +62,32 @@ check_package :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
 
     res.report.scope = strings.clone(dir)
     res.report.items = make([dynamic]lang.Diagnostic)
-    vet      := Vet_Context{severities = config_severities(e, req.workspace), files = make(map[string]Vet_File, context.temp_allocator)}
-    it       := output
-    previous := ""
-    for line in strings.split_lines_iterator(&it) {
-        p, ok := parse_diagnostic_line(line)
-        if !ok {
-            continue
+    vet := Vet_Context{severities = config_severities(e, req.workspace), files = make(map[string]Vet_File, context.temp_allocator)}
+    check_items(&vet, output, cwd, &res.report.items)
+    // A syntax-level vet error stops the compiler before it types the package: keep those lines and
+    // check again without the three flags for the rest.
+    syntax_stop := false
+    for d in res.report.items {
+        syntax_stop ||= d.code == CODE_STYLE || d.code == CODE_SEMICOLON || d.code == CODE_TABS
+    }
+    if syntax_stop && !lang.request_cancelled(req) {
+        again, again_code, again_ran := check_run(e, req, dir, cwd, false)
+        defer delete(again)
+        if again_ran {
+            kept := 0
+            for d in res.report.items {
+                if d.code == CODE_STYLE || d.code == CODE_SEMICOLON || d.code == CODE_TABS {
+                    res.report.items[kept] = d
+                    kept += 1
+                } else {
+                    delete(d.path)
+                    delete(d.message)
+                }
+            }
+            resize(&res.report.items, kept)
+            check_items(&vet, again, cwd, &res.report.items)
+            code = max(code, again_code)
         }
-        // The call site of a failed `where` clause takes the message of the clause.
-        if p.message == "at caller location" && previous != "" {
-            p.message = previous
-        }
-        previous = p.message
-        d := lang.Diagnostic{path = absolute_path(p.path, cwd), line = p.line, col = p.col, severity = p.severity}
-        if !vet_item(&vet, &d, p.message) {
-            delete(d.path)
-            continue
-        }
-        d.message = strings.clone(p.message)
-        append(&res.report.items, d)
     }
     // A failed exit with nothing parsed means the compiler never ran: it is
     // absent from PATH, or it rejected a flag. An empty report would read as
@@ -106,6 +105,81 @@ check_package :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     if req.workspace != "" && req.source != "" && config_telemetry(e, req.workspace) {
         log_disagreements(e, req, res.report.items[:])
     }
+}
+
+// One `odin check` of `dir`. `syntax_vet` adds the vet checks that stop the compiler before it
+// types the package. An argument list, not a shell line: the directory and the collection roots come
+// from the workspace.
+@(private = "file")
+check_run :: proc(e: ^Engine, req: ^lang.Request, dir, cwd: string, syntax_vet: bool) -> (output: string, code: int, ran: bool) {
+    args := make([dynamic]string, context.temp_allocator)
+    append(&args, "check", dir, "-no-entry-point")
+    collection_flags(e, req.workspace, &args)
+    target_flags(e, req.workspace, &args, req.path)
+    vet_flag_args(e, req.workspace, req.path, &args, syntax_vet)
+    return shell.exec_status("odin", args[:], cwd, CHECK_TIMEOUT)
+}
+
+// Appends each diagnostic line of `output` that the config keeps. A `Suggestion:` line, with the
+// candidates indented under it, joins the message of the diagnostic before it (see SUGGESTION_SEP).
+@(private = "file")
+check_items :: proc(vet: ^Vet_Context, output, cwd: string, items: ^[dynamic]lang.Diagnostic) {
+    it         := output
+    previous   := ""
+    kept       := -1 // the item the last diagnostic line became; -1 when it was dropped
+    candidates := false
+    for line in strings.split_lines_iterator(&it) {
+        trimmed := strings.trim_space(line)
+        if kept >= 0 && strings.has_prefix(trimmed, "Suggestion:") {
+            text := strings.trim_space(trimmed[len("Suggestion:"):])
+            if text != "" {
+                d      := &items[kept]
+                joined := strings.concatenate({d.message, SUGGESTION_SEP, text})
+                delete(d.message)
+                d.message = joined
+            }
+            candidates = strings.has_suffix(text, "?")
+            continue
+        }
+        if candidates && kept >= 0 && strings.has_prefix(line, "\t\t") && trimmed != "" {
+            d      := &items[kept]
+            joined := strings.concatenate({d.message, " ", trimmed})
+            delete(d.message)
+            d.message = joined
+            continue
+        }
+        candidates = false
+        p, ok := parse_diagnostic_line(line)
+        if !ok {
+            continue
+        }
+        kept = -1
+        // The call site of a failed `where` clause takes the message of the clause.
+        if p.message == "at caller location" && previous != "" {
+            p.message = previous
+        }
+        previous = p.message
+        d := lang.Diagnostic{path = absolute_path(p.path, cwd), line = p.line, col = p.col, severity = p.severity}
+        if !vet_item(vet, &d, p.message) {
+            delete(d.path)
+            continue
+        }
+        d.message = strings.clone(p.message)
+        append(items, d)
+        kept = len(items) - 1
+    }
+}
+
+// Joins a compiler message and its `Suggestion:` text on a line of its own.
+SUGGESTION_SEP :: "\nSuggestion: "
+
+// The message of a compiler diagnostic apart from its suggestion.
+@(private)
+split_suggestion :: proc(message: string) -> (base, suggestion: string) {
+    if at := strings.index(message, SUGGESTION_SEP); at >= 0 {
+        return message[:at], message[at + len(SUGGESTION_SEP):]
+    }
+    return message, ""
 }
 
 // `-collection:<name>=<dir>` for every collection the workspace config declares.
@@ -170,8 +244,9 @@ target_flags :: proc(e: ^Engine, workspace: string, args: ^[dynamic]string, path
 
 // One `-vet-*` argument for each check of the `-vet` set the workspace config does not turn off, and
 // `-vet-packages` with the package of `path`, since the compiler vets the imported packages too.
+// The syntax-level checks are added only with `syntax_vet`.
 @(private = "file")
-vet_flag_args :: proc(e: ^Engine, workspace, path: string, args: ^[dynamic]string) {
+vet_flag_args :: proc(e: ^Engine, workspace, path: string, args: ^[dynamic]string, syntax_vet: bool) {
     flags    := workspace_vet_flags(e, workspace)
     name, ok := file_package_name(path)
     if !ok || flags == {} {
@@ -194,8 +269,18 @@ vet_flag_args :: proc(e: ^Engine, workspace, path: string, args: ^[dynamic]strin
             append(args, "-vet-cast")
         case .Unused_Procedures:
             append(args, "-vet-unused-procedures")
-        // A syntax-level vet error stops the compiler before it types the package, so these three are served live only.
-        case .Style, .Semicolon, .Tabs:
+        case .Style:
+            if syntax_vet {
+                append(args, "-vet-style")
+            }
+        case .Semicolon:
+            if syntax_vet {
+                append(args, "-vet-semicolon")
+            }
+        case .Tabs:
+            if syntax_vet {
+                append(args, "-vet-tabs")
+            }
         }
     }
 }
@@ -338,7 +423,7 @@ vet_code :: proc(message: string) -> (string, bool) {
         return CODE_WHEN_SHADOWING, true
     case strings.has_prefix(m, "Declaration of '") && strings.contains(m, " shadows declaration at line "):
         return CODE_SHADOWING, true
-    case strings.has_prefix(m, "Unneeded cast of '") || strings.has_prefix(m, "Unneeded transmute of '"):
+    case strings.has_prefix(m, "Unneeded cast of '") || strings.has_prefix(m, "Unneeded transmute of '") || strings.has_prefix(m, PREFER_CAST):
         return CODE_CAST, true
     case m == "Found unneeded semicolon":
         return CODE_SEMICOLON, true

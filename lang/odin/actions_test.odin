@@ -719,6 +719,43 @@ f :: proc(a: int, p: ^int) -> int {
     free_actions(&res)
 }
 
+// A compiler suggestion replaces the misspelled name, not the operand the message also quotes.
+@(test)
+test_action_did_you_mean :: proc(t: ^testing.T) {
+    SRC     :: "package app\n\nPoint :: struct { width, height: int }\n\nf :: proc() -> int {\n\tp: Point\n\treturn p.widht\n}\n"
+    MESSAGE :: "'p' of type 'Point' has no field 'widht'\nSuggestion: Did you mean? width height"
+    root := fixture(t, "action_did_you_mean", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
+    e    := engine_create()
+    defer engine_destroy(e)
+
+    res := compiler_line_actions(t, e, root, SRC, "p.widht", MESSAGE, .Error)
+    defer free_actions(&res)
+    testing.expect_value(
+        t,
+        applied(t, &res, SRC, "Change to 'width'"),
+        "package app\n\nPoint :: struct { width, height: int }\n\nf :: proc() -> int {\n\tp: Point\n\treturn p.width\n}\n",
+    )
+    testing.expect_value(
+        t,
+        applied(t, &res, SRC, "Change to 'height'"),
+        "package app\n\nPoint :: struct { width, height: int }\n\nf :: proc() -> int {\n\tp: Point\n\treturn p.height\n}\n",
+    )
+}
+
+// The `-vet-cast` message of a transmute between integers turns the keyword into `cast`.
+@(test)
+test_action_prefer_cast :: proc(t: ^testing.T) {
+    SRC     :: "package app\n\nf :: proc(a: u64) -> i64 {\n\treturn transmute(i64)a\n}\n"
+    MESSAGE :: "Use of 'transmute' where 'cast' would be preferred since both are integers of the same endianness, from 'u64' to 'i64'"
+    root := fixture(t, "action_prefer_cast", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
+    e    := engine_create()
+    defer engine_destroy(e)
+
+    res := compiler_line_actions(t, e, root, SRC, "transmute", MESSAGE, .Warning)
+    defer free_actions(&res)
+    testing.expect_value(t, applied(t, &res, SRC, "Use cast instead of transmute"), "package app\n\nf :: proc(a: u64) -> i64 {\n\treturn cast(i64)a\n}\n")
+}
+
 // The message as `odin check -vet-tabs` dev-2026-11-nightly:9a69916 words it; the live check gives it as a warning.
 @(test)
 test_action_vet_tabs :: proc(t: ^testing.T) {

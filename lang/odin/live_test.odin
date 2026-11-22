@@ -63,6 +63,7 @@ expect_errors :: proc(t: ^testing.T, res: ^lang.Result, source: string, wants: [
             strings.has_suffix(w.message, "is never used") ||
             strings.contains(w.message, " shadows ") ||
             strings.has_prefix(w.message, "Unneeded ") ||
+            strings.has_prefix(w.message, PREFER_CAST) ||
             w.message == "Found unneeded semicolon" ||
             w.message == "Expected a comma, got a newline" ||
             strings.has_prefix(w.message, "With '-vet-tabs'")
