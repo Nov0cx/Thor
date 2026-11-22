@@ -242,7 +242,7 @@ File_Slot :: struct {
     holders:          int,            // atomic; package memos and the workspace that list the file
 }
 
-// One package directory and its memo.
+// One package directory and its memos.
 @(private)
 Package_Slot :: struct {
     mutex:        sync.Mutex,
@@ -250,10 +250,13 @@ Package_Slot :: struct {
     dir:          string, // owned; as first given
     key:          string, // owned; path_key of dir
     listed_epoch: u64,
-    listed_time:  i64,           // atomic; the time of that listing
-    listing:      []File_Id,     // owned; sorted by path; valid when listed_epoch != 0
-    memo:         ^Package_Memo, // one reference
+    listed_time:  i64,                                 // atomic; the time of that listing
+    listing:      []File_Id,                           // owned; sorted by path; valid when listed_epoch != 0
+    memos:        [PACKAGE_MEMO_CONFIGS]^Package_Memo, // one reference each; most recently used first, nil after the last
 }
+
+// Number of configurations a package keeps a memo for, so files of other targets do not rebuild it.
+PACKAGE_MEMO_CONFIGS :: 4
 
 // The files of the workspace.
 @(private)
@@ -293,8 +296,10 @@ db_destroy :: proc(db: ^Db) {
     }
     for id in 0 ..< slot_count(&db.packages) {
         slot := slot_get(&db.packages, id)
-        if slot.memo != nil {
-            value_release(db, slot.memo)
+        for memo in slot.memos {
+            if memo != nil {
+                value_release(db, memo)
+            }
         }
         delete(slot.listing, db.allocator)
         delete(slot.dir, db.allocator)
@@ -878,15 +883,38 @@ file_slot_drop_live :: proc(db: ^Db, slot: ^File_Slot) {
     }
 }
 
-// Drops the memo of a package and releases its files. The caller holds the slot.
+// Drops every memo of a package and releases its files. The caller holds the slot.
 @(private)
 package_slot_drop_memo :: proc(db: ^Db, slot: ^Package_Slot) {
-    if slot.memo == nil {
+    for &memo in slot.memos {
+        if memo == nil {
+            continue
+        }
+        files_release(db, memo.files)
+        value_release(db, memo)
+        memo = nil
+    }
+}
+
+// Drops the memo at `index` and closes the gap. The caller holds the slot.
+@(private)
+package_slot_drop_memo_at :: proc(db: ^Db, slot: ^Package_Slot, index: int) {
+    memo := slot.memos[index]
+    if memo == nil {
         return
     }
-    files_release(db, slot.memo.files)
-    value_release(db, slot.memo)
-    slot.memo = nil
+    files_release(db, memo.files)
+    value_release(db, memo)
+    copy(slot.memos[index:], slot.memos[index + 1:])
+    slot.memos[len(slot.memos) - 1] = nil
+}
+
+// Puts `memo` first, the others after it in their order. The caller holds the slot.
+@(private)
+package_slot_front :: proc(slot: ^Package_Slot, index: int) {
+    memo := slot.memos[index]
+    copy(slot.memos[1:index + 1], slot.memos[:index])
+    slot.memos[0] = memo
 }
 
 // An intrusive list of ids, least recently used first, guarded by Db.lru_mutex.

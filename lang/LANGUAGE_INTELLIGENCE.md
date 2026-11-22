@@ -910,8 +910,9 @@ Things that do not exist yet. Each is a candidate for future work.
 
 - **Multi-target diagnostics.** One target per file at a time (the host, `target` in
   `odin-analyzer.lua`, or `file_targets`). Showing errors for several targets at once is not built.
-  Files of one package with different targets make the `Package_Memo` (one configuration per package
-  slot) and the `TYPE_STATE_SLOTS` (4) type caches churn. The result is correct but slower.
+  Files of one package with different targets do not churn the caches: a package slot keeps a
+  `Package_Memo` for each of up to `PACKAGE_MEMO_CONFIGS` (4) configurations, most recent first, and
+  the type cache keeps `TYPE_STATE_SLOTS` (8) frozen states keyed by configuration.
 - **Workspace disk cache.** Only the stdlib item trees persist. Item trees of workspace files keyed
   by content hash are not cached.
 - **Custom lints from Lua plugins.** The sema API is not exposed to plugins.

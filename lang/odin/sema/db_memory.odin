@@ -68,8 +68,10 @@ db_memory :: proc(db: ^Db) -> (m: Db_Memory) {
     for id in 0 ..< slot_count(&db.packages) {
         slot := slot_get(&db.packages, id)
         sync.guard(&slot.mutex)
-        if slot.memo != nil {
-            m.memos += 1
+        for memo in slot.memos {
+            if memo != nil {
+                m.memos += 1
+            }
         }
     }
     {

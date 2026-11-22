@@ -7,7 +7,7 @@ import "core:strings"
 import "core:sync"
 
 // Number of frozen checker states the database keeps.
-TYPE_STATE_SLOTS :: 4
+TYPE_STATE_SLOTS :: 8
 
 // A state is not extended past twice the type count of the first state of its line plus this
 // many: the next checker starts afresh and drops the types no entry reaches.

@@ -286,7 +286,7 @@ test_db_target_change :: proc(t: ^testing.T) {
     db_init(&db, read_plain)
     defer db_destroy(&db)
 
-    for round in 0 ..< 2 {
+    for _ in 0 ..< 2 {
         for target, i in ([]Target{host, other}) {
             snap: Snapshot
             if !begin(t, &db, &snap, Snapshot_Input{target = target}) {
@@ -298,7 +298,8 @@ test_db_target_change :: proc(t: ^testing.T) {
             testing.expect(t, has_name(view, "both"))
             snapshot_end(&snap)
         }
-        testing.expect_value(t, stats_of(&db).scopes, 2 * (round + 1))
+        // Each target keeps a memo of its own, so alternating them builds no scope again.
+        testing.expect_value(t, stats_of(&db).scopes, 2)
     }
     testing.expect_value(t, stats_of(&db).trees, 2)
 }
@@ -518,7 +519,7 @@ test_db_cancel :: proc(t: ^testing.T) {
     testing.expect(t, db_package(&snap, pkg) == nil)
     testing.expect(t, db_workspace(&snap, dir) == nil)
     snapshot_end(&snap)
-    testing.expect(t, package_slot(&db, pkg).memo != nil, "a cancelled request must keep the old memo")
+    testing.expect(t, package_slot(&db, pkg).memos[0] != nil, "a cancelled request must keep the old memo")
     testing.expect_value(t, len(db.workspace.files), 1)
     testing.expect_value(t, stats_of(&db).scopes, 1)
 

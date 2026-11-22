@@ -43,7 +43,7 @@ package_view :: proc(snap: ^Snapshot, slot: ^Package_Slot) -> ^Package_View {
     has_live := live.has && live.id != ANON_FILE && live.dir_key == slot.key
     {
         sync.guard(&slot.mutex)
-        datas, state := package_refresh(snap, slot)
+        datas, memo, state := package_refresh(snap, slot)
         switch state {
         case .Cancelled:
             return nil
@@ -52,7 +52,6 @@ package_view :: proc(snap: ^Snapshot, slot: ^Package_Slot) -> ^Package_View {
                 return nil
             }
         case .Ready:
-            memo := slot.memo
             if !pin(snap, memo) {
                 return nil
             }
@@ -131,16 +130,17 @@ Refresh_State :: enum u8 {
 
 // Lists the directory once per snapshot, and at most once per Db.stable_interval under the Odin
 // root or Db.workspace_interval elsewhere, refreshes every file and builds the memo again when the
-// file set, a file's shape or the configuration changed. Gives the pinned data of each file.
-// A cancelled refresh keeps the old memo. The caller holds the slot.
+// file set or a file's shape changed. Each configuration has a memo of its own, so files of two
+// targets keep theirs. Gives the pinned data of each file and the memo of the snapshot's configuration.
+// A cancelled refresh keeps the old memos. The caller holds the slot.
 @(private = "file")
-package_refresh :: proc(snap: ^Snapshot, slot: ^Package_Slot) -> (datas: []^File_Data, state: Refresh_State) {
+package_refresh :: proc(snap: ^Snapshot, slot: ^Package_Slot) -> (datas: []^File_Data, memo: ^Package_Memo, state: Refresh_State) {
     db := snap.db
     if slot.listed_epoch != snap.epoch && !(slot.listed_epoch != 0 && key_fresh(snap, slot.key, sync.atomic_load(&slot.listed_time))) {
         listing, lstate := package_list(snap, slot.dir)
         switch lstate {
         case .Cancelled:
-            return nil, .Cancelled
+            return nil, nil, .Cancelled
         case .No_Dir:
             if key_stable(snap, slot.key) {
                 cache_prune_dir(db, slot.key, nil)
@@ -149,7 +149,7 @@ package_refresh :: proc(snap: ^Snapshot, slot: ^Package_Slot) -> (datas: []^File
             delete(slot.listing, db.allocator)
             slot.listing = nil
             slot.listed_epoch = 0
-            return nil, .No_Dir
+            return nil, nil, .No_Dir
         case .Ready:
         }
         delete(slot.listing, db.allocator)
@@ -163,36 +163,46 @@ package_refresh :: proc(snap: ^Snapshot, slot: ^Package_Slot) -> (datas: []^File
     ids := slot.listing
     datas = make([]^File_Data, len(ids), snap.alloc)
     if len(ids) >= PARALLEL_LOAD_MIN && !files_load_parallel(snap, ids, datas) {
-        return nil, .Cancelled
+        return nil, nil, .Cancelled
     }
     for id, i in ids {
         if snapshot_cancelled(snap) {
-            return nil, .Cancelled
+            return nil, nil, .Cancelled
         }
         if datas[i] == nil {
             datas[i] = file_data_pinned(snap, id)
         }
     }
-    if memo := slot.memo; memo != nil && memo.config == snap.config && slice.equal(memo.files, ids) {
-        same := true
+    for old, at in slot.memos {
+        if old == nil || old.config != snap.config {
+            continue
+        }
+        same := slice.equal(old.files, ids)
         for d, i in datas {
-            if (d != nil ? d.shape_changed_at : 0) != memo.built_from[i] {
-                same = false
+            if !same {
                 break
             }
+            same = (d != nil ? d.shape_changed_at : 0) == old.built_from[i]
         }
         if same {
-            return datas, .Ready
+            package_slot_front(slot, at)
+            return datas, slot.memos[0], .Ready
         }
+        package_slot_drop_memo_at(db, slot, at)
+        break
     }
-    memo := package_memo_new(snap, ids, datas)
-    if memo == nil {
-        return nil, .Cancelled
+    fresh := package_memo_new(snap, ids, datas)
+    if fresh == nil {
+        return nil, nil, .Cancelled
     }
-    files_hold(db, memo.files)
-    package_slot_drop_memo(db, slot)
-    slot.memo = memo
-    return datas, .Ready
+    files_hold(db, fresh.files)
+    last := len(slot.memos) - 1
+    if slot.memos[last] != nil {
+        package_slot_drop_memo_at(db, slot, last)
+    }
+    copy(slot.memos[1:], slot.memos[:last])
+    slot.memos[0] = fresh
+    return datas, fresh, .Ready
 }
 
 // Fewest never-read files of a package that are read on several threads.
