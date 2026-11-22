@@ -11,6 +11,23 @@
 - Plugins: synchronous `thor.exec` returns the exit code as a second value.
 - Plugins: one plugin may use 64 MB of the shared Lua memory, and 16 panels.
 - Tree-sitter queries read `#set! priority` and test set keys with `#is?`. Grammar injections color Lua `ffi.cdef` strings as C and Rust macro bodies as Rust; a plugin can supply `injections`.
+- Linux: the file watcher sees writes that do not close the file, and a notice shows when the workspace folder is removed or moved.
+- macOS and the BSDs: the file watcher uses kqueue and polls only past half the open-file limit.
+- Language servers: call and type hierarchy, expand selection, code lenses, folding ranges, document links and linked editing reach the server.
+- "Go to declaration" (`goto_declaration`, unbound) jumps to a declaration where the language tells it apart from the definition.
+- Folds come from the language support when it gives them, else from the grammar.
+- `ctrl + click` on an underlined document link opens it: a web address in the browser, a file in a tab.
+- Linked editing changes the other half of a pair, such as an HTML open and close tag, while you type in one half.
+- Language servers: registrations made after the start, watched-file notices, semantic tokens for a range, and a pulled report's related files are used.
+- Diagnostics of several language servers for one file show together, and a slow server no longer holds back a fast one for more than 750 ms.
+- Odin: `transmute` between integers of one byte order is reported as `-vet-cast` does, with a fix that uses `cast`.
+- Odin: the save reports `-vet-style`, `-vet-semicolon` and `-vet-tabs` lines without hiding the type errors.
+- Odin: a compiler "Did you mean?" suggestion shows under its error and gives a "Change to" fix for each name.
+- Odin: a float constant from another package is range-checked, and a nil dereference is found at an index such as `a[N - 1]`.
+- Odin: a name before a `using`, or in another block, is colored as undeclared when nothing declares it.
+- Odin: workspace symbols show a constant alias of a type or a procedure with that kind.
+- Odin: files of several targets in one package keep their analysis, and workspace files reopen without a new parse.
+- Plugins: the `lint` permission gives `thor.lint.register`, `thor.lint.symbols` and `thor.lint.type_at`; linter items show beside the language diagnostics.
 
 # 2026.11.7
 
