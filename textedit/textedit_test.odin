@@ -1097,3 +1097,23 @@ test_replace_text_can_be_undone :: proc(t: ^testing.T) {
     testing.expect_value(t, text(&state), "one\ntwo\nthree")
     testing.expect_value(t, primary_cursor(&state).caret, 13)
 }
+
+// A nested block comment ends at its own close, not the first close inside it.
+@(test)
+test_bracket_match_skips_nested_block_comments :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+    src := "f( /* a /* b */ ) */ x)"
+    set_text(&state, src)
+
+    set_lexical(&state, {line_comment = "//", block_open = "/*", block_close = "*/", nested_block = true})
+    set_single_cursor(&state, 1)
+    move_to_matching_bracket(&state, false)
+    testing.expect_value(t, primary_cursor(&state).caret, 22)
+
+    set_lexical(&state, {line_comment = "//", block_open = "/*", block_close = "*/"})
+    set_single_cursor(&state, 1)
+    move_to_matching_bracket(&state, false)
+    testing.expect_value(t, primary_cursor(&state).caret, 16)
+}

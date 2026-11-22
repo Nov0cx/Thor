@@ -456,7 +456,10 @@ thor_apply_indent :: proc(thor: ^Thor, file: ^Open_File) {
 // are borrowed from the settings, so a settings reload must call this again.
 thor_apply_lexical :: proc(thor: ^Thor, file: ^Open_File) {
     style := setting.comment_style(&thor.config, file.name)
-    textedit.set_lexical(&file.state, {line_comment = style.line, block_open = style.block_open, block_close = style.block_close, quotes = style.quotes})
+    textedit.set_lexical(
+        &file.state,
+        {line_comment = style.line, block_open = style.block_open, block_close = style.block_close, nested_block = style.nested, quotes = style.quotes},
+    )
 }
 
 // Language label for the status bar: the registered plugin's own name first, so

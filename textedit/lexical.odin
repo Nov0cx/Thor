@@ -10,6 +10,7 @@ Lexical :: struct {
     line_comment: string,
     block_open:   string,
     block_close:  string,
+    nested_block: bool, // a block comment can hold another one
     // The bytes that open and close a string. "" stands for " ' and `.
     quotes:       string,
 }
@@ -51,11 +52,7 @@ skip_ranges :: proc(txt: string, lex: Lexical) -> []Skip_Range {
             append(&ranges, Skip_Range{i, end, .Comment})
             i = end
         case lex.block_open != "" && strings.has_prefix(txt[i:], lex.block_open):
-            body := i + len(lex.block_open)
-            end  := len(txt)
-            if at := strings.index(txt[body:], lex.block_close); at >= 0 {
-                end = body + at + len(lex.block_close)
-            }
+            end := block_comment_end(txt, i, lex)
             append(&ranges, Skip_Range{i, end, .Comment})
             i = end
         case is_quote(rune(b)):
@@ -70,6 +67,36 @@ skip_ranges :: proc(txt: string, lex: Lexical) -> []Skip_Range {
         }
     }
     return ranges[:]
+}
+
+// One past the close of the block comment that opens at `start`; the end of
+// `txt` when it is not closed.
+@(private)
+block_comment_end :: proc(txt: string, start: int, lex: Lexical) -> int {
+    i := start + len(lex.block_open)
+    if !lex.nested_block {
+        if at := strings.index(txt[i:], lex.block_close); at >= 0 {
+            return i + at + len(lex.block_close)
+        }
+        return len(txt)
+    }
+    depth := 1
+    for i < len(txt) {
+        switch {
+        case strings.has_prefix(txt[i:], lex.block_close):
+            i += len(lex.block_close)
+            depth -= 1
+            if depth == 0 {
+                return i
+            }
+        case strings.has_prefix(txt[i:], lex.block_open):
+            i += len(lex.block_open)
+            depth += 1
+        case:
+            i += 1
+        }
+    }
+    return len(txt)
 }
 
 // End of the string that opens at `start`, one past its closing quote. `long`

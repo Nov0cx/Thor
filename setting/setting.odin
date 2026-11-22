@@ -196,6 +196,7 @@ Comment_Style :: struct {
     line:        string, // "//"; "" for a language with no line comment
     block_open:  string, // "/*"; "" for a language with no block comment
     block_close: string,
+    nested:      bool, // a block comment can hold another one
     // The bytes that open and close a string. "" stands for " ' and `.
     quotes:      string,
 }
@@ -1175,6 +1176,9 @@ load_comments :: proc(s: ^Settings, path: string) {
         }
         if quotes, quotes_ok := entry["quotes"].(json.String); quotes_ok {
             style.quotes = string(quotes)
+        }
+        if nested, nested_ok := entry["nested"].(json.Boolean); nested_ok {
+            style.nested = bool(nested)
         }
         if style.line == "" && style.block_open == "" {
             continue

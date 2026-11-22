@@ -26,6 +26,7 @@ return {
     },
     commonlisp = {
         block = { "#|", "|#" },
+        nested = true,
         extensions = { ".lisp", ".lsp", ".cl", ".asd" },
         line = ";",
         quotes = "\"",
@@ -91,6 +92,7 @@ return {
     },
     haskell = {
         block = { "{-", "-}" },
+        nested = true,
         extensions = { ".hs" },
         line = "--",
         quotes = "\"",
@@ -130,6 +132,7 @@ return {
     },
     kotlin = {
         block = { "/*", "*/" },
+        nested = true,
         extensions = { ".kt" },
         line = "//",
         quotes = "\"",
@@ -155,6 +158,7 @@ return {
     },
     nim = {
         block = { "#[", "]#" },
+        nested = true,
         extensions = { ".nim", ".nims", ".nimble" },
         line = "#",
         quotes = "\"",
@@ -167,11 +171,13 @@ return {
     },
     ocaml = {
         block = { "(*", "*)" },
+        nested = true,
         extensions = { ".ml", ".mli" },
         quotes = "\"",
     },
     odin = {
         block = { "/*", "*/" },
+        nested = true,
         extensions = { ".odin" },
         line = "//",
         quotes = "\"`",
@@ -206,6 +212,7 @@ return {
     },
     rust = {
         block = { "/*", "*/" },
+        nested = true,
         extensions = { ".rs" },
         line = "//",
         quotes = "\"",
@@ -222,6 +229,7 @@ return {
     },
     sml = {
         block = { "(*", "*)" },
+        nested = true,
         extensions = { ".sml", ".sig", ".fun" },
         quotes = "\"",
     },
