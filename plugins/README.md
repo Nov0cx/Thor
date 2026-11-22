@@ -223,6 +223,7 @@ thor.register_language {
     extensions = { ".odin" },
     grammar = "odin",                -- a tree-sitter grammar compiled into Thor
     highlights = "highlights.scm",   -- optional; a file here, or a query inline
+    injections = "injections.scm",   -- optional; the same, for the injections query
     colors = { keyword = thor.theme.keywords, comment = thor.theme.comments },
 }
 ```
@@ -283,10 +284,25 @@ reason, and the language keeps the built-in query.
 A query may filter a pattern with `#eq?`, `#any-of?`, `#match?` (a regular
 expression), `#lua-match?` (a Lua pattern), `#contains?`, `#has-parent?`,
 `#has-ancestor?` and the `#not-` form of each. `#is? local` never holds and
-`#is-not? local` always holds, since Thor tracks no local scopes. Directives
-(`#set!` and friends) are ignored. A predicate Thor does not evaluate, or one
+`#is-not? local` always holds, since Thor tracks no local scopes. `#set! key
+value` states a property of the match: `priority` (default 100; a higher one
+wins an overlap), and the injection keys below; `#is? key [value]` tests one.
+Other directives are ignored. A predicate Thor does not evaluate, or one
 with too few operands, never holds, which retires its whole pattern; the console
 names it once.
+
+`injections` replaces the grammar's compiled-in injections query, read the same
+way. A match names the range with `@injection.content` and its language with
+`@injection.language` or `#set! injection.language "name"`; the range is
+parsed with that grammar and colored by the first language registered on it.
+Only compiled-in grammars can be injected (a name such as `js` or `py` maps to
+its grammar), one level deep, at most 128 ranges per highlight. Without
+`#set! injection.include-children` the child nodes of the range are left out.
+Each range parses on its own; `injection.combined` is read but not joined.
+Built-in injections: Lua `ffi.cdef` strings as C, Rust macro bodies as Rust,
+C++ raw strings by their delimiter, and the tagged-template, heredoc and
+quasi-quote forms of JavaScript, PHP, Haskell and Nix when they name a
+compiled-in grammar.
 
 Grammars stay compiled into the editor. Adding one is a source change (see
 `CLAUDE.md`); queries over an existing grammar are data.

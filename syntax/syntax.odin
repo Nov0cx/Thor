@@ -8,6 +8,7 @@ import "base:runtime"
 import "core:fmt"
 import "core:log"
 import "core:slice"
+import "core:strconv"
 import "core:strings"
 import text_match "core:text/match"
 import "core:text/regex"
@@ -47,6 +48,7 @@ Span :: struct {
     start:   int,
     end:     int,
     capture: string,
+    lang:    string, // the grammar of an injected span; "" for the host grammar
 }
 
 @(private)
@@ -81,38 +83,47 @@ Query_Key :: struct {
 }
 
 Highlighter :: struct {
-    parser:       ts.Parser,
-    languages:    map[string]Language_Entry,
+    parser:              ts.Parser,
+    languages:           map[string]Language_Entry,
     // Compiled queries, keyed by (lang_id, source); keys are owned.
-    queries:      map[Query_Key]ts.Query,
+    queries:             map[Query_Key]ts.Query,
     // The highlights query in force per language, so the per-keystroke path
     // never rebuilds a key out of the multi-kilobyte query source. Keys are
     // owned, values borrowed from `queries`; an entry is dropped when an
     // override replaces the query.
-    resolved:     map[string]ts.Query,
+    resolved:            map[string]ts.Query,
     // Highlights query a plugin supplied for a grammar, replacing the compiled-in
     // one. Keys and values are owned.
-    overrides:    map[string]string,
-    lang_id:      string, // language currently set on the parser
+    overrides:           map[string]string,
+    lang_id:             string, // language currently set on the parser
     // Compiled #match? patterns, keyed by the pattern source; keys are owned.
     // Compiling one per match is far too slow for the per-keystroke path.
-    regexes:      map[string]Compiled_Regex,
+    regexes:             map[string]Compiled_Regex,
     // Scratch capture for #match?, allocated once so a test allocates nothing.
-    captures:     regex.Capture,
+    captures:            regex.Capture,
     // Predicate operators already reported as unhandled; keys are owned. Keeps
     // one report per operator instead of one per match.
-    reported:     map[string]bool,
+    reported:            map[string]bool,
+    // The compiled-in injections query per grammar; values borrowed constants.
+    injections:          map[string]string,
+    // Injections queries a plugin supplied, replacing the compiled-in one. Keys
+    // and values are owned.
+    injection_overrides: map[string]string,
+    // The parser of injected ranges, so the included ranges it sets never reach
+    // the parser of whole files.
+    inject_parser:       ts.Parser,
+    inject_lang_id:      string, // language currently set on inject_parser
     // Resident per-buffer trees, so a keystroke re-parses only the subtrees it
     // invalidated rather than the whole file. Highlighting and folding ask for
     // the same buffer back to back, and the second call re-parses nothing at
     // all — the source is unchanged.
-    trees:        treecache.Cache,
+    trees:               treecache.Cache,
     // Highlights queries that compile on a worker thread (query_ready). Owned.
-    compiling:    [dynamic]^Query_Job,
+    compiling:           [dynamic]^Query_Job,
     // Languages whose query failed on the worker; keys are owned.
-    async_failed: map[string]bool,
+    async_failed:        map[string]bool,
     // First parses of large buffers on worker threads (tree_ready). Owned.
-    parsing:      [dynamic]^Parse_Job,
+    parsing:             [dynamic]^Parse_Job,
 }
 
 // A compiled #match? pattern. `ok` is false for a pattern that does not compile,
@@ -136,6 +147,18 @@ highlighter_create :: proc() -> Highlighter {
     h.compiling = make([dynamic]^Query_Job)
     h.async_failed = make(map[string]bool)
     h.parsing = make([dynamic]^Parse_Job)
+    h.inject_parser = ts.parser_new()
+    h.injection_overrides = make(map[string]string)
+    h.injections = make(map[string]string)
+    h.injections["cpp"] = ts_cpp.INJECTIONS
+    h.injections["haskell"] = ts_haskell.INJECTIONS
+    h.injections["javascript"] = ts_js.INJECTIONS
+    h.injections["typescript"] = ts_js.INJECTIONS
+    h.injections["tsx"] = ts_js.INJECTIONS
+    h.injections["lua"] = ts_lua.INJECTIONS
+    h.injections["nix"] = ts_nix.INJECTIONS
+    h.injections["php"] = ts_php.INJECTIONS
+    h.injections["rust"] = ts_rust.INJECTIONS
     treecache.init(&h.trees)
     h.languages["odin"] = Language_Entry{ts_odin.tree_sitter_odin(), ts_odin.HIGHLIGHTS + "\n" + ODIN_ALIASES}
     h.languages["lua"] = Language_Entry{ts_lua.tree_sitter_lua(), ts_lua.HIGHLIGHTS}
@@ -203,8 +226,15 @@ highlighter_destroy :: proc(h: ^Highlighter) {
     }
     delete(h.reported)
     delete(h.languages)
+    delete(h.injections)
+    for id, source in h.injection_overrides {
+        delete(id)
+        delete(source)
+    }
+    delete(h.injection_overrides)
     treecache.destroy(&h.trees)
     ts.parser_delete(h.parser)
+    ts.parser_delete(h.inject_parser)
 }
 
 // True when a grammar is compiled in for the id.
@@ -263,7 +293,8 @@ highlight_range :: proc(h: ^Highlighter, path, source, lang_id: string, range_st
     // precedence so specific captures override the broad @variable rule.
     caps := make([dynamic]Capture, context.temp_allocator)
     for match in ts.query_cursor_next_match(cursor) {
-        if !predicates_satisfied(h, query, match, source) {
+        props: Match_Props
+        if !predicates_satisfied(h, query, match, source, &props) {
             continue
         }
         for i in 0 ..< int(match.capture_count) {
@@ -275,10 +306,11 @@ highlight_range :: proc(h: ^Highlighter, path, source, lang_id: string, range_st
             start := int(ts.node_start_byte(c.node))
             end   := int(ts.node_end_byte(c.node))
             if end > start && !is_ignored_capture(name) {
-                append(&caps, Capture{start, end, name, int(match.pattern_index)})
+                append(&caps, Capture{start, end, name, int(match.pattern_index), props.priority, 0, ""})
             }
         }
     }
+    inject(h, source, lang_id, lo, hi, root, &caps)
     return resolve_spans(caps[:], allocator)
 }
 
@@ -469,11 +501,18 @@ is_qualifier :: proc(node: ts.Node) -> bool {
 
 @(private)
 Capture :: struct {
-    start:   int,
-    end:     int,
-    capture: string,
-    pattern: int,
+    start:    int,
+    end:      int,
+    capture:  string,
+    pattern:  int,
+    priority: int,    // `#set! priority N`; DEFAULT_PRIORITY when unset
+    depth:    int,    // 0 for the host grammar, 1 inside an injection
+    lang:     string, // the grammar of an injected capture; "" for the host
 }
+
+// The priority of a capture with no `#set! priority`.
+@(private)
+DEFAULT_PRIORITY :: 100
 
 // Captures that must not colour text: @spell/@nospell/@conceal/@none drive other
 // editor features, and captures whose name starts with "_" are private helpers a
@@ -534,7 +573,7 @@ resolve_spans :: proc(caps: []Capture, allocator: runtime.Allocator) -> []Span {
                     best = a
                 }
             }
-            emit_span(&spans, prev, pos, caps[best].capture)
+            emit_span(&spans, prev, pos, caps[best].capture, caps[best].lang)
         }
         for i < len(events) && events[i].pos == pos {
             e := events[i]
@@ -559,6 +598,12 @@ resolve_spans :: proc(caps: []Capture, allocator: runtime.Allocator) -> []Span {
 better_capture :: proc(a, b: Capture) -> bool {
     // A named parameter is captured as both @parameter and @type inside a
     // procedure_type; keep it a parameter regardless of pattern order.
+    if a.depth != b.depth {
+        return a.depth > b.depth
+    }
+    if a.priority != b.priority {
+        return a.priority > b.priority
+    }
     ah, bh := capture_head(a.capture), capture_head(b.capture)
     if ah == "parameter" && bh == "type" {
         return true
@@ -573,15 +618,15 @@ better_capture :: proc(a, b: Capture) -> bool {
 }
 
 @(private)
-emit_span :: proc(spans: ^[dynamic]Span, start, end: int, capture: string) {
+emit_span :: proc(spans: ^[dynamic]Span, start, end: int, capture, lang: string) {
     if len(spans) > 0 {
         last := &spans[len(spans) - 1]
-        if last.capture == capture && last.end == start {
+        if last.capture == capture && last.lang == lang && last.end == start {
             last.end = end
             return
         }
     }
-    append(spans, Span{start, end, capture})
+    append(spans, Span{start, end, capture, lang})
 }
 
 // Evaluates a match's predicates, for a caller running its own query (see
@@ -591,18 +636,48 @@ predicates_ok :: proc(h: ^Highlighter, query: ts.Query, match: ts.Query_Match, s
     return predicates_satisfied(h, query, match, source)
 }
 
+// What the `#set!` directives of a match stated. The strings borrow the query.
+Match_Props :: struct {
+    priority:         int,    // `priority`; DEFAULT_PRIORITY when unset
+    injection_lang:   string, // `injection.language`
+    combined:         bool,   // `injection.combined`
+    include_children: bool,   // `injection.include-children`
+    // Every key set, in order, with its value ("" for none), for #is?.
+    keys:             [MAX_PROPS]string,
+    values:           [MAX_PROPS]string,
+    count:            int,
+}
+
+// The most `#set!` keys one match keeps.
+MAX_PROPS :: 8
+
+// The value `key` was set to, and whether it was set.
+match_prop :: proc(props: ^Match_Props, key: string) -> (string, bool) {
+    for i in 0 ..< props.count {
+        if props.keys[i] == key {
+            return props.values[i], true
+        }
+    }
+    return "", false
+}
+
 // Evaluates a pattern's predicates. Handles the filtering predicates the shipped
 // queries use (#eq?/#any-of?/#match?/#lua-match?/#contains?/#has-parent?/
-// #has-ancestor?/#is? and negations); #set! and other directives pass through. Any predicate we can't evaluate fails conservatively
+// #has-ancestor?/#is? and negations) and reads `#set!` into `props`; other
+// directives pass through. Any predicate we can't evaluate fails conservatively
 // so it can't mis-highlight.
 //
 // A predicate belongs to the pattern, so one that always fails silently retires
 // the whole highlight rule — which is why an unhandled operator is reported.
 @(private)
-predicates_satisfied :: proc(h: ^Highlighter, query: ts.Query, match: ts.Query_Match, source: string) -> bool {
+predicates_satisfied :: proc(h: ^Highlighter, query: ts.Query, match: ts.Query_Match, source: string, props: ^Match_Props = nil) -> bool {
     steps := ts.query_predicates_for_pattern(query, u32(match.pattern_index))
-    args  := make([dynamic]Predicate_Arg, context.temp_allocator)
-    i     := 0
+    local: Match_Props
+    p := props != nil ? props : &local
+    p^ = Match_Props{priority = DEFAULT_PRIORITY}
+    read_directives(query, steps, p)
+    args := make([dynamic]Predicate_Arg, context.temp_allocator)
+    i    := 0
     for i < len(steps) {
         op := ts.query_string_value_for_id(query, steps[i].value_id)
         clear(&args)
@@ -621,13 +696,78 @@ predicates_satisfied :: proc(h: ^Highlighter, query: ts.Query, match: ts.Query_M
         i = j + 1
 
         if strings.has_suffix(op, "!") {
-            continue // directive (#set!, #make-range! ...), not a filter
+            continue // a directive, read above
+        }
+        if (op == "is?" || op == "is-not?") && is_prop(args[:]) {
+            if prop_holds(p, args[:]) != (op == "is?") {
+                return false
+            }
+            continue
         }
         if !eval_predicate(h, op, args[:]) {
             return false
         }
     }
     return true
+}
+
+// Reads every `#set! key [value]` of the pattern into `props`. In the
+// `#set! @capture key value` form the capture is dropped and the key kept.
+@(private)
+read_directives :: proc(query: ts.Query, steps: []ts.Query_Predicate_Step, props: ^Match_Props) {
+    i := 0
+    for i < len(steps) {
+        op := ts.query_string_value_for_id(query, steps[i].value_id)
+        j  := i + 1
+        operands: [3]string
+        n := 0
+        for j < len(steps) && steps[j].type != .Done {
+            if steps[j].type == .String && n < len(operands) {
+                operands[n] = ts.query_string_value_for_id(query, steps[j].value_id)
+                n += 1
+            }
+            j += 1
+        }
+        i = j + 1
+        if op != "set!" || n == 0 {
+            continue
+        }
+        key, value := operands[0], n > 1 ? operands[1] : ""
+        switch key {
+        case "priority":
+            if v, ok := strconv.parse_int(value); ok {
+                props.priority = v
+            }
+        case "injection.language":
+            props.injection_lang = value
+        case "injection.combined":
+            props.combined = true
+        case "injection.include-children":
+            props.include_children = true
+        }
+        if props.count < MAX_PROPS {
+            props.keys[props.count] = key
+            props.values[props.count] = value
+            props.count += 1
+        }
+    }
+}
+
+// Whether an #is? names a `#set!` key: a literal first operand that is not the
+// node property `local`, which eval_predicate answers.
+@(private)
+is_prop :: proc(args: []Predicate_Arg) -> bool {
+    return len(args) > 0 && !args[0].capture && args[len(args) - 1].text != "local"
+}
+
+// `#is? key [value]`: the key was set, and to the value when one is given.
+@(private)
+prop_holds :: proc(props: ^Match_Props, args: []Predicate_Arg) -> bool {
+    value, set := match_prop(props, args[0].text)
+    if !set {
+        return false
+    }
+    return len(args) < 2 || value == args[1].text
 }
 
 // One operand of a predicate: a capture, carrying the node it matched, or a

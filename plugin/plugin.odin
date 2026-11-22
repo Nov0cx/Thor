@@ -1397,6 +1397,13 @@ api_register_language :: proc "c"(L: ^lua.State) -> c.int {
     if source, ok := field_string(L, "highlights"); ok && lang.grammar != "" {
         apply_highlights_override(m, index, lang.grammar, source)
     }
+    if source, ok := field_string(L, "injections"); ok && lang.grammar != "" {
+        if query, found := query_source(m, index, source); found {
+            if offset, err := syntax.set_injections(&m.highlighter, lang.grammar, query); err != .None {
+                report_query_error(m, index, source, offset, err)
+            }
+        }
+    }
 
     idx := len(m.languages)
     append(&m.languages, lang)

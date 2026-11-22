@@ -606,3 +606,77 @@ test_lua_pattern_matches :: proc(t: ^testing.T) {
     testing.expect(t, !valid, "an unfinished capture is malformed")
     testing.expect(t, "lua-match?" in h.reported, "the malformed pattern was not reported")
 }
+
+// The span over the first byte of `needle`.
+@(private = "file")
+span_at :: proc(spans: []Span, source, needle: string) -> (Span, bool) {
+    at := strings.index(source, needle)
+    for s in spans {
+        if at >= 0 && s.start <= at && at < s.end {
+            return s, true
+        }
+    }
+    return {}, false
+}
+
+// `#set! priority` outranks a later pattern, and `#is?` reads what `#set!` stated.
+@(test)
+test_set_priority_and_is :: proc(t: ^testing.T) {
+    h := highlighter_create()
+    defer highlighter_destroy(&h)
+
+    query  := `((identifier) @variable (#set! priority 200))
+(identifier) @constant
+((identifier) @keyword (#set! kind "loud") (#is? kind "quiet"))
+((primitive_type) @label (#set! kind "loud") (#is? kind "loud"))`
+    _, err := set_highlights(&h, "c", query)
+    testing.expect_value(t, err, ts.Query_Error.None)
+    src   := "int x;\n"
+    spans := highlight(&h, "", src, "c", context.temp_allocator)
+    expect_head(t, spans, src, "x", "variable")
+    expect_head(t, spans, src, "int", "label")
+}
+
+// An injected range is highlighted by its own grammar and its spans name it.
+@(test)
+test_injections :: proc(t: ^testing.T) {
+    h := highlighter_create()
+    defer highlighter_destroy(&h)
+
+    lua_src  := `local ffi = require("ffi")
+ffi.cdef("typedef struct { int x; } point;")
+`
+    spans    := highlight(&h, "", lua_src, "lua", context.temp_allocator)
+    span, ok := span_at(spans, lua_src, "typedef")
+    testing.expect(t, ok, "the injected keyword has a span")
+    testing.expect_value(t, span.lang, "c")
+    host, host_ok := span_at(spans, lua_src, "local")
+    testing.expect(t, host_ok && host.lang == "", "the host keeps its own spans")
+
+    rust_src    := "fn main() {\n    println!(\"hi {}\", count);\n}\n"
+    rust        := highlight(&h, "", rust_src, "rust", context.temp_allocator)
+    str, str_ok := span_at(rust, rust_src, "\"hi")
+    testing.expect(t, str_ok, "the macro string has a span")
+    testing.expect_value(t, str.lang, "rust")
+    testing.expect_value(t, capture_head(str.capture), "string")
+
+    // An override replaces the compiled-in query; a broken one is refused.
+    _, bad := set_injections(&h, "lua", "(nope) @injection.content")
+    testing.expect(t, bad != .None, "a query naming an unknown node compiles")
+    _, err := set_injections(&h, "lua", "")
+    testing.expect_value(t, err, ts.Query_Error.None)
+    plain := highlight(&h, "", lua_src, "lua", context.temp_allocator)
+    span, ok = span_at(plain, lua_src, "typedef")
+    testing.expect(t, !ok || span.lang == "", "an empty override turns injections off")
+}
+
+// Every compiled-in injections query compiles against its grammar.
+@(test)
+test_injection_queries_compile :: proc(t: ^testing.T) {
+    h := highlighter_create()
+    defer highlighter_destroy(&h)
+    for id, source in h.injections {
+        _, offset, err := query_for(&h, id, source)
+        testing.expectf(t, err == .None, "injections of %s: %v at byte %d", id, err, offset)
+    }
+}

@@ -175,10 +175,22 @@ highlight_range :: proc(m: ^Manager, path, source, ext: string, range_start, ran
             base, text, tree_path = lo, source[lo:hi], ""
             range_lo, range_hi = 0, max(int)
         }
-        caps := syntax.highlight_range(&m.highlighter, tree_path, text, lang.grammar, range_lo, range_hi, context.temp_allocator)
-        out  := make([dynamic]Span, allocator)
+        caps          := syntax.highlight_range(&m.highlighter, tree_path, text, lang.grammar, range_lo, range_hi, context.temp_allocator)
+        out           := make([dynamic]Span, allocator)
+        // An injected capture takes the colors of a language on its own grammar.
+        inner_grammar := ""
+        inner: ^Language
         for cap in caps {
-            append(&out, Span{cap.start + base, cap.end + base, role_for_capture(lang, cap.capture)})
+            colors := lang
+            if cap.lang != "" && cap.lang != lang.grammar {
+                if cap.lang != inner_grammar {
+                    inner_grammar, inner = cap.lang, language_for_grammar(m, cap.lang)
+                }
+                if inner != nil {
+                    colors = inner
+                }
+            }
+            append(&out, Span{cap.start + base, cap.end + base, role_for_capture(colors, cap.capture)})
         }
         return out[:], lo, hi
     }
@@ -197,6 +209,17 @@ highlight_range :: proc(m: ^Manager, path, source, ext: string, range_start, ran
         return run_lexer(m, lang, source, 0, allocator), 0, len(source)
     }
     return nil, 0, 0
+}
+
+// The first registered language on `grammar`, or nil.
+@(private)
+language_for_grammar :: proc(m: ^Manager, grammar: string) -> ^Language {
+    for &l in m.languages {
+        if l.grammar == grammar {
+            return &l
+        }
+    }
+    return nil
 }
 
 // Size from which a grammar parses only the window and a lexer that reads the
