@@ -38,6 +38,8 @@ Every plugin runs in its own environment inside one shared Lua state:
   cannot stop it — it counts Lua instructions, and there are none to count while
   a command runs. So `thor.exec` stops the command itself once the call's budget
   is spent, and appends `[shell] command stopped after ...` to what it returns.
+  It returns two values, `output, code`: `code` is the exit code, and -1 when the
+  command did not run to its end (a start failure or the budget).
   A long command goes to `thor.exec(command, fn)` instead: it returns at once,
   runs the command off the frame and calls `fn(output, code)` on a later frame.
   It stops the command after two minutes. A callback still pending when the

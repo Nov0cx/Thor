@@ -67,6 +67,16 @@ rec_exec_async :: proc(host: rawptr, command: string) -> u64 {
     return r.exec_ids
 }
 
+// Answers `exit N` with exit code N and the output "ran".
+@(private = "file")
+rec_exec :: proc(host: rawptr, command: string, timeout: time.Duration) -> (string, int) {
+    code := 0
+    if strings.has_prefix(command, "exit ") {
+        code = int(command[5] - '0')
+    }
+    return strings.clone("ran"), code
+}
+
 @(private = "file")
 rec_print :: proc(host: rawptr, text: string) {
     r := cast(^Recorder)host
@@ -144,6 +154,7 @@ recording_manager :: proc(m: ^Manager, r: ^Recorder) {
             panel = rec_panel,
             panel_render = rec_panel_render,
             exec_async = rec_exec_async,
+            exec = rec_exec,
         },
     )
 }
@@ -376,6 +387,24 @@ thor.print("returned")`
     manager_exec_done(&m, r.exec_ids, "again", 0)
     testing.expect_value(t, strings.to_string(r.output), "returned\ngot clean 0\n")
     testing.expect_value(t, len(m.exec_pending), 0)
+}
+
+// A synchronous thor.exec returns the output and the exit code.
+@(test)
+test_sandbox_exec_returns_the_code :: proc(t: ^testing.T) {
+    r: Recorder
+    recorder_init(&r)
+    defer recorder_destroy(&r)
+    m: Manager
+    recording_manager(&m, &r)
+    defer manager_destroy(&m)
+
+    source := `local out, code = thor.exec("exit 3")
+thor.print(out .. " " .. code)
+out, code = thor.exec("true")
+thor.print(out .. " " .. code)`
+    testing.expect(t, manager_load_source(&m, "sync", "plugins/sync", source, {.Exec}), "the plugin failed to load")
+    testing.expect_value(t, strings.to_string(r.output), "ran 3\nran 0\n")
 }
 
 // A plugin that allocates past the cap fails, and the state stays usable.

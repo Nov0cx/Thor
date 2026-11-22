@@ -153,11 +153,12 @@ thor_plugin_doc :: proc(host: rawptr, path: string, text: string, focus: bool) {
 }
 
 // thor.exec(command): runs `command` in the workspace via cmd.exe and returns
-// its combined output. Synchronous, so it holds the frame — `timeout` is what
+// its combined output and exit code, -1 when it was stopped. Synchronous, so it holds the frame — `timeout` is what
 // the plugin has left of its call budget, and the command is killed at it.
-thor_plugin_exec :: proc(host: rawptr, command: string, timeout: time.Duration) -> string {
-    thor := cast(^Thor)host
-    return shell.run(command, thor.workspace_dir, timeout)
+thor_plugin_exec :: proc(host: rawptr, command: string, timeout: time.Duration) -> (string, int) {
+    thor             := cast(^Thor)host
+    output, code, ok := shell.run_status(command, thor.workspace_dir, timeout)
+    return output, ok ? code : -1
 }
 
 // Longest a thor.exec with a callback may run before it is stopped.

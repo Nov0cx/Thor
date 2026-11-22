@@ -45,34 +45,34 @@ destroy_fake_env :: proc(env: ^Fake_Env) {
 // Every branch returns a context.allocator-owned string: api_exec frees the
 // result with the manager's allocator regardless of what allocated it, so a
 // temp_allocator or literal return here is a mismatched free.
-fake_exec :: proc(host: rawptr, command: string, timeout: time.Duration) -> string {
+fake_exec :: proc(host: rawptr, command: string, timeout: time.Duration) -> (string, int) {
     env := cast(^Fake_Env)host
     switch {
     case command == "echo %OS%":
-        return strings.clone(env.os_kind == "windows" ? "Windows_NT\r\n" : "%OS%\n")
+        return strings.clone(env.os_kind == "windows" ? "Windows_NT\r\n" : "%OS%\n"), 0
     case command == "uname -s":
         switch env.os_kind {
         case "darwin":
-            return strings.clone("Darwin\n")
+            return strings.clone("Darwin\n"), 0
         case "linux":
-            return strings.clone("Linux\n")
+            return strings.clone("Linux\n"), 0
         case:
-            return strings.clone("")
+            return strings.clone(""), 0
         }
     case strings.has_prefix(command, "where "):
         bin := strings.trim_suffix(strings.trim_prefix(command, "where "), " 2>nul")
         if path, ok := env.path_bins[bin]; ok {
-            return strings.concatenate({path, "\r\n"})
+            return strings.concatenate({path, "\r\n"}), 0
         }
-        return strings.clone("")
+        return strings.clone(""), 1
     case strings.has_prefix(command, "command -v "):
         bin := strings.trim_suffix(strings.trim_prefix(command, "command -v "), " 2>/dev/null")
         if path, ok := env.path_bins[bin]; ok {
-            return strings.concatenate({path, "\n"})
+            return strings.concatenate({path, "\n"}), 0
         }
-        return strings.clone("")
+        return strings.clone(""), 1
     }
-    return strings.clone("")
+    return strings.clone(""), 0
 }
 
 // thor.doc/thor.write/thor.read all resolve their path against the workspace

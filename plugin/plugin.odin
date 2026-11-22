@@ -50,7 +50,7 @@ Doc_Proc         :: #type proc(host: rawptr, path: string, text: string, focus: 
 // owns the result and the caller frees it after copying into Lua. The host must
 // stop the command after `timeout`, which holds the frame no longer than the
 // budget hook would.
-Exec_Proc        :: #type proc(host: rawptr, command: string, timeout: time.Duration) -> string
+Exec_Proc        :: #type proc(host: rawptr, command: string, timeout: time.Duration) -> (output: string, code: int)
 // Starts `command` in the workspace off the frame and returns an id unique for
 // the process. The host hands the result back through manager_exec_done.
 Exec_Async_Proc  :: #type proc(host: rawptr, command: string) -> u64
@@ -763,8 +763,9 @@ api_doc :: proc "c"(L: ^lua.State) -> c.int {
 
 // thor.exec(command [, fn]): runs `command` in the workspace. With no `fn` it
 // blocks until the command exits or the call budget runs out, and returns the
-// combined stdout+stderr. With `fn` it returns at once, and `fn(output, code)`
-// runs on a later frame. Needs the `exec` permission.
+// combined stdout+stderr and the exit code (-1 when it was stopped). With `fn`
+// it returns at once, and `fn(output, code)` runs on a later frame. Needs the
+// `exec` permission.
 @(private)
 api_exec :: proc "c"(L: ^lua.State) -> c.int {
     context = runtime.default_context()
@@ -785,12 +786,14 @@ api_exec :: proc "c"(L: ^lua.State) -> c.int {
     }
     if m.exec_proc == nil {
         lua.pushstring(L, "")
-        return 1
+        lua.pushinteger(L, -1)
+        return 2
     }
-    out := m.exec_proc(m.host, string(lua.tostring(L, 1)), budget_left(m))
+    out, code := m.exec_proc(m.host, string(lua.tostring(L, 1)), budget_left(m))
     push_string(L, out)
     delete(out) // host-owned result, freed after copying into Lua
-    return 1
+    lua.pushinteger(L, lua.Integer(code))
+    return 2
 }
 
 // Runs the callback of the thor.exec call `id` with the command's output and

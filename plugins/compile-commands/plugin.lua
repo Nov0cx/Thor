@@ -34,11 +34,14 @@ end
 -- First line of `where` (Windows) or `command -v` (POSIX), trimmed; "" when
 -- the binary is not found.
 local function which(bin)
-    local out
+    local out, code
     if os_name() == "windows" then
-        out = thor.exec("where " .. bin .. " 2>nul")
+        out, code = thor.exec("where " .. bin .. " 2>nul")
     else
-        out = thor.exec("command -v " .. bin .. " 2>/dev/null")
+        out, code = thor.exec("command -v " .. bin .. " 2>/dev/null")
+    end
+    if code ~= 0 then
+        return ""
     end
     return (out:match("^[^\r\n]*") or ""):gsub("%s+$", "")
 end
