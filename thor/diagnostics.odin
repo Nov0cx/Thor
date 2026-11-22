@@ -237,6 +237,7 @@ thor_clear_file_syntax_diagnostics :: proc(file: ^Open_File) {
 // empty when the live check has none.
 @(private = "file")
 thor_merge_file_diagnostics :: proc(file: ^Open_File) {
+    file.diagnostics_epoch += 1
     clear(&file.merged_diagnostics)
     lints := 0
     for d in file.syntax_diagnostics {
@@ -258,8 +259,13 @@ thor_merge_file_diagnostics :: proc(file: ^Open_File) {
 
 // The diagnostics to show for `file` at its current revision: the compiler's
 // when current, with the live lint items when those are current too, else the
-// live diagnostics, else none.
+// live diagnostics, else none; the plugin lint items of the revision join each.
 thor_file_live_diagnostics :: proc(file: ^Open_File) -> []editview.Diagnostic {
+    return thor_with_plugin_lints(file, thor_file_base_diagnostics(file))
+}
+
+@(private = "file")
+thor_file_base_diagnostics :: proc(file: ^Open_File) -> []editview.Diagnostic {
     if !file.loaded {
         return nil
     }

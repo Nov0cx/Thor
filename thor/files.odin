@@ -35,138 +35,150 @@ Line_Ending :: enum u8 {
 // One open document. The textedit state lives here, not in the editor widget,
 // so undo history and cursors survive tab switches; the editor only borrows it.
 Open_File :: struct {
-    path:                   string, // owned
-    name:                   string, // slice into path, do not free separately
+    path:                    string, // owned
+    name:                    string, // slice into path, do not free separately
     // Base name, plus a directory suffix on a collision. Owned; set by thor_update_tab_labels.
-    tab_label:              string,
-    state:                  textedit.State,
+    tab_label:               string,
+    state:                   textedit.State,
     // An explicit save of a LaTeX source is in flight, and a build follows it.
-    latex_build_pending:    bool,
-    loaded:                 bool,
+    latex_build_pending:     bool,
+    loaded:                  bool,
     // Byte offset of the top row when a pane last showed this file; the view comes back to it.
-    view_top:               int,
+    view_top:                int,
     // Caret and top line a session restore applies once the load lands.
-    restore:                File_View,
-    restore_pending:        bool,
-    load_failed:            bool,
-    saving:                 bool,
+    restore:                 File_View,
+    restore_pending:         bool,
+    load_failed:             bool,
+    saving:                  bool,
     // A disk-change reload is in flight; no second reload or save starts.
-    reloading:              bool,
+    reloading:               bool,
     // The file changed again during that read, so another read follows it.
-    reload_pending:         bool,
+    reload_pending:          bool,
     // Changed on disk over unsaved edits, and the conflict prompt is not answered yet.
-    disk_changed:           bool,
+    disk_changed:            bool,
     // The tab closed while a job holds the record; freed when pending_jobs is zero.
-    closed:                 bool,
+    closed:                  bool,
     // The save worker writes nothing: the file is being deleted. Read atomically by save_worker.
-    save_cancel:            bool,
-    pending_jobs:           int,
-    saved_revision:         u64,
+    save_cancel:             bool,
+    pending_jobs:            int,
+    saved_revision:          u64,
     // textedit.content_id of the text on disk. An undo back to it moves
     // saved_revision to the current revision (thor_sync_saved).
-    saved_content:          u64,
-    last_seen_revision:     u64,
+    saved_content:           u64,
+    last_seen_revision:      u64,
     // What the next save writes; detected on load. A file Thor creates gets the
     // zero value, LF.
-    line_ending:            Line_Ending,
+    line_ending:             Line_Ending,
     // What the file is on disk; the buffer is UTF-8 with no byte order mark.
-    encoding:               Encoding,
-    bom:                    bool,
+    encoding:                Encoding,
+    bom:                     bool,
     // The last save was refused. Autosave waits for an edit past
     // `failed_revision` before it tries again, and a close asks first.
-    save_failed:            bool,
-    failed_revision:        u64,
+    save_failed:             bool,
+    failed_revision:         u64,
     // Time and size on disk at the last look, for a file no watcher covers.
-    disk_stamp:             Disk_Stamp,
-    last_edit:              time.Tick,
+    disk_stamp:              Disk_Stamp,
+    last_edit:               time.Tick,
     // Syntax highlight spans and the buffer revision they were computed from.
     // The spans cover `highlight_start ..< highlight_end` only — the pane's view
     // plus a margin, not the whole buffer — so a pane that scrolls out of that
     // window re-highlights. Highlighting a large file whole costs seconds.
-    highlights:             [dynamic]editview.Highlight_Span,
-    highlight_revision:     u64,
-    highlighted:            bool,
-    highlight_start:        int,
-    highlight_end:          int,
+    highlights:              [dynamic]editview.Highlight_Span,
+    highlight_revision:      u64,
+    highlighted:             bool,
+    highlight_start:         int,
+    highlight_end:           int,
     // Foldable line ranges. These follow the buffer, not the view, so they are
     // recomputed on a revision change only — never on a scroll.
-    folds:                  [dynamic]editview.Fold_Range,
-    folds_revision:         u64,
-    folds_ready:            bool,
+    folds:                   [dynamic]editview.Fold_Range,
+    folds_revision:          u64,
+    folds_ready:             bool,
     // The backend's folds: the revision last asked, and whether it found none for it.
-    lang_folds_asked:       u64,
-    lang_folds_asked_valid: bool,
-    lang_folds_declined:    bool,
+    lang_folds_asked:        u64,
+    lang_folds_asked_valid:  bool,
+    lang_folds_declined:     bool,
     // Indentation read off the buffer for the status bar. detect_indent walks the
     // whole file and the status bar asks every frame, so the result is cached
     // against the revision it was read from and refreshed no faster than
     // INDENT_SCAN_INTERVAL.
-    indent:                 textedit.Indent_Info,
-    indent_revision:        u64,
-    indent_ready:           bool,
-    indent_time:            f64,
+    indent:                  textedit.Indent_Info,
+    indent_revision:         u64,
+    indent_ready:            bool,
+    indent_time:             f64,
     // What the analyzer proved each identifier to be, layered over the grammar's
     // spans by thor_update_highlights. `semantic_ready` marks a result having
     // landed at all, since revision 0 is a real revision. Kept across an edit —
     // dropping it would flash the file back to plain syntax colors on every
     // keystroke — but rebased onto the current text first, so a token never
     // paints part of an identifier.
-    semantic:               [dynamic]lang.Semantic_Token,
-    semantic_revision:      u64,
-    semantic_ready:         bool,
+    semantic:                [dynamic]lang.Semantic_Token,
+    semantic_revision:       u64,
+    semantic_ready:          bool,
     // The buffer text `semantic` was classified over. Owned; empty until a
     // result lands. thor_rebase_semantic diffs it against the live text to move
     // the tokens onto it.
-    semantic_source:        string,
+    semantic_source:         string,
     // Inlay hints over [inlay_start, inlay_end) of `inlay_source` (owned, as are the labels).
     // `inlay_view` holds them rebased onto the live text, labels borrowed.
-    inlays:                 [dynamic]editview.Inlay,
-    inlay_source:           string,
-    inlay_revision:         u64,
-    inlay_start:            int,
-    inlay_end:              int,
-    inlay_ready:            bool,
-    inlay_view:             [dynamic]editview.Inlay,
-    inlay_view_revision:    u64,
-    inlay_view_valid:       bool,
-    lens:                   File_Lens,  // reference counts after declaration names
-    links:                  File_Links, // document links
+    inlays:                  [dynamic]editview.Inlay,
+    inlay_source:            string,
+    inlay_revision:          u64,
+    inlay_start:             int,
+    inlay_end:               int,
+    inlay_ready:             bool,
+    inlay_view:              [dynamic]editview.Inlay,
+    inlay_view_revision:     u64,
+    inlay_view_valid:        bool,
+    lens:                    File_Lens,                    // reference counts after declaration names
+    links:                   File_Links,                   // document links
+    // The items of the plugin linters, at the revision they checked, and the diagnostics joined with
+    // them; `plugin_view` is rebuilt when `diagnostics_epoch` or the items move.
+    plugin_lints:            [dynamic]editview.Diagnostic, // owned messages
+    plugin_lint_revision:    u64,
+    plugin_lint_asked:       u64,
+    plugin_lint_asked_valid: bool,
+    plugin_view:             [dynamic]editview.Diagnostic, // messages borrowed
+    plugin_view_valid:       bool,
+    plugin_view_epoch:       u64,
+    plugin_view_base:        rawptr,
+    plugin_view_len:         int,
+    diagnostics_epoch:       u64, // bumped by every change of the diagnostic lists
     // Document sync for a backend that mirrors the editor's buffers.
     // `lang_open` marks the mirror as started, `lang_revision` the buffer
     // revision it last received. See thor_lang_notify.
-    lang_revision:          u64,
-    lang_open:              bool,
+    lang_revision:           u64,
+    lang_open:               bool,
     // Compiler diagnostics from the last `odin check` of this file's package,
     // and the buffer revision they were computed against. Shown only while the
     // buffer still matches that revision (an edit clears them until re-checked).
-    diagnostics:            [dynamic]editview.Diagnostic,
-    diagnostics_revision:   u64,
+    diagnostics:             [dynamic]editview.Diagnostic,
+    diagnostics_revision:    u64,
     // Live syntax errors and the revision they were parsed at. Shown when the
     // compiler diagnostics are stale.
-    syntax_diagnostics:     [dynamic]editview.Diagnostic, // owned
-    syntax_revision:        u64,
-    syntax_ready:           bool,
+    syntax_diagnostics:      [dynamic]editview.Diagnostic, // owned
+    syntax_revision:         u64,
+    syntax_ready:            bool,
     // The compiler diagnostics and the lint items of the live check, shown when both are
     // current. Messages are borrowed from the two lists above.
-    merged_diagnostics:     [dynamic]editview.Diagnostic,
+    merged_diagnostics:      [dynamic]editview.Diagnostic,
     // Line-level git diff vs HEAD, refreshed alongside git status. Index i
     // (0-based) holds line i's status; drives the editor's gutter diff bar.
-    diff_lines:             [dynamic]editview.Diff_Line_Kind,
+    diff_lines:              [dynamic]editview.Diff_Line_Kind,
     // Image files bypass the text pipeline: the pixels load into a GPU texture
     // and show in the image view instead of the editor. `loaded` stays false.
-    is_image:               bool,
-    texture:                platform.Texture,
-    texture_loaded:         bool,
+    is_image:                bool,
+    texture:                 platform.Texture,
+    texture_loaded:          bool,
     // 3D model files take the same bypass as images: the meshes upload to the
     // GPU and show in the model view instead of the editor. `loaded` stays false.
-    is_model:               bool,
-    model:                  platform.Model,
-    model_bounds:           platform.Bounds,
-    model_loaded:           bool,
+    is_model:                bool,
+    model:                   platform.Model,
+    model_bounds:            platform.Bounds,
+    model_loaded:            bool,
     // Any other file with a NUL in its head: the raw bytes show in the hex view. `loaded` stays false.
-    is_binary:              bool,
-    binary_bytes:           []u8, // owned
-    binary_allocator:       mem.Allocator,
+    is_binary:               bool,
+    binary_bytes:            []u8, // owned
+    binary_allocator:        mem.Allocator,
 }
 
 // Loaded via a memory mapping on a worker thread, which copies the view out and
@@ -850,6 +862,8 @@ thor_invalidate_file_derived :: proc(file: ^Open_File) {
     thor_clear_file_inlays(file)
     thor_clear_file_lens(file)
     thor_clear_file_links(file)
+    thor_clear_file_plugin_lints(file)
+    file.plugin_lint_asked_valid = false
 }
 
 // Applies a reload job's freshly mapped bytes to its open buffer, if they differ
@@ -1378,6 +1392,7 @@ thor_highlight_editor_file :: proc(thor: ^Thor, file: ^Open_File, editor: ^editv
     // for it to go quiet instead of following every keystroke or scroll.
     thor_update_folds(thor, file)
     thor_request_links(thor, file)
+    thor_update_plugin_lints(thor, file)
     if !file.highlighted || file.state.revision != file.highlight_revision {
         thor_update_highlights(thor, file)
         return
@@ -1643,6 +1658,7 @@ thor_free_open_file :: proc(file: ^Open_File, thor: ^Thor = nil) {
     delete(file.inlay_view)
     thor_destroy_file_lens(file)
     thor_destroy_file_links(file)
+    thor_destroy_file_plugin_lints(file)
     thor_clear_file_diagnostics(file)
     delete(file.diagnostics)
     thor_clear_file_syntax_diagnostics(file)

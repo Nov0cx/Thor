@@ -189,6 +189,12 @@ Push-only kinds, never sent by the editor: `Progress`, `Message`, `Apply_Edit`.
   `textedit.replace_ranges` (its own undo entry). An edit outside every span, a second cursor, a
   caret that leaves the spans or a span that is no longer one word ends the session.
 - "Go to declaration" asks `Declaration` where a backend answers it, else `Definition`.
+- Plugin lints (`thor/plugin_lint.odin`): a plugin with the `lint` permission registers a linter per
+  routing key (`thor.lint.register`). It runs on the main thread once per revision, after
+  `PLUGIN_LINT_IDLE`, and its items join the shown diagnostics as lint items of source
+  `plugin:<id>` (`thor_with_plugin_lints`). `thor.lint.symbols` and `thor.lint.type_at` answer
+  through `lang.manager_resolve_now`, which runs only backends with `in_process` set (the Odin
+  engine), so a plugin call never waits on a server.
 
 Features the host adds on top of the kinds: statusline busy indicator (`manager_busy_kinds`,
 0.25 s delay), explained diagnostics on hover, Problems panel (`thor/problems.odin`), inlay pills
@@ -919,7 +925,6 @@ Things that do not exist yet. Each is a candidate for future work.
   Files of one package with different targets do not churn the caches: a package slot keeps a
   `Package_Memo` for each of up to `PACKAGE_MEMO_CONFIGS` (4) configurations, most recent first, and
   the type cache keeps `TYPE_STATE_SLOTS` (8) frozen states keyed by configuration.
-- **Custom lints from Lua plugins.** The sema API is not exposed to plugins.
 - **Other compiler messages as quick fixes.** A compiler message with no suggestion and none of the
   wordings `compiler_fixes.odin` knows has no fix of its own; the live check's fixes still apply.
 

@@ -126,6 +126,8 @@ Host :: struct {
     draw_text:    Draw_Text_Proc,
     draw_line:    Draw_Line_Proc,
     measure_text: Measure_Text_Proc,
+    lint_symbols: Lint_Symbols_Proc,
+    lint_type:    Lint_Type_Proc,
 }
 
 // The single Lua state shared by all plugins. Not reentrant: one thread only.
@@ -164,6 +166,10 @@ Manager :: struct {
     draw_text_proc:    Draw_Text_Proc,
     draw_line_proc:    Draw_Line_Proc,
     measure_text_proc: Measure_Text_Proc,
+    lint_symbols_proc: Lint_Symbols_Proc,
+    lint_type_proc:    Lint_Type_Proc,
+    // The linters of thor.lint.register, in load order. Owned keys and refs.
+    linters:           [dynamic]Linter,
     // The on_key handlers, one per plugin, in load order. Owned.
     key:               [dynamic]Callback,
     // The on_key_up handlers, registered apart from `key` so a plugin that wants
@@ -240,6 +246,8 @@ manager_set_host :: proc(m: ^Manager, host: Host) {
     m.draw_text_proc = host.draw_text
     m.draw_line_proc = host.draw_line
     m.measure_text_proc = host.measure_text
+    m.lint_symbols_proc = host.lint_symbols
+    m.lint_type_proc = host.lint_type
 }
 
 // Initializes a manager in place. The caller must own it: the API closures
@@ -280,6 +288,11 @@ manager_destroy :: proc(m: ^Manager) {
     }
     delete(m.key_up)
     release(m, &m.dialog)
+    for &l in m.linters {
+        release(m, &l.cb)
+        delete(l.key)
+    }
+    delete(m.linters)
     for name, cb in m.commands {
         unref(m, cb.ref)
         delete(name)
@@ -624,6 +637,10 @@ push_api_table :: proc(m: ^Manager, index: int) {
     }
     if .Tick in perms {
         bind(L, m, index, api, "on_tick", api_on_tick)
+    }
+    if .Lint in perms {
+        push_lint_table(m, index)
+        lua.setfield(L, api, "lint")
     }
     if .Ui in perms {
         bind(L, m, index, api, "button", api_button)

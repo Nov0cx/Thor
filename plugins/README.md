@@ -83,6 +83,7 @@ because Thor checks it against its upstream branch.
 | `ui`       | `thor.button`, `thor.menu`, `thor.panel`, `thor.prompt`, `thor.pick`, `thor.confirm` |
 | `keys`     | `thor.on_key`, `thor.on_key_up` |
 | `tick`     | `thor.on_tick` |
+| `lint`     | `thor.lint.register`, `thor.lint.symbols`, `thor.lint.type_at` |
 
 No manifest grants nothing, which is all a syntax-only plugin needs. A denied
 entry point is absent rather than present-and-refusing, so calling it raises
@@ -178,6 +179,40 @@ consume the press. A key held down repeats for the editor but not for `on_key`,
 which fires once per press.
 
 `thor.on_key_up(fn)` (same permission) is the release half, with the same table.
+
+## Linting
+
+`thor.lint.register(key, fn)` (permission `lint`) checks every file of the language
+`key` — `"odin"` or `".odin"`, a whole file name such as `"Makefile"`, or `"*"` for
+every file. Thor calls `fn(path, text)` once the buffer has been still for 300 ms
+after an edit, on the main thread and under the call budget, and shows what it
+returns beside the language server's diagnostics:
+
+```lua
+thor.lint.register("odin", function(path, text)
+    local out, line = {}, 1
+    for l in (text .. "
+"):gmatch("(.-)
+") do
+        local at = l:find("TODO", 1, true)
+        if at then
+            out[#out + 1] = { line = line, col = at, end_col = at + 4, message = "A TODO is left", severity = "hint" }
+        end
+        line = line + 1
+    end
+    return out
+end)
+```
+
+An item needs `line` (1-based) and `message`; `col` (1-based byte, default 1),
+`end_col` (default: the end of the word at `col`) and `severity` (`"error"`,
+`"warning"` — the default —, `"info"` or `"hint"`) are optional.
+
+`thor.lint.symbols(path)` lists the declarations of a file as `{name, kind, line}`
+tables, and `thor.lint.type_at(path, offset)` gives what the language support says
+of the name at a 0-based byte offset (the hover text), or `nil`. Both answer from
+the open buffer when the file is open, from the built-in language support only
+(a language server is not waited on), and are confined like `thor.read`.
 It is registered apart from `on_key`, so a plugin that wants presses only keeps
 getting presses only.
 

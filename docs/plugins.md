@@ -29,7 +29,8 @@ supply its own folds instead.
 ## Permissions and the trust prompt
 
 A plugin only gets capabilities it declares (`exec`, `read`, `write`, `ui`,
-`keys`, `tick`) and only after you allow it. Plugins asking for nothing —
+`keys`, `tick`, `lint`) and only after you allow it. `lint` lets a plugin check
+your files and show its own warnings beside the language support's. Plugins asking for nothing —
 every syntax plugin — load silently. A plugin that asks for something holds
 until you answer a prompt Thor shows once per session, batching every waiting
 plugin into it. The prompt lists one row per plugin — its id and what it asks

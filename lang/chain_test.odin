@@ -65,3 +65,34 @@ test_chain_merge_budget_skips_late_links :: proc(t: ^testing.T) {
     testing.expect(t, !c.ran, "a link ran after the budget was spent")
     testing.expect_value(t, len(res.related), 1)
 }
+
+@(private = "file")
+now_handles :: proc(data: rawptr, ext: string) -> bool {
+    return ext == ".now"
+}
+
+@(private = "file")
+now_resolve :: proc(data: rawptr, req: ^Request, res: ^Result) {
+    res.ok = true
+    res.hover.text = strings.clone((cast(^bool)data)^ ? "in process" : "out of process")
+}
+
+// The calling thread answers from an in-process backend; one that waits on another process is skipped.
+@(test)
+test_manager_resolve_now :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+    outside, inside := false, true
+    manager_register(&m, Backend{name = "outside", data = &outside, handles = now_handles, resolve = now_resolve})
+    manager_register(&m, Backend{name = "inside", data = &inside, handles = now_handles, resolve = now_resolve, in_process = true})
+
+    res := manager_resolve_now(&m, .Hover, "a.now", ".now", "text", 0, "")
+    defer result_release(&res)
+    testing.expect(t, res.ok)
+    testing.expect_value(t, res.hover.text, "in process")
+
+    none := manager_resolve_now(&m, .Hover, "a.other", ".other", "text", 0, "")
+    defer result_release(&none)
+    testing.expect(t, !none.ok, "a key no backend claims answered")
+}

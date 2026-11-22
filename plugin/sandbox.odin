@@ -27,6 +27,7 @@ Permission :: enum {
     Ui,    // thor.button, menu, panel, prompt, pick, confirm
     Keys,  // thor.on_key
     Tick,  // thor.on_tick
+    Lint,  // thor.lint
 }
 
 Permissions :: distinct bit_set[Permission]
@@ -593,6 +594,8 @@ permission_name :: proc(perm: Permission) -> string {
         return "keys"
     case .Tick:
         return "tick"
+    case .Lint:
+        return "lint"
     }
     return ""
 }

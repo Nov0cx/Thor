@@ -164,6 +164,7 @@ engine_backend :: proc(e: ^Engine) -> lang.Backend {
         set_gate = set_gate,
         gate_defaults = gate_defaults,
         gate_label = gate_label,
+        in_process = true,
     }
 }
 

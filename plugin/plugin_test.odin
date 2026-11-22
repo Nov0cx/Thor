@@ -1155,3 +1155,42 @@ test_large_source_highlights_one_window :: proc(t: ^testing.T) {
     defer delete(none)
     testing.expect_value(t, len(none), 0)
 }
+
+// A linter returns its items; one without the `lint` permission has no thor.lint to register with.
+@(test)
+test_lint_register_and_run :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    script := `thor.lint.register("odin", function(path, text)
+	local out = {}
+	local line = 1
+	for l in (text .. "\n"):gmatch("(.-)\n") do
+		local at = l:find("TODO", 1, true)
+		if at then
+			out[#out + 1] = { line = line, col = at, end_col = at + 4, message = "todo in " .. path, severity = "hint" }
+		end
+		line = line + 1
+	end
+	out[#out + 1] = { line = 0, message = "dropped" }
+	return out
+end)`
+    testing.expect(t, manager_load_source(&m, "todo", "plugins/todo", script, {.Lint}), "plugin script runs")
+    testing.expect(t, manager_has_linters(&m, ".odin"))
+    testing.expect(t, !manager_has_linters(&m, ".c"))
+
+    items := manager_run_linters(&m, ".odin", "a.odin", "x := 1\n// TODO fix\n", context.temp_allocator)
+    if testing.expect_value(t, len(items), 1) {
+        testing.expect_value(t, items[0].line, 2)
+        testing.expect_value(t, items[0].col, 4)
+        testing.expect_value(t, items[0].end_col, 8)
+        testing.expect_value(t, items[0].message, "todo in a.odin")
+        testing.expect_value(t, items[0].severity, Lint_Severity.Hint)
+        testing.expect_value(t, manager_plugin_id(&m, items[0].owner), "todo")
+    }
+
+    quiet := `if thor.lint then thor.lint.register("*", function() return {} end) end`
+    testing.expect(t, manager_load_source(&m, "quiet", "plugins/quiet", quiet, {}), "plugin script runs")
+    testing.expect(t, !manager_has_linters(&m, ".c"), "a permission-free plugin registered a linter")
+}

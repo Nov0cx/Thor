@@ -637,6 +637,9 @@ Backend :: struct {
     // The Settings row title of gate `id`. Set only by a backend whose rows the
     // Language category lists itself; a server has its own category.
     gate_label:      proc(data: rawptr, id: string) -> string,
+    // True when `resolve` answers without waiting on another process, so manager_resolve_now may
+    // run it on the main thread.
+    in_process:      bool,
 }
 
 // How long a debounced request waits for the input to settle. Hover is already
@@ -1034,6 +1037,28 @@ manager_notify :: proc(m: ^Manager, event: Doc_Event, path, ext, source: string,
             b.notify(b.data, event, path, ext, source, revision)
         }
     }
+}
+
+// Answers `kind` on the calling thread from the in-process backends that claim `ext`, for a caller
+// that must have the answer at once (a plugin's lint call). A backend that waits on another
+// process is skipped. Free the result with result_release.
+manager_resolve_now :: proc(m: ^Manager, kind: Request_Kind, path, ext, source: string, offset: int, workspace: string) -> Result {
+    res := Result{kind = kind}
+    if !manager_feature_enabled(m, kind) {
+        return res
+    }
+    req      := Request{kind = kind, path = path, ext = ext, source = source, offset = offset, end = offset, workspace = workspace}
+    chain, n := backend_chain(m, ext, kind)
+    links    := make([dynamic]Link, 0, n, context.temp_allocator)
+    for b in chain[:n] {
+        if b.in_process {
+            append(&links, Link{id = backend_id(b), data = b.data, resolve = b.resolve})
+        }
+    }
+    if len(links) > 0 {
+        resolve_links(links[:], &req, &res)
+    }
+    return res
 }
 
 // Tells every backend what the watcher saw on disk. Does nothing while the master

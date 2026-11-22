@@ -67,6 +67,8 @@ thor_set_plugin_host :: proc(thor: ^Thor) {
             draw_text = thor_plugin_draw_text,
             draw_line = thor_plugin_draw_line,
             measure_text = thor_plugin_measure_text,
+            lint_symbols = thor_lint_symbols,
+            lint_type = thor_lint_type,
         },
     )
 }
