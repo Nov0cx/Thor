@@ -293,7 +293,7 @@ thor_request_lens :: proc(thor: ^Thor, file: ^Open_File) {
     nav.lens_source = strings.clone(source)
 }
 
-// Stores the counts of a landed Code_Lens request. Looked up by path, since the tab may have closed.
+// Stores the lens rows of a landed Code_Lens request. Looked up by path, since the tab may have closed.
 thor_on_lens :: proc(thor: ^Thor, res: ^lang.Result) {
     nav := &thor.nav
     if res.id != nav.lens_request_id {
@@ -311,8 +311,18 @@ thor_on_lens :: proc(thor: ^Thor, res: ^lang.Result) {
     }
     thor_clear_file_lens(file)
     for l in res.lenses {
-        label := l.count == 1 ? strings.clone("1 reference") : fmt.aprintf("%d references", l.count)
-        append(&file.lens.items, editview.Inlay{offset = l.start, label = label, parameter = true})
+        text := l.title
+        if text == "" {
+            text = l.count == 1 ? "1 reference" : fmt.tprintf("%d references", l.count)
+        }
+        // One row per line: lenses at one offset share it.
+        if n := len(file.lens.items); n > 0 && file.lens.items[n - 1].offset == l.start {
+            joined := strings.concatenate({file.lens.items[n - 1].label, " | ", text})
+            delete(file.lens.items[n - 1].label)
+            file.lens.items[n - 1].label = joined
+            continue
+        }
+        append(&file.lens.items, editview.Inlay{offset = l.start, label = strings.clone(text), parameter = true})
     }
     file.lens.source = source
     file.lens.ready = true

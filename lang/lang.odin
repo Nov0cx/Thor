@@ -79,7 +79,7 @@ Request_Kind :: enum {
     Implementations,
     // The syntax ranges around `offset`, innermost first. Answers `ranges`.
     Selection_Range,
-    // The reference count of each top-level declaration of the buffer. Answers `lenses`.
+    // The reference count of each top-level declaration of the buffer, or a server's lenses. Answers `lenses`.
     Code_Lens,
     // Push-only: never dispatched through manager_request*, only produced by
     // Backend.poll (a server's unsolicited $/progress notification).
@@ -107,11 +107,12 @@ Text_Range :: struct {
     end:   int,
 }
 
-// A reference count above the declaration whose name is [start, end).
+// A row above the declaration whose name is [start, end): a reference count, or a server's own title.
 Code_Lens_Item :: struct {
     start: int,
     end:   int,
     count: int,
+    title: string, // owned; "" shows the count
 }
 
 // Hover payload: display text plus the symbol range it describes, so the editor
@@ -1611,6 +1612,9 @@ result_release :: proc(res: ^Result) {
     delete(res.inlays)
     delete(res.highlights)
     delete(res.ranges)
+    for lens in res.lenses {
+        delete(lens.title)
+    }
     delete(res.lenses)
     report_free(&res.report)
     for &related in res.related {

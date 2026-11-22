@@ -307,7 +307,7 @@ size, the format and a schema hash. Any mismatch rebuilds silently. Parses stay 
 | `Code_Actions`, `Resolve_Action` | `actions.odin`, `fixes.odin`, `compiler_fixes.odin`, `create_decl.odin`, `refactor.odin`, `extract.odin`, `change_signature.odin`, `move_decl.odin` | Quick fixes and refactorings. Compiler-message fixes include `&` for an immutable `for`/`switch` variable, removing an unneeded cast or `transmute`, and indenting a `-vet-tabs` line with tabs. Four refactorings ask for a name or path through `Code_Action.prompt`. |
 | `Call_Hierarchy`, `Type_Hierarchy`, `Implementations` | `hierarchy.odin` | |
 | `Selection_Range` | `selection.odin` | |
-| `Code_Lens` | `lens.odin` | Reference counts. |
+| `Code_Lens` | `lens.odin` | Reference counts; a server's lens carries a `title` instead. |
 | `Package_Doc` | `package_doc.odin` | A Markdown page of a package. |
 | `Diagnostics` | `check.odin` | Runs `odin check` on save. |
 | `Syntax_Diagnostics` | `syntax_check.odin`, `name_check.odin`, `body_check.odin`, `body_cache.odin`, `vet_check.odin`, `package_live.odin` | The live report. `body_cache.odin` keeps the body errors of each file-scope declaration (below). |
@@ -583,12 +583,15 @@ everything it is configured for, so the first requests are not swallowed.
 | `Inlay_Hints` | `textDocument/inlayHint` | |
 | `Document_Highlight` | `textDocument/documentHighlight` | |
 | `Implementations` | `textDocument/implementation` | |
+| `Call_Hierarchy` | `prepareCallHierarchy`, then `callHierarchy/incomingCalls` (`query` "up") or `outgoingCalls` ("down") | The first prepared item goes back verbatim. Each `from` / `to` item is a symbol at its `selectionRange`. |
+| `Type_Hierarchy` | `prepareTypeHierarchy`, then `typeHierarchy/supertypes` ("up") or `subtypes` ("down") | As `Call_Hierarchy`. |
+| `Selection_Range` | `textDocument/selectionRange` | One position. The `parent` chain, innermost first; a parent that does not hold its child ends it. |
+| `Code_Lens` | `textDocument/codeLens` (+ `codeLens/resolve`) | The command title, `$(icon)` markup removed, is `Code_Lens_Item.title`. Up to `LENS_RESOLVE_MAX` lenses with no command are resolved; the host joins lenses of one line with `|`. |
 | `Format` | `textDocument/formatting` | Re-diffed with `lang.diff_spans`; `insertSpaces` is always true. |
 | `Format_Range` | `textDocument/rangeFormatting` | The host aligns the range to whole lines. |
 | `Format_On_Type` | `textDocument/onTypeFormatting` | Only for the server's advertised trigger characters. |
 
-In-client only (a server is never asked): `Syntax_Diagnostics`, `Resolve_Action`, `Call_Hierarchy`,
-`Type_Hierarchy`, `Selection_Range`, `Code_Lens`. Pushes: `$/progress` becomes `Progress`
+In-client only (a server is never asked): `Syntax_Diagnostics`, `Resolve_Action`. Pushes: `$/progress` becomes `Progress`
 (statusline), `window/showMessage` becomes `Message`, `workspace/applyEdit` becomes `Apply_Edit`.
 `window/logMessage` goes to the log.
 
@@ -892,8 +895,6 @@ Things that do not exist yet. Each is a candidate for future work.
 
 ### LSP
 
-- **Kinds the LSP backend does not send:** `Call_Hierarchy`, `Type_Hierarchy`, `Selection_Range`,
-  `Code_Lens`. They work only in-client; `METHODS` maps them to `""`.
 - **LSP methods with no Thor kind:** `declaration`, `foldingRange` (folds come from tree-sitter for
   every grammar), `documentLink`, `linkedEditingRange`.
 - **`Package_Doc`** rides `textDocument/hover`. There is no richer LSP equivalent.

@@ -26,6 +26,7 @@ DEADLINE_HEAVY :: 15 * time.Second
 // The method each kind is sent as. An empty entry is a kind no server answers
 // here. Package_Doc has no LSP method of its own; it rides textDocument/hover
 // (decode_package_doc reads the same reply differently than decode_hover does).
+// A hierarchy kind is sent as its prepare method; decode_hierarchy sends the second step.
 @(private)
 METHODS := [lang.Request_Kind]string{
     .Definition = "textDocument/definition",
@@ -50,11 +51,11 @@ METHODS := [lang.Request_Kind]string{
     .Execute_Command = "workspace/executeCommand",
     .Resolve_Completion = "completionItem/resolve",
     .Resolve_Action = "", // in-client only
-    .Call_Hierarchy = "", // in-client only
-    .Type_Hierarchy = "", // in-client only
+    .Call_Hierarchy = "textDocument/prepareCallHierarchy",
+    .Type_Hierarchy = "textDocument/prepareTypeHierarchy",
     .Implementations = "textDocument/implementation",
-    .Selection_Range = "", // in-client only
-    .Code_Lens = "", // in-client only
+    .Selection_Range = "textDocument/selectionRange",
+    .Code_Lens = "textDocument/codeLens",
     .Progress = "", // unsolicited push, never sent as an outgoing request
     .Apply_Edit = "", // unsolicited push, never sent as an outgoing request
     .Message = "", // unsolicited push, never sent as an outgoing request
@@ -80,6 +81,7 @@ Ask :: struct {
     semantic_range:              bool,
     // Semantic_Tokens with semantic_range: the span asked for.
     semantic_lo, semantic_hi:    int,
+    deadline:                    time.Duration, // what a follow-up request of the same answer may wait
 }
 
 // Sends one request and fills `res` from the reply. A kind with no method, a
@@ -152,6 +154,7 @@ request_answer :: proc(s: ^Server, req: ^lang.Request, res: ^lang.Result) {
         }
     }
 
+    ask.deadline = deadline
     params     := request_params(&ask)
     value, err := conn_call(ask.conn, method, params, deadline, req.cancel)
     defer conn_free_value(ask.conn, value)
@@ -216,7 +219,14 @@ request_params :: proc(ask: ^Ask) -> string {
     append(&out, `}`)
 
     #partial switch ask.req.kind {
-    case .Document_Symbols, .Diagnostics, .Format:
+    case .Document_Symbols, .Diagnostics, .Format, .Code_Lens:
+    case .Selection_Range:
+        line, character := position_from_offset(&ask.lines, ask.req.offset)
+        append(&out, `,"positions":[{"line":`)
+        write_number(&out, i64(line))
+        append(&out, `,"character":`)
+        write_number(&out, i64(character))
+        append(&out, `}]`)
     case .Semantic_Tokens:
         if ask.semantic_range {
             write_range(&out, &ask.lines, ask.semantic_lo, ask.semantic_hi)
@@ -362,7 +372,7 @@ trigger_character :: proc(ask: ^Ask) -> bool {
 request_deadline :: proc(kind: lang.Request_Kind, percent := 100) -> time.Duration {
     deadline := DEADLINE_INTERACTIVE
     #partial switch kind {
-    case .Document_Symbols, .Workspace_Symbols, .References, .Diagnostics, .Semantic_Tokens, .Rename, .Package_Doc, .Format, .Format_Range:
+    case .Document_Symbols, .Workspace_Symbols, .References, .Diagnostics, .Semantic_Tokens, .Rename, .Package_Doc, .Format, .Format_Range, .Code_Lens:
         deadline = DEADLINE_HEAVY
     }
     if percent > 0 && percent != 100 {

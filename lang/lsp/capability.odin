@@ -39,11 +39,11 @@ PROVIDER_KEYS := [lang.Request_Kind]string{
     .Execute_Command = "executeCommandProvider",
     .Resolve_Completion = "completionProvider",
     .Resolve_Action = "", // in-client only; a server resolves its own actions
-    .Call_Hierarchy = "", // in-client only
-    .Type_Hierarchy = "", // in-client only
+    .Call_Hierarchy = "callHierarchyProvider",
+    .Type_Hierarchy = "typeHierarchyProvider",
     .Implementations = "implementationProvider",
-    .Selection_Range = "", // in-client only
-    .Code_Lens = "", // in-client only
+    .Selection_Range = "selectionRangeProvider",
+    .Code_Lens = "codeLensProvider",
     .Progress = "", // unsolicited push; no capability gate, same as Package_Doc
     .Apply_Edit = "", // unsolicited push; no capability gate, same as Package_Doc
     .Message = "", // unsolicited push; no capability gate
@@ -68,6 +68,7 @@ Capabilities :: struct {
     prepare_rename:   bool,                 // renameProvider.prepareProvider
     resolve_actions:  bool,                 // codeActionProvider.resolveProvider
     resolve_items:    bool,                 // completionProvider.resolveProvider
+    resolve_lenses:   bool,                 // codeLensProvider.resolveProvider
     token_legend:     []Token_Legend_Entry, // owned; indexed by the server's tokenTypes
     token_delta:      bool,                 // semanticTokensProvider.full.delta: the /full/delta method may be asked for
     token_full:       bool,                 // semanticTokensProvider.full
@@ -108,6 +109,11 @@ capabilities_decode :: proc(result: json.Value, allocator := context.allocator) 
     if options, ok := advertised["codeActionProvider"].(json.Object); ok {
         if flag, fok := options["resolveProvider"].(json.Boolean); fok {
             caps.resolve_actions = bool(flag)
+        }
+    }
+    if options, ok := advertised["codeLensProvider"].(json.Object); ok {
+        if flag, fok := options["resolveProvider"].(json.Boolean); fok {
+            caps.resolve_lenses = bool(flag)
         }
     }
     if options, ok := advertised["completionProvider"].(json.Object); ok {

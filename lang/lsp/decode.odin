@@ -51,6 +51,12 @@ request_decode :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         decode_package_doc(ask, value, res)
     case .Format, .Format_Range, .Format_On_Type:
         decode_format(ask, value, res)
+    case .Call_Hierarchy, .Type_Hierarchy:
+        decode_hierarchy(ask, value, res)
+    case .Selection_Range:
+        decode_selection_ranges(ask, value, res)
+    case .Code_Lens:
+        decode_code_lenses(ask, value, res)
     case .Execute_Command:
         // The reply is usually null and carries nothing worth reading: reaching
         // here at all means the server accepted the command (an error would have
@@ -1460,6 +1466,16 @@ append_symbol :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         uri, has_uri                                          := location["uri"].(json.String)
         start_line, start_char, end_line, end_char, has_range := range_of(location["range"])
         if has_uri && has_range {
+            path, offset, _, placed = resolve_range(ask, string(uri), start_line, start_char, end_line, end_char)
+            line = start_line + 1
+        }
+    } else if uri, has_uri := object["uri"].(json.String); has_uri {
+        // CallHierarchyItem / TypeHierarchyItem: a DocumentSymbol shape in a file of its own.
+        span, has_span := object["selectionRange"]
+        if !has_span {
+            span = object["range"]
+        }
+        if start_line, start_char, end_line, end_char, has_range := range_of(span); has_range {
             path, offset, _, placed = resolve_range(ask, string(uri), start_line, start_char, end_line, end_char)
             line = start_line + 1
         }

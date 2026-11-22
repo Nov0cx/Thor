@@ -4,6 +4,7 @@ import "core:encoding/json"
 import "core:path/filepath"
 import "core:strings"
 import "core:testing"
+import "core:time"
 
 import lang ".."
 
@@ -176,6 +177,11 @@ result_release :: proc(res: ^lang.Result) {
     }
     delete(res.inlays)
     delete(res.highlights)
+    delete(res.ranges)
+    for lens in res.lenses {
+        delete(lens.title)
+    }
+    delete(res.lenses)
     lang.report_free(&res.report)
     for &related in res.related {
         lang.report_free(&related.report)
@@ -1989,4 +1995,113 @@ test_semantic_span :: proc(t: ^testing.T) {
     testing.expect(t, use_range, "a span was not asked through /range")
     testing.expect_value(t, lo, 2)
     testing.expect_value(t, hi, 5)
+}
+
+// The chain of parents, innermost first; a parent equal to its child is skipped.
+@(test)
+test_decode_selection_ranges :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Selection_Range, SOURCE, 12)
+
+    res := decode_reply(
+        s,
+        &req,
+        `[{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}},"parent":` +
+            `{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}},"parent":` +
+            `{"range":{"start":{"line":0,"character":0},"end":{"line":2,"character":0}}}}}]`,
+    )
+    defer result_release(&res)
+
+    testing.expect(t, res.ok)
+    testing.expect_value(t, len(res.ranges), 2)
+    if len(res.ranges) == 2 {
+        testing.expect_value(t, res.ranges[0], lang.Text_Range{11, 16})
+        testing.expect_value(t, res.ranges[1], lang.Text_Range{0, len(SOURCE)})
+    }
+}
+
+// A lens shows its command title without icon markup; one with no command and no resolve is dropped.
+@(test)
+test_decode_code_lenses :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Code_Lens, SOURCE)
+
+    res := decode_reply(
+        s,
+        &req,
+        `[{"range":{"start":{"line":1,"character":6},"end":{"line":1,"character":11}},"command":{"title":"$(play) Run test","command":"run"}},` +
+            `{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"command":{"title":"2 implementations","command":"x"}},` +
+            `{"range":{"start":{"line":0,"character":6},"end":{"line":0,"character":10}},"data":1}]`,
+    )
+    defer result_release(&res)
+
+    testing.expect(t, res.ok)
+    testing.expect_value(t, len(res.lenses), 2)
+    if len(res.lenses) == 2 {
+        testing.expect_value(t, res.lenses[0].title, "2 implementations")
+        testing.expect_value(t, res.lenses[0].start, 0)
+        testing.expect_value(t, res.lenses[1].title, "Run test")
+        testing.expect_value(t, res.lenses[1].start, 17)
+    }
+}
+
+@(private = "file")
+hierarchy_answer :: proc(s: ^Serve, id: i64, method: string) {
+    switch method {
+    case "callHierarchy/incomingCalls":
+        mock_reply(
+            s.mock,
+            id,
+            `[{"from":{"name":"caller","kind":12,"uri":"` +
+                FILE_URI +
+                `",` +
+                `"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":11}},` +
+                `"selectionRange":{"start":{"line":1,"character":6},"end":{"line":1,"character":11}}},"fromRanges":[]}]`,
+        )
+    case:
+        mock_reply(s.mock, id, "[]")
+    }
+}
+
+// The prepared item goes back in the second step, and each caller is a symbol at its name.
+@(test)
+test_decode_call_hierarchy :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    mock: Mock
+    serve := Serve{mock = &mock, answer = hierarchy_answer}
+    mock_serve(&serve)
+    defer mock_serve_destroy(&serve)
+    c := conn_start(mock_transport(&mock), context.allocator)
+    defer conn_destroy(c)
+
+    req := request_for(.Call_Hierarchy, SOURCE)
+    ask := ask_for(s, &req)
+    ask.conn = c
+    ask.deadline = 5 * time.Second
+    prepared, err := json.parse_string(
+        `[{"name":"alpha","kind":12,"uri":"` +
+            FILE_URI +
+            `","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},` +
+            `"selectionRange":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}}}]`,
+        parse_integers = true,
+        allocator = context.temp_allocator,
+    )
+    testing.expect_value(t, err, json.Error.None)
+    res := lang.Result{kind = .Call_Hierarchy}
+    decode_hierarchy(&ask, prepared, &res)
+    defer result_release(&res)
+
+    testing.expect(t, res.ok, "no caller came back")
+    if len(res.symbols) == 1 {
+        testing.expect_value(t, res.symbols[0].name, "caller")
+        testing.expect_value(t, res.symbols[0].path, FILE)
+        testing.expect_value(t, res.symbols[0].offset, 17)
+        testing.expect_value(t, res.symbols[0].line, 2)
+    }
+    mock_serve_stop(&serve)
+    testing.expect(t, len(serve.taken) == 1 && strings.contains(serve.taken[0], `"method":"callHierarchy/incomingCalls"`), "the second step was not sent")
+    testing.expect(t, len(serve.taken) == 1 && strings.contains(serve.taken[0], `"item":{`), "the item was not sent back")
 }

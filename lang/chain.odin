@@ -187,9 +187,7 @@ result_merge :: proc(dst, src: ^Result, kind: Request_Kind) {
         slice.stable_sort_by(dst.lenses[:], proc(a, b: Code_Lens_Item) -> bool {
             return a.start < b.start
         })
-        dedup_by(&dst.lenses, proc(a, b: Code_Lens_Item) -> bool {
-            return a.start == b.start && a.end == b.end
-        })
+        dedup_lenses(&dst.lenses)
     case .Document_Highlight:
         move_all(&dst.highlights, &src.highlights)
         slice.stable_sort_by(dst.highlights[:], proc(a, b: Document_Highlight) -> bool {
@@ -217,6 +215,28 @@ dedup_by :: proc(list: ^[dynamic]$T, same: proc(a, b: T) -> bool) {
     out := 0
     for i in 0 ..< len(list) {
         if out > 0 && same(list[out - 1], list[i]) {
+            continue
+        }
+        list[out] = list[i]
+        out += 1
+    }
+    resize(list, out)
+}
+
+// Drops a lens another backend already reported at the same span with the same title.
+@(private = "file")
+dedup_lenses :: proc(list: ^[dynamic]Code_Lens_Item) {
+    out := 0
+    for i in 0 ..< len(list) {
+        dup := false
+        for j := out - 1; j >= 0 && list[j].start == list[i].start; j -= 1 {
+            if list[j].end == list[i].end && list[j].title == list[i].title {
+                dup = true
+                break
+            }
+        }
+        if dup {
+            delete(list[i].title)
             continue
         }
         list[out] = list[i]
