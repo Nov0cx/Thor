@@ -44,6 +44,11 @@ thor_apply_diagnostics :: proc(thor: ^Thor, res: ^lang.Result) {
     if !res.ok {
         return
     }
+    // Each related report is applied as a result of its own; it shares the memory the result owns.
+    for related in res.related {
+        part := lang.Result{kind = res.kind, ok = true, revision = related.revision, report = related.report}
+        thor_apply_diagnostics(thor, &part)
+    }
     // Clear first, so a file whose errors were fixed — and which therefore
     // dropped out of the report entirely — loses its squiggles. Files outside
     // the checked scope keep theirs, and so does one the report has already

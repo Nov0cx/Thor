@@ -374,6 +374,23 @@ Diagnostic_Report :: struct {
     package_wide: bool,
 }
 
+// A report for a file other than the one asked about, measured at that file's own revision.
+Related_Report :: struct {
+    report:   Diagnostic_Report, // owned
+    revision: u64,
+}
+
+// Frees a report's scope and items.
+report_free :: proc(report: ^Diagnostic_Report) {
+    delete(report.scope)
+    for d in report.items {
+        delete(d.path)
+        delete(d.message)
+    }
+    delete(report.items)
+    report^ = {}
+}
+
 // A diagnostic already in byte-offset form, handed to a Code_Actions request by
 // the host, which holds the live buffer and has already done the line:col to
 // offset conversion `Diagnostic` itself defers.
@@ -491,6 +508,8 @@ Result :: struct {
     // Rename; owned, freed in job_free. See Resource_Op for the apply order.
     resource_ops: [dynamic]Resource_Op,
     report:       Diagnostic_Report, // Diagnostics; owned, freed in job_free
+    // Diagnostics: the reports of other files the same check covered; owned, freed in job_free.
+    related:      [dynamic]Related_Report,
     // Code_Actions; owned, freed in job_free. Each carries its own edit set, so
     // the editor applies exactly the one the user picked.
     actions:      [dynamic]Code_Action,
@@ -1555,12 +1574,11 @@ result_release :: proc(res: ^Result) {
     delete(res.highlights)
     delete(res.ranges)
     delete(res.lenses)
-    delete(res.report.scope)
-    for d in res.report.items {
-        delete(d.path)
-        delete(d.message)
+    report_free(&res.report)
+    for &related in res.related {
+        report_free(&related.report)
     }
-    delete(res.report.items)
+    delete(res.related)
     delete(res.progress.message)
     delete(res.message.text)
 }

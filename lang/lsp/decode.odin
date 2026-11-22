@@ -533,8 +533,8 @@ decode_resolve_completion :: proc(ask: ^Ask, value: json.Value, res: ^lang.Resul
 
 // `RelatedFullDocumentDiagnosticReport`. An "unchanged" report is refused: no
 // `previousResultId` is ever sent, so a server has nothing to compare against and
-// the reply carries no items to read. `relatedDocuments` is dropped — the report
-// covers the file that was asked about.
+// the reply carries no items to read. Each full entry of `relatedDocuments` for a
+// document the server holds becomes a related report at that document's revision.
 @(private)
 decode_pull_diagnostics :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
     object, is_object := value.(json.Object)
@@ -565,6 +565,50 @@ decode_pull_diagnostics :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result)
     if doc, held := server_find(ask.server, ask.req.path); held {
         document_replace_diagnostics(doc, items)
     }
+    related, has_related := object["relatedDocuments"].(json.Object)
+    if !has_related {
+        return
+    }
+    for uri, entry in related {
+        decode_related_report(ask.server, uri, entry, res)
+    }
+}
+
+// One `relatedDocuments` entry. A document the server does not hold has no line index to place the items with, so it is skipped.
+@(private = "file")
+decode_related_report :: proc(s: ^Server, uri: string, value: json.Value, res: ^lang.Result) {
+    object, is_object := value.(json.Object)
+    if !is_object {
+        return
+    }
+    if kind, has_kind := object["kind"].(json.String); has_kind && kind != "full" {
+        return
+    }
+    items, is_array := object["items"].(json.Array)
+    if !is_array {
+        return
+    }
+    path, is_file := uri_to_path(uri, context.temp_allocator)
+    if !is_file {
+        return
+    }
+    doc, held := server_find(s, path)
+    if !held {
+        return
+    }
+    related := lang.Related_Report{revision = doc.revision}
+    related.report.scope = strings.clone(doc.path)
+    related.report.items = make([dynamic]lang.Diagnostic)
+    for item in items {
+        if diagnostic, decoded := decode_one_diagnostic(&doc.lines, doc.path, item); decoded {
+            append(&related.report.items, diagnostic)
+        }
+    }
+    document_replace_diagnostics(doc, items)
+    if res.related == nil {
+        res.related = make([dynamic]lang.Related_Report)
+    }
+    append(&res.related, related)
 }
 
 // `textDocument/publishDiagnostics`, the one result no request asked for. A file

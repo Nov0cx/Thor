@@ -182,6 +182,10 @@ result_release :: proc(res: ^lang.Result) {
         delete(item.message)
     }
     delete(res.report.items)
+    for &related in res.related {
+        lang.report_free(&related.report)
+    }
+    delete(res.related)
 }
 
 // One document the server already holds, the way server_document builds it.
@@ -1331,6 +1335,38 @@ test_decode_pull_diagnostics_caches_verbatim :: proc(t: ^testing.T) {
         return
     }
     testing.expect(t, strings.contains(doc.diagnostics[0].json, `"code":"unused-import"`), "the code field was dropped from the cache")
+}
+
+// A related report lands for a document the server holds, at that document's revision; an unheld one is skipped.
+@(test)
+test_decode_pull_diagnostics_related :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    held_document(s, OTHER, "one\ntwo\n", 9)
+    req := request_for(.Diagnostics, SOURCE, 0)
+
+    item :: `{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":3}},"message":"bad"}`
+    res := decode_reply(
+        s,
+        &req,
+        `{"kind":"full","items":[],"relatedDocuments":{"` +
+            OTHER_URI +
+            `":{"kind":"full","items":[` +
+            item +
+            `]},"file:///nowhere/gone.fake":{"kind":"full","items":[` +
+            item +
+            `]}}}`,
+    )
+    defer result_release(&res)
+
+    testing.expect(t, res.ok)
+    testing.expect_value(t, len(res.related), 1)
+    if len(res.related) != 1 {
+        return
+    }
+    testing.expect_value(t, res.related[0].report.scope, OTHER)
+    testing.expect_value(t, res.related[0].revision, 9)
+    testing.expect_value(t, len(res.related[0].report.items), 1)
 }
 
 // An "unchanged" report carries no items, so it answers nothing rather than
