@@ -81,3 +81,36 @@ test_tree_cache_across_engines :: proc(t: ^testing.T) {
     testing.expect_value(t, res.hover.text, want)
     testing.expect(t, sync.atomic_load(&second.db.stats.cache_hits) > 0)
 }
+
+// An engine writes the item trees of the workspace at destroy; the next engine on that workspace
+// takes them from the blob and parses none of its files.
+@(test)
+test_workspace_cache_across_engines :: proc(t: ^testing.T) {
+    cache := fixture(t, "odin_ws_cache_dir", {})
+    ws    := fixture(t, "odin_ws_cache_ws", {{"app/lib.odin", "package app\n\nhelper :: proc() -> int { return 1 }\n"}})
+    req   := lang.Request{
+        kind = .Workspace_Symbols,
+        path = fixture_path(ws, "app/main.odin"),
+        ext = ".odin",
+        source = "package app\n",
+        workspace = ws,
+        query = "helper",
+    }
+
+    first := engine_create()
+    engine_set_cache_dir(first, cache)
+    res := lang.Result{kind = .Workspace_Symbols}
+    resolve(first, &req, &res)
+    testing.expect(t, res.ok && len(res.symbols) == 1, "the first engine did not find the symbol")
+    lang.result_release(&res)
+    engine_destroy(first)
+
+    second := engine_create()
+    defer engine_destroy(second)
+    engine_set_cache_dir(second, cache)
+    res = lang.Result{kind = .Workspace_Symbols}
+    resolve(second, &req, &res)
+    defer lang.result_release(&res)
+    testing.expect(t, res.ok && len(res.symbols) == 1, "the second engine did not find the symbol")
+    testing.expect(t, sync.atomic_load(&second.db.stats.ws_hits) > 0, "no tree came from the workspace cache")
+}

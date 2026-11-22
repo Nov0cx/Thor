@@ -131,6 +131,7 @@ prewarm_workspace :: proc(e: ^Engine, workspace: string) {
     }
     collections := workspace_collections(e, workspace)
     tree_cache_ensure(e)
+    workspace_cache_ensure(e, workspace)
     input := odinsema.Snapshot_Input{target = config_target(e, workspace), collections = &collections, cancel = &e.warm_stop}
     snap: odinsema.Snapshot
     defer odinsema.snapshot_end(&snap)

@@ -301,6 +301,12 @@ A `Checker` owns its arena and borrows a `Snapshot`. Destroy it before `snapshot
 (`tree_codec.odin`, `lang/odin/tree_cache.odin`). The key holds the root, the compiler's modtime and
 size, the format and a schema hash. Any mismatch rebuilds silently. Parses stay lazy.
 
+**Workspace cache.** The item trees of the other files persist in
+`user/cache/odin/ws-<hash of the workspace>.bin`, one blob per workspace, stamped by the fnv64 hash
+and the length of each file's text: a load reads the file and, when both match, skips the parse
+(`Db_Stats.ws_hits`). A package listing drops the entries of files that left it. Switching the
+workspace writes the old blob and empties the cache before the new one loads.
+
 ### 4.3 Features: kind to file
 
 | Kind | File | Notes |
@@ -913,8 +919,6 @@ Things that do not exist yet. Each is a candidate for future work.
   Files of one package with different targets do not churn the caches: a package slot keeps a
   `Package_Memo` for each of up to `PACKAGE_MEMO_CONFIGS` (4) configurations, most recent first, and
   the type cache keeps `TYPE_STATE_SLOTS` (8) frozen states keyed by configuration.
-- **Workspace disk cache.** Only the stdlib item trees persist. Item trees of workspace files keyed
-  by content hash are not cached.
 - **Custom lints from Lua plugins.** The sema API is not exposed to plugins.
 - **Other compiler messages as quick fixes.** A compiler message with no suggestion and none of the
   wordings `compiler_fixes.odin` knows has no fix of its own; the live check's fixes still apply.

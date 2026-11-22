@@ -58,6 +58,7 @@ Db_Stats :: struct {
     stats:        int, // file stamps read from disk
     listings:     int, // package directories listed
     cache_hits:   int, // item trees taken from the tree cache
+    ws_hits:      int, // workspace item trees taken from the workspace cache
     parses:       int, // full parses
     reparses:     int, // incremental parses
     trees:        int, // item trees built
@@ -80,6 +81,7 @@ Db :: struct {
     stable_interval:    i64, // nanoseconds; see STABLE_INTERVAL
     workspace_interval: i64, // nanoseconds; 0 checks once per snapshot. See WORKSPACE_INTERVAL
     cache:              Tree_Cache,
+    ws_cache:           Tree_Cache,               // of the workspace files
     lock:               sync.RW_Mutex,            // guards the intern maps, `configs` and appends to the slot tables
     files:              Slot_Table(File_Slot),    // owned; read with no lock
     file_ids:           map[string]File_Id,       // owned; keys borrowed from the slots

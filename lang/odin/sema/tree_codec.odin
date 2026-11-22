@@ -14,7 +14,8 @@ TREE_CACHE_FORMAT :: 2
 @(private = "file")
 TREE_CACHE_MAGIC :: "THORITC\x00"
 
-// Item trees of files under the Odin root, kept across sessions. Mutex is a leaf lock.
+// Item trees kept across sessions: of files under the Odin root, stamped by modtime and size, or of
+// workspace files, stamped by content hash and length. Mutex is a leaf lock.
 @(private)
 Tree_Cache :: struct {
     mutex:   sync.Mutex,
@@ -424,30 +425,46 @@ r_string :: proc(r: ^Reader) -> (string, bool) {
 @(private)
 cache_init :: proc(db: ^Db) {
     db.cache.entries = make(map[string]Cache_Entry, db.allocator)
+    db.ws_cache.entries = make(map[string]Cache_Entry, db.allocator)
 }
 
 @(private)
 cache_destroy :: proc(db: ^Db) {
-    cache_clear(db)
+    cache_clear(db, &db.cache)
     delete(db.cache.entries)
+    cache_clear(db, &db.ws_cache)
+    delete(db.ws_cache.entries)
+}
+
+// The cache of the Odin root, or with `workspace` the one of the workspace files.
+@(private = "file")
+cache_of :: proc(db: ^Db, workspace: bool) -> ^Tree_Cache {
+    return workspace ? &db.ws_cache : &db.cache
 }
 
 @(private = "file")
-cache_clear :: proc(db: ^Db) {
-    for key, e in db.cache.entries {
+cache_clear :: proc(db: ^Db, c: ^Tree_Cache) {
+    for key, e in c.entries {
         delete(key, db.allocator)
         delete(e.data, db.allocator)
     }
-    clear(&db.cache.entries)
-    db.cache.added = 0
+    clear(&c.entries)
+    c.added = 0
+}
+
+// Empties the cache of the workspace files, for a workspace switch.
+db_cache_reset_workspace :: proc(db: ^Db) {
+    c := &db.ws_cache
+    sync.guard(&c.mutex)
+    cache_clear(db, c)
 }
 
 // Replaces the tree cache with the entries of `blob`, which db_cache_encode wrote for `key`. The blob
 // is borrowed. False when the blob is malformed or for another key or layout; the cache is then empty.
-db_cache_load :: proc(db: ^Db, blob: []byte, key: string) -> bool {
-    c := &db.cache
+db_cache_load :: proc(db: ^Db, blob: []byte, key: string, workspace := false) -> bool {
+    c := cache_of(db, workspace)
     sync.guard(&c.mutex)
-    cache_clear(db)
+    cache_clear(db, c)
     r := Reader{data = blob, ok = true}
     magic: [len(TREE_CACHE_MAGIC)]byte
     format: u32le
@@ -475,16 +492,16 @@ db_cache_load :: proc(db: ^Db, blob: []byte, key: string) -> bool {
         sum, hok     := r_i64(&r)
         data, dok    := r_string(&r)
         if !pok || !mok || !sok || !hok || !dok || hash.fnv64a(transmute([]byte)data) != u64(sum) {
-            cache_clear(db)
+            cache_clear(db, c)
             return false
         }
-        if !cache_insert(db, path, modtime, size, transmute([]byte)data) {
-            cache_clear(db)
+        if !cache_insert(db, c, path, modtime, size, transmute([]byte)data) {
+            cache_clear(db, c)
             return false
         }
     }
     if r.pos != len(blob) {
-        cache_clear(db)
+        cache_clear(db, c)
         return false
     }
     c.added = 0
@@ -492,15 +509,16 @@ db_cache_load :: proc(db: ^Db, blob: []byte, key: string) -> bool {
 }
 
 // The number of trees stored since the cache was loaded or last encoded.
-db_cache_added :: proc(db: ^Db) -> int {
-    sync.guard(&db.cache.mutex)
-    return db.cache.added
+db_cache_added :: proc(db: ^Db, workspace := false) -> int {
+    c := cache_of(db, workspace)
+    sync.guard(&c.mutex)
+    return c.added
 }
 
 // The tree cache as a blob for db_cache_load under `key`, from `allocator`. The added count
 // starts again from zero.
-db_cache_encode :: proc(db: ^Db, key: string, allocator := context.allocator) -> ([]byte, bool) {
-    c := &db.cache
+db_cache_encode :: proc(db: ^Db, key: string, allocator := context.allocator, workspace := false) -> ([]byte, bool) {
+    c := cache_of(db, workspace)
     sync.guard(&c.mutex)
     buf := make([dynamic]byte, 0, 64 * mem.Kilobyte, allocator)
     w   := Writer{buf = &buf, ok = true}
@@ -528,8 +546,7 @@ db_cache_encode :: proc(db: ^Db, key: string, allocator := context.allocator) ->
 
 // Adds or replaces one entry with a copy of `data`. The caller holds the cache.
 @(private = "file")
-cache_insert :: proc(db: ^Db, path: string, modtime, size: i64, data: []byte) -> bool {
-    c          := &db.cache
+cache_insert :: proc(db: ^Db, c: ^Tree_Cache, path: string, modtime, size: i64, data: []byte) -> bool {
     owned, err := make([]byte, len(data), db.allocator)
     if err != nil {
         return false
@@ -556,16 +573,16 @@ cache_insert :: proc(db: ^Db, path: string, modtime, size: i64, data: []byte) ->
 
 // Removes the entry of the file at `key`, so the next encode leaves it out.
 @(private)
-cache_drop :: proc(db: ^Db, key: string) {
-    c := &db.cache
+cache_drop :: proc(db: ^Db, key: string, workspace := false) {
+    c := cache_of(db, workspace)
     sync.guard(&c.mutex)
-    cache_remove(db, key)
+    cache_remove(db, c, key)
 }
 
 // Removes the entries of the files directly in the directory `dir_key` whose keys `present` does not hold.
 @(private)
-cache_prune_dir :: proc(db: ^Db, dir_key: string, present: []string) {
-    c := &db.cache
+cache_prune_dir :: proc(db: ^Db, dir_key: string, present: []string, workspace := false) {
+    c := cache_of(db, workspace)
     sync.guard(&c.mutex)
     gone := make([dynamic]string, context.temp_allocator)
     next: for key in c.entries {
@@ -585,14 +602,13 @@ cache_prune_dir :: proc(db: ^Db, dir_key: string, present: []string) {
         }
     }
     for key in gone {
-        cache_remove(db, key)
+        cache_remove(db, c, key)
     }
 }
 
 // Removes one entry. The caller holds the cache.
 @(private = "file")
-cache_remove :: proc(db: ^Db, key: string) {
-    c := &db.cache
+cache_remove :: proc(db: ^Db, c: ^Tree_Cache, key: string) {
     if key not_in c.entries {
         return
     }
@@ -604,8 +620,8 @@ cache_remove :: proc(db: ^Db, key: string) {
 
 // The cached tree and lines of the file at `key` when its stamp matches.
 @(private)
-cache_take :: proc(db: ^Db, key: string, modtime, size: i64) -> (tree: ^Item_Tree, lines: []int, ok: bool) {
-    c := &db.cache
+cache_take :: proc(db: ^Db, key: string, modtime, size: i64, workspace := false) -> (tree: ^Item_Tree, lines: []int, ok: bool) {
+    c := cache_of(db, workspace)
     sync.guard(&c.mutex)
     e, found := c.entries[key]
     if !found || e.modtime != modtime || e.size != size {
@@ -616,15 +632,15 @@ cache_take :: proc(db: ^Db, key: string, modtime, size: i64) -> (tree: ^Item_Tre
 
 // Stores the tree and lines of the file at `key` under its stamp.
 @(private)
-cache_put :: proc(db: ^Db, key: string, modtime, size: i64, tree: ^Item_Tree, lines: []int) {
+cache_put :: proc(db: ^Db, key: string, modtime, size: i64, tree: ^Item_Tree, lines: []int, workspace := false) {
     buf := make([dynamic]byte, 0, 4 * mem.Kilobyte, db.allocator)
     defer delete(buf)
     if !tree_encode(tree, lines, &buf) {
         return
     }
-    c := &db.cache
+    c := cache_of(db, workspace)
     sync.guard(&c.mutex)
-    if cache_insert(db, key, modtime, size, buf[:]) {
+    if cache_insert(db, c, key, modtime, size, buf[:]) {
         c.added += 1
     }
 }

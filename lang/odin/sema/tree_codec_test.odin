@@ -221,6 +221,71 @@ test_tree_cache_db :: proc(t: ^testing.T) {
     }
 }
 
+// A workspace file takes its tree from the workspace cache when its content hash matches, so a second
+// database reads it but does not parse it; changed content parses again.
+@(test)
+test_tree_cache_workspace :: proc(t: ^testing.T) {
+    dir, ok := fixture_dir(t, "ws")
+    if !ok {
+        return
+    }
+    defer os.remove_all(dir)
+    path, _ := filepath.join({dir, "a.odin"}, context.temp_allocator)
+    testing.expect_value(t, os.write_entire_file(path, "package p\n\none :: proc() {}\n"), nil)
+    input := Snapshot_Input{target = target_host()}
+    KEY :: "ws"
+
+    blob: []byte
+    {
+        db: Db
+        db_init(&db, read_plain)
+        defer db_destroy(&db)
+        snap: Snapshot
+        if !testing.expect(t, snapshot_begin(&db, &snap, input)) {
+            return
+        }
+        view := db_package(&snap, db_package_id(&snap, dir))
+        testing.expect(t, view != nil && len(package_scope_lookup(view.scope, "one")) > 0)
+        snapshot_end(&snap)
+        testing.expect_value(t, db_cache_added(&db, workspace = true), 1)
+        testing.expect_value(t, db_cache_added(&db), 0)
+        eok: bool
+        blob, eok = db_cache_encode(&db, KEY, workspace = true)
+        testing.expect(t, eok)
+    }
+    defer delete(blob)
+
+    db: Db
+    db_init(&db, read_plain)
+    defer db_destroy(&db)
+    testing.expect(t, db_cache_load(&db, blob, KEY, workspace = true))
+    {
+        snap: Snapshot
+        if !testing.expect(t, snapshot_begin(&db, &snap, input)) {
+            return
+        }
+        defer snapshot_end(&snap)
+        view := db_package(&snap, db_package_id(&snap, dir))
+        testing.expect(t, view != nil && len(package_scope_lookup(view.scope, "one")) > 0)
+        testing.expect_value(t, sync.atomic_load(&db.stats.ws_hits), 1)
+        testing.expect_value(t, sync.atomic_load(&db.stats.trees), 0)
+    }
+
+    testing.expect_value(t, os.write_entire_file(path, "package p\n\none :: proc() {}\ntwo :: 2\n"), nil)
+    db.workspace_interval = 0
+    {
+        snap: Snapshot
+        if !testing.expect(t, snapshot_begin(&db, &snap, input)) {
+            return
+        }
+        defer snapshot_end(&snap)
+        view := db_package(&snap, db_package_id(&snap, dir))
+        testing.expect(t, view != nil && len(package_scope_lookup(view.scope, "two")) > 0)
+        testing.expect_value(t, sync.atomic_load(&db.stats.trees), 1)
+        testing.expect_value(t, sync.atomic_load(&db.stats.ws_hits), 1)
+    }
+}
+
 // A file deleted from a package under the Odin root, or its whole directory, leaves the tree cache.
 @(test)
 test_tree_cache_prune :: proc(t: ^testing.T) {

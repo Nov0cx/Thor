@@ -1,5 +1,6 @@
 package odinsema
 
+import "core:hash"
 import "core:os"
 import "core:path/filepath"
 import "core:sync"
@@ -168,9 +169,7 @@ file_refresh :: proc(snap: ^Snapshot, slot: ^File_Slot) {
         if slot.disk != nil || slot.exists {
             next_revision(db)
         }
-        if key_stable(snap, slot.key) {
-            cache_drop(db, slot.key)
-        }
+        cache_drop(db, slot.key, !key_stable(snap, slot.key))
         file_slot_drop_disk(db, slot)
         slot.stamped = true
         slot.exists = false
@@ -201,7 +200,8 @@ file_refresh :: proc(snap: ^Snapshot, slot: ^File_Slot) {
 }
 
 // Reads and parses a file into new disk memos. A file under the Odin root takes its tree from the
-// tree cache when the stamp matches, and leaves the parse to db_parse. A file that cannot be read keeps none.
+// tree cache when the stamp matches, a workspace file from the workspace cache when its content hash
+// does, and either leaves the parse to db_parse. A file that cannot be read keeps none.
 @(private = "file")
 file_load :: proc(snap: ^Snapshot, slot: ^File_Slot, modtime, size: i64) {
     db := snap.db
@@ -225,6 +225,20 @@ file_load :: proc(snap: ^Snapshot, slot: ^File_Slot, modtime, size: i64) {
         return
     }
     stat_add(&db.stats.reads)
+    sum, n := i64(hash.fnv64a(transmute([]byte)text)), i64(len(text))
+    if !stable {
+        if tree, lines, hit := cache_take(db, slot.key, sum, n, workspace = true); hit {
+            if data := file_data_wrap(db, tree, lines); data != nil {
+                delete(text, db.allocator)
+                stat_add(&db.stats.ws_hits)
+                file_set_disk(slot, data, rev)
+                if sync.atomic_load(&slot.holders) == 0 {
+                    lru_touch_locked(db, &db.loose, u32(slot.id))
+                }
+                return
+            }
+        }
+    }
     parsed, perr := odinsyntax.parse(text, db.allocator)
     delete(text, db.allocator)
     if perr != nil {
@@ -239,6 +253,8 @@ file_load :: proc(snap: ^Snapshot, slot: ^File_Slot, modtime, size: i64) {
     file_set_disk(slot, data, rev)
     if stable {
         cache_put(db, slot.key, modtime, size, data.tree, data.lines)
+    } else {
+        cache_put(db, slot.key, sum, n, data.tree, data.lines, workspace = true)
     }
     if body := file_body_new(db, parsed); body != nil {
         slot.body = body
