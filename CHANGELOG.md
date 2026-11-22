@@ -28,6 +28,7 @@
 - Odin: workspace symbols show a constant alias of a type or a procedure with that kind.
 - Odin: files of several targets in one package keep their analysis, and workspace files reopen without a new parse.
 - Plugins: the `lint` permission gives `thor.lint.register`, `thor.lint.symbols` and `thor.lint.type_at`; linter items show beside the language diagnostics.
+- Large files: typing near the start of a file is as fast as near the end, and undo, redo and replace all change the text in place instead of building it again.
 
 # 2026.11.7
 

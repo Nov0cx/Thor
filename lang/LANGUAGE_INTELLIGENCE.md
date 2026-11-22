@@ -956,8 +956,8 @@ Behaviour that is wrong, partial, or surprising today.
   check such bodies, so real errors in them are listed apart in the oracle (9 in the Odin sources).
 - **Block-local type cache.** An entry that reads the request buffer is never frozen, so a request
   in a big file that declares the central type (`thor/thor.odin`) types it again (about 3.8 ms).
-- **Cold start.** The first request takes about 110 ms; the first live check of `thor/view.odin`
-  about 440 ms. The prewarm thread reads the item trees of the workspace, so the first workspace
+- **Cold start.** The first completion takes about 156 ms, 16 ms after the prewarm; the first live
+  diagnostics of the benchmark file 43 ms, and the first live check of `thor/view.odin` about 440 ms. The prewarm thread reads the item trees of the workspace, so the first workspace
   symbols query costs what a warm one does (85 ms on this repository, 480 ms without). Warm live
   diagnostics take about 19 ms after an edit in one body. A change outside a body walks every
   declaration again (about 45 ms on `editview/editor.odin`).
