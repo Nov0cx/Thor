@@ -72,6 +72,42 @@ f :: proc(q: ^T, i: int, k: [3]^T) -> int {
     }
 }
 
+// A named constant or a constant expression index is one element: storing at it leaves the others nil.
+@(test)
+test_live_nil_deref_constant_index :: proc(t: ^testing.T) {
+    root := fixture(t, "live_nil_deref_const_index", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
+    e    := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+T :: struct { x: int }
+N :: 3
+
+f :: proc(q: ^T) -> int {
+	n := 0
+	a: [N]^T
+	a[N - 1] = q
+	n += a[2].x
+	n += a[0].x
+	LAST :: N - 1
+	b: [N]^T
+	b[LAST] = q
+	n += b[LAST].x
+	n += b[1].x
+	return n
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(
+        t,
+        &res,
+        src,
+        {{"a[0].x", "Dereferencing 'a[0]', which is always nil here", 0}, {"b[1].x", "Dereferencing 'b[1]', which is always nil here", 0}},
+    )
+}
+
 @(test)
 test_live_dangling_comp_lit_and_local_pointer :: proc(t: ^testing.T) {
     root := fixture(t, "live_dangling_complit", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})

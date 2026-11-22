@@ -934,8 +934,9 @@ Behaviour that is wrong, partial, or surprising today.
   checked like a literal. Unknown struct tags are accepted, as the compiler does.
 - **`vet-style`, `vet-semicolon`, `vet-tabs`** are live-only; the on-save `odin check` does not
   report them. `-vet-unused-procedures` does reach the save.
-- **`nil/deref`** follows the elements of a fixed array only at a constant index; a variable-index
-  store resets them all.
+- **`nil/deref`** follows the elements of a fixed array at a constant index, a named constant or a
+  constant expression (`a[N - 1]`, folded through `const_eval`). A store at a variable index can
+  reach any element, so it resets them all.
 - **Polymorphic bodies.** An import used only in a body that the package does not instantiate is
   reported by name match. It can miss a report but cannot give a false one. The compiler does not
   check such bodies, so real errors in them are listed apart in the oracle (9 in the Odin sources).
