@@ -687,6 +687,30 @@ collect_decls :: proc(ctx: ^Semantic_Ctx) {
     }
 }
 
+// True when a `using` statement or a `using` local of a scope that holds `offset` comes before it, so
+// it may bring a name in there.
+@(private = "file")
+using_in_reach :: proc(m: ^odinsema.Scope_Map, offset: int) -> bool {
+    holds :: proc(m: ^odinsema.Scope_Map, scope, offset: int) -> bool {
+        if scope < 0 {
+            return true
+        }
+        s := m.scopes[scope]
+        return s.start <= offset && offset < s.end
+    }
+    for u in m.usings {
+        if u.end <= offset && holds(m, u.scope, offset) {
+            return true
+        }
+    }
+    for l in m.locals {
+        if l.is_using && l.name_offset < offset && holds(m, l.scope, offset) {
+            return true
+        }
+    }
+    return false
+}
+
 @(private = "file")
 decl_at :: proc(ctx: ^Semantic_Ctx, offset: int) -> ^Decl_Range {
     i, _ := slice.binary_search_by(ctx.decls[:], offset, proc(d: Decl_Range, offset: int) -> slice.Ordering {
@@ -749,7 +773,7 @@ enum_declares :: proc(n: odinsyntax.Syntax_Node, name: string) -> bool {
 @(private = "file")
 undeclared_at :: proc(ctx: ^Semantic_Ctx, offset: int, name: string) -> bool {
     d := decl_at(ctx, offset)
-    if d == nil || d.has_using {
+    if d == nil || d.has_using && using_in_reach(ctx.m, offset) {
         return false
     }
     node_path_to(ctx, offset)

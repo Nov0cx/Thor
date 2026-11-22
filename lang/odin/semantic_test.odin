@@ -300,6 +300,39 @@ main :: proc() {
     }
 }
 
+// A `using` skips only the names after it in its own scopes; a name before it or in a sibling block is still marked.
+@(test)
+test_semantic_unresolved_around_using :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    main_src := `#+feature using-stmt
+package app
+
+Point :: struct { x, y: int }
+
+main :: proc() {
+	_ = before_using
+	{
+		_ = in_sibling
+	}
+	{
+		p: Point
+		using p
+		_ = x + y + after_using
+	}
+}
+`
+    root     := fixture(t, "semantic_unresolved_using", {{"app/main.odin", main_src}})
+    res      := semantic_at(e, main_src, workspace = root, path = fixture_path(root, "app/main.odin"))
+    defer delete(res.tokens)
+    expect_ordered(t, &res, main_src)
+
+    expect_kind(t, &res, main_src, "before_using", .Unresolved)
+    expect_kind(t, &res, main_src, "in_sibling", .Unresolved)
+    expect_none(t, &res, main_src, "after_using")
+}
+
 @(test)
 test_semantic_unresolved_only_when_undeclared :: proc(t: ^testing.T) {
     e := engine_create()

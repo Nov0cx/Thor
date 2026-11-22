@@ -952,7 +952,8 @@ Behaviour that is wrong, partial, or surprising today.
 - **References without a checker.** With no memory left for a checker, a member falls back to a name
   match unless the operand names another type.
 - **Statement-level `using`** works only in a file with `#+feature using-stmt`, as in the
-  compiler. The semantic `Unresolved` mark skips declarations with a `using`.
+  compiler. The semantic `Unresolved` mark skips a free name only when a `using` of a scope that holds
+  it comes before it, since the checker may not resolve what that `using` brings in.
 - **Workspace symbols are syntactic.** They do not run the checker.
 - **Path spelling.** Symlinks and Windows 8.3 short names are resolved by `path_real` as a third
   tier. A mismatch that all three tiers miss widens a lookup instead of failing it.
