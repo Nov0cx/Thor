@@ -229,7 +229,7 @@ Package names: `odin`, `odinsema`, `odinsyntax`, `odinfmt`, `syntaxgen`.
   newest. After `MAX_GENERATIONS` (32) a full parse ends the chain. A reparsed tree keeps its text
   in pages of its own (`tree_take_text`) and takes over those of its base, which keeps no text: red
   nodes read the newest tree only. The splice block is sized to the spine (`splice_bytes`). One
-  keystroke in a 3,000-line file takes about 0.05–0.09 ms.
+  keystroke in a 3,000-line file takes about 0.05â€“0.09 ms.
 - **Checks.** `corpus_test.odin`: every file of Thor plus `base`/`core`/`vendor` parses losslessly.
   Each of about 1,900 files `core:odin/parser` accepts gives zero errors and the same declarations
   and expression nodes. 20,000 rounds of random edits and every prefix of a file parse with no stuck
@@ -929,13 +929,13 @@ Behaviour that is wrong, partial, or surprising today.
   importer walk.
 - **References without a checker.** With no memory left for a checker, a member falls back to a name
   match unless the operand names another type.
-- **Statement-level `using`** works only in a file with `#+feature using-stmt`. The semantic
-  `Unresolved` mark skips declarations with a `using`.
+- **Statement-level `using`** works only in a file with `#+feature using-stmt`, as in the
+  compiler. The semantic `Unresolved` mark skips declarations with a `using`.
 - **Workspace symbols are syntactic.** They do not run the checker.
 - **Path spelling.** Symlinks and Windows 8.3 short names are resolved by `path_real` as a third
   tier. A mismatch that all three tiers miss widens a lookup instead of failing it.
-- **Syntax.** `do` procedure bodies and `#+` tags after `package` are reported as errors.
-  `core:odin/parser` is laxer than the compiler (commas between lines, `do` bodies, `#no_copy`), so
+- **Syntax.** `do` procedure bodies and `#+` tags after `package` are errors, with the compiler's
+  own messages; `do` stays valid after `if`, `for`, `when` and `switch`. `core:odin/parser` is laxer than the compiler (commas between lines, `do` bodies, `#no_copy`), so
   `odin check -file` is the oracle for syntax.
 
 ### Large files
