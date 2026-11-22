@@ -221,10 +221,10 @@ csi_private :: proc(t: ^Term, final: u8) {
         for i in 0 ..< max(p.n, 1) {
             dec_mode(t, param(p, i, 0), false)
         }
-    case 'J': // DECSED, taken as ED: a protected cell is rare and this keeps one rule
-        erase_display(t, param(p, 0, 0))
+    case 'J': // DECSED: ED that keeps the cells DECSCA protected
+        erase_display(t, param(p, 0, 0), true)
     case 'K': // DECSEL
-        erase_line(t, param(p, 0, 0))
+        erase_line(t, param(p, 0, 0), true)
     case 'n': // DEC device status
         if param(p, 0, 0) == 6 {
             y := t.origin ? t.cur.y - t.top : t.cur.y

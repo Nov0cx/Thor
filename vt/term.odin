@@ -397,7 +397,8 @@ term_take_clipboard :: proc(t: ^Term) -> (string, bool) {
 
 // Resizes the grid. Content keeps its place from the top left; rows that fall
 // off the bottom of the primary screen move into the scrollback, and the cursor
-// is clamped. Lines are not reflowed: a wrapped line stays split where it was.
+// is clamped. A width change reflows the primary screen and its history: wrapped
+// rows join and wrap again at the new width. The alternate screen is cut.
 term_resize :: proc(t: ^Term, cols, rows: int) {
     cols, rows := cols, rows
     cols, rows = max(cols, 1), max(rows, 1)
@@ -405,6 +406,16 @@ term_resize :: proc(t: ^Term, cols, rows: int) {
         return
     }
     context.allocator = t.allocator
+
+    if cols != t.cols {
+        reflow_primary(t, cols, rows)
+        grid_resize(t, &t.alt, cols, rows)
+        // The reflow places a cursor past the last column as a pending wrap.
+        pending, saved_pending := t.cur.pending_wrap && !t.alt_active, t.saved.cur.pending_wrap
+        resize_finish(t, cols, rows)
+        t.cur.pending_wrap, t.saved.cur.pending_wrap = pending, saved_pending
+        return
+    }
 
     // Shrinking the primary screen pushes the rows above the cursor into the
     // history instead of dropping them, which is what a shell redrawing its
@@ -424,8 +435,14 @@ term_resize :: proc(t: ^Term, cols, rows: int) {
 
     grid_resize(t, &t.primary, cols, rows)
     grid_resize(t, &t.alt, cols, rows)
-    t.cols, t.rows = cols, rows
+    resize_finish(t, cols, rows)
+}
 
+// The state every resize resets: the size, the tab stops, the scroll region and
+// the cursors clamped onto the new grid.
+@(private = "file")
+resize_finish :: proc(t: ^Term, cols, rows: int) {
+    t.cols, t.rows = cols, rows
     tabs_reset(t)
     t.top = 0
     t.bottom = rows - 1
@@ -542,6 +559,7 @@ grid_resize :: proc(t: ^Term, g: ^[dynamic]Line, cols, rows: int) {
         }
         if cols < old {
             line.wrapped = false
+            repair_wide(&line)
         }
     }
     for len(g) < rows {
@@ -566,7 +584,7 @@ grid_destroy :: proc(g: ^[dynamic]Line) {
 
 // Moves one line into the history, dropping the oldest once the limit is met.
 // Trailing blanks are cut: a history line is only ever read, and most of a row
-// is empty.
+// is empty. A wrapped line keeps them, since a reflow joins it to the next.
 @(private)
 scrollback_push :: proc(t: ^Term, line: Line) {
     line := line
@@ -575,7 +593,7 @@ scrollback_push :: proc(t: ^Term, line: Line) {
         return
     }
     end := len(line.cells)
-    for end > 0 {
+    for end > 0 && !line.wrapped {
         cell := line.cells[end - 1]
         if cell.ch != ' ' || cell.bg.kind != .Default || cell.attrs != {} {
             break

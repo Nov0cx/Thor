@@ -186,8 +186,13 @@ utf8_continue :: proc(t: ^Term, b: u8) {
     if t.utf8_need > 0 {
         return
     }
-    print_rune(t, utf8_decode(t.utf8[:t.utf8_len]))
+    r := utf8_decode(t.utf8[:t.utf8_len])
     t.utf8_len = 0
+    // A C1 control written as UTF-8 is not text, and the parser does not take it as a control.
+    if r >= 0x80 && r <= 0x9f {
+        return
+    }
+    print_rune(t, r)
 }
 
 @(private = "file")
@@ -203,8 +208,11 @@ utf8_decode :: proc(bytes: []u8) -> rune {
     case:
         return 0xfffd
     }
-    // Surrogates and out-of-range code points never reach a cell.
+    // Surrogates, out-of-range code points and over-long forms never reach a cell.
     if r > 0x10ffff || (r >= 0xd800 && r <= 0xdfff) {
+        return 0xfffd
+    }
+    if (len(bytes) == 3 && r < 0x800) || (len(bytes) == 4 && r < 0x10000) {
         return 0xfffd
     }
     return r

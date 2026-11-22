@@ -253,6 +253,7 @@ insert_chars :: proc(t: ^Term, n: int) {
     for x in t.cur.x ..< t.cur.x + n {
         line.cells[x] = blank
     }
+    repair_wide(line)
     t.cur.pending_wrap = false
 }
 
@@ -272,6 +273,7 @@ delete_chars :: proc(t: ^Term, n: int) {
     for x in t.cols - n ..< t.cols {
         line.cells[x] = blank
     }
+    repair_wide(line)
     t.cur.pending_wrap = false
 }
 
@@ -282,21 +284,18 @@ erase_chars :: proc(t: ^Term, n: int) {
     if line == nil {
         return
     }
-    blank := blank_cell(t.cur.pen)
-    for x in t.cur.x ..< min(t.cur.x + max(n, 1), t.cols) {
-        line.cells[x] = blank
-    }
+    erase_cells(line, t.cur.x, min(t.cur.x + max(n, 1), t.cols), blank_cell(t.cur.pen), false)
     t.cur.pending_wrap = false
 }
 
-// EL: 0 to the end of the row, 1 to its start, 2 the whole row.
+// EL: 0 to the end of the row, 1 to its start, 2 the whole row. A selective
+// erase (DECSEL) keeps the cells DECSCA protected.
 @(private)
-erase_line :: proc(t: ^Term, mode: int) {
+erase_line :: proc(t: ^Term, mode: int, selective := false) {
     line := cursor_row(t)
     if line == nil {
         return
     }
-    blank := blank_cell(t.cur.pen)
     lo, hi := 0, 0
     switch mode {
     case 0:
@@ -309,47 +308,75 @@ erase_line :: proc(t: ^Term, mode: int) {
     case:
         return
     }
-    for x in lo ..< hi {
-        line.cells[x] = blank
-    }
+    erase_cells(line, lo, hi, blank_cell(t.cur.pen), selective)
     t.cur.pending_wrap = false
 }
 
 // ED: 0 to the end of the screen, 1 to its start, 2 the whole screen, 3 the
-// scrollback.
+// scrollback. A selective erase (DECSED) keeps the protected cells and never
+// clears the scrollback.
 @(private)
-erase_display :: proc(t: ^Term, mode: int) {
+erase_display :: proc(t: ^Term, mode: int, selective := false) {
     blank := blank_cell(t.cur.pen)
     switch mode {
     case 0:
-        erase_line(t, 0)
+        erase_line(t, 0, selective)
         for y in t.cur.y + 1 ..< t.rows {
-            line_clear_with(row(t, y), blank)
+            line_clear_with(row(t, y), blank, selective)
         }
     case 1:
-        erase_line(t, 1)
+        erase_line(t, 1, selective)
         for y in 0 ..< t.cur.y {
-            line_clear_with(row(t, y), blank)
+            line_clear_with(row(t, y), blank, selective)
         }
     case 2:
         for y in 0 ..< t.rows {
-            line_clear_with(row(t, y), blank)
+            line_clear_with(row(t, y), blank, selective)
         }
     case 3:
-        term_clear_scrollback(t)
+        if !selective {
+            term_clear_scrollback(t)
+        }
     }
     t.cur.pending_wrap = false
 }
 
 @(private = "file")
-line_clear_with :: proc(line: ^Line, blank: Cell) {
+line_clear_with :: proc(line: ^Line, blank: Cell, selective := false) {
     if line == nil {
         return
     }
-    for &cell in line.cells {
-        cell = blank
-    }
+    erase_cells(line, 0, len(line.cells), blank, selective)
     line.wrapped = false
+}
+
+// Writes `blank` over the cells [lo, hi) of `line`, past the protected ones
+// when `selective`, then repairs the wide characters the range cut.
+@(private = "file")
+erase_cells :: proc(line: ^Line, lo, hi: int, blank: Cell, selective: bool) {
+    for x in max(lo, 0) ..< min(hi, len(line.cells)) {
+        if selective && .Protected in line.cells[x].attrs {
+            continue
+        }
+        line.cells[x] = blank
+    }
+    repair_wide(line)
+}
+
+// Blanks every half of a double-width character whose other half is gone, so
+// no glyph runs over a cell it no longer owns and no spacer stands alone.
+@(private)
+repair_wide :: proc(line: ^Line) {
+    cells := line.cells[:]
+    for x in 0 ..< len(cells) {
+        cell := cells[x]
+        switch {
+        case .Wide in cell.flags && (x + 1 >= len(cells) || .Spacer not_in cells[x + 1].flags):
+            cells[x] = {ch = ' ', bg = cell.bg}
+        case .Spacer in cell.flags && (x == 0 || .Wide not_in cells[x - 1].flags):
+            cells[x] = {ch = ' ', bg = cell.bg}
+        }
+    }
 }
 
 // DECALN: the whole screen filled with E, which is the alignment test.
