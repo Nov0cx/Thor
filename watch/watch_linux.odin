@@ -23,10 +23,12 @@ Platform :: struct {
     open:     bool, // `fd` is a live descriptor; a zeroed Platform owns nothing
 }
 
-// The events worth a report. CLOSE_WRITE rather than MODIFY: a writer that
-// flushes in parts is still one change, and a reload wants the finished file.
+// The events worth a report. MODIFY covers a writer that keeps the file open
+// (a log, a memory map); CLOSE_WRITE still reports the finished file. The
+// drain folds a burst of MODIFY into one change. DELETE_SELF and MOVE_SELF are
+// what report the root itself going away.
 @(private = "file")
-EVENTS :: linux.Inotify_Event_Mask{.CREATE, .DELETE, .MOVED_FROM, .MOVED_TO, .CLOSE_WRITE}
+EVENTS :: linux.Inotify_Event_Mask{.CREATE, .DELETE, .MOVED_FROM, .MOVED_TO, .CLOSE_WRITE, .MODIFY, .DELETE_SELF, .MOVE_SELF}
 
 // How long a wait for events lasts before the worker reads `stopping`, in
 // milliseconds; the shutdown latency of the poller.
@@ -195,7 +197,17 @@ watch_event :: proc(w: ^Watcher, wd: linux.Wd, mask: linux.Inotify_Event_Mask, n
         return
     }
     dir, known := w.platform.watches[wd]
-    if !known || name == "" {
+    if !known {
+        return
+    }
+    // A directory below the root that goes away was reported by its parent.
+    if .DELETE_SELF in mask || .MOVE_SELF in mask {
+        if dir == w.root {
+            watch_emit(w, .Deleted, w.root)
+        }
+        return
+    }
+    if name == "" {
         return
     }
 
@@ -211,8 +223,10 @@ watch_event :: proc(w: ^Watcher, wd: linux.Wd, mask: linux.Inotify_Event_Mask, n
         }
     case .DELETE in mask, .MOVED_FROM in mask:
         watch_emit(w, .Deleted, path)
-    case .CLOSE_WRITE in mask:
-        watch_emit(w, .Modified, path)
+    case .CLOSE_WRITE in mask, .MODIFY in mask:
+        if .ISDIR not_in mask {
+            watch_emit(w, .Modified, path)
+        }
     }
 }
 

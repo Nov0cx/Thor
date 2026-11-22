@@ -205,3 +205,56 @@ test_watch_skips_a_dependency_tree :: proc(t: ^testing.T) {
     testing.expect(t, seen_has(&seen, beside), "a file in the workspace was never reported")
     testing.expect(t, !seen_has(&seen, inside), "a file under node_modules was reported")
 }
+
+// The root going away reaches no parent watch, so only DELETE_SELF on the root
+// reports it.
+@(test)
+test_watch_reports_the_root_deleted :: proc(t: ^testing.T) {
+    root := temp_root(t, "thor_watch_root_gone")
+
+    w: Watcher
+    testing.expect(t, watcher_init(&w, root), "watcher_init should succeed on a real directory")
+    defer watcher_destroy(&w)
+
+    seen: Seen
+    defer seen_destroy(&seen)
+    watcher_subscribe(&w, seen_collect, &seen)
+
+    if err := os.remove(root); err != nil {
+        testing.fail_now(t, fmt.tprintf("could not remove %q: %v", root, err))
+    }
+    pump_for(&w, &seen, root, 3 * time.Second)
+    testing.expect(t, seen_has(&seen, root), "the deleted root was never reported")
+}
+
+// A writer that keeps the file open never closes it, so MODIFY is what reports it.
+@(test)
+test_watch_reports_a_write_without_close :: proc(t: ^testing.T) {
+    root := temp_root(t, "thor_watch_open_write")
+    defer os.remove(root)
+    path, _ := filepath.join({root, "log.txt"}, context.temp_allocator)
+    defer os.remove(path)
+
+    file, open_err := os.open(path, {.Write, .Create, .Trunc})
+    if open_err != nil {
+        testing.fail_now(t, fmt.tprintf("could not create %q: %v", path, open_err))
+    }
+    defer os.close(file)
+
+    w: Watcher
+    testing.expect(t, watcher_init(&w, root), "watcher_init should succeed on a real directory")
+    defer watcher_destroy(&w)
+
+    seen: Seen
+    defer seen_destroy(&seen)
+    watcher_subscribe(&w, seen_collect, &seen)
+
+    for _ in 0 ..< 5 {
+        _, _ = os.write(file, transmute([]u8)string("line\n"))
+        pump_for(&w, &seen, path, 1500 * time.Millisecond)
+        if seen_has(&seen, path) {
+            break
+        }
+    }
+    testing.expect(t, seen_has(&seen, path), "a write to an open file was never reported")
+}

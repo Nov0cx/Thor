@@ -84,8 +84,13 @@ thor_watch_explorer :: proc(data: rawptr, change: watch.Change) {
     if thor_git_lock_path(change.path, thor.workspace_dir) {
         return
     }
-    if change.kind != .Modified || thor_same_path(change.path, thor.workspace_dir) {
+    root := thor_same_path(change.path, thor.workspace_dir)
+    if change.kind != .Modified || root {
         thor.watch_tree_dirty = true
+    }
+    // Open buffers keep their text, so only a notice is due.
+    if root && change.kind == .Deleted {
+        thor_flash_status(thor, "The workspace folder was removed or moved", is_error = true)
     }
     thor.watch_git_dirty = true
 }
