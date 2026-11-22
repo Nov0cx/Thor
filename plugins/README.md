@@ -27,8 +27,10 @@ Every plugin runs in its own environment inside one shared Lua state:
   spends resumed counts against the call that resumed it. The budget error
   cannot be caught: `pcall`, `xpcall` and `coroutine.resume` raise it again, so
   it ends the whole call. Every other error they catch as usual.
-- All plugins share one Lua state, and it may hold 256 MiB. An allocation past
-  that fails with `not enough memory`, which `pcall` catches like any other error.
+- All plugins share one Lua state, and it may hold 256 MiB. One plugin may grow
+  it by 64 MiB at most, counted while its own code runs. An allocation past
+  either limit fails with `not enough memory`, which `pcall` catches like any
+  other error.
 - `setmetatable` refuses a metatable with a `__gc` entry. A finaliser would run
   outside the budget.
 - A list the host reads back — lexer spans, menu entries, picker items, panel
@@ -326,6 +328,8 @@ as any node off it does.
 `thor.panel` creates a dockable panel; `:render` replaces its contents with a
 list of nodes, `:show` reveals it and `:close` hides it. Re-render as often as
 you like — the previous contents and their callbacks are released each time.
+A plugin may create 16 panels; a new id past that raises an error, and calling
+`thor.panel` again with an id it already has returns that panel.
 
 ```lua
 local p = thor.panel { id = "status", title = "Status", dock = "right" }

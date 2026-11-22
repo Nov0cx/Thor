@@ -90,6 +90,9 @@ api_panel :: proc "c"(L: ^lua.State) -> c.int {
 
     id := panel_id(p.id, name)
     if _, exists := m.panel_refs[id]; !exists {
+        if panel_count(m, p.id) >= MAX_PANELS_PER_PLUGIN {
+            return c.int(lua.L_error(L, "a plugin may create at most %d panels", c.int(MAX_PANELS_PER_PLUGIN)))
+        }
         m.panel_refs[strings.clone(id)] = make([dynamic]Callback)
     }
     if m.panel_proc != nil {
@@ -188,6 +191,18 @@ panel_id :: proc(plugin, name: string) -> string {
     return strings.concatenate({plugin, "/", name}, context.temp_allocator)
 }
 
+// The panels the plugin `plugin` has created.
+@(private)
+panel_count :: proc(m: ^Manager, plugin: string) -> int {
+    n := 0
+    for id in m.panel_refs {
+        if len(id) > len(plugin) && id[len(plugin)] == '/' && strings.has_prefix(id, plugin) {
+            n += 1
+        }
+    }
+    return n
+}
+
 // Releases every callback the panel holds, keeping the (owned) key.
 @(private)
 clear_panel_refs :: proc(m: ^Manager, id: string) {
@@ -229,6 +244,9 @@ panel_callback :: proc(m: ^Manager, id: string, action: int) -> Callback {
 // budget hook to count.
 MAX_VIEW_DEPTH :: 32
 MAX_VIEW_NODES :: 4096
+
+// The most panels one plugin may create.
+MAX_PANELS_PER_PLUGIN :: 16
 
 // The state of one parse_nodes walk.
 @(private)

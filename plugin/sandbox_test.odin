@@ -389,6 +389,46 @@ thor.print("returned")`
     testing.expect_value(t, len(m.exec_pending), 0)
 }
 
+// One plugin cannot grow the shared state past its share; the next plugin still allocates.
+@(test)
+test_sandbox_caps_memory_per_plugin :: proc(t: ^testing.T) {
+    r: Recorder
+    recorder_init(&r)
+    defer recorder_destroy(&r)
+    m: Manager
+    recording_manager(&m, &r)
+    defer manager_destroy(&m)
+    m.plugin_mem_cap = 16 * 1024 * 1024
+
+    hog := `keep = {}
+for i = 1, 64 do keep[i] = string.rep("x", 1024 * 1024) .. i end`
+    testing.expect(t, !manager_load_source(&m, "hog", "plugins/hog", hog, {}), "the allocation past the plugin share succeeded")
+    fair := `keep = {}
+for i = 1, 8 do keep[i] = string.rep("y", 1024 * 1024) .. i end
+thor.print("fair done")`
+    testing.expect(t, manager_load_source(&m, "fair", "plugins/fair", fair, {}), "the second plugin could not allocate")
+    testing.expect(t, strings.contains(strings.to_string(r.output), "fair done"), "the second plugin did not finish")
+}
+
+// A plugin past its panel cap gets an error; a panel it already has is still reachable.
+@(test)
+test_sandbox_caps_panels :: proc(t: ^testing.T) {
+    r: Recorder
+    recorder_init(&r)
+    defer recorder_destroy(&r)
+    m: Manager
+    recording_manager(&m, &r)
+    defer manager_destroy(&m)
+
+    source := `for i = 1, 16 do thor.panel{ id = "p" .. i } end
+thor.panel{ id = "p1" }
+local ok, err = pcall(thor.panel, { id = "extra" })
+thor.print(tostring(ok) .. " " .. tostring(err):match("at most %d+ panels"))`
+    testing.expect(t, manager_load_source(&m, "many", "plugins/many", source, {.Ui}), "the plugin failed to load")
+    testing.expect_value(t, strings.to_string(r.output), "false at most 16 panels\n")
+    testing.expect_value(t, len(r.panels), 17)
+}
+
 // A synchronous thor.exec returns the output and the exit code.
 @(test)
 test_sandbox_exec_returns_the_code :: proc(t: ^testing.T) {

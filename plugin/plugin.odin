@@ -199,7 +199,9 @@ Manager :: struct {
     // Bytes the Lua state holds, and the most it may hold (see lua_alloc).
     mem_used:          uint,
     mem_cap:           uint,
+    plugin_mem_cap:    int,  // the most one plugin may grow the state by (see Plugin.mem_used)
     in_call:           bool, // a plugin's Lua runs now; the host push reserve is off
+    active_owner:      int,  // the plugin whose call runs now, or -1
     // The logger of the context manager_init ran under, for lua_panic.
     logger:            runtime.Logger,
 }
@@ -245,6 +247,8 @@ manager_set_host :: proc(m: ^Manager, host: Host) {
 manager_init :: proc(m: ^Manager) {
     m.allocator = context.allocator
     m.mem_cap = MEMORY_CAP
+    m.plugin_mem_cap = PLUGIN_MEMORY_CAP
+    m.active_owner = -1
     m.logger = context.logger
     m.state = lua.newstate(lua_alloc, m)
     lua.atpanic(m.state, lua_panic)
@@ -328,27 +332,42 @@ manager_destroy :: proc(m: ^Manager) {
 // Most memory the Lua state shared by all plugins may hold.
 MEMORY_CAP :: 256 * 1024 * 1024
 
+// Most memory one plugin may add to the shared state, so one plugin cannot take the whole pool.
+PLUGIN_MEMORY_CAP :: 64 * 1024 * 1024
+
 // Extra memory the host may use between plugin calls, so a push outside a protected call cannot fail on a full heap.
 HOST_RESERVE :: 64 * 1024 * 1024
 
-// The Lua allocator. It refuses a grow past m.mem_cap inside a plugin call, which Lua raises as a memory error.
+// The Lua allocator. Inside a plugin call it refuses a grow past m.mem_cap, or
+// past the share of the running plugin, which Lua raises as a memory error.
 @(private)
 lua_alloc :: proc "c"(ud: rawptr, ptr: rawptr, osize, nsize: c.size_t) -> rawptr {
-    m   := (^Manager)(ud)
+    m     := (^Manager)(ud)
     // With a nil ptr, osize is a type tag, not a size.
-    old := ptr == nil ? 0 : uint(osize)
+    old   := ptr == nil ? 0 : uint(osize)
+    owner := m.in_call && m.active_owner >= 0 && m.active_owner < len(m.plugins) ? &m.plugins[m.active_owner] : nil
     if nsize == 0 {
         runtime.heap_free(ptr)
         m.mem_used -= old
+        if owner != nil {
+            owner.mem_used = max(owner.mem_used - int(old), 0)
+        }
         return nil
     }
-    cap := m.in_call ? m.mem_cap : m.mem_cap + HOST_RESERVE
-    if uint(nsize) > old && m.mem_used - old + uint(nsize) > cap {
+    grows := uint(nsize) > old
+    cap   := m.in_call ? m.mem_cap : m.mem_cap + HOST_RESERVE
+    if grows && m.mem_used - old + uint(nsize) > cap {
+        return nil
+    }
+    if grows && owner != nil && owner.mem_used + int(uint(nsize) - old) > m.plugin_mem_cap {
         return nil
     }
     block := runtime.heap_resize(ptr, int(nsize))
     if block != nil {
         m.mem_used = m.mem_used - old + uint(nsize)
+        if owner != nil {
+            owner.mem_used = max(owner.mem_used + int(nsize) - int(old), 0)
+        }
     }
     return block
 }

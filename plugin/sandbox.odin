@@ -63,6 +63,9 @@ Plugin :: struct {
     env_ref:    int, // registry ref of the _ENV table, or NOREF
     module_ref: int, // registry ref of the require() cache, or NOREF
     tick_ref:   int, // registry ref of the thor.on_tick handler, or NOREF
+    // Net bytes the state grew by while this plugin ran. Approximate: a collection
+    // during its call can free what another plugin allocated.
+    mem_used:   int,
 }
 
 // A Lua callback plus the plugin that registered it, so a failure is reported
@@ -451,10 +454,12 @@ call_guarded :: proc(m: ^Manager, L: ^lua.State, owner: int, nargs, nres: c.int,
         m.active_start = time.tick_now()
         lua.sethook(L, budget_hook, lua.MASKCOUNT, HOOK_STEP)
         m.in_call = true
+        m.active_owner = owner
     }
     status := lua.pcall(L, nargs, nres, 0)
     if !nested {
         m.in_call = false
+        m.active_owner = -1
         lua.sethook(L, nil, lua.HookMask{}, 0)
     }
     if status != 0 {
