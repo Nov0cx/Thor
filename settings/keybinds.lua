@@ -60,6 +60,7 @@ return {
         focus_terminal = "ctrl+shift+t",
         git_lfs_pull = "",
         git_lfs_track = "",
+        goto_declaration = "",
         goto_definition = "alt+enter",
         goto_implementations = "",
         goto_type_definition = "alt+shift+enter",

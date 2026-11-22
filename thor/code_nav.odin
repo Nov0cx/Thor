@@ -28,6 +28,15 @@ Nav_State :: struct {
     lens_request_id:  u64,
     lens_path:        string, // owned; the file of the request
     lens_source:      string, // owned; the text it was computed over
+    // The backend's folds of one file at a time.
+    fold_request_id:  u64,
+    fold_path:        string, // owned
+    fold_source:      string, // owned; the text the request carried
+    fold_revision:    u64,
+    // The document links of one file at a time.
+    link_request_id:  u64,
+    link_path:        string, // owned
+    link_revision:    u64,
 }
 
 // The reference counts of one file, as lens rows above the declaration lines.
@@ -231,6 +240,9 @@ thor_nav_destroy :: proc(thor: ^Thor) {
     delete(nav.history)
     delete(nav.lens_path)
     delete(nav.lens_source)
+    delete(nav.fold_path)
+    delete(nav.fold_source)
+    delete(nav.link_path)
 }
 
 // The reference counts of the file for its editor's lens rows, at the offsets of the declaration

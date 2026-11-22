@@ -182,6 +182,10 @@ result_release :: proc(res: ^lang.Result) {
         delete(lens.title)
     }
     delete(res.lenses)
+    for link in res.links {
+        delete(link.target)
+    }
+    delete(res.links)
     lang.report_free(&res.report)
     for &related in res.related {
         lang.report_free(&related.report)
@@ -2104,4 +2108,82 @@ test_decode_call_hierarchy :: proc(t: ^testing.T) {
     mock_serve_stop(&serve)
     testing.expect(t, len(serve.taken) == 1 && strings.contains(serve.taken[0], `"method":"callHierarchy/incomingCalls"`), "the second step was not sent")
     testing.expect(t, len(serve.taken) == 1 && strings.contains(serve.taken[0], `"item":{`), "the item was not sent back")
+}
+
+// Each range runs from its first line to the start of its last; a one-line range is dropped.
+@(test)
+test_decode_folding_ranges :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Folding_Range, SOURCE)
+
+    res := decode_reply(s, &req, `[{"startLine":1,"endLine":1},{"startLine":0,"endLine":2,"kind":"region"}]`)
+    defer result_release(&res)
+
+    testing.expect(t, res.ok)
+    testing.expect_value(t, len(res.ranges), 1)
+    if len(res.ranges) == 1 {
+        testing.expect_value(t, res.ranges[0], lang.Text_Range{0, len(SOURCE)})
+    }
+}
+
+// A file target becomes its path and a web target stays a URL; another scheme is dropped.
+@(test)
+test_decode_document_links :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Document_Link, SOURCE)
+
+    res := decode_reply(
+        s,
+        &req,
+        `[{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}},"target":"` +
+            OTHER_URI +
+            `#L3"},` +
+            `{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"target":"https://example.com/a"},` +
+            `{"range":{"start":{"line":0,"character":6},"end":{"line":0,"character":10}},"target":"mailto:x@y"}]`,
+    )
+    defer result_release(&res)
+
+    testing.expect(t, res.ok)
+    testing.expect_value(t, len(res.links), 2)
+    if len(res.links) == 2 {
+        testing.expect_value(t, res.links[0].target, "https://example.com/a")
+        testing.expect_value(t, res.links[1].target, OTHER)
+        testing.expect_value(t, res.links[1].start, 11)
+    }
+}
+
+// The spans of one linked edit; a single span is no answer.
+@(test)
+test_decode_linked_editing :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Linked_Editing_Range, SOURCE)
+
+    res := decode_reply(
+        s,
+        &req,
+        `{"ranges":[{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},{"start":{"line":1,"character":0},"end":{"line":1,"character":5}}]}`,
+    )
+    defer result_release(&res)
+    testing.expect(t, res.ok)
+    testing.expect_value(t, len(res.ranges), 2)
+
+    one := decode_reply(s, &req, `{"ranges":[{"start":{"line":0,"character":0},"end":{"line":0,"character":5}}]}`)
+    defer result_release(&one)
+    testing.expect(t, !one.ok, "one span links nothing")
+}
+
+// A declaration reply reads like a definition reply.
+@(test)
+test_decode_declaration :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Declaration, SOURCE, 0)
+
+    res := decode_reply(s, &req, `{"uri":"` + FILE_URI + `","range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}}}`)
+    defer result_release(&res)
+    testing.expect(t, res.ok)
+    testing.expect_value(t, res.location.start, 11)
 }

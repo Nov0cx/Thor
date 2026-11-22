@@ -506,6 +506,7 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_add_bindable_command(thor, "Show supertypes", "supertypes", thor_cmd_supertypes, thor)
     thor_add_bindable_command(thor, "Show subtypes", "subtypes", thor_cmd_subtypes, thor)
     thor_add_bindable_command(thor, "Go to implementations", "goto_implementations", thor_cmd_implementations, thor)
+    thor_add_bindable_command(thor, "Go to declaration", "goto_declaration", thor_cmd_goto_declaration, thor)
     thor_add_bindable_command(thor, "Selection: Expand", "expand_selection", thor_cmd_expand_selection, thor)
     thor_add_bindable_command(thor, "Selection: Shrink", "shrink_selection", thor_cmd_shrink_selection, thor)
     thor_add_bindable_command(thor, "View: Toggle reference counts", "toggle_code_lens", thor_cmd_toggle_code_lens, thor)
@@ -858,6 +859,9 @@ thor_cmd_goto_definition       :: proc(data: rawptr) {
 }
 thor_cmd_peek_definition       :: proc(data: rawptr) {
     thor_peek_definition(cast(^Thor)data)
+}
+thor_cmd_goto_declaration      :: proc(data: rawptr) {
+    thor_goto_declaration(cast(^Thor)data)
 }
 thor_cmd_goto_type_definition  :: proc(data: rawptr) {
     thor_goto_type_definition(cast(^Thor)data)

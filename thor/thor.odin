@@ -527,6 +527,7 @@ Thor :: struct {
     references_request_id:         u64,
     // Hierarchies, implementations, expand selection and reference counts.
     nav:                           Nav_State,
+    linked:                        Linked_Session, // linked editing of the active file
     // In-flight signature-help request: the pane it came from and its request id,
     // so a superseded result (the caret moved on to another call, or a plain tab
     // switch with no new request) is dropped rather than routed to a stale pane.
@@ -1025,6 +1026,7 @@ run :: proc(thor: ^Thor) {
         thor_poll_lang_reload(thor)
         thor_poll_file_targets(thor)
         thor_update_files(thor)
+        thor_linked_tick(thor)
         thor_sync_lang_documents(thor)
         prof.zone_end(poll_zone)
         lang.manager_dispatch(&thor.lang_manager, thor, thor_on_lang_result)
@@ -1204,6 +1206,7 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.inlay_path)
     delete(thor.inlay_source)
     thor_nav_destroy(thor)
+    thor_linked_destroy(thor)
     thor_clear_occurrences(thor)
     delete(thor.occurrences)
     delete(thor.format_path)

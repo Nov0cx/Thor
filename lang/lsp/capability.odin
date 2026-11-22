@@ -44,6 +44,10 @@ PROVIDER_KEYS := [lang.Request_Kind]string{
     .Implementations = "implementationProvider",
     .Selection_Range = "selectionRangeProvider",
     .Code_Lens = "codeLensProvider",
+    .Declaration = "declarationProvider",
+    .Folding_Range = "foldingRangeProvider",
+    .Document_Link = "documentLinkProvider",
+    .Linked_Editing_Range = "linkedEditingRangeProvider",
     .Progress = "", // unsolicited push; no capability gate, same as Package_Doc
     .Apply_Edit = "", // unsolicited push; no capability gate, same as Package_Doc
     .Message = "", // unsolicited push; no capability gate
@@ -69,6 +73,7 @@ Capabilities :: struct {
     resolve_actions:  bool,                 // codeActionProvider.resolveProvider
     resolve_items:    bool,                 // completionProvider.resolveProvider
     resolve_lenses:   bool,                 // codeLensProvider.resolveProvider
+    resolve_links:    bool,                 // documentLinkProvider.resolveProvider
     token_legend:     []Token_Legend_Entry, // owned; indexed by the server's tokenTypes
     token_delta:      bool,                 // semanticTokensProvider.full.delta: the /full/delta method may be asked for
     token_full:       bool,                 // semanticTokensProvider.full
@@ -109,6 +114,11 @@ capabilities_decode :: proc(result: json.Value, allocator := context.allocator) 
     if options, ok := advertised["codeActionProvider"].(json.Object); ok {
         if flag, fok := options["resolveProvider"].(json.Boolean); fok {
             caps.resolve_actions = bool(flag)
+        }
+    }
+    if options, ok := advertised["documentLinkProvider"].(json.Object); ok {
+        if flag, fok := options["resolveProvider"].(json.Boolean); fok {
+            caps.resolve_links = bool(flag)
         }
     }
     if options, ok := advertised["codeLensProvider"].(json.Object); ok {

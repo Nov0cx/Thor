@@ -33,7 +33,7 @@ Every binding below is a default and can be changed in `keybinds.lua`
 | ctrl + tab | quick open (jump straight to file search) |
 | ctrl + e | flip to the previously active file (press again to flip back) |
 | ctrl + g | go to line (opens the palette in line-number mode) |
-| alt + enter (or ctrl + click) | go to definition of the symbol under the caret |
+| alt + enter (or ctrl + click) | go to definition of the symbol under the caret; ctrl + click on an underlined document link opens the link |
 | alt + shift + enter | go to the declaration of the type of the symbol under the caret |
 | alt + f12 | peek definition: show the definition in an editor under the caret's line |
 | ctrl + alt + left / right | jump back / forward through the places a jump left |
@@ -46,6 +46,7 @@ Every binding below is a default and can be changed in `keybinds.lua`
 | ctrl + hover | show the declaration of the symbol under the mouse |
 | ctrl + shift + u | code actions: the fixes available at the caret, in a picker (on the lines of the selection for Odin, scoped to the selection on a language-server-backed file) |
 | (unbound) | the palette commands "Show incoming calls", "Show outgoing calls", "Show supertypes", "Show subtypes" and "Go to implementations" list the callers, callees, parent types, child types or implementations of the symbol at the caret in a picker; bind them under `actions` in `user/keybinds.lua` (`incoming_calls`, `outgoing_calls`, `supertypes`, `subtypes`, `goto_implementations`) |
+| (unbound) | "Go to declaration" jumps to the declaration of the symbol at the caret where the language server tells it apart from the definition, else to the definition (`goto_declaration`) |
 | (unbound) | "View: Toggle reference counts" (`toggle_code_lens`) shows how many uses each declaration of the file has, in a row above the declaration |
 | ctrl + shift + m | the Problems panel (`open_problems`, "View: Problems"): the diagnostics of the open files and of the other files of the checked packages, by file; click one to jump to it |
 | ctrl + f | find |

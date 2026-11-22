@@ -21,7 +21,7 @@ import lang ".."
 @(private)
 request_decode :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
     #partial switch ask.req.kind {
-    case .Definition, .Type_Definition, .Implementations:
+    case .Definition, .Type_Definition, .Implementations, .Declaration:
         decode_definition(ask, value, res)
     case .Hover:
         decode_hover(ask, value, res)
@@ -57,6 +57,12 @@ request_decode :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         decode_selection_ranges(ask, value, res)
     case .Code_Lens:
         decode_code_lenses(ask, value, res)
+    case .Folding_Range:
+        decode_folding_ranges(ask, value, res)
+    case .Document_Link:
+        decode_document_links(ask, value, res)
+    case .Linked_Editing_Range:
+        decode_linked_editing(ask, value, res)
     case .Execute_Command:
         // The reply is usually null and carries nothing worth reading: reaching
         // here at all means the server accepted the command (an error would have

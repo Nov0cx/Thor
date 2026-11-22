@@ -25,6 +25,7 @@ DYNAMIC_KINDS :: bit_set[lang.Request_Kind]{
     .Format,
     .Format_Range,
     .Execute_Command,
+    .Declaration,
 }
 
 @(private)

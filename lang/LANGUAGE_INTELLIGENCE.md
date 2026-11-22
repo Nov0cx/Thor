@@ -151,7 +151,8 @@ and replace.
 `Signature_Help`, `Completion`, `Resolve_Completion`, `Package_Doc`, `Rename`, `Diagnostics`,
 `Syntax_Diagnostics`, `Code_Actions`, `Resolve_Action`, `Execute_Command`, `Semantic_Tokens`,
 `Inlay_Hints`, `Document_Highlight`, `Format`, `Format_Range`, `Format_On_Type`, `Call_Hierarchy`,
-`Type_Hierarchy`, `Implementations`, `Selection_Range`, `Code_Lens`.
+`Type_Hierarchy`, `Implementations`, `Selection_Range`, `Code_Lens`, `Declaration`, `Folding_Range`,
+`Document_Link`, `Linked_Editing_Range`.
 
 Push-only kinds, never sent by the editor: `Progress`, `Message`, `Apply_Edit`.
 
@@ -178,6 +179,16 @@ Push-only kinds, never sent by the editor: `Progress`, `Message`, `Apply_Edit`.
   `manager_request`, not `_latest`, so a go-to in flight survives. It works for every backend.
 - Go back and forward (`thor/jumplist.odin`) record in `thor_goto_location`, so every route into a
   jump is covered.
+- Folds (`thor/lang_folds.odin`): `thor_update_folds` asks `Folding_Range` first, one file at a
+  time. An answer replaces the grammar's folds; no answer hands that revision to the grammar.
+- Document links (`thor/links.odin`): asked per revision like the lens, underlined while they are of
+  the live text. Ctrl + click on a link opens it (a URL in the browser, a folder in the file manager,
+  a file in a tab) instead of going to the definition.
+- Linked editing (`thor/linked_edit.odin`): `thor_linked_tick` runs before the document sync. It
+  asks for the spans at a caret that moved; an edit inside one span is copied to the others with
+  `textedit.replace_ranges` (its own undo entry). An edit outside every span, a second cursor, a
+  caret that leaves the spans or a span that is no longer one word ends the session.
+- "Go to declaration" asks `Declaration` where a backend answers it, else `Definition`.
 
 Features the host adds on top of the kinds: statusline busy indicator (`manager_busy_kinds`,
 0.25 s delay), explained diagnostics on hover, Problems panel (`thor/problems.odin`), inlay pills
@@ -308,6 +319,8 @@ size, the format and a schema hash. Any mismatch rebuilds silently. Parses stay 
 | `Call_Hierarchy`, `Type_Hierarchy`, `Implementations` | `hierarchy.odin` | |
 | `Selection_Range` | `selection.odin` | |
 | `Code_Lens` | `lens.odin` | Reference counts; a server's lens carries a `title` instead. |
+| `Declaration` | `definition.odin` | Odin declares where it defines, so it answers as `Definition`. |
+| `Folding_Range` | `folding.odin` | From the tokens: bracket pairs, block comments, and runs of line comments or imports that span lines. |
 | `Package_Doc` | `package_doc.odin` | A Markdown page of a package. |
 | `Diagnostics` | `check.odin` | Runs `odin check` on save. |
 | `Syntax_Diagnostics` | `syntax_check.odin`, `name_check.odin`, `body_check.odin`, `body_cache.odin`, `vet_check.odin`, `package_live.odin` | The live report. `body_cache.odin` keeps the body errors of each file-scope declaration (below). |
@@ -586,6 +599,10 @@ everything it is configured for, so the first requests are not swallowed.
 | `Call_Hierarchy` | `prepareCallHierarchy`, then `callHierarchy/incomingCalls` (`query` "up") or `outgoingCalls` ("down") | The first prepared item goes back verbatim. Each `from` / `to` item is a symbol at its `selectionRange`. |
 | `Type_Hierarchy` | `prepareTypeHierarchy`, then `typeHierarchy/supertypes` ("up") or `subtypes` ("down") | As `Call_Hierarchy`. |
 | `Selection_Range` | `textDocument/selectionRange` | One position. The `parent` chain, innermost first; a parent that does not hold its child ends it. |
+| `Declaration` | `textDocument/declaration` | Read as `Definition`. |
+| `Folding_Range` | `textDocument/foldingRange` | `lineFoldingOnly`. A range runs from `startLine` to the start of `endLine`; a one-line range is dropped. |
+| `Document_Link` | `textDocument/documentLink` (+ `documentLink/resolve`) | A `file:` target becomes a path, an http(s) target stays a URL, other schemes are dropped. Up to `LINK_RESOLVE_MAX` links with no target are resolved. |
+| `Linked_Editing_Range` | `textDocument/linkedEditingRange` | Two spans or more; `wordPattern` is not read. |
 | `Code_Lens` | `textDocument/codeLens` (+ `codeLens/resolve`) | The command title, `$(icon)` markup removed, is `Code_Lens_Item.title`. Up to `LENS_RESOLVE_MAX` lenses with no command are resolved; the host joins lenses of one line with `|`. |
 | `Format` | `textDocument/formatting` | Re-diffed with `lang.diff_spans`; `insertSpaces` is always true. |
 | `Format_Range` | `textDocument/rangeFormatting` | The host aligns the range to whole lines. |
@@ -895,8 +912,6 @@ Things that do not exist yet. Each is a candidate for future work.
 
 ### LSP
 
-- **LSP methods with no Thor kind:** `declaration`, `foldingRange` (folds come from tree-sitter for
-  every grammar), `documentLink`, `linkedEditingRange`.
 - **`Package_Doc`** rides `textDocument/hover`. There is no richer LSP equivalent.
 
 ### Language coverage

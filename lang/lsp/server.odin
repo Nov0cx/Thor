@@ -1436,6 +1436,10 @@ CLIENT_CAPABILITIES :: `{` +
     `"typeHierarchy":{"dynamicRegistration":false},` +
     `"selectionRange":{"dynamicRegistration":false},` +
     `"codeLens":{"dynamicRegistration":false},` +
+    `"declaration":{"dynamicRegistration":true,"linkSupport":true},` +
+    `"foldingRange":{"dynamicRegistration":false,"lineFoldingOnly":true},` +
+    `"documentLink":{"dynamicRegistration":false,"tooltipSupport":false},` +
+    `"linkedEditingRange":{"dynamicRegistration":false},` +
     `"semanticTokens":{"dynamicRegistration":false,"requests":{"full":{"delta":true},"range":true},"formats":["relative"],` +
     `"tokenModifiers":[],` +
     `"tokenTypes":["namespace","type","class","enum","interface","struct","typeParameter","parameter",` +

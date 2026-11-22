@@ -49,6 +49,7 @@ thor_editor_context_menu :: proc(data: rawptr, position: ui.Vec2) {
         thor_menu_lang_allows(thor, .Type_Definition),
         action = "goto_type_definition",
     )
+    thor_menu_add(thor, "Go to declaration", thor_cmd_goto_declaration, thor, thor_menu_lang_allows(thor, .Definition), action = "goto_declaration")
     thor_menu_add(thor, "Peek definition", thor_cmd_peek_definition, thor, thor_menu_lang_allows(thor, .Definition), action = "peek_definition")
     thor_menu_add(thor, "Find references", thor_cmd_find_references, thor, thor_menu_lang_allows(thor, .References), action = "find_references")
     thor_menu_add(thor, "Go to implementations", thor_cmd_implementations, thor, thor_menu_lang_allows(thor, .Implementations), action = "goto_implementations")

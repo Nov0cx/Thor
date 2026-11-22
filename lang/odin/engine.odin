@@ -64,6 +64,8 @@ IMPLEMENTED :: bit_set[lang.Request_Kind]{
     .Implementations,
     .Selection_Range,
     .Code_Lens,
+    .Declaration,
+    .Folding_Range,
 }
 
 engine_create :: proc() -> ^Engine {
@@ -261,10 +263,13 @@ resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
         if config_allows(e, req.workspace, req.kind) {
             workspace_symbols(e, req, res)
         }
-    case .Definition:
-        if config_allows(e, req.workspace, req.kind) {
+    case .Definition, .Declaration:
+        // Odin declares and defines in one place.
+        if config_allows(e, req.workspace, .Definition) {
             definition(e, req, res)
         }
+    case .Folding_Range:
+        folding_range(e, req, res)
     case .References:
         if config_allows(e, req.workspace, req.kind) {
             references(e, req, res)

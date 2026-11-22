@@ -1201,6 +1201,7 @@ thor_editor_view :: proc(thor: ^Thor, editor: ^editview.Editor, file: ^Open_File
 
     thor_paint_indent_guides(thor, editor, text, rows, first, last, line_h, text_x)
     thor_paint_occurrences(thor, editor, text, rows, first, last, line_h, text_x)
+    thor_paint_links(thor, editor, text, rows, first, last, line_h, text_x)
     thor_paint_find_matches(thor, editor, text, rows, first, last, line_h, text_x)
     thor_paint_selections(thor, editor, text, rows, first, last, line_h, text_x)
     thor_paint_diagnostics(thor, editor, text, rows, first, last, line_h, text_x)

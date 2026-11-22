@@ -81,6 +81,17 @@ Request_Kind :: enum {
     Selection_Range,
     // The reference count of each top-level declaration of the buffer, or a server's lenses. Answers `lenses`.
     Code_Lens,
+    // The declaration of the symbol at `offset`, where a language tells it apart from the
+    // definition. Answers like Definition.
+    Declaration,
+    // The regions of the buffer that fold, ascending by `start`. Answers `ranges`; each starts on
+    // the line that stays visible and ends on the last line it hides.
+    Folding_Range,
+    // The links of the buffer: a URL or a file each span names. Answers `links`, ascending by `start`.
+    Document_Link,
+    // The spans an edit at `offset` changes together (an open and a close tag). Answers `ranges`;
+    // empty when the caret is in none.
+    Linked_Editing_Range,
     // Push-only: never dispatched through manager_request*, only produced by
     // Backend.poll (a server's unsolicited $/progress notification).
     Progress,
@@ -105,6 +116,13 @@ Location :: struct {
 Text_Range :: struct {
     start: int,
     end:   int,
+}
+
+// A span of the request's buffer that names `target`: a URL, or an absolute file path.
+Document_Link_Item :: struct {
+    start:  int,
+    end:    int,
+    target: string, // owned
 }
 
 // A row above the declaration whose name is [start, end): a reference count, or a server's own title.
@@ -532,6 +550,8 @@ Result :: struct {
     ranges:       [dynamic]Text_Range,
     // Code_Lens; owned, freed in job_free. Ascending by `start`.
     lenses:       [dynamic]Code_Lens_Item,
+    // Document_Link; owned, freed in job_free. Ascending by `start`.
+    links:        [dynamic]Document_Link_Item,
     // Format only. Set from the workspace's odin-formatter.lua newline_style
     // key, and only when that key is actually present — an absent key must
     // never flip a repo's line endings on the first format. Unspecified means
@@ -1616,6 +1636,10 @@ result_release :: proc(res: ^Result) {
         delete(lens.title)
     }
     delete(res.lenses)
+    for link in res.links {
+        delete(link.target)
+    }
+    delete(res.links)
     report_free(&res.report)
     for &related in res.related {
         report_free(&related.report)

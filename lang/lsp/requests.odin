@@ -56,6 +56,10 @@ METHODS := [lang.Request_Kind]string{
     .Implementations = "textDocument/implementation",
     .Selection_Range = "textDocument/selectionRange",
     .Code_Lens = "textDocument/codeLens",
+    .Declaration = "textDocument/declaration",
+    .Folding_Range = "textDocument/foldingRange",
+    .Document_Link = "textDocument/documentLink",
+    .Linked_Editing_Range = "textDocument/linkedEditingRange",
     .Progress = "", // unsolicited push, never sent as an outgoing request
     .Apply_Edit = "", // unsolicited push, never sent as an outgoing request
     .Message = "", // unsolicited push, never sent as an outgoing request
@@ -219,7 +223,7 @@ request_params :: proc(ask: ^Ask) -> string {
     append(&out, `}`)
 
     #partial switch ask.req.kind {
-    case .Document_Symbols, .Diagnostics, .Format, .Code_Lens:
+    case .Document_Symbols, .Diagnostics, .Format, .Code_Lens, .Folding_Range, .Document_Link:
     case .Selection_Range:
         line, character := position_from_offset(&ask.lines, ask.req.offset)
         append(&out, `,"positions":[{"line":`)
@@ -372,7 +376,18 @@ trigger_character :: proc(ask: ^Ask) -> bool {
 request_deadline :: proc(kind: lang.Request_Kind, percent := 100) -> time.Duration {
     deadline := DEADLINE_INTERACTIVE
     #partial switch kind {
-    case .Document_Symbols, .Workspace_Symbols, .References, .Diagnostics, .Semantic_Tokens, .Rename, .Package_Doc, .Format, .Format_Range, .Code_Lens:
+    case .Document_Symbols,
+        .Workspace_Symbols,
+        .References,
+        .Diagnostics,
+        .Semantic_Tokens,
+        .Rename,
+        .Package_Doc,
+        .Format,
+        .Format_Range,
+        .Code_Lens,
+        .Folding_Range,
+        .Document_Link:
         deadline = DEADLINE_HEAVY
     }
     if percent > 0 && percent != 100 {

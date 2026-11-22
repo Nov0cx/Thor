@@ -225,7 +225,12 @@ the editor itself and need no server. Every other language gets its features —
 definition, find references, document symbols, workspace symbols, signature
 help, completion, diagnostics, go to type definition, semantic colors, inlay hints, marked uses of
 the name at the caret (document highlight), rename, code
-actions, and document/selection/on-type formatting — from the server named here.
+actions, document/selection/on-type formatting, call and type hierarchies, expand
+selection, code lenses, go to declaration, folding, document links and linked
+editing — from the server named here. A server's folds replace the grammar's;
+ctrl + click on a link it underlines opens the link (a web address in the
+browser, a file in a tab). Linked editing changes the other half of a pair (an
+HTML open and close tag) as you type in one half.
 
 A server is started the first time you open a file it claims, never before, and
 is stopped when Thor exits.

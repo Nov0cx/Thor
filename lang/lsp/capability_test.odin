@@ -176,6 +176,10 @@ test_capabilities_real_reply :: proc(t: ^testing.T) {
                 .Implementations,
                 .Selection_Range,
                 .Code_Lens,
+                .Declaration,
+                .Folding_Range,
+                .Document_Link,
+                .Linked_Editing_Range,
             },
     )
 }
