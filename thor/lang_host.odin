@@ -985,7 +985,8 @@ thor_apply_text_batch :: proc(thor: ^Thor, run: ^Apply_Run, edits: []lang.Text_E
         append(&target.edits, edit)
     }
     for &target in targets {
-        slice.sort_by(target.edits[:], proc(a, b: lang.Text_Edit) -> bool {
+        // Stable: two inserts at one offset land in the order the backend gave.
+        slice.stable_sort_by(target.edits[:], proc(a, b: lang.Text_Edit) -> bool {
             return a.start != b.start ? a.start < b.start : a.end < b.end
         })
         for i in 1 ..< len(target.edits) {

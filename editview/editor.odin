@@ -2359,7 +2359,7 @@ editor_snippet_mirror :: proc(editor: ^Editor) -> bool {
     }
 
     cursor := textedit.primary_cursor(state)
-    if textedit.replace_ranges(state, edits[:]) != len(edits) {
+    if textedit.replace_ranges(state, edits[:], all_or_nothing = true) != len(edits) {
         return false
     }
     textedit.join_last_undo(state)

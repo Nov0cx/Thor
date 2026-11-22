@@ -830,3 +830,35 @@ test_align_at_char_wide :: proc(t: ^testing.T) {
     align_at_char(&state, '=')
     testing.expect_value(t, text(&state), "中文 = 1\nab   = 2")
 }
+
+// Inserts at one offset keep their order, an insert lands before a replace that
+// starts there, and the skipped ranges are named by their index.
+@(test)
+test_replace_ranges_order_and_skips :: proc(t: ^testing.T) {
+    state := ops_state("0123456789", 0)
+    defer destroy(&state)
+
+    n := replace_ranges(&state, []Replace{{start = 5, end = 7, text = "X"}, {start = 5, end = 5, text = "A"}, {start = 5, end = 5, text = "B"}})
+    testing.expect_value(t, n, 3)
+    testing.expect_value(t, text(&state), "01234ABX789")
+
+    set_text(&state, "abcdef")
+    skipped: [dynamic]int
+    defer delete(skipped)
+    m := replace_ranges(&state, []Replace{{start = 2, end = 4, text = "Y"}, {start = 0, end = 3, text = "X"}, {start = 5, end = 99, text = "Z"}}, &skipped)
+    testing.expect_value(t, m, 1)
+    testing.expect_value(t, text(&state), "Xdef")
+    testing.expect_value(t, len(skipped), 2)
+    if len(skipped) == 2 {
+        testing.expect_value(t, skipped[0], 0)
+        testing.expect_value(t, skipped[1], 2)
+    }
+
+    // All or nothing: one bad range applies none.
+    set_text(&state, "abcdef")
+    revision := state.revision
+    k        := replace_ranges(&state, []Replace{{start = 0, end = 1, text = "X"}, {start = 3, end = 99, text = "Z"}}, all_or_nothing = true)
+    testing.expect_value(t, k, 0)
+    testing.expect_value(t, text(&state), "abcdef")
+    testing.expect_value(t, state.revision, revision)
+}

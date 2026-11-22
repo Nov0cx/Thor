@@ -661,27 +661,45 @@ Replace :: struct {
 // Replaces a set of byte ranges as one undo entry, remapping cursors — the
 // vehicle for an external multi-site edit (a rename's occurrences in this
 // buffer), so a single undo takes the whole thing back. Ranges are sorted here
-// and an overlapping or out-of-bounds one is skipped, so callers need not order
-// them. Returns how many were applied.
-replace_ranges :: proc(state: ^State, ranges: []Replace) -> int {
+// by start, then end, and ranges that tie keep their order, so two inserts at one
+// offset land as given. An overlapping or out-of-bounds range is skipped and its
+// index into `ranges` appended to `skipped`; with `all_or_nothing` a skip applies
+// nothing. Returns how many were applied.
+replace_ranges :: proc(state: ^State, ranges: []Replace, skipped: ^[dynamic]int = nil, all_or_nothing := false) -> int {
     if len(ranges) == 0 {
         return 0
     }
     txt := text(state)
 
-    sorted := slice.clone_to_dynamic(ranges, context.temp_allocator)
-    slice.sort_by(sorted[:], proc(a, b: Replace) -> bool {
-        return a.start < b.start
+    Indexed :: struct {
+        r:     Replace,
+        index: int,
+    }
+    order := make([]Indexed, len(ranges), context.temp_allocator)
+    for r, i in ranges {
+        order[i] = {r, i}
+    }
+    slice.stable_sort_by(order, proc(a, b: Indexed) -> bool {
+        return a.r.start != b.r.start ? a.r.start < b.r.start : a.r.end < b.r.end
     })
 
-    edits := make([dynamic]Line_Edit, context.temp_allocator)
-    last  := 0
-    for r in sorted {
-        if r.start < last || r.end < r.start || r.end > len(txt) {
+    edits  := make([dynamic]Line_Edit, context.temp_allocator)
+    last   := 0
+    missed := false
+    for entry in order {
+        r, index := entry.r, entry.index
+        if r.start < last || r.end < r.start || r.start < 0 || r.end > len(txt) {
+            missed = true
+            if skipped != nil {
+                append(skipped, index)
+            }
             continue
         }
         append(&edits, Line_Edit{pos = r.start, remove = r.end - r.start, insert = r.text})
         last = r.end
+    }
+    if missed && all_or_nothing {
+        return 0
     }
     apply_line_edits(state, txt, edits[:])
     return len(edits)
