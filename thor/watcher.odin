@@ -3,14 +3,14 @@ package thor
 import "core:strings"
 import "core:time"
 
+import "../lang"
 import "../prof"
 import "../watch"
 
 // Workspace file watcher wiring. The generic watcher (../watch) reports disk
 // changes under the workspace root; here two subscribers consume them — the
-// explorer (tree + git refresh) and the open buffers (reload on external edits).
-// A third consumer, the language backend's resident index, can subscribe the same
-// way as it grows.
+// explorer (tree + git refresh), the open buffers (reload on external edits) and the
+// language backends (a server's registered file watchers).
 
 // Starts the watcher over the workspace and registers its subscribers. A watcher
 // that fails to start (e.g. the workspace is not a real directory) leaves the
@@ -24,6 +24,7 @@ thor_init_watcher :: proc(thor: ^Thor) {
     }
     watch.watcher_subscribe(&thor.watcher, thor_watch_explorer, thor)
     watch.watcher_subscribe(&thor.watcher, thor_watch_content, thor)
+    watch.watcher_subscribe(&thor.watcher, thor_watch_lang, thor)
 }
 
 // Floor between two watcher-driven git refreshes. The inflight/dirty pair
@@ -156,4 +157,24 @@ thor_watch_content :: proc(data: rawptr, change: watch.Change) {
     if file, _ := thor_find_open_file(thor, change.path); file != nil {
         thor_reload_file(thor, file)
     }
+}
+
+// Language subscriber: hands each change to the backends. The root's "events were lost" hint names no file.
+@(private = "file")
+thor_watch_lang :: proc(data: rawptr, change: watch.Change) {
+    thor := cast(^Thor)data
+    if thor_same_path(change.path, thor.workspace_dir) {
+        return
+    }
+    kind: lang.File_Change_Kind
+    switch change.kind {
+    case .Created:
+        kind = .Created
+    case .Modified:
+        kind = .Changed
+    case .Deleted:
+        kind = .Deleted
+    }
+    changes := [1]lang.File_Change{{path = change.path, kind = kind}}
+    lang.manager_files_changed(&thor.lang_manager, changes[:])
 }

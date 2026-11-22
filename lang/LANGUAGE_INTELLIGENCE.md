@@ -504,7 +504,16 @@ diagnostics run on all four CI platforms with no server installed.
   drain, restart. `notify` on the main thread only queues.
 - One reader thread and one stderr drain thread per connection. The reader answers server-to-client
   requests itself (`workspace/configuration`, `workspace/workspaceFolders`,
-  `client/registerCapability` with `null`, `workspace/applyEdit`).
+  `client/registerCapability` and `unregisterCapability`, `workspace/applyEdit`).
+- **Dynamic registration** (`register.odin`). The client offers it for the kinds in `DYNAMIC_KINDS`
+  and for `workspace/didChangeWatchedFiles`. Completion, semantic tokens and on-type formatting stay
+  static, because their options (trigger characters, the legend) are read once. A registration is
+  kept per server under `reg_mutex`, a leaf lock. The union of its kinds is the atomic `dyn_kinds`,
+  which `server_supports` adds to `caps.kinds`. A teardown drops every registration.
+- **Watched files.** The host's watcher hands each change to `manager_files_changed`. A server with
+  a registered watcher keeps the changes its globs match (`glob.odin`: `*`, `?`, `**`, `{a,b}`,
+  `[a-z]`; a `RelativePattern` matches below its base, a plain glob the whole path or the path below
+  the workspace). The pump sends them as one `workspace/didChangeWatchedFiles` per slice.
 - A worker in `resolve` holds `conn_lock` (shared) for the whole round trip, then `docs_mutex`.
   **Always in that order.** A restart takes `conn_lock` exclusively.
 - `status_mutex` is a leaf lock over `root`, `restarts` and `last_error`. A status read must never
@@ -883,7 +892,6 @@ Things that do not exist yet. Each is a candidate for future work.
 
 ### LSP
 
-- **Dynamic registration.** `client/registerCapability` is answered `null` and ignored.
 - **Kinds the LSP backend does not send:** `Call_Hierarchy`, `Type_Hierarchy`, `Selection_Range`,
   `Code_Lens`. They work only in-client; `METHODS` maps them to `""`.
 - **LSP methods with no Thor kind:** `declaration`, `foldingRange` (folds come from tree-sitter for

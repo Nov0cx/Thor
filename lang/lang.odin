@@ -556,6 +556,19 @@ Doc_Event :: enum {
     Closed,
 }
 
+// What happened to a file on disk.
+File_Change_Kind :: enum {
+    Created,
+    Changed,
+    Deleted,
+}
+
+// One file-system event the watcher saw. `path` is borrowed for the call.
+File_Change :: struct {
+    path: string,
+    kind: File_Change_Kind,
+}
+
 // A language backend. Both the in-client engine and the subprocess LSP client
 // implement this. `resolve` runs on a worker thread and may block
 // (parse, disk scan, pipe read); it fills `res` using context.allocator for any
@@ -584,6 +597,9 @@ Backend :: struct {
     // subprocess backend queues a notification and returns. `source` is
     // borrowed for the call.
     notify:          proc(data: rawptr, event: Doc_Event, path, ext, source: string, revision: u64),
+    // Tells the backend what the watcher saw on disk, for a server that watches files.
+    // Main thread, must not block.
+    files_changed:   proc(data: rawptr, changes: []File_Change),
     // True when typing `char` in a file of `ext` should trigger on-type
     // formatting — an LSP backend answers from the server's advertised trigger
     // characters. nil (the in-client engine's default) means never; a caller
@@ -995,6 +1011,19 @@ manager_notify :: proc(m: ^Manager, event: Doc_Event, path, ext, source: string,
     for b in m.backends { // document sync is not a request kind
         if b.notify != nil && b.handles(b.data, ext) {
             b.notify(b.data, event, path, ext, source, revision)
+        }
+    }
+}
+
+// Tells every backend what the watcher saw on disk. Does nothing while the master
+// switch is off. Main thread; `changes` is borrowed for the call only.
+manager_files_changed :: proc(m: ^Manager, changes: []File_Change) {
+    if !m.enabled || len(changes) == 0 {
+        return
+    }
+    for b in m.backends {
+        if b.files_changed != nil {
+            b.files_changed(b.data, changes)
         }
     }
 }

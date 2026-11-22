@@ -110,6 +110,12 @@ Server :: struct {
     admin_features:   bit_set[lang.Request_Kind], // atomic
     caps:             Capabilities,               // written before state becomes .Ready, never after
     caps_set:         bool,                       // pump thread only
+    // What the server registered after the handshake. A leaf lock: the reader thread
+    // writes, the main thread matches watched files.
+    reg_mutex:        sync.Mutex,
+    registrations:    [dynamic]Registration,      // owned; guarded by reg_mutex
+    dyn_kinds:        bit_set[lang.Request_Kind], // atomic; the union of the registered kinds
+    watching:         bool,                       // atomic; a file watcher is registered
     // The pump, and the lock that makes two starters one.
     start_mutex:      sync.Mutex,
     started:          bool,           // guarded by start_mutex
@@ -120,7 +126,8 @@ Server :: struct {
     // The outbox. `wake` is posted for every entry, so a pump waiting out its
     // slice leaves it at once.
     out_mutex:        sync.Mutex,
-    outbox:           [dynamic]Doc_Notice, // owned
+    outbox:           [dynamic]Doc_Notice,     // owned
+    watched:          [dynamic]Watched_Change, // owned; guarded by out_mutex
     wake:             sync.Sema,
     // The documents the server knows about. The pump thread and a worker in
     // `resolve` both reach them, so every read and write is under `docs_mutex`;
@@ -160,6 +167,8 @@ server_create :: proc(config: ^Server_Config, workspace: string, allocator := co
     s.admin_enabled = config.enabled
     s.admin_features = config.features
     s.outbox = make([dynamic]Doc_Notice, allocator)
+    s.watched = make([dynamic]Watched_Change, allocator)
+    s.registrations = make([dynamic]Registration, allocator)
     s.docs = make([dynamic]^Document, allocator)
     s.pushes = make([dynamic]lang.Result, allocator)
     s.open = server_open_child
@@ -271,7 +280,7 @@ server_ensure_started :: proc(s: ^Server, req: ^lang.Request) -> bool {
     return false
 }
 
-// True when the server is running and its reply said it answers `kind`. While the
+// True when the server is running and its reply or a later registration said it answers `kind`. While the
 // handshake runs the answer is yes for everything it is configured for:
 // otherwise the first requests after a start are swallowed and the user learns
 // that a feature works only on the second try. Main thread, no lock.
@@ -283,7 +292,7 @@ server_supports :: proc(s: ^Server, kind: lang.Request_Kind) -> bool {
     case .Idle, .Starting, .Crashed:
         return true
     case .Ready:
-        return kind in s.caps.kinds
+        return kind in s.caps.kinds || kind in sync.atomic_load(&s.dyn_kinds)
     }
     return false
 }
@@ -420,6 +429,9 @@ server_destroy :: proc(s: ^Server) {
     capabilities_destroy(&s.caps)
     server_drop_outbox(s)
     delete(s.outbox)
+    server_registrations_clear(s)
+    delete(s.registrations)
+    delete(s.watched)
     delete(s.workspace, s.allocator)
     delete(s.trigger, s.allocator)
     delete(s.root, s.allocator)
@@ -593,7 +605,14 @@ server_launch :: proc(s: ^Server) -> (launched: bool, spawned: bool) {
     conn := conn_start(
         transport,
         s.allocator,
-        Conn_Answers{settings = s.config.settings, folders = s.folders, apply_edit = server_apply_edit, apply_edit_data = s},
+        Conn_Answers{
+            settings = s.config.settings,
+            folders = s.folders,
+            apply_edit = server_apply_edit,
+            apply_edit_data = s,
+            register = server_register,
+            register_data = s,
+        },
     )
     sync.rw_mutex_lock(&s.conn_lock)
     s.conn = conn
@@ -925,6 +944,7 @@ server_flush :: proc(s: ^Server) {
         sync.lock(&s.out_mutex)
         if len(s.outbox) == 0 {
             sync.unlock(&s.out_mutex)
+            server_send_watched(s)
             return
         }
         notice := s.outbox[0]
@@ -1221,6 +1241,7 @@ server_teardown :: proc(s: ^Server) {
     if conn == nil {
         return
     }
+    server_registrations_clear(s)
 
     sync.lock(&s.docs_mutex)
     for doc in s.docs {
@@ -1376,13 +1397,16 @@ initialize_params :: proc(s: ^Server) -> string {
 //
 // A completion item may carry labelDetails, an InsertReplaceEdit (the `replace`
 // range is used) and a list may share itemDefaults; decode_completion reads all three.
+// dynamicRegistration is true for DYNAMIC_KINDS and watched files only.
 @(private)
 CLIENT_CAPABILITIES :: `{` +
     `"general":{"positionEncodings":["utf-8","utf-16"]},` +
     `"window":{"workDoneProgress":true},` +
     `"workspace":{"configuration":true,"workspaceFolders":true,` +
     `"didChangeConfiguration":{"dynamicRegistration":false},` +
-    `"symbol":{"dynamicRegistration":false},` +
+    `"didChangeWatchedFiles":{"dynamicRegistration":true,"relativePatternSupport":true},` +
+    `"executeCommand":{"dynamicRegistration":true},` +
+    `"symbol":{"dynamicRegistration":true},` +
     `"workspaceEdit":{"documentChanges":true,"resourceOperations":["create","rename","delete"]}},` +
     `"textDocument":{` +
     `"synchronization":{"dynamicRegistration":false,"didSave":true,"willSave":false,"willSaveWaitUntil":false},` +
@@ -1391,23 +1415,23 @@ CLIENT_CAPABILITIES :: `{` +
     `"insertReplaceSupport":true,"labelDetailsSupport":true,` +
     `"resolveSupport":{"properties":["detail","documentation","additionalTextEdits","command"]}},` +
     `"completionList":{"itemDefaults":["editRange","insertTextFormat","data"]}},` +
-    `"hover":{"dynamicRegistration":false,"contentFormat":["plaintext","markdown"]},` +
-    `"signatureHelp":{"dynamicRegistration":false,` +
+    `"hover":{"dynamicRegistration":true,"contentFormat":["plaintext","markdown"]},` +
+    `"signatureHelp":{"dynamicRegistration":true,` +
     `"signatureInformation":{"documentationFormat":["plaintext"],"parameterInformation":{"labelOffsetSupport":true}}},` +
-    `"definition":{"dynamicRegistration":false,"linkSupport":true},` +
-    `"typeDefinition":{"dynamicRegistration":false,"linkSupport":true},` +
-    `"references":{"dynamicRegistration":false},` +
-    `"documentSymbol":{"dynamicRegistration":false,"hierarchicalDocumentSymbolSupport":true},` +
-    `"codeAction":{"dynamicRegistration":false,` +
+    `"definition":{"dynamicRegistration":true,"linkSupport":true},` +
+    `"typeDefinition":{"dynamicRegistration":true,"linkSupport":true},` +
+    `"references":{"dynamicRegistration":true},` +
+    `"documentSymbol":{"dynamicRegistration":true,"hierarchicalDocumentSymbolSupport":true},` +
+    `"codeAction":{"dynamicRegistration":true,` +
     `"codeActionLiteralSupport":{"codeActionKind":{"valueSet":["quickfix","refactor","source"]}},` +
     `"resolveSupport":{"properties":["edit"]}},` +
-    `"rename":{"dynamicRegistration":false,"prepareSupport":true},` +
-    `"formatting":{"dynamicRegistration":false},` +
-    `"rangeFormatting":{"dynamicRegistration":false},` +
+    `"rename":{"dynamicRegistration":true,"prepareSupport":true},` +
+    `"formatting":{"dynamicRegistration":true},` +
+    `"rangeFormatting":{"dynamicRegistration":true},` +
     `"onTypeFormatting":{"dynamicRegistration":false},` +
     `"publishDiagnostics":{"relatedInformation":false,"versionSupport":true},` +
-    `"inlayHint":{"dynamicRegistration":false},` +
-    `"documentHighlight":{"dynamicRegistration":false},` +
+    `"inlayHint":{"dynamicRegistration":true},` +
+    `"documentHighlight":{"dynamicRegistration":true},` +
     `"semanticTokens":{"dynamicRegistration":false,"requests":{"full":{"delta":true},"range":true},"formats":["relative"],` +
     `"tokenModifiers":[],` +
     `"tokenTypes":["namespace","type","class","enum","interface","struct","typeParameter","parameter",` +

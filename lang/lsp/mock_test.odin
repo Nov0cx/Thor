@@ -355,7 +355,7 @@ wait_notification :: proc(c: ^Conn) -> (Notification, bool) {
     }
 }
 
-@(private = "file")
+@(private)
 wait_written :: proc(mock: ^Mock, needle: string) -> bool {
     start := time.tick_now()
     for !mock_has(mock, needle) {

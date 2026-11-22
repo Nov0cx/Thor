@@ -49,6 +49,7 @@ client_backend :: proc(c: ^Client) -> lang.Backend {
         supports = supports,
         poll = poll,
         notify = notify,
+        files_changed = files_changed,
         on_type_trigger = on_type_trigger,
         gate_ids = gate_ids,
         set_gate = set_gate,
@@ -216,6 +217,17 @@ notify :: proc(data: rawptr, event: lang.Doc_Event, path, ext, source: string, r
     }
     if event == .Closed {
         client_close_on_disabled(c, path, ext, servers[:n])
+    }
+}
+
+// Hands the watcher's changes to every enabled server; each keeps those its watchers match.
+@(private)
+files_changed :: proc(data: rawptr, changes: []lang.File_Change) {
+    c := cast(^Client)data
+    for s in c.servers {
+        if server_admin_enabled(s) {
+            server_files_changed(s, changes)
+        }
     }
 }
 

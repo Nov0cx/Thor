@@ -86,6 +86,10 @@ Conn_Answers :: struct {
     // (this package's test doubles, which have no Server behind them).
     apply_edit:      proc(data: rawptr, params: json.Value) -> bool,
     apply_edit_data: rawptr, // borrowed; passed to apply_edit as `data`
+    // client/registerCapability and unregisterCapability. Runs on the reader
+    // thread and must not block; nil accepts and ignores both.
+    register:        proc(data: rawptr, params: json.Value, unregister: bool),
+    register_data:   rawptr, // borrowed; passed to register as `data`
 }
 
 // One JSON-RPC connection over a Transport, which it owns. A reader thread takes
@@ -631,9 +635,13 @@ conn_answer :: proc(c: ^Conn, method: string, id_value: json.Value, params: json
     out := make([dynamic]u8, c.allocator)
     defer delete(out)
     switch method {
-    case "client/registerCapability", "client/unregisterCapability", "window/workDoneProgress/create":
-        // No dynamic registration and no progress UI, so both are accepted and
-        // ignored.
+    case "client/registerCapability", "client/unregisterCapability":
+        if c.answers.register != nil {
+            c.answers.register(c.answers.register_data, params, method == "client/unregisterCapability")
+        }
+        envelope_response(&out, id, "null")
+    case "window/workDoneProgress/create":
+        // Progress arrives as $/progress pushes; the token needs no state.
         envelope_response(&out, id, "null")
     case "workspace/applyEdit":
         // Applying needs a main-thread hop and buffer verification, done by
