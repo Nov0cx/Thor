@@ -5,6 +5,7 @@
 package snippet
 
 import "core:fmt"
+import "core:math/rand"
 import "core:mem"
 import "core:path/filepath"
 import "core:slice"
@@ -35,24 +36,30 @@ Snippet :: struct {
 // What the LSP snippet variables resolve to. All optional: an unset one, and any
 // variable Thor does not know, resolves to its written default or to nothing.
 Vars :: struct {
-    filename:   string, // TM_FILEPATH; TM_FILENAME is its last element
-    directory:  string, // TM_DIRECTORY
-    workspace:  string, // WORKSPACE_FOLDER
-    selection:  string, // TM_SELECTED_TEXT
-    line_text:  string, // TM_CURRENT_LINE
-    clipboard:  string, // CLIPBOARD
-    line:       int,    // TM_LINE_NUMBER, 1-based; 0 leaves it empty
+    filename:     string, // TM_FILEPATH; TM_FILENAME is its last element
+    directory:    string, // TM_DIRECTORY
+    workspace:    string, // WORKSPACE_FOLDER
+    selection:    string, // TM_SELECTED_TEXT
+    line_text:    string, // TM_CURRENT_LINE
+    clipboard:    string, // CLIPBOARD
+    line:         int,    // TM_LINE_NUMBER, 1-based; 0 leaves it empty
+    word:         string, // TM_CURRENT_WORD
+    // The comment markers of the language: LINE_COMMENT, BLOCK_COMMENT_START, BLOCK_COMMENT_END.
+    line_comment: string,
+    block_open:   string,
+    block_close:  string,
+    cursor_index: int, // CURSOR_INDEX; CURSOR_NUMBER is one more
     // The local clock for the CURRENT_* variables. Read only when has_time is set.
-    has_time:   bool,
-    year:       int,
-    month:      int, // 1 to 12
-    day:        int, // 1 to 31
-    weekday:    int, // 0 is Sunday
-    hour:       int,
-    minute:     int,
-    second:     int,
-    unix:       i64, // seconds
-    utc_offset: int, // minutes east of UTC
+    has_time:     bool,
+    year:         int,
+    month:        int, // 1 to 12
+    day:          int, // 1 to 31
+    weekday:      int, // 0 is Sunday
+    hour:         int,
+    minute:       int,
+    second:       int,
+    unix:         i64, // seconds
+    utc_offset:   int, // minutes east of UTC
 }
 
 destroy :: proc(snip: ^Snippet) {
@@ -521,6 +528,24 @@ snippet_var_value :: proc(p: ^Parser, name: string) -> string {
         return filepath.base(v.workspace) if v.workspace != "" else ""
     case "CLIPBOARD":
         return v.clipboard
+    case "TM_CURRENT_WORD":
+        return v.word
+    case "LINE_COMMENT":
+        return v.line_comment
+    case "BLOCK_COMMENT_START":
+        return v.block_open
+    case "BLOCK_COMMENT_END":
+        return v.block_close
+    case "CURSOR_INDEX":
+        return fmt.tprintf("%d", max(v.cursor_index, 0))
+    case "CURSOR_NUMBER":
+        return fmt.tprintf("%d", max(v.cursor_index, 0) + 1)
+    case "RANDOM":
+        return fmt.tprintf("%06d", rand.uint64() % 1_000_000)
+    case "RANDOM_HEX":
+        return fmt.tprintf("%06x", rand.uint64() & 0xffffff)
+    case "UUID":
+        return uuid_v4()
     }
     if !v.has_time || !strings.has_prefix(name, "CURRENT_") {
         return ""
@@ -557,4 +582,36 @@ snippet_var_value :: proc(p: ^Parser, name: string) -> string {
         return fmt.tprintf("%s%02d:%02d", v.utc_offset < 0 ? "-" : "+", offset / 60, offset % 60)
     }
     return ""
+}
+
+// A random version 4 UUID, in the temp allocator.
+@(private = "file")
+uuid_v4 :: proc() -> string {
+    b: [16]u8
+    hi, lo := rand.uint64(), rand.uint64()
+    for i in 0 ..< 8 {
+        b[i] = u8(hi >> uint(8 * i))
+        b[8 + i] = u8(lo >> uint(8 * i))
+    }
+    b[6] = (b[6] & 0x0f) | 0x40
+    b[8] = (b[8] & 0x3f) | 0x80
+    return fmt.tprintf(
+        "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+        b[0],
+        b[1],
+        b[2],
+        b[3],
+        b[4],
+        b[5],
+        b[6],
+        b[7],
+        b[8],
+        b[9],
+        b[10],
+        b[11],
+        b[12],
+        b[13],
+        b[14],
+        b[15],
+    )
 }

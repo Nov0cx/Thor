@@ -2069,6 +2069,14 @@ editor_insert_snippet :: proc(editor: ^Editor, template: string, start, end: int
     if strings.contains(template, "CURRENT_") {
         editor_snippet_clock(&vars)
     }
+    if strings.contains(template, "TM_CURRENT_WORD") {
+        if lo, hi, ok := textedit.word_range_at(txt, clamp(start, 0, len(txt))); ok {
+            vars.word = txt[lo:hi]
+        }
+    }
+    vars.line_comment = editor.comment_prefix
+    vars.block_open = editor.comment_block[0]
+    vars.block_close = editor.comment_block[1]
     lead := line_start
     for lead < line_end && lead < start && (txt[lead] == ' ' || txt[lead] == '\t') {
         lead += 1

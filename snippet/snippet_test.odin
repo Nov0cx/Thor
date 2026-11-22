@@ -1,5 +1,6 @@
 package snippet
 
+import "core:strings"
 import "core:testing"
 
 // The grammar in one pass: a bare tabstop, a placeholder with a default, a
@@ -203,4 +204,43 @@ test_earlier_mirror_takes_later_default :: proc(t: ^testing.T) {
     testing.expect_value(t, snip.stops[2].start, 7)
     testing.expect_value(t, snip.stops[2].end, 8)
     testing.expect_value(t, snip.stops[3].start, 8)
+}
+
+// The word, comment, cursor and random variables resolve; an empty one takes its default.
+@(test)
+test_word_comment_cursor_variables :: proc(t: ^testing.T) {
+    vars := Vars{word = "foo", line_comment = "//", block_open = "/*", block_close = "*/", cursor_index = 2}
+    snip := parse("$TM_CURRENT_WORD $LINE_COMMENT $BLOCK_COMMENT_START$BLOCK_COMMENT_END $CURSOR_INDEX $CURSOR_NUMBER", vars)
+    defer destroy(&snip)
+    testing.expect_value(t, snip.text, "foo // /**/ 2 3")
+
+    empty := parse("${TM_CURRENT_WORD:none} ${LINE_COMMENT:#}")
+    defer destroy(&empty)
+    testing.expect_value(t, empty.text, "none #")
+}
+
+@(test)
+test_random_variables :: proc(t: ^testing.T) {
+    snip := parse("$RANDOM|$RANDOM_HEX|$UUID")
+    defer destroy(&snip)
+    parts := strings.split(snip.text, "|", context.temp_allocator)
+    testing.expect_value(t, len(parts), 3)
+    if len(parts) != 3 {
+        return
+    }
+    testing.expect_value(t, len(parts[0]), 6)
+    testing.expect_value(t, len(parts[1]), 6)
+    for c in parts[0] {
+        testing.expect(t, c >= '0' && c <= '9', "RANDOM is decimal")
+    }
+    for c in parts[1] {
+        testing.expect(t, (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'), "RANDOM_HEX is hex")
+    }
+    id := parts[2]
+    testing.expect_value(t, len(id), 36)
+    if len(id) == 36 {
+        testing.expect_value(t, id[8], u8('-'))
+        testing.expect_value(t, id[14], u8('4'))
+        testing.expect(t, strings.index_byte("89ab", id[19]) >= 0, "UUID variant is RFC 4122")
+    }
 }
