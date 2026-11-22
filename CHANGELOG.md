@@ -1,3 +1,17 @@
+# 2026.11.8
+
+- The terminal rewraps its lines and its history when the panel gets wider or narrower.
+- Terminal: DECSED and DECSEL keep protected cells, an edit that cuts a wide character clears its other half, and over-long UTF-8 shows as a replacement character.
+- The formatter keeps comments inside field values, ternaries, `or_else`, casts, type assertions, `proc{}` groups and `foreign import` lists where they were written.
+- Snippets resolve `TM_CURRENT_WORD`, `LINE_COMMENT`, `BLOCK_COMMENT_START`, `BLOCK_COMMENT_END`, `RANDOM`, `RANDOM_HEX`, `UUID`, `CURSOR_INDEX` and `CURSOR_NUMBER`.
+- Markdown preview: a bare `#` is an empty heading, and code indented five columns after a list marker keeps its indent.
+- Bracket matching skips nested block comments in Odin, Rust, Haskell, Kotlin, Nim, OCaml, SML and Common Lisp. `comments.lua` takes `nested = true`.
+- Up, down and align count a CJK character or an emoji as two columns, as the editor draws it.
+- Two inserts at one position from a language server land in the order the server gave.
+- Plugins: synchronous `thor.exec` returns the exit code as a second value.
+- Plugins: one plugin may use 64 MB of the shared Lua memory, and 16 panels.
+- Tree-sitter queries read `#set! priority` and test set keys with `#is?`. Grammar injections color Lua `ffi.cdef` strings as C and Rust macro bodies as Rust; a plugin can supply `injections`.
+
 # 2026.11.7
 
 - Two-step keybinds: a `keybinds.lua` entry such as `"ctrl+m c"` runs after two presses. `"prefix c"` follows the new `chord_prefix` bind (`ctrl + m` by default).
