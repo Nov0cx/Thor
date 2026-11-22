@@ -7,6 +7,7 @@ import "core:strings"
 
 import lang ".."
 import odinsema "sema"
+import odinsyntax "syntax"
 
 // The lang.Symbol kind of an item; "" for an item no symbol list shows.
 @(private)
@@ -48,7 +49,7 @@ document_symbols :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
         if symbol_kind(item.kind) == "" {
             continue
         }
-        if kind := alias_symbol_kind(&ctx, &item, i); kind != "" {
+        if kind := alias_symbol_kind(&ctx, ctx.live.id, &item, i); kind != "" {
             append_symbol_to(&res.symbols, &item, req.path, lines, item.signature, kind)
         } else {
             append_symbol(res, &item, req.path, lines)
@@ -73,10 +74,10 @@ document_symbols :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     res.ok = true
 }
 
-// The symbol kind the checker gives a constant whose value is a name, `Foo :: pkg.Bar`: "type",
-// "enum" or "function". "" when the item is no such constant or the checker gives no other kind.
+// The symbol kind the checker gives a constant of `file` whose value is a name, `Foo :: pkg.Bar`:
+// "type", "enum" or "function". "" when the item is no such constant or the checker gives no other kind.
 @(private = "file")
-alias_symbol_kind :: proc(ctx: ^Request_Context, item: ^odinsema.Item, index: int) -> string {
+alias_symbol_kind :: proc(ctx: ^Request_Context, file: odinsema.File_Id, item: ^odinsema.Item, index: int) -> string {
     if item.kind != .Const || item.value_offset < 0 {
         return ""
     }
@@ -84,11 +85,11 @@ alias_symbol_kind :: proc(ctx: ^Request_Context, item: ^odinsema.Item, index: in
     if c == nil {
         return ""
     }
-    value, ok := odinsema.node_at(c, ctx.live.id, item.value_offset)
+    value, ok := odinsema.node_at(c, file, item.value_offset)
     if !ok || (value.green.kind != .Ident && value.green.kind != .Selector_Expr) {
         return ""
     }
-    op := odinsema.item_operand(c, odinsema.Symbol{file = ctx.live.id, item = i32(index), child = -1})
+    op := odinsema.item_operand(c, odinsema.Symbol{file = file, item = i32(index), child = -1})
     #partial switch op.mode {
     case .Type:
         if odinsema.type_kind(&c.table, odinsema.type_base(&c.table, op.type)) == .Enum {
@@ -119,8 +120,9 @@ workspace_symbols :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
         return
     }
     inactive := make([dynamic]lang.Symbol, context.temp_allocator)
+    budget   := WORKSPACE_ALIAS_MAX
     if req.path != "" {
-        append_matches(res, &inactive, req.query, ctx.live.tree, req.path, ctx.live.lines, ctx.target)
+        append_matches(&ctx, res, &inactive, req.query, ctx.live.id, ctx.live.tree, req.path, ctx.live.lines, &budget)
     }
     if req.workspace != "" {
         for id in odinsema.db_workspace(&ctx.snap, req.workspace) {
@@ -135,7 +137,7 @@ workspace_symbols :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
             if data == nil {
                 continue
             }
-            append_matches(res, &inactive, req.query, data.tree, odinsema.db_file_path(&ctx.snap, id), data.lines, ctx.target)
+            append_matches(&ctx, res, &inactive, req.query, id, data.tree, odinsema.db_file_path(&ctx.snap, id), data.lines, &budget)
         }
     }
     slice.sort_by(res.symbols[:], symbol_less)
@@ -152,29 +154,72 @@ symbol_less :: proc(a, b: lang.Symbol) -> bool {
     return a.path < b.path
 }
 
-// Appends the items of `tree` whose name matches `query`: to `res`, or to `inactive` with
-// " (inactive)" after the signature when a known-false guard drops the item for `target`.
+// The most constant aliases one workspace query types with the checker.
+@(private = "file")
+WORKSPACE_ALIAS_MAX :: 64
+
+// Appends the items of `tree` (the file `file`) whose name matches `query`: to `res`, or to
+// `inactive` with " (inactive)" after the signature when a known-false guard drops the item for the
+// request's target. A constant whose value is a name takes the kind the checker gives it, while
+// `budget` lasts.
 @(private = "file")
 append_matches :: proc(
+    ctx: ^Request_Context,
     res: ^lang.Result,
     inactive: ^[dynamic]lang.Symbol,
     query: string,
+    file: odinsema.File_Id,
     tree: ^odinsema.Item_Tree,
     path: string,
     lines: []int,
-    target: odinsema.Target,
+    budget: ^int,
 ) {
-    for &item in tree.items {
+    for &item, i in tree.items {
         if symbol_kind(item.kind) == "" || !lang.symbol_matches(query, item.name) {
             continue
         }
-        if odinsema.guard_active(tree, item.guard, target) {
-            append_symbol(res, &item, path, lines)
+        kind := ""
+        if budget^ > 0 && item.kind == .Const && alias_signature(item.signature) && !lang.request_cancelled(ctx.req) {
+            budget^ -= 1
+            kind = alias_symbol_kind(ctx, file, &item, i)
+        }
+        if odinsema.guard_active(tree, item.guard, ctx.target) {
+            append_symbol_to(&res.symbols, &item, path, lines, item.signature, kind)
             continue
         }
         signature := strings.concatenate({item.signature, " (inactive)"}, context.temp_allocator)
-        append_symbol_to(inactive, &item, path, lines, signature)
+        append_symbol_to(inactive, &item, path, lines, signature, kind)
     }
+}
+
+// True when the signature `NAME :: value` has a name or a selector chain for its value.
+@(private = "file")
+alias_signature :: proc(signature: string) -> bool {
+    at := strings.index(signature, "::")
+    if at < 0 {
+        return false
+    }
+    want_name := true
+    for tok in odinsyntax.lex_all(signature[at + 2:], context.temp_allocator) {
+        #partial switch tok.kind {
+        case .Whitespace:
+        case .Ident:
+            if !want_name {
+                return false
+            }
+            want_name = false
+        case .Period:
+            if want_name {
+                return false
+            }
+            want_name = true
+        case .EOF:
+            return !want_name
+        case:
+            return false
+        }
+    }
+    return false
 }
 
 // Appends one item as a symbol; every string is cloned into context.allocator (the Manager's).

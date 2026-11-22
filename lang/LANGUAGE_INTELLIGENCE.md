@@ -954,7 +954,9 @@ Behaviour that is wrong, partial, or surprising today.
 - **Statement-level `using`** works only in a file with `#+feature using-stmt`, as in the
   compiler. The semantic `Unresolved` mark skips a free name only when a `using` of a scope that holds
   it comes before it, since the checker may not resolve what that `using` brings in.
-- **Workspace symbols are syntactic.** They do not run the checker.
+- **Workspace symbols** come from the item trees. A matching constant whose value is a name
+  (`Foo :: pkg.Bar`) takes the kind the checker gives it, for the first `WORKSPACE_ALIAS_MAX` (64) of a
+  query; the rest stay "constant".
 - **Path spelling.** Symlinks and Windows 8.3 short names are resolved by `path_real` as a third
   tier. A mismatch that all three tiers miss widens a lookup instead of failing it.
 - **Syntax.** `do` procedure bodies and `#+` tags after `package` are errors, with the compiler's

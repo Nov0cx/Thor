@@ -218,6 +218,45 @@ Word :: int
 }
 
 // Workspace symbols: a declaration under a known-false `when` comes last and is marked inactive.
+// A constant whose value names a type or a procedure lists with the kind the checker gives it.
+@(test)
+test_workspace_symbols_type_aliases :: proc(t: ^testing.T) {
+    root := fixture(
+        t,
+        "ws_symbol_aliases",
+        {
+            {
+                "app/disk.odin",
+                "package app\n\nShape :: struct { w: int }\nMode :: enum { A }\ndraw :: proc() {}\n\nAlias_Shape :: Shape\nAlias_Mode :: Mode\nalias_draw :: draw\nAlias_Count :: 3\n",
+            },
+        },
+    )
+    e    := engine_create()
+    defer engine_destroy(e)
+
+    req := lang.Request{
+        kind = .Workspace_Symbols,
+        path = fixture_path(root, "app/live.odin"),
+        ext = ".odin",
+        source = "package app\n",
+        workspace = root,
+        query = "alias",
+    }
+    res := lang.Result{kind = .Workspace_Symbols}
+    resolve(e, &req, &res)
+    defer free_symbols(&res)
+    testing.expect(t, res.ok, "expected a workspace symbols result")
+    kinds := map[string]string{}
+    defer delete(kinds)
+    for s in res.symbols {
+        kinds[s.name] = s.kind
+    }
+    testing.expect_value(t, kinds["Alias_Shape"], "type")
+    testing.expect_value(t, kinds["Alias_Mode"], "enum")
+    testing.expect_value(t, kinds["alias_draw"], "function")
+    testing.expect_value(t, kinds["Alias_Count"], "constant")
+}
+
 @(test)
 test_workspace_symbols_inactive :: proc(t: ^testing.T) {
     e := engine_create()
