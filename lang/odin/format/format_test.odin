@@ -1175,6 +1175,21 @@ test_comments_inside_lists_stay_in_place :: proc(t: ^testing.T) {
         {"package p\nf :: proc() {\n\tx := a[0, // row\n\t\t1]\n\tw := 2\n}\n", "package p\nf :: proc() {\n\tx := a[0, // row\n\t\t1]\n\tw := 2\n}\n"},
         {"package p\nf :: proc() {\n\tx := (a + // why\n\t\tb)\n\tw := 2\n}\n", "package p\nf :: proc() {\n\tx := (a + // why\n\t\tb)\n\tw := 2\n}\n"},
         {"package p\nf :: proc() {\n\tx := (// lead\n\t\ta)\n\tw := 2\n}\n", "package p\nf :: proc() {\n\tx := (// lead\n\t\ta)\n\tw := 2\n}\n"},
+        {"package p\nx := T{a = /* x */ 1, b = 2}\n", "package p\nx := T{a = /* x */ 1, b = 2}\n"},
+        {"package p\nx := T{a /* x */ = 1, b = 2}\n", "package p\nx := T{a /* x */ = 1, b = 2}\n"},
+        {"package p\nx := a if /* c */ b else c\n", "package p\nx := a if /* c */ b else c\n"},
+        {"package p\nx := a ? /* c */ b : c\n", "package p\nx := a ? /* c */ b : c\n"},
+        {"package p\nf :: proc() {\n\tx := g() or_else /* d */ 0\n}\n", "package p\nf :: proc() {\n\tx := g() or_else /* d */ 0\n}\n"},
+        {"package p\nf :: proc() {\n\tx := g() or_else // d\n\t\t0\n\tw := 2\n}\n", "package p\nf :: proc() {\n\tx := g() or_else // d\n\t\t0\n\tw := 2\n}\n"},
+        {"package p\nx := cast(/* t */ int)y\n", "package p\nx := cast(/* t */ int)y\n"},
+        {"package p\nx := cast(int /* t */)y\n", "package p\nx := cast(int /* t */)y\n"},
+        {"package p\nx := cast(int) /* t */ y\n", "package p\nx := cast(int) /* t */ y\n"},
+        {
+            "package p\nf :: proc() {\n\tx := v.(/* u */ T)\n\ty := v.(T /* u */)\n}\n",
+            "package p\nf :: proc() {\n\tx := v.(/* u */ T)\n\ty := v.(T /* u */)\n}\n",
+        },
+        {"package p\ng :: proc{a, b}\nh :: proc{\n\ta, // one\n\tb,\n}\n", "package p\ng :: proc{a, b}\nh :: proc{\n\ta, // one\n\tb,\n}\n"},
+        {"package p\nforeign import lib {\n\t\"a.lib\", // one\n\t\"b.lib\",\n}\n", "package p\nforeign import lib {\n\t\"a.lib\", // one\n\t\"b.lib\",\n}\n"},
     }
     for c in cases {
         out, ok := format(c.src, default_options())

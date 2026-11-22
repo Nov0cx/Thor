@@ -383,22 +383,31 @@ print_comp_lit_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, ks: []Node) {
 @(private)
 print_arg_list :: proc(pr: ^Printer, out: ^[dynamic]Doc, list: Node) {
     ks           := kids(list)
-    args         := expr_kids(ks)
     close_offset := list.end
     if i := tok_index(ks, .Close_Paren); i >= 0 {
         close_offset = ks[i].start
     }
-    items := make([dynamic]List_Item, 0, len(args))
-    for a, i in args {
-        item := List_Item{leading = take_comments_before(pr, a.start)}
-        arg: [dynamic]Doc
-        print_expr(pr, &arg, a)
-        item.doc = concat(arg[:])
-        next := i + 1 < len(args) ? args[i + 1].start : close_offset
-        item.trailing = take_trailing(pr, end_line(pr, a), next)
+    print_commented_list(pr, out, "(", ")", expr_kids(ks), close_offset)
+}
+
+// A delimited list whose items keep their leading and trailing comments.
+@(private)
+print_commented_list :: proc(pr: ^Printer, out: ^[dynamic]Doc, open, close: string, elems: []Node, close_offset: int) {
+    items := make([dynamic]List_Item, 0, len(elems))
+    for el, i in elems {
+        item := List_Item{leading = take_comments_before(pr, el.start)}
+        doc: [dynamic]Doc
+        if is_node(el) {
+            print_expr(pr, &doc, el)
+        } else {
+            append(&doc, text(node_text(pr, el)))
+        }
+        item.doc = concat(doc[:])
+        next := i + 1 < len(elems) ? elems[i + 1].start : close_offset
+        item.trailing = take_trailing(pr, end_line(pr, el), next)
         append(&items, item)
     }
-    append_list_group(pr, out, "(", ")", items[:], take_comments_before(pr, close_offset))
+    append_list_group(pr, out, open, close, items[:], take_comments_before(pr, close_offset))
 }
 
 // The directives of a procedure type or literal, each with a space before it.
@@ -719,15 +728,21 @@ print_binary_expr_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
 // Operands and keywords, one space between each.
 @(private)
 print_spaced_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
+    rest: [dynamic]Doc
     for k, i in kids(expr) {
         if i > 0 {
-            append(out, text(" "))
+            append(comment_dst(out, &rest), text(" "))
+            print_inner_comments(pr, comment_dst(out, &rest), k.start, true, rest = &rest)
         }
+        dst := comment_dst(out, &rest)
         if is_node(k) {
-            print_expr(pr, out, k)
+            print_expr(pr, dst, k)
         } else {
-            append(out, text(node_text(pr, k)))
+            append(dst, text(node_text(pr, k)))
         }
+    }
+    if len(rest) > 0 {
+        append(out, indent(rest[:]))
     }
 }
 
@@ -820,11 +835,27 @@ print_field_value_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
     } else {
         print_expr(pr, out, name)
     }
-    append(out, text(" = "))
+    rest: [dynamic]Doc
+    if eq >= 0 {
+        print_inner_comments(pr, out, ks[eq].start, false, rest = &rest)
+    }
+    append(comment_dst(out, &rest), text(len(rest) > 0 ? "= " : " = "))
     if eq >= 0 {
         if value, ok := expr_in(ks, eq + 1, len(ks)); ok {
-            print_expr(pr, out, value)
+            print_inner_comments(pr, comment_dst(out, &rest), value.start, true, rest = &rest)
+            print_expr(pr, comment_dst(out, &rest), value)
         }
+    }
+    if len(rest) > 0 {
+        append(out, indent(rest[:]))
+    }
+}
+
+// The pending comments before the token `tok` of `ks`, when it is there.
+@(private)
+print_comments_before_tok :: proc(pr: ^Printer, out, rest: ^[dynamic]Doc, ks: []Node, tok: syn.Token_Kind, from := 0) {
+    if at := tok_index(ks, tok, from); at >= 0 {
+        print_inner_comments(pr, comment_dst(out, rest), ks[at].start, false, rest = rest)
     }
 }
 
@@ -832,16 +863,27 @@ print_field_value_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
 print_type_assertion_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
     ks  := kids(expr)
     dot := tok_index(ks, .Period)
+    rest: [dynamic]Doc
     if operand, ok := expr_in(ks, 0, dot < 0 ? len(ks) : dot); ok {
         print_expr(pr, out, operand)
     }
-    append(out, text("."))
+    if dot >= 0 {
+        print_inner_comments(pr, out, ks[dot].start, false, rest = &rest)
+    }
+    append(comment_dst(out, &rest), text("."))
     if has_tok(ks, .Question) {
-        append(out, text("?"))
+        print_comments_before_tok(pr, out, &rest, ks, .Question)
+        append(comment_dst(out, &rest), text("?"))
     } else if t, ok := expr_in(ks, dot + 1, len(ks)); ok {
-        append(out, text("("))
-        print_expr(pr, out, t)
-        append(out, text(")"))
+        print_comments_before_tok(pr, out, &rest, ks, .Open_Paren, max(dot, 0))
+        append(comment_dst(out, &rest), text("("))
+        print_inner_comments(pr, comment_dst(out, &rest), t.start, true, rest = &rest)
+        print_expr(pr, comment_dst(out, &rest), t)
+        print_comments_before_tok(pr, out, &rest, ks, .Close_Paren, max(dot, 0))
+        append(comment_dst(out, &rest), text(")"))
+    }
+    if len(rest) > 0 {
+        append(out, indent(rest[:]))
     }
 }
 
@@ -853,16 +895,26 @@ print_cast_expr_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
             append(out, text(node_text(pr, k)))
         }
     }
+    rest: [dynamic]Doc
     close := tok_index(ks, .Close_Paren)
-    append(out, text("("))
+    print_comments_before_tok(pr, out, &rest, ks, .Open_Paren)
+    append(comment_dst(out, &rest), text("("))
     if t, ok := expr_in(ks, 0, close < 0 ? len(ks) : close); ok {
-        print_expr(pr, out, t)
+        print_inner_comments(pr, comment_dst(out, &rest), t.start, true, rest = &rest)
+        print_expr(pr, comment_dst(out, &rest), t)
     }
-    append(out, text(")"))
+    if close >= 0 {
+        print_inner_comments(pr, comment_dst(out, &rest), ks[close].start, false, rest = &rest)
+    }
+    append(comment_dst(out, &rest), text(")"))
     if close >= 0 {
         if operand, ok := expr_in(ks, close + 1, len(ks)); ok {
-            print_expr(pr, out, operand)
+            print_inner_comments(pr, comment_dst(out, &rest), operand.start, true, true, &rest)
+            print_expr(pr, comment_dst(out, &rest), operand)
         }
+    }
+    if len(rest) > 0 {
+        append(out, indent(rest[:]))
     }
 }
 
@@ -876,9 +928,13 @@ print_auto_cast_expr_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) 
 
 @(private)
 print_proc_group_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
-    append(out, text("proc{"))
-    print_expr_list(pr, out, expr_kids(kids(expr)))
-    append(out, text("}"))
+    ks           := kids(expr)
+    close_offset := expr.end
+    if i := tok_index(ks, .Close_Brace); i >= 0 {
+        close_offset = ks[i].start
+    }
+    append(out, text("proc"))
+    print_commented_list(pr, out, "{", "}", expr_kids(ks), close_offset)
 }
 
 @(private)

@@ -206,18 +206,11 @@ print_foreign_import_decl :: proc(pr: ^Printer, out: ^[dynamic]Doc, ks: []Node) 
         append(out, text(node_text(pr, paths[0])))
         return
     }
-    append(out, text("{"))
-    for p, i in paths {
-        if i > 0 {
-            append(out, text(", "))
-        }
-        if is_node(p) {
-            print_expr(pr, out, p)
-        } else {
-            append(out, text(node_text(pr, p)))
-        }
+    close_offset := ks[len(ks) - 1].end
+    if close := tok_index(ks, .Close_Brace); close >= 0 {
+        close_offset = ks[close].start
     }
-    append(out, text("}"))
+    print_commented_list(pr, out, "{", "}", paths[:], close_offset)
 }
 
 // Whether `n` is a string literal.
