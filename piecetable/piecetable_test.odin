@@ -129,11 +129,11 @@ test_view_tracks_edits :: proc(t: ^testing.T) {
     testing.expect(t, !pt.stale, "a read must leave the snapshot fresh")
 
     piecetable_insert(&pt, 5, ",")
-    testing.expect_value(t, len(pt.pending), 1)
+    testing.expect(t, pt.dirty && !pt.stale, "an edit must leave a patch, not a rebuild")
     testing.expect_value(t, piecetable_view(&pt), "hello, world")
 
     piecetable_delete(&pt, 0, 7)
-    testing.expect_value(t, len(pt.pending), 1)
+    testing.expect(t, pt.dirty && !pt.stale, "an edit must leave a patch, not a rebuild")
     testing.expect_value(t, piecetable_view(&pt), "world")
 
     piecetable_set_text(&pt, "replaced")
@@ -301,19 +301,52 @@ test_patched_view_matches_rebuild :: proc(t: ^testing.T) {
     }
 }
 
-// More pending edits than MAX_PENDING fall back to a full rebuild.
+// Any number of edits between two reads patches the snapshot in place.
 @(test)
-test_many_edits_rebuild :: proc(t: ^testing.T) {
+test_many_edits_patch :: proc(t: ^testing.T) {
     pt := piecetable_create("abc")
     defer piecetable_destroy(&pt)
     _ = piecetable_view(&pt)
 
-    for i in 0 ..= MAX_PENDING {
+    for i in 0 ..< 100 {
         piecetable_insert(&pt, i, "-")
     }
-    testing.expect(t, pt.stale, "the overflow must mark the snapshot for a rebuild")
-    testing.expect_value(t, len(pt.pending), 0)
-    testing.expect_value(t, piecetable_view(&pt), "---------abc")
+    testing.expect(t, !pt.stale, "many edits must not mark the snapshot for a rebuild")
+    testing.expect_value(t, piecetable_view(&pt), strings.concatenate({strings.repeat("-", 100, context.temp_allocator), "abc"}, context.temp_allocator))
+}
+
+// Batches of up to 300 edits, which outgrow the slack at both ends, patch to what a model holds.
+@(test)
+test_batched_patch_matches_model :: proc(t: ^testing.T) {
+    pt := piecetable_create(strings.repeat("0123456789\n", 50, context.temp_allocator))
+    defer piecetable_destroy(&pt)
+    model := strings.builder_make(context.temp_allocator)
+    strings.write_string(&model, piecetable_view(&pt))
+
+    gen := rand.create_u64(11)
+    context.random_generator = rand.default_random_generator(&gen)
+    big   := strings.repeat("w", 3000, context.temp_allocator)
+    words := [?]string{"x", "\n", "abc", big}
+    for round in 0 ..< 200 {
+        edits := 1 + rand.int_max(300)
+        for _ in 0 ..< edits {
+            n   := len(model.buf)
+            pos := rand.int_max(n + 1)
+            if rand.int_max(2) == 0 || n == 0 {
+                word := words[rand.int_max(len(words) - (round % 3 == 0 ? 0 : 1))]
+                piecetable_insert(&pt, pos, word)
+                inject_at(&model.buf, pos, ..transmute([]u8)word)
+            } else {
+                count := min(1 + rand.int_max(4000), n - pos)
+                piecetable_delete(&pt, pos, count)
+                remove_range(&model.buf, pos, pos + count)
+            }
+        }
+        if piecetable_view(&pt) != strings.to_string(model) {
+            testing.expectf(t, false, "round %d: batched snapshot drifted", round)
+            return
+        }
+    }
 }
 
 // A view borrowed before an edit stays intact until the next read.

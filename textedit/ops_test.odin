@@ -233,9 +233,9 @@ test_line_table_patch_matches_rebuild :: proc(t: ^testing.T) {
         if round % 2 == 1 {
             continue
         }
-        patched := clone_slice(line_table(&state), context.temp_allocator)
+        patched := resolved_lines(line_table(&state), context.temp_allocator)
         state.lines_valid = false
-        fresh := line_table(&state)
+        fresh := resolved_lines(line_table(&state), context.temp_allocator)
         if !slices_equal(patched, fresh) {
             testing.expectf(t, false, "round %d: patched %v, fresh %v", round, patched, fresh)
             return
@@ -244,9 +244,11 @@ test_line_table_patch_matches_rebuild :: proc(t: ^testing.T) {
 }
 
 @(private = "file")
-clone_slice :: proc(s: []int, allocator := context.allocator) -> []int {
-    out := make([]int, len(s), allocator)
-    copy(out, s)
+resolved_lines :: proc(table: Line_Table, allocator := context.allocator) -> []int {
+    out := make([]int, len(table.starts), allocator)
+    for i in 0 ..< len(out) {
+        out[i] = line_start_at(table, i)
+    }
     return out
 }
 

@@ -55,6 +55,10 @@ State :: struct {
     lines:          [dynamic]int, // owned
     lines_revision: u64,
     lines_valid:    bool,
+    // The entries from lines_shift_at on are stored lines_shift too low, so an edit moves only the
+    // entries between it and the last edit.
+    lines_shift_at: int,
+    lines_shift:    int,
     // The last CHANGE_LOG changes, at index revision % CHANGE_LOG.
     changes:        [CHANGE_LOG]Change,
 }
@@ -908,19 +912,32 @@ line_start_of_index :: proc(txt: string, line: int) -> int {
     return start
 }
 
+// The line starts and the delta still owed to the entries from `shift_at` on.
+@(private)
+Line_Table :: struct {
+    starts:   []int,
+    shift_at: int,
+    shift:    int,
+}
+
+@(private)
+line_start_at :: #force_inline proc(t: Line_Table, i: int) -> int {
+    return t.starts[i] + (i >= t.shift_at ? t.shift : 0)
+}
+
 // The line table, brought up to date when the content changed since the last query. Main
 // thread only: it writes to the state.
 @(private)
-line_table :: proc(state: ^State) -> []int {
+line_table :: proc(state: ^State) -> Line_Table {
     if state.lines_valid && state.lines_revision == state.revision {
-        return state.lines[:]
+        return Line_Table{state.lines[:], state.lines_shift_at, state.lines_shift}
     }
 
     txt := text(state)
     if change, ok := changes_since(state, state.lines_revision); state.lines_valid && ok {
         patch_line_table(state, txt, change)
         state.lines_revision = state.revision
-        return state.lines[:]
+        return Line_Table{state.lines[:], state.lines_shift_at, state.lines_shift}
     }
     clear(&state.lines)
     append(&state.lines, 0)
@@ -929,44 +946,60 @@ line_table :: proc(state: ^State) -> []int {
             append(&state.lines, i + 1)
         }
     }
+    state.lines_shift_at = len(state.lines)
+    state.lines_shift = 0
     state.lines_revision = state.revision
     state.lines_valid = true
-    return state.lines[:]
+    return Line_Table{state.lines[:], state.lines_shift_at, state.lines_shift}
 }
 
 // Moves the line table through `change`: drops the starts it replaced, shifts the
-// ones after it and adds the starts of the new text `txt[lo:new_hi]`.
+// ones after it and adds the starts of the new text `txt[lo:new_hi]`. The shift of the
+// entries after the change stays pending; only the entries between the old and the new
+// pending boundary are written.
 @(private)
 patch_line_table :: proc(state: ^State, txt: string, change: Change) {
     lines := &state.lines
+    table := Line_Table{lines[:], state.lines_shift_at, state.lines_shift}
     // First start after lo, and first start after old_hi.
-    first := first_line_after(lines[:], change.lo)
-    last  := first_line_after(lines[:], change.old_hi)
-    delta := change.new_hi - change.old_hi
-    for i in last ..< len(lines) {
-        lines[i] += delta
+    first := first_line_after(table, change.lo)
+    last  := first_line_after(table, change.old_hi)
+    for i in state.lines_shift_at ..< last {
+        lines[i] += state.lines_shift
     }
-    remove_range(lines, first, last)
+    for i in last ..< state.lines_shift_at {
+        lines[i] -= state.lines_shift
+    }
+    state.lines_shift_at = last
+    state.lines_shift += change.new_hi - change.old_hi
+
     added := make([dynamic]int, 0, 16, context.temp_allocator)
     for i in change.lo ..< change.new_hi {
         if txt[i] == '\n' {
             append(&added, i + 1)
         }
     }
+    removed := last - first
+    if len(added) == removed {
+        copy(lines[first:last], added[:])
+        return
+    }
+    remove_range(lines, first, last)
     // inject_at grows to the exact length, so each new line would copy the whole table.
     if need := len(lines) + len(added); need > cap(lines) {
         reserve(lines, need + need / 8)
     }
     inject_at(lines, first, ..added[:])
+    state.lines_shift_at += len(added) - removed
 }
 
-// Index of the first entry of the sorted `lines` that is greater than `pos`.
+// Index of the first entry of the sorted line table that is greater than `pos`.
 @(private)
-first_line_after :: proc(lines: []int, pos: int) -> int {
-    lo, hi := 0, len(lines)
+first_line_after :: proc(t: Line_Table, pos: int) -> int {
+    lo, hi := 0, len(t.starts)
     for lo < hi {
         mid := lo + (hi - lo) / 2
-        if lines[mid] <= pos {
+        if line_start_at(t, mid) <= pos {
             lo = mid + 1
         } else {
             hi = mid
@@ -980,10 +1013,10 @@ first_line_after :: proc(lines: []int, pos: int) -> int {
 state_line_index :: proc(state: ^State, pos: int) -> int {
     lines := line_table(state)
     // The last line that starts at or before `pos`.
-    lo, hi := 0, len(lines) - 1
+    lo, hi := 0, len(lines.starts) - 1
     for lo < hi {
         mid := (lo + hi + 1) / 2
-        if lines[mid] <= pos {
+        if line_start_at(lines, mid) <= pos {
             lo = mid
         } else {
             hi = mid - 1
@@ -995,11 +1028,11 @@ state_line_index :: proc(state: ^State, pos: int) -> int {
 // Start byte of the given line index, clamped to the last line.
 state_line_start :: proc(state: ^State, line: int) -> int {
     lines := line_table(state)
-    return lines[clamp(line, 0, len(lines) - 1)]
+    return line_start_at(lines, clamp(line, 0, len(lines.starts) - 1))
 }
 
 state_line_count :: proc(state: ^State) -> int {
-    return len(line_table(state))
+    return len(line_table(state).starts)
 }
 
 // Start byte of the line `delta` lines from the one holding `pos`, clamped to

@@ -991,15 +991,19 @@ Measured on a generated 58 MB Odin buffer (release flags):
   thread, so large buffers no longer reach it. A window parsed alone costs about 1 ms per KB. The
   colours at a window edge can be wrong when it starts inside a construct. A real fix is an
   off-thread parse or a line lexer.
-- **Keystroke in the first half.** 4 to 9 ms. `textedit.text` is one contiguous string, so each
-  edit moves the tail. Fix: a gap buffer in `piecetable` with a two-slice read (`text_parts`) for
-  the row patch, the line table and drawing, while `text` closes the gap. A rope would also remove
-  it but breaks every reader of the string. Not done: it is inside one frame.
+- **Keystroke.** `textedit.text` is one contiguous string with free space at both ends, so an edit
+  moves the shorter side: nothing near either end, about 3.6 ms in the middle (half the buffer).
+  The line table keeps the shift of the lines after an edit pending, so the next edit writes only
+  the lines between the two. A gap buffer or a rope would remove the middle cost but breaks every
+  reader of the string.
 - **Load.** About 60 ms on the main thread for 58 MB (set_text 10 ms, first snapshot 11 ms, line
   table 44 ms). Sizing the line table up front measured slower.
-- **Undo, redo and replace all** rebuild the whole snapshot (a stale piece table).
-- **Seam.** Tree cache and LSP `didChange` take a full source each time; edit spans would avoid the
-  clone and compare (estimated 10 ms per edit at 50 MB).
+- **Undo, redo and replace all** patch the snapshot in place, from the one span their edits cover:
+  about 5 ms for 1000 replacements in the middle, 28 ms when they span half the buffer (the copy of
+  that span and its line starts).
+- **Seam.** Tree cache and LSP `didChange` take a full source each time and diff it on their own
+  thread. A buffer of 8 MB or more does not reach either, and each keeps its own copy, so edit
+  spans would save only that diff.
 - **Rows.** The row patch handles a collapsed fold when the edit misses it. Editing the longest line
   rescans every line only when the edit shortens it. A zone or a lens still rebuilds all rows
   (lenses are off in large files).

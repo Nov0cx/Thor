@@ -75,4 +75,33 @@ test_bench_big_file :: proc(t: ^testing.T) {
             big_file_report(strings.concatenate({place.name, label == 0 ? " char" : " newline"}, context.temp_allocator), samples[:])
         }
     }
+
+    // Replace all over 1000 lines in the middle, then over every 1000th line of the buffer, each undone and redone.
+    spreads := [?]struct {
+        name: string,
+        step: int,
+    }{{"local", 1}, {"spread", 1000}}
+    for spread in spreads {
+        ranges := make([]Replace, 1000, context.temp_allocator)
+        for &r, i in ranges {
+            start := state_line_start(&state, BIG_FILE_LINES / 2 + i * spread.step) + 4
+            r = Replace{start = start, end = start + 5, text = "renamed"}
+        }
+        steps := [?]string{"replace all", "undo", "redo"}
+        for step, s in steps {
+            tick := time.tick_now()
+            switch s {
+            case 0:
+                _ = replace_ranges(&state, ranges)
+            case 1:
+                undo(&state)
+            case 2:
+                redo(&state)
+            }
+            _ = text(&state)
+            _ = state_line_index(&state, primary_cursor(&state).caret)
+            log.infof("bench big file: %s %s %.3f ms", spread.name, step, time.duration_milliseconds(time.tick_since(tick)))
+        }
+        undo(&state)
+    }
 }

@@ -13,31 +13,23 @@ Piece :: struct {
     length: int,
 }
 
-// One edit not yet applied to the snapshot. The inserted bytes are read from
-// the add buffer.
-@(private)
-Pending_Op :: struct {
-    pos:       int,
-    add_start: int,
-    length:    int,
-    insert:    bool,
-}
-
-// Edits kept for an in-place patch of the snapshot; more make a full rebuild.
-MAX_PENDING :: 8
-
 Piece_Table :: struct {
     original:    string,         // owned
     add:         [dynamic]u8,    // owned
     pieces:      [dynamic]Piece, // owned
     // Total bytes, maintained by the edits so a length query walks nothing.
     length:      int,
-    // The contents as one buffer, brought up to date by piecetable_view on the
-    // first read after an edit: patched in place from `pending`, or rebuilt.
-    snapshot:    [dynamic]u8,         // owned
-    stale:       bool,                // snapshot must be rebuilt before it is read
-    // Edits since the last read, applied in place to the valid snapshot.
-    pending:     [dynamic]Pending_Op, // owned
+    // The contents as buffer[front:front + size], with free space at both ends, so a patch moves the
+    // shorter side of an edit. Brought up to date by piecetable_view on the first read after an edit.
+    buffer:      []u8, // owned
+    front:       int,
+    size:        int,
+    stale:       bool, // buffer must be rebuilt before it is read
+    // The edits since the last read as one span: the snapshot's first `dirty_lo` bytes and last
+    // `dirty_keep` bytes are still the contents' own.
+    dirty:       bool,
+    dirty_lo:    int,
+    dirty_keep:  int,
     // Piece index and start offset of the last split, where the next scan starts; -1 when unset.
     hint_index:  int,
     hint_offset: int,
@@ -55,8 +47,7 @@ piecetable_destroy :: proc(pt: ^Piece_Table) {
     delete(pt.original)
     delete(pt.add)
     delete(pt.pieces)
-    delete(pt.snapshot)
-    delete(pt.pending)
+    delete(pt.buffer)
 }
 
 piecetable_length :: proc(pt: ^Piece_Table) -> int {
@@ -160,7 +151,7 @@ piecetable_insert :: proc(pt: ^Piece_Table, pos: int, text: string) {
 
     add_start := len(pt.add)
     append(&pt.add, text)
-    piecetable_note_edit(pt, Pending_Op{pos = clamp(pos, 0, pt.length), add_start = add_start, length = len(text), insert = true})
+    piecetable_note_edit(pt, clamp(pos, 0, pt.length), 0)
 
     // Split before the length grows, or an append misses the end-of-buffer fast path.
     index := piecetable_split_at(pt, pos)
@@ -206,10 +197,10 @@ piecetable_delete :: proc(pt: ^Piece_Table, pos: int, delete_length: int) {
     for i in start_index ..< end_index {
         removed += pt.pieces[i].length
     }
-    pt.length -= removed
     if removed > 0 {
-        piecetable_note_edit(pt, Pending_Op{pos = clamp(pos, 0, pt.length + removed), length = removed})
+        piecetable_note_edit(pt, clamp(pos, 0, pt.length), removed)
     }
+    pt.length -= removed
     remove_range(&pt.pieces, start_index, end_index)
     before := len(pt.pieces)
     // Removing the span can leave two runs of one buffer touching again.
@@ -246,18 +237,19 @@ piecetable_delete_checked :: proc(pt: ^Piece_Table, pos: int, delete_length: int
     return .None
 }
 
-// Queues an edit for the snapshot, or marks it for a full rebuild.
+// Widens the dirty span by an edit at `pos` that removes `removed` bytes of the current contents.
 @(private)
-piecetable_note_edit :: proc(pt: ^Piece_Table, op: Pending_Op) {
+piecetable_note_edit :: proc(pt: ^Piece_Table, pos, removed: int) {
     if pt.stale {
         return
     }
-    if len(pt.pending) >= MAX_PENDING {
-        pt.stale = true
-        clear(&pt.pending)
+    keep := max(pt.length - pos - removed, 0)
+    if !pt.dirty {
+        pt.dirty, pt.dirty_lo, pt.dirty_keep = true, pos, keep
         return
     }
-    append(&pt.pending, op)
+    pt.dirty_lo = min(pt.dirty_lo, pos)
+    pt.dirty_keep = min(pt.dirty_keep, keep)
 }
 
 @(private)
@@ -272,33 +264,82 @@ piecetable_piece_bytes :: proc(pt: ^Piece_Table, piece: Piece) -> string {
 }
 
 // The full contents as one string, borrowed from the table. Valid until the
-// first read that follows an edit — that read rebuilds the snapshot in place.
+// first read that follows an edit — that read patches the snapshot in place.
 // Callers that keep the text across an edit need piecetable_to_string.
 piecetable_view :: proc(pt: ^Piece_Table) -> string {
     if pt.stale {
-        clear(&pt.snapshot)
-        reserve(&pt.snapshot, pt.length)
-        for piece in pt.pieces {
-            buffer := piecetable_piece_bytes(pt, piece)
-            append(&pt.snapshot, buffer[piece.start:piece.start + piece.length])
-        }
-        pt.stale = false
-        clear(&pt.pending)
-    } else if len(pt.pending) > 0 {
-        for op in pt.pending {
-            if op.insert {
-                // inject_at grows to the exact length, so each insert would copy the whole snapshot.
-                if need := len(pt.snapshot) + op.length; need > cap(pt.snapshot) {
-                    reserve(&pt.snapshot, need + need / 8)
-                }
-                inject_at(&pt.snapshot, op.pos, ..pt.add[op.add_start:op.add_start + op.length])
-            } else {
-                remove_range(&pt.snapshot, op.pos, op.pos + op.length)
-            }
-        }
-        clear(&pt.pending)
+        piecetable_rebuild(pt)
+    } else if pt.dirty {
+        piecetable_patch(pt)
     }
-    return string(pt.snapshot[:])
+    return string(pt.buffer[pt.front:pt.front + pt.size])
+}
+
+// Free space kept at each end of a snapshot of `n` bytes.
+@(private)
+piecetable_slack :: proc(n: int) -> int {
+    return max(n / 16, 4096)
+}
+
+// Copies `count` bytes of the contents from offset `from` into `dst`.
+@(private)
+piecetable_copy_range :: proc(pt: ^Piece_Table, dst: []u8, from, count: int) {
+    offset, written := 0, 0
+    for piece in pt.pieces {
+        if written >= count {
+            break
+        }
+        piece_end := offset + piece.length
+        if piece_end > from {
+            lo    := max(from, offset) - offset
+            n     := min(piece.length - lo, count - written)
+            bytes := piecetable_piece_bytes(pt, piece)
+            copy(dst[written:], bytes[piece.start + lo:piece.start + lo + n])
+            written += n
+        }
+        offset = piece_end
+    }
+}
+
+// Builds the snapshot from the pieces into a new buffer with slack at both ends.
+@(private)
+piecetable_rebuild :: proc(pt: ^Piece_Table) {
+    slack := piecetable_slack(pt.length)
+    fresh := make([]u8, pt.length + 2 * slack)
+    piecetable_copy_range(pt, fresh[slack:], 0, pt.length)
+    delete(pt.buffer)
+    pt.buffer, pt.front, pt.size = fresh, slack, pt.length
+    pt.stale, pt.dirty = false, false
+}
+
+// Brings the snapshot up to date from the dirty span: the shorter of the kept prefix and suffix
+// moves, and only the span is copied from the pieces.
+@(private)
+piecetable_patch :: proc(pt: ^Piece_Table) {
+    lo, keep := pt.dirty_lo, pt.dirty_keep
+    old_n, new_n := pt.size, pt.length
+    delta       := new_n - old_n
+    middle      := new_n - lo - keep
+    suffix_fits := pt.front + new_n <= len(pt.buffer)
+    prefix_fits := pt.front - delta >= 0 && pt.front - delta + new_n <= len(pt.buffer)
+    switch {
+    case delta == 0:
+    case prefix_fits && (lo <= keep || !suffix_fits):
+        copy(pt.buffer[pt.front - delta:], pt.buffer[pt.front:pt.front + lo])
+        pt.front -= delta
+    case suffix_fits:
+        copy(pt.buffer[pt.front + lo + middle:], pt.buffer[pt.front + old_n - keep:pt.front + old_n])
+    case:
+        slack := piecetable_slack(new_n)
+        fresh := make([]u8, new_n + 2 * slack)
+        copy(fresh[slack:], pt.buffer[pt.front:pt.front + lo])
+        copy(fresh[slack + lo + middle:], pt.buffer[pt.front + old_n - keep:pt.front + old_n])
+        delete(pt.buffer)
+        pt.buffer, pt.front = fresh, slack
+    }
+    piecetable_copy_range(pt, pt.buffer[pt.front + lo:pt.front + lo + middle], lo, middle)
+    pt.size = new_n
+    pt.dirty = false
 }
 
 // Materializes the full contents as a single string using the given allocator.

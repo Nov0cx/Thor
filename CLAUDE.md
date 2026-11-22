@@ -135,7 +135,8 @@ be tested headlessly.
   `convert_json` writes a `.json` as `.lua` and keeps the old file as `.json.bak`. A leaf: imports
   only `core:`, `base:runtime`, `vendor:lua/5.4` and `atomicfile`.
 - `piecetable` — the buffer representation. Pure data structure. Keeps the contents materialized as
-  one snapshot, rebuilt by `piecetable_view` on the first read after an edit.
+  one snapshot with free space at both ends, patched by `piecetable_view` on the first read after
+  an edit from the one span the edits cover, moving the shorter side.
 - `textedit` — UI-independent editing core: cursors, selection, movement, edits, undo/redo with
   coalescing. Bumps `State.revision` on every content change; everything downstream compares against
   a stored revision to decide what is stale. `textedit.text` **borrows** that snapshot — reading it
