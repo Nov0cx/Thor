@@ -360,7 +360,7 @@ thor_status_info :: proc(data: rawptr) -> Status_Info {
         info.line = caret_line + 1
         // Counted from the logical line start, so on a soft-wrapped continuation
         // row this and the caret's pixel column are deliberately different.
-        info.column = textedit.column(text, caret, textedit.tab_width(&file.state)) + 1
+        info.column = textedit.char_column(text, caret, textedit.tab_width(&file.state)) + 1
 
         // With no transient notice up, show the diagnostic on the caret's line
         // (the worst severity wins) so its message is readable without a hover.

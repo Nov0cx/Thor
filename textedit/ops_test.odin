@@ -817,3 +817,16 @@ test_select_range_or_next :: proc(t: ^testing.T) {
     defer destroy(&other)
     testing.expect(t, !select_range_or_next(&other, ranges)) // the caret is on no range
 }
+
+// Wide characters before the target count two columns each.
+@(test)
+test_align_at_char_wide :: proc(t: ^testing.T) {
+    content := "中文 = 1\nab = 2"
+    state   := ops_state(content, 0)
+    defer destroy(&state)
+    state.cursors[0].anchor = 0
+    state.cursors[0].caret = len(content)
+
+    align_at_char(&state, '=')
+    testing.expect_value(t, text(&state), "中文 = 1\nab   = 2")
+}

@@ -1117,3 +1117,24 @@ test_bracket_match_skips_nested_block_comments :: proc(t: ^testing.T) {
     move_to_matching_bracket(&state, false)
     testing.expect_value(t, primary_cursor(&state).caret, 16)
 }
+
+// A wide character takes two columns, as the editor draws it, and a column
+// inside one lands before it.
+@(test)
+test_wide_display_columns :: proc(t: ^testing.T) {
+    testing.expect_value(t, column("中文x", 6, 4), 4)
+    testing.expect_value(t, offset_for_column("中文x", 0, 4, 4), 6)
+    testing.expect_value(t, offset_for_column("中文x", 0, 3, 4), 3)
+    testing.expect_value(t, char_column("中文x", 6, 4), 2)
+    testing.expect_value(t, char_column("\t中", 4, 4), 5)
+
+    state: State
+    init(&state)
+    defer destroy(&state)
+    set_text(&state, "中文x\nabcdef")
+    set_single_cursor(&state, 6)
+    move_vertical(&state, 1, false)
+    testing.expect_value(t, primary_cursor(&state).caret, 8 + 4)
+    move_vertical(&state, -1, false)
+    testing.expect_value(t, primary_cursor(&state).caret, 6)
+}

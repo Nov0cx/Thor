@@ -1094,10 +1094,18 @@ rune_cells :: proc(r: rune) -> int {
     return 1
 }
 
+// Cells of the grapheme cluster at `i`: the cells of its first rune.
+@(private)
+cluster_cells :: proc(s: string, i: int) -> int {
+    r, _ := utf8.decode_rune_in_string(s[i:])
+    return rune_cells(r)
+}
+
 // Display columns spanned by `s` counted from column 0: a tab advances to the
-// next multiple of tab_width, every other grapheme cluster counts one. Stops at
-// a newline. An ASCII run is stepped by byte, but only while the next byte is
-// ASCII too, since a combining mark would join the cluster before it.
+// next multiple of tab_width, a wide cluster counts two and every other one
+// counts one. Stops at a newline. An ASCII run is stepped by byte, but only
+// while the next byte is ASCII too, since a combining mark would join the
+// cluster before it.
 display_width :: proc(s: string, tab_width: int) -> int {
     width := max(tab_width, 1)
     col   := 0
@@ -1113,15 +1121,38 @@ display_width :: proc(s: string, tab_width: int) -> int {
             col += 1
             i += 1
         case:
+            col += cluster_cells(s, i)
             i = grapheme_next(s, i)
-            col += 1
         }
     }
     return col
 }
 
-// Byte offset at display column `col` in `s`, never past it: a tab straddling
-// `col` is not entered, so the offset lands before it. Stops at a newline.
+// Column of `pos` within its line with every grapheme cluster one wide and a
+// tab to its stop: the column a status bar shows.
+char_column :: proc(txt: string, pos: int, tab_width: int) -> int {
+    width := max(tab_width, 1)
+    col   := 0
+    for i := line_start(txt, pos); i < pos; {
+        b := txt[i]
+        switch {
+        case b == '	':
+            col += width - (col % width)
+            i += 1
+        case b < 0x80 && (i + 1 >= len(txt) || txt[i + 1] < 0x80):
+            col += 1
+            i += 1
+        case:
+            col += 1
+            i = min(grapheme_next(txt, i), pos)
+        }
+    }
+    return col
+}
+
+// Byte offset at display column `col` in `s`, never past it: a tab or a wide
+// cluster straddling `col` is not entered, so the offset lands before it. Stops
+// at a newline.
 display_offset :: proc(s: string, col: int, tab_width: int) -> int {
     width   := max(tab_width, 1)
     current := 0
@@ -1137,10 +1168,11 @@ display_offset :: proc(s: string, col: int, tab_width: int) -> int {
             next = current + width - (current % width)
         case b < 0x80 && (i + 1 >= len(s) || s[i + 1] < 0x80):
         case:
+            next = current + cluster_cells(s, i)
             step = grapheme_next(s, i) - i
         }
         if next > col {
-            break // only a tab overshoots, and it is not entered
+            break // a tab or a wide cluster overshoots, and it is not entered
         }
         current = next
         i += step

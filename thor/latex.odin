@@ -330,7 +330,7 @@ thor_cmd_latex_forward_search :: proc(data: rawptr) {
     }
     caret  := textedit.primary_cursor(&file.state).caret
     line   := textedit.state_line_index(&file.state, caret) + 1
-    column := textedit.column(textedit.text(&file.state), caret, textedit.tab_width(&file.state)) + 1
+    column := textedit.char_column(textedit.text(&file.state), caret, textedit.tab_width(&file.state)) + 1
     thor.latex.preview = true
 
     job := thor_latex_job(thor, .Sync_View, filepath.dir(pdf))
