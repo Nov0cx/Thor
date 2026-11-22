@@ -74,7 +74,7 @@ literal_number :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) ->
     context.allocator = context.temp_allocator
     node, negative := strip_signs(n)
     #partial switch node.green.kind {
-    case .Binary_Expr, .Ident:
+    case .Binary_Expr, .Ident, .Selector_Expr:
         r, rok := rational_of(c, file, node, 0)
         if !rok || !r.dotted && node.green.kind == .Binary_Expr {
             return {}, false
@@ -382,6 +382,8 @@ rational_node :: proc(c: ^Checker, file: File_Id, node: odinsyntax.Syntax_Node, 
         return rat_make(mant, scale, leaf.dotted, true)
     case .Ident:
         return rational_ident(c, file, node, depth)
+    case .Selector_Expr:
+        return rational_selector(c, file, node, depth)
     case .Binary_Expr:
         b, _         := odinsyntax.as_binary_expr(node)
         lhs, has_lhs := odinsyntax.binary_expr_lhs(&b)
@@ -492,6 +494,34 @@ rat_to_f64 :: proc(r: Rational) -> (f64, bool) {
     return f, ok && abs(f) <= max(f64)
 }
 
+// The value of the untyped constant a selector names (`pkg.NAME`); false for any other selector.
+@(private = "file")
+rational_selector :: proc(c: ^Checker, file: File_Id, sel: odinsyntax.Syntax_Node, depth: int) -> (Rational, bool) {
+    if len(c.env) > 0 {
+        return {}, false
+    }
+    op := expr_type(c, file, sel)
+    if !op.has_symbol || !untyped_number(c, op) {
+        return {}, false
+    }
+    item := checker_item(c, op.symbol)
+    if item == nil || item.kind != .Const || item.type_offset >= 0 || item.value_index >= 0 || item.value_offset < 0 {
+        return {}, false
+    }
+    value, vok := node_at(c, op.symbol.file, item.value_offset)
+    if !vok {
+        return {}, false
+    }
+    return rational_of(c, op.symbol.file, value, depth + 1)
+}
+
+// True for an untyped float or integer constant.
+@(private = "file")
+untyped_number :: proc(c: ^Checker, op: Operand) -> bool {
+    u, untyped := type_get(&c.table, op.type).(Untyped_Type)
+    return op.mode == .Const && untyped && (u.kind == .Float || u.kind == .Int)
+}
+
 // The value of the untyped constant `ident` declared as `NAME :: value`; false for any other name.
 @(private = "file")
 rational_ident :: proc(c: ^Checker, file: File_Id, ident: odinsyntax.Syntax_Node, depth: int) -> (Rational, bool) {
@@ -519,8 +549,7 @@ rational_ident :: proc(c: ^Checker, file: File_Id, ident: odinsyntax.Syntax_Node
     if value_offset < 0 {
         return {}, false
     }
-    op := expr_type(c, file, ident)
-    if u, untyped := type_get(&c.table, op.type).(Untyped_Type); op.mode != .Const || !untyped || u.kind != .Float && u.kind != .Int {
+    if !untyped_number(c, expr_type(c, file, ident)) {
         return {}, false
     }
     value, vok := node_at(c, decl_file, value_offset)
@@ -840,6 +869,16 @@ write_expr :: proc(b: ^strings.Builder, n: odinsyntax.Syntax_Node, depth: int) -
         strings.write_string(b, odinsyntax.syntax_token_text(tok))
     case .Ident:
         strings.write_string(b, odinsyntax.node_text(n))
+    case .Selector_Expr:
+        sel, _           := odinsyntax.as_selector_expr(n)
+        operand, has_op  := odinsyntax.selector_expr_operand(&sel)
+        field, has_field := odinsyntax.selector_expr_field(&sel)
+        if !has_op || !has_field || operand.green.kind != .Ident {
+            return false
+        }
+        strings.write_string(b, odinsyntax.node_text(operand))
+        strings.write_byte(b, '.')
+        strings.write_string(b, odinsyntax.node_text(odinsyntax.Syntax_Node(field)))
     case .Paren_Expr:
         p, _       := odinsyntax.as_paren_expr(n)
         inner, has := odinsyntax.paren_expr_expr(&p)

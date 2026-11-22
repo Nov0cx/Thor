@@ -928,9 +928,10 @@ Behaviour that is wrong, partial, or surprising today.
 
 - **`vet/cast` oracle miss.** `test_oracle_clean_corpus` misses one `-vet-cast` line that a `#+vet`
   tag asks for (88 live vet items matched the compiler, none false, one missed).
-- **Float constants.** Not reported: an integral hex float at or above 1e18 (the compiler prints
-  garbage for it), a float constant from a selector (`pkg.F`), with an explicit type or from a
-  multi-value declaration. Unknown struct tags are accepted, as the compiler does.
+- **Float constants.** An integral hex float of 2^63 or more put in an integer is not reported: the
+  compiler saturates it and prints corrupted digits, so there is no message to match. A constant from
+  another package (`pkg.F`), one of a multi-value declaration and a typed constant's own value are
+  checked like a literal. Unknown struct tags are accepted, as the compiler does.
 - **`vet-style`, `vet-semicolon`, `vet-tabs`** are live-only; the on-save `odin check` does not
   report them. `-vet-unused-procedures` does reach the save.
 - **`nil/deref`** follows the elements of a fixed array only at a constant index; a variable-index

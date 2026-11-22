@@ -74,6 +74,52 @@ main :: proc() {
     )
 }
 
+// A constant from another package, one of a multi-value declaration, and a typed constant's own value.
+@(test)
+test_live_float_selector_and_typed :: proc(t: ^testing.T) {
+    root := fixture(
+        t,
+        "live_float_selector",
+        {
+            {".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`},
+            {"other/other.odin", "package other\n\nF :: 1.5\nBIG :: 1e39\n"},
+        },
+    )
+    e    := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+import "../other"
+
+A, B :: 2.5, 1e39
+TF : f32 : 1e39
+TI : int : 1.5
+
+main :: proc() {
+	_: int = other.F
+	_: f32 = other.BIG
+	_: int = A
+	_: f32 = B
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(
+        t,
+        &res,
+        src,
+        {
+            {"1e39\nTI", "Cannot convert numeric value '1000000000000000000000000000000000000000' from '1e39' to 'f32' from 'untyped integer'", 0},
+            {"1.5\n", "'1.5' truncated to 'int', got 3.0/2", 0},
+            {"other.F", "'other.F' truncated to 'int', got 3.0/2", 0},
+            {"other.BIG", "Cannot convert numeric value '1000000000000000000000000000000000000000' from 'other.BIG' to 'f32' from 'untyped integer'", 0},
+            {"A\n", "'A' truncated to 'int', got 5.0/2", 0},
+            {"B\n}", "Cannot convert numeric value '1000000000000000000000000000000000000000' from 'B' to 'f32' from 'untyped integer'", 0},
+        },
+    )
+}
+
 @(test)
 test_live_float_texts :: proc(t: ^testing.T) {
     root := fixture(t, "live_float_texts", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
