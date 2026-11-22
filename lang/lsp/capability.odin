@@ -70,6 +70,8 @@ Capabilities :: struct {
     resolve_items:    bool,                 // completionProvider.resolveProvider
     token_legend:     []Token_Legend_Entry, // owned; indexed by the server's tokenTypes
     token_delta:      bool,                 // semanticTokensProvider.full.delta: the /full/delta method may be asked for
+    token_full:       bool,                 // semanticTokensProvider.full
+    token_range:      bool,                 // semanticTokensProvider.range: the /range method may be asked for
     on_type_triggers: []string,             // owned; documentOnTypeFormattingProvider's trigger characters
     item_triggers:    []string,             // owned; completionProvider's trigger characters
     allocator:        runtime.Allocator,    // what built token_legend
@@ -185,10 +187,20 @@ decode_legend :: proc(caps: ^Capabilities, value: json.Value) {
     if !ook {
         return
     }
-    if full, fok := options["full"].(json.Object); fok {
+    #partial switch full in options["full"] {
+    case json.Boolean:
+        caps.token_full = bool(full)
+    case json.Object:
+        caps.token_full = true
         if flag, dok := full["delta"].(json.Boolean); dok {
             caps.token_delta = bool(flag)
         }
+    }
+    #partial switch range in options["range"] {
+    case json.Boolean:
+        caps.token_range = bool(range)
+    case json.Object:
+        caps.token_range = true
     }
     legend, lok := options["legend"].(json.Object)
     if !lok {

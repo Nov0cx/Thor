@@ -1407,7 +1407,7 @@ CLIENT_CAPABILITIES :: `{` +
     `"publishDiagnostics":{"relatedInformation":false,"versionSupport":true},` +
     `"inlayHint":{"dynamicRegistration":false},` +
     `"documentHighlight":{"dynamicRegistration":false},` +
-    `"semanticTokens":{"dynamicRegistration":false,"requests":{"full":true},"formats":["relative"],` +
+    `"semanticTokens":{"dynamicRegistration":false,"requests":{"full":{"delta":true},"range":true},"formats":["relative"],` +
     `"tokenModifiers":[],` +
     `"tokenTypes":["namespace","type","class","enum","interface","struct","typeParameter","parameter",` +
     `"variable","property","enumMember","event","function","method","macro","keyword","modifier",` +

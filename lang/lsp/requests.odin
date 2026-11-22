@@ -76,6 +76,10 @@ Ask :: struct {
     // has a cached resultId, which is what turns the request into
     // .../full/delta instead of .../full.
     semantic_previous_result_id: string,
+    // Semantic_Tokens only: the /range method was asked, so the reply is no full array to cache.
+    semantic_range:              bool,
+    // Semantic_Tokens with semantic_range: the span asked for.
+    semantic_lo, semantic_hi:    int,
 }
 
 // Sends one request and fills `res` from the reply. A kind with no method, a
@@ -104,9 +108,17 @@ request_answer :: proc(s: ^Server, req: ^lang.Request, res: ^lang.Result) {
         raws = make(map[string]^Line_Index, allocator = context.temp_allocator),
     }
 
+    // A span asked for, or a server with no full method, takes /range.
+    if req.kind == .Semantic_Tokens {
+        ask.semantic_range, ask.semantic_lo, ask.semantic_hi = semantic_span(s.caps, req)
+        if ask.semantic_range {
+            method = "textDocument/semanticTokens/range"
+        }
+    }
+
     // A cached resultId turns this into a delta request — cheaper for the
     // server to answer and for us to decode, on every keystroke's re-fetch.
-    if req.kind == .Semantic_Tokens && s.caps.token_delta {
+    if req.kind == .Semantic_Tokens && s.caps.token_delta && !ask.semantic_range {
         if id := server_semantic_result_id(s, req.path, context.temp_allocator); id != "" {
             ask.semantic_previous_result_id = id
             method = "textDocument/semanticTokens/full/delta"
@@ -191,23 +203,15 @@ request_params :: proc(ask: ^Ask) -> string {
     #partial switch ask.req.kind {
     case .Document_Symbols, .Diagnostics, .Format:
     case .Semantic_Tokens:
-        if ask.semantic_previous_result_id != "" {
+        if ask.semantic_range {
+            write_range(&out, &ask.lines, ask.semantic_lo, ask.semantic_hi)
+        } else if ask.semantic_previous_result_id != "" {
             append(&out, `,"previousResultId":`)
             write_quoted(&out, ask.semantic_previous_result_id)
         }
     case .Format_Range, .Inlay_Hints:
         // Format_Range: a selection aligned to whole lines; Inlay_Hints: the visible window.
-        start_line, start_character := position_from_offset(&ask.lines, ask.req.offset)
-        end_line, end_character     := position_from_offset(&ask.lines, ask.req.end)
-        append(&out, `,"range":{"start":{"line":`)
-        write_number(&out, i64(start_line))
-        append(&out, `,"character":`)
-        write_number(&out, i64(start_character))
-        append(&out, `},"end":{"line":`)
-        write_number(&out, i64(end_line))
-        append(&out, `,"character":`)
-        write_number(&out, i64(end_character))
-        append(&out, `}}`)
+        write_range(&out, &ask.lines, ask.req.offset, ask.req.end)
     case .Code_Actions:
         // req.end == req.offset outside a selection, so this is a zero-width
         // range at the caret exactly as before; a real selection sends its
@@ -393,4 +397,32 @@ ask_raw_index :: proc(ask: ^Ask, path: string) -> ^Line_Index {
     // thor:ignore mem/temp-escape
     ask.raws[key] = index
     return index
+}
+
+// Writes `,"range":{...}` for the byte span [lo, hi).
+@(private = "file")
+write_range :: proc(out: ^[dynamic]u8, lines: ^Line_Index, lo, hi: int) {
+    start_line, start_character := position_from_offset(lines, lo)
+    end_line, end_character     := position_from_offset(lines, hi)
+    append(out, `,"range":{"start":{"line":`)
+    write_number(out, i64(start_line))
+    append(out, `,"character":`)
+    write_number(out, i64(start_character))
+    append(out, `},"end":{"line":`)
+    write_number(out, i64(end_line))
+    append(out, `,"character":`)
+    write_number(out, i64(end_character))
+    append(out, `}}`)
+}
+
+// Whether a semantic-token request takes /range, and its span: a request that names a span, or a server with no full method.
+@(private)
+semantic_span :: proc(caps: Capabilities, req: ^lang.Request) -> (use_range: bool, lo, hi: int) {
+    if !caps.token_range || (req.end <= req.offset && caps.token_full) {
+        return
+    }
+    if req.end > req.offset {
+        return true, req.offset, req.end
+    }
+    return true, 0, len(req.source)
 }

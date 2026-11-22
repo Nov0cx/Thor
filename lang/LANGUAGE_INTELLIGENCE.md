@@ -535,8 +535,9 @@ Thor advertises only what it can consume, so servers do not send shapes it drops
   `additionalTextEdits`, `command`), `insertReplaceSupport`, `labelDetailsSupport` and
   `itemDefaults` (`editRange`, `insertTextFormat`, `data`).
 - `definition.linkSupport`, `publishDiagnostics.versionSupport`, `rename.prepareSupport`.
-- Semantic tokens: `requests.full` only (no range). Thor asks for `full/delta` when the server
-  advertises it.
+- Semantic tokens: `requests.full` with delta, and `requests.range`. Thor asks for `full/delta`
+  when the server advertises it, and `range` for a request that names a span or a server with no
+  `full` (then over the whole buffer). A range reply is never cached as a delta base.
 - `workspaceEdit.resourceOperations`: create, rename, delete.
 - `workDoneProgress`, `workspace.configuration`, `workspaceFolders`.
 
@@ -560,10 +561,10 @@ everything it is configured for, so the first requests are not swallowed.
 | `Resolve_Completion` | `completionItem/resolve` | Sent when the user picks a candidate. Reads back `additionalTextEdits` and `command`. |
 | `Package_Doc` | `textDocument/hover` | Keeps the reply as Markdown. |
 | `Rename` | `textDocument/rename` (+ `prepareRename`) | The backend reconstructs `old_text` itself. Sorted ascending. |
-| `Diagnostics` | push `publishDiagnostics`; pull `textDocument/diagnostic` | A push for an unopened file, or for superseded text, is dropped. |
+| `Diagnostics` | push `publishDiagnostics`; pull `textDocument/diagnostic` | A push for an unopened file, or for superseded text, is dropped. A pull report's `relatedDocuments` apply for documents the server holds, each at its own revision. |
 | `Code_Actions` | `textDocument/codeAction` (+ `codeAction/resolve`) | Range is `[offset, end)`. The request replays cached diagnostics. A command-only action is kept and runs through `Execute_Command`. |
 | `Execute_Command` | `workspace/executeCommand` | The server's changes return through `workspace/applyEdit`. |
-| `Semantic_Tokens` | `.../full` or `.../full/delta` | Legend names map to `lang.Token_Kind`. `keyword`, `string`, `comment`, `number`, `operator` are dropped. `Unresolved` is never emitted. |
+| `Semantic_Tokens` | `.../full`, `.../full/delta` or `.../range` | Legend names map to `lang.Token_Kind`. `keyword`, `string`, `comment`, `number`, `operator` are dropped. `Unresolved` is never emitted. |
 | `Inlay_Hints` | `textDocument/inlayHint` | |
 | `Document_Highlight` | `textDocument/documentHighlight` | |
 | `Implementations` | `textDocument/implementation` | |
@@ -891,8 +892,6 @@ Things that do not exist yet. Each is a candidate for future work.
 - **LSP methods with no Thor kind:** `declaration`, `foldingRange` (folds come from tree-sitter for
   every grammar), `documentLink`, `linkedEditingRange`.
 - **`Package_Doc`** rides `textDocument/hover`. There is no richer LSP equivalent.
-- **`semanticTokens/range`.** Only full and delta.
-- **Pull `relatedDocuments`** in diagnostic reports are dropped.
 
 ### Language coverage
 

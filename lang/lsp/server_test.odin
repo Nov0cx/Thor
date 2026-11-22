@@ -366,7 +366,7 @@ test_server_full_sync_fallback :: proc(t: ^testing.T) {
     server_notify(s, .Changed, SOURCE, "hello brave world", 2)
     testing.expect(t, wait_sent(&f, `"method":"textDocument/didChange"`), "didChange never arrived")
     testing.expect(t, fake_sent(&f, `"text":"hello brave world"`), "a Full server must still get the whole buffer")
-    testing.expect(t, !fake_sent(&f, `"range"`), "a Full server must not get a ranged change")
+    testing.expect(t, !fake_sent(&f, `"range":{"start"`), "a Full server must not get a ranged change")
 }
 
 // A server that dies during its handshake is started again after a backoff, and

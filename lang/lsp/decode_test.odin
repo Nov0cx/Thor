@@ -1972,3 +1972,26 @@ test_inlay_hints_params :: proc(t: ^testing.T) {
     params := request_params(&ask)
     testing.expect_value(t, params, `{"textDocument":{"uri":"` + FILE_URI + `"},"range":{"start":{"line":0,"character":0},"end":{"line":1,"character":5}}}`)
 }
+
+// /range is asked for a span, and for the whole buffer of a server with no full method; a full server keeps /full otherwise.
+@(test)
+test_semantic_span :: proc(t: ^testing.T) {
+    req := request_for(.Semantic_Tokens, SOURCE, 0)
+
+    use_range, _, _ := semantic_span({token_full = true}, &req)
+    testing.expect(t, !use_range, "a server without /range was asked for it")
+    use_range, _, _ = semantic_span({token_full = true, token_range = true}, &req)
+    testing.expect(t, !use_range, "a whole-buffer request to a full server took /range")
+
+    lo, hi: int
+    use_range, lo, hi = semantic_span({token_range = true}, &req)
+    testing.expect(t, use_range, "a range-only server was not asked for /range")
+    testing.expect_value(t, lo, 0)
+    testing.expect_value(t, hi, len(SOURCE))
+
+    req.offset, req.end = 2, 5
+    use_range, lo, hi = semantic_span({token_full = true, token_range = true}, &req)
+    testing.expect(t, use_range, "a span was not asked through /range")
+    testing.expect_value(t, lo, 2)
+    testing.expect_value(t, hi, 5)
+}

@@ -810,7 +810,8 @@ decode_semantic_tokens :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) 
         return
     }
 
-    if result_id != "" {
+    // A range reply covers part of the file, so it is no base for a later delta.
+    if result_id != "" && !ask.semantic_range {
         server_store_semantic(ask.server, ask.req.path, data, result_id)
     }
 
