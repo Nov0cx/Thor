@@ -2,6 +2,7 @@ package lang
 
 import "core:slice"
 import "core:strings"
+import "core:time"
 
 // One producer of answers for a request: a backend, or a server a backend hosts.
 Link :: struct {
@@ -31,13 +32,20 @@ resolve_links :: proc(links: []Link, req: ^Request, res: ^Result) {
         return
     }
 
-    head    := res^
-    merging := req.kind in MERGE_KINDS
+    head     := res^
+    merging  := req.kind in MERGE_KINDS
+    // A chain inside a backend (one per server) keeps the budget of the chain that called it.
+    outer_by := req.merge_by
+    defer req.merge_by = outer_by
     fallback: Result
     have_fallback := false
     answered      := false
     for link in links {
         if request_cancelled(req) {
+            break
+        }
+        // A backend already answered and the budget is spent: the rest are skipped.
+        if answered && req.merge_by != {} && time.tick_diff(time.tick_now(), req.merge_by) <= 0 {
             break
         }
         part := Result{id = head.id, kind = head.kind, revision = head.revision}
@@ -60,6 +68,9 @@ resolve_links :: proc(links: []Link, req: ^Request, res: ^Result) {
         answered = true
         if !merging {
             break
+        }
+        if by := time.tick_add(time.tick_now(), MERGE_BUDGET); req.merge_by == {} || time.tick_diff(by, req.merge_by) > 0 {
+            req.merge_by = by
         }
     }
     if answered {
@@ -133,6 +144,14 @@ result_stamp_origin :: proc(res: ^Result, id: string) {
             action.origin = strings.clone(id)
         }
     }
+    if res.kind == .Diagnostics && res.report.source == "" {
+        res.report.source = strings.clone(id)
+    }
+    for &related in res.related {
+        if related.report.source == "" {
+            related.report.source = strings.clone(res.report.source != "" ? res.report.source : id)
+        }
+    }
 }
 
 // Moves what `src` holds into `dst` and frees `src`. Lists the editor walks in one
@@ -144,6 +163,14 @@ result_merge :: proc(dst, src: ^Result, kind: Request_Kind) {
         dst.incomplete = dst.incomplete || src.incomplete
     case .Code_Actions:
         move_all(&dst.actions, &src.actions)
+    case .Diagnostics:
+        // Each producer's report stays whole, so the host replaces only that source's items.
+        if dst.related == nil {
+            dst.related = make([dynamic]Related_Report)
+        }
+        append(&dst.related, Related_Report{report = src.report, revision = src.revision})
+        src.report = {}
+        move_all(&dst.related, &src.related)
     case .Document_Symbols, .Workspace_Symbols:
         move_all(&dst.symbols, &src.symbols)
     case .References, .Implementations:

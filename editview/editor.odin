@@ -103,6 +103,7 @@ Diagnostic :: struct {
     message:  string,
     code:     string, // static; the diagnostic id; "" when none
     lint:     bool,   // a check the compiler does not make
+    source:   int,    // the host's index of the producer; 0 when unnamed
 }
 
 // Right-click handler the application supplies, given the screen position the

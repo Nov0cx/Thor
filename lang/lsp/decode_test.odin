@@ -176,12 +176,7 @@ result_release :: proc(res: ^lang.Result) {
     }
     delete(res.inlays)
     delete(res.highlights)
-    delete(res.report.scope)
-    for item in res.report.items {
-        delete(item.path)
-        delete(item.message)
-    }
-    delete(res.report.items)
+    lang.report_free(&res.report)
     for &related in res.related {
         lang.report_free(&related.report)
     }

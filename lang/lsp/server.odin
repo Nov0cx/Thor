@@ -893,6 +893,7 @@ server_claim_push :: proc(s: ^Server, res: ^lang.Result) -> bool {
 @(private)
 server_drop_push :: proc(s: ^Server, res: ^lang.Result) {
     delete(res.report.scope, s.allocator)
+    delete(res.report.source, s.allocator)
     for item in res.report.items {
         delete(item.path, s.allocator)
         delete(item.message, s.allocator)

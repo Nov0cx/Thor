@@ -370,6 +370,8 @@ Diagnostic :: struct {
 Diagnostic_Report :: struct {
     scope:        string, // owned, absolute directory or file path
     items:        [dynamic]Diagnostic,
+    // Owned; the producer (a backend id, `lsp:<server>`). A report replaces only the items of its own source.
+    source:       string,
     // A file scope: the items also cover the other files of its directory, each by `path`.
     package_wide: bool,
 }
@@ -383,6 +385,7 @@ Related_Report :: struct {
 // Frees a report's scope and items.
 report_free :: proc(report: ^Diagnostic_Report) {
     delete(report.scope)
+    delete(report.source)
     for d in report.items {
         delete(d.path)
         delete(d.message)
@@ -463,6 +466,8 @@ Request :: struct {
     // Owned; the `origin` of the offer being resolved or run. "" lets every backend of the key answer.
     backend:      string,
     cancel:       ^bool, // Job-owned cancellation flag; read via request_cancelled, nil when hand-built
+    // Set by a merge once one backend answered: a later backend must answer by then or give up. Zero when unset.
+    merge_by:     time.Tick,
 }
 
 // True once the request has been abandoned (a newer one superseded it, or the
@@ -776,7 +781,11 @@ MERGE_KINDS :: bit_set[Request_Kind]{
     .Inlay_Hints,
     .Code_Lens,
     .Document_Highlight,
+    .Diagnostics,
 }
+
+// How long a merge waits for the backends after the first one answered.
+MERGE_BUDGET :: 750 * time.Millisecond
 
 // The key a backend is routed back to by Request.backend.
 backend_id :: proc(b: Backend) -> string {

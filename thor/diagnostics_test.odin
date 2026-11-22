@@ -146,6 +146,39 @@ test_file_scoped_report_clears_only_its_file :: proc(t: ^testing.T) {
     testing.expectf(t, len(b.diagnostics) == 1, "another file's diagnostics must survive (got %d)", len(b.diagnostics))
 }
 
+// Two producers on one file keep their own items: a clean report from one leaves the other's.
+@(test)
+test_report_replaces_only_its_source :: proc(t: ^testing.T) {
+    thor: Thor
+    thor.open_files = make([dynamic]^Open_File)
+    defer delete(thor.open_files)
+    defer thor_package_problems_destroy(&thor)
+
+    file := diag_file("D:/w/pkg/a.odin", "foo := bar\n")
+    defer diag_file_destroy(file)
+    append(&thor.open_files, file)
+
+    for source in ([]string{"odin", "lsp:ols"}) {
+        res := lang.Result{kind = .Diagnostics, ok = true, revision = file.state.revision}
+        res.report.scope = file.path
+        res.report.source = source
+        res.report.items = make([dynamic]lang.Diagnostic)
+        defer delete(res.report.items)
+        append(&res.report.items, lang.Diagnostic{path = file.path, line = 1, col = 8, message = source})
+        thor_apply_diagnostics(&thor, &res)
+    }
+    testing.expect_value(t, len(file.diagnostics), 2)
+
+    clean := lang.Result{kind = .Diagnostics, ok = true, revision = file.state.revision}
+    clean.report.scope = file.path
+    clean.report.source = "odin"
+    thor_apply_diagnostics(&thor, &clean)
+    testing.expect_value(t, len(file.diagnostics), 1)
+    if len(file.diagnostics) == 1 {
+        testing.expect_value(t, file.diagnostics[0].message, "lsp:ols")
+    }
+}
+
 // A live syntax report lands on its file only for the revision it was parsed at,
 // and only while its request still holds the slot.
 @(test)

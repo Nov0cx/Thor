@@ -87,7 +87,13 @@ Backend :: struct {
   backend whose `handles` is true and whose `supports` answers the kind, up to `MAX_CHAIN`. A
   `MERGE_KINDS` request merges every answer. Any other kind keeps the first backend that answers;
   one that declines or answers `ok = false` hands the request on. `Request.backend` limits the chain
-  to the producer an offer came from.
+  to the producer an offer came from. Once one backend of a merge answered, the rest have
+  `MERGE_BUDGET` (750 ms, `Request.merge_by`): a backend not started by then is skipped, and the LSP
+  backend cuts its round trip to what is left, without counting the cut as a miss.
+- `Diagnostics` is a merge kind that keeps each answer whole: the first report is `Result.report`,
+  every other one a `Result.related` entry. `Diagnostic_Report.source` names the producer (the
+  backend id, `lsp:<server>`; a push carries its server's), and the host replaces only the items of
+  that source (`editview.Diagnostic.source`, an index into `Thor.diagnostic_sources`).
 - `manager_set_backends(m, backends...)` — variadic. Replaces the whole list.
 - Routing key: `thor_lang_key`. It is a file's bare name when a backend claims that name
   (`lang.manager_claims`, outside the `enabled` gate so the key never moves), else its extension.
@@ -874,15 +880,6 @@ Things that do not exist yet. Each is a candidate for future work.
 - **Custom lints from Lua plugins.** The sema API is not exposed to plugins.
 - **Other compiler messages as quick fixes.** `compiler_fixes.odin` handles a few; more remain. The
   indented `Suggestion:` lines of the compiler output are not read.
-
-### Seam and host
-
-- **Diagnostics from several producers.** `Diagnostics` takes the first backend that answers. A
-  pushed report replaces the previous one of its scope whatever server sent it, so two servers on one
-  file overwrite each other. A `source` on `Diagnostic_Report` and per-source storage in the host are
-  not built.
-- **A deadline on merge kinds.** A merge visits backends in turn on one worker, so a slow server
-  delays a fast backend's completion list.
 
 ### LSP
 

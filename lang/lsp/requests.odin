@@ -139,13 +139,28 @@ request_answer :: proc(s: ^Server, req: ^lang.Request, res: ^lang.Result) {
         return
     }
 
+    // Another backend already answered a merge: wait no longer than its budget, and a cut is no miss of this server.
+    deadline  := request_deadline(req.kind, s.deadline_percent)
+    merge_cut := false
+    if req.merge_by != {} {
+        left := time.tick_diff(time.tick_now(), req.merge_by)
+        if left <= 0 {
+            return
+        }
+        if left < deadline {
+            deadline, merge_cut = left, true
+        }
+    }
+
     params     := request_params(&ask)
-    value, err := conn_call(ask.conn, method, params, request_deadline(req.kind, s.deadline_percent), req.cancel)
+    value, err := conn_call(ask.conn, method, params, deadline, req.cancel)
     defer conn_free_value(ask.conn, value)
     #partial switch err {
     case .Timeout:
         log.debugf("lsp: %s answered %v to %s", s.config.id, err, method)
-        server_note_missed(s, req.kind)
+        if !merge_cut {
+            server_note_missed(s, req.kind)
+        }
         return
     case .Server_Error:
         log.debugf("lsp: %s answered %v to %s", s.config.id, err, method)

@@ -49,6 +49,8 @@ Thor :: struct {
     undo_open:                     bool,
     undo_view:                     Undo_View,                // see undo_history.odin
     package_problems:              [dynamic]Package_Problem, // owned; diagnostics of files that are not open
+    // Owned; the report sources seen this session. Index + 1 is a diagnostic's `source`.
+    diagnostic_sources:            [dynamic]string,
     // The git modal's own lists, diff and commit box; see git_view.odin.
     git:                           Git_View,
     theme_editor_open:             bool,

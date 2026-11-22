@@ -38,6 +38,7 @@ Package_Problem :: struct {
     severity: editview.Diagnostic_Severity,
     message:  string, // owned
     code:     string, // static
+    source:   int,    // see editview.Diagnostic.source
 }
 
 // The problems of one file, in line order.
@@ -107,9 +108,10 @@ problems_add_closed :: proc(thor: ^Thor, groups: ^[dynamic]Problem_Group, alloca
 // Replaces the stored problems of the files `res.report.scope` covers with those of the
 // report, keeping only files that are not open.
 thor_package_problems_store :: proc(thor: ^Thor, res: ^lang.Result) {
-    kept := 0
+    source := thor_diagnostic_source(thor, res.report.source)
+    kept   := 0
     for pp in thor.package_problems {
-        if scope_covers(pp.path, res.report.scope) {
+        if pp.source == source && scope_covers(pp.path, res.report.scope) {
             delete(pp.path)
             delete(pp.message)
             continue
@@ -129,6 +131,7 @@ thor_package_problems_store :: proc(thor: ^Thor, res: ^lang.Result) {
             severity = editor_severity(d.severity),
             message = strings.clone(d.message),
             code = d.code,
+            source = source,
         }
         if _, err := append(&thor.package_problems, pp); err != nil {
             delete(pp.path)
@@ -151,6 +154,29 @@ thor_package_problems_destroy :: proc(thor: ^Thor) {
     thor_package_problems_clear(thor)
     delete(thor.package_problems)
     thor.package_problems = nil
+    for name in thor.diagnostic_sources {
+        delete(name)
+    }
+    delete(thor.diagnostic_sources)
+    thor.diagnostic_sources = nil
+}
+
+// The index of a report source, added on first sight; 0 for an unnamed one.
+thor_diagnostic_source :: proc(thor: ^Thor, name: string) -> int {
+    if name == "" {
+        return 0
+    }
+    for known, i in thor.diagnostic_sources {
+        if known == name {
+            return i + 1
+        }
+    }
+    owned := strings.clone(name)
+    if _, err := append(&thor.diagnostic_sources, owned); err != nil {
+        delete(owned)
+        return 0
+    }
+    return len(thor.diagnostic_sources)
 }
 
 // The number of problems of `severity` over all `groups`.

@@ -643,6 +643,7 @@ decode_publish_diagnostics :: proc(s: ^Server, params: json.Value) -> (lang.Resu
 
     res := lang.Result{kind = .Diagnostics, ok = true, revision = doc.revision}
     res.report.scope = strings.clone(doc.path)
+    res.report.source = strings.clone(link_id(s))
     res.report.items = make([dynamic]lang.Diagnostic)
     for item in items {
         diagnostic, decoded := decode_one_diagnostic(&doc.lines, doc.path, item)

@@ -55,14 +55,16 @@ thor_apply_diagnostics :: proc(thor: ^Thor, res: ^lang.Result) {
     // fallen behind: a save-then-keep-typing can land this report after a
     // newer edit, and clearing it would show a false all-clear until the
     // already-queued next check catches up.
+    // Only the reporting source's items are replaced; another producer's stay.
+    source := thor_diagnostic_source(thor, res.report.source)
     for file in thor.open_files {
         if file.loaded && !file.closed && scope_covers(file.path, res.report.scope) && report_matches_file(file, res.revision) {
-            thor_clear_file_diagnostics(file)
+            thor_clear_file_diagnostics(file, source)
         }
     }
     thor_package_problems_store(thor, res)
     for d in res.report.items {
-        thor_apply_diagnostic(thor, d, res.revision)
+        thor_apply_diagnostic(thor, d, res.revision, source)
     }
     for file in thor.open_files {
         if file.loaded && !file.closed {
@@ -81,12 +83,21 @@ report_matches_file :: proc(file: ^Open_File, revision: u64) -> bool {
     return revision == file.state.revision || file.state.revision == file.saved_revision
 }
 
-// Frees a file's diagnostics (and their owned messages) and empties the list.
-thor_clear_file_diagnostics :: proc(file: ^Open_File) {
+// Every source, for thor_clear_file_diagnostics.
+ALL_SOURCES :: -1
+
+// Frees a file's diagnostics of `source` (every one with ALL_SOURCES) and their owned messages.
+thor_clear_file_diagnostics :: proc(file: ^Open_File, source := ALL_SOURCES) {
+    kept := 0
     for d in file.diagnostics {
+        if source != ALL_SOURCES && d.source != source {
+            file.diagnostics[kept] = d
+            kept += 1
+            continue
+        }
         delete(d.message)
     }
-    clear(&file.diagnostics)
+    resize(&file.diagnostics, kept)
     thor_merge_file_diagnostics(file)
 }
 
@@ -94,7 +105,7 @@ thor_clear_file_diagnostics :: proc(file: ^Open_File) {
 // range against the live buffer. `revision` is the report's, i.e. the buffer
 // state its producer measured.
 @(private = "file")
-thor_apply_diagnostic :: proc(thor: ^Thor, d: lang.Diagnostic, revision: u64) {
+thor_apply_diagnostic :: proc(thor: ^Thor, d: lang.Diagnostic, revision: u64, source: int) {
     file, _ := thor_find_open_file(thor, d.path)
     if file == nil || !file.loaded {
         return
@@ -104,7 +115,9 @@ thor_apply_diagnostic :: proc(thor: ^Thor, d: lang.Diagnostic, revision: u64) {
     if !report_matches_file(file, revision) {
         return
     }
-    append(&file.diagnostics, editor_diagnostic(file, d))
+    item := editor_diagnostic(file, d)
+    item.source = source
+    append(&file.diagnostics, item)
     file.diagnostics_revision = file.state.revision
 }
 

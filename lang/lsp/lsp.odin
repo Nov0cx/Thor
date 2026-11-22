@@ -146,6 +146,9 @@ resolve_server :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
 // The origin a server's offers carry: "lsp:<server id>".
 @(private)
 link_id :: proc(s: ^Server) -> string {
+    if s.config == nil {
+        return "lsp"
+    }
     return strings.concatenate({"lsp:", s.config.id}, context.temp_allocator)
 }
 
