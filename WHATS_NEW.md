@@ -1,8 +1,10 @@
-# 2026.11.7
+# 2026.11.8
 
-- **Two-step keybinds.** A `keybinds.lua` entry such as `"ctrl+m c"` runs after two presses. `"prefix c"` follows the new `chord_prefix` bind (`ctrl + m` by default). The status bar shows a pressed prefix, and `esc` cancels it.
-- **Keybinding settings.** Settings > Keybindings records a two-step bind, and refuses a chord another action already uses.
-- **Git window.** `up` and `down` pick a changed file, `space` stages or unstages it, and `esc` leaves a text field before it closes the window.
-- **Odin analyzer.** Live diagnostics check only the changed declarations, so a large file takes about half the time. Rename refuses a name the scope already uses. Big integer constants fold in `when` conditions.
-- **Plugins and config.** `latex_build_command` is now a personal setting that `.thor/settings.lua` cannot set. A Lua pattern that would backtrack without end is refused. Plugin update checks skip a folder plugin until you allow it.
-- **Languages.** Shell here-documents and LaTeX verbatim text are coloured. `.env.local`, `Dockerfile.dev`, `.profile`, `.envrc`, `.gitmodules` and `.ignore` get highlighting.
+- **Terminal.** The terminal rewraps its lines and its history when the panel gets wider or narrower.
+- **Language servers.** Call and type hierarchy, expand selection, code lenses, folding ranges, document links and linked editing now reach the server. Diagnostics of several servers for one file show together.
+- **Go to declaration.** The new `goto_declaration` action (unbound) jumps to a declaration where the language tells it apart from the definition.
+- **Document links.** `ctrl + click` on an underlined link opens it: a web address in the browser, a file in a tab.
+- **Linked editing.** Typing in one half of a pair, such as an HTML open and close tag, changes the other half too.
+- **File watcher.** macOS and the BSDs use kqueue. Linux sees writes that do not close the file and shows a notice when the workspace folder is removed or moved.
+- **Odin.** The save reports `-vet-style`, `-vet-semicolon` and `-vet-tabs` lines, a compiler "Did you mean?" gives a fix, and `transmute` between integers of one byte order is reported with a `cast` fix.
+- **Plugins.** `thor.exec` returns the exit code as a second value. Tree-sitter injections color Lua `ffi.cdef` strings as C and Rust macro bodies as Rust, and a plugin can supply `injections`.
