@@ -2,6 +2,7 @@
 package watch
 
 import "base:intrinsics"
+import "base:runtime"
 import "core:log"
 import "core:os"
 import "core:strings"
@@ -65,6 +66,8 @@ watch_start :: proc(w: ^Watcher) -> bool {
         log.warnf("watch: %q is not a folder", w.root)
         return false
     }
+    // The caller owns the temp allocations made before this call.
+    runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
     w.platform.stopping = false
     w.platform.polling = false
 
@@ -85,7 +88,6 @@ watch_start :: proc(w: ^Watcher) -> bool {
         w.platform.polling = true
         kq_close(w)
     }
-    free_all(context.temp_allocator)
     return true
 }
 

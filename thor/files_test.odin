@@ -303,7 +303,7 @@ test_reload_keeps_cursor_and_view :: proc(t: ^testing.T) {
     thor.editors[0].scroll_y = 120
 
     rewrite_err := os.write_entire_file(TEST_PATH, transmute([]u8)string("inserted\nalpha\nbeta\ngamma\n"))
-    testing.expect(t, rewrite_err == nil, "could not rewrite test file")
+    testing.expectf(t, rewrite_err == nil, "could not rewrite test file: %v", rewrite_err)
 
     thor_reload_file(thor, file)
     testing.expect(t, file.reloading, "reload did not start")
@@ -434,7 +434,7 @@ test_reload_conflict_keeps_edits :: proc(t: ^testing.T) {
     testing.expect(t, file.state.revision != file.saved_revision, "edit did not dirty the buffer")
 
     rewrite_err := os.write_entire_file(TEST_PATH, transmute([]u8)string("disk two\n"))
-    testing.expect(t, rewrite_err == nil, "could not rewrite test file")
+    testing.expectf(t, rewrite_err == nil, "could not rewrite test file: %v", rewrite_err)
 
     thor_reload_file(thor, file)
     thor_drain_io(thor)
@@ -485,7 +485,7 @@ test_save_skipped_during_reload :: proc(t: ^testing.T) {
     testing.expect(t, file.state.revision != file.saved_revision, "edit did not dirty the buffer")
 
     rewrite_err := os.write_entire_file(TEST_PATH, transmute([]u8)string("disk two\n"))
-    testing.expect(t, rewrite_err == nil, "could not rewrite test file")
+    testing.expectf(t, rewrite_err == nil, "could not rewrite test file: %v", rewrite_err)
 
     thor_reload_file(thor, file)
     testing.expect(t, file.reloading, "reload did not start")
@@ -572,13 +572,17 @@ files_test_temp_path :: proc(name: string) -> string {
 // the new bytes in the buffer.
 @(test)
 test_watcher_reloads_open_file :: proc(t: ^testing.T) {
-    root := files_test_temp_path("thor_reload_test")
+    // Cloned: thor_update_files drains the temp allocator.
+    root := strings.clone(files_test_temp_path("thor_reload_test"))
+    defer delete(root)
     if err := os.make_directory(root); err != nil {
         testing.fail_now(t, fmt.tprintf("could not create temp dir %q: %v", root, err))
     }
     defer os.remove(root)
 
-    path, _   := filepath.join({root, "watched.txt"}, context.temp_allocator)
+    joined, _ := filepath.join({root, "watched.txt"}, context.temp_allocator)
+    path      := strings.clone(joined)
+    defer delete(path)
     write_err := os.write_entire_file(path, transmute([]u8)string("one\n"))
     testing.expect(t, write_err == nil, "could not create test file")
     defer os.remove(path)
@@ -608,7 +612,7 @@ test_watcher_reloads_open_file :: proc(t: ^testing.T) {
     // first read call is not queued, and the thread starts asynchronously.
     poll: for _ in 0 ..< 10 {
         rewrite_err := os.write_entire_file(path, transmute([]u8)string("one\ntwo\n"))
-        testing.expect(t, rewrite_err == nil, "could not rewrite test file")
+        testing.expectf(t, rewrite_err == nil, "could not rewrite test file: %v", rewrite_err)
         for _ in 0 ..< 30 {
             watch.watcher_poll(&thor.watcher)
             thor_update_files(thor)
@@ -847,7 +851,7 @@ test_reload_drops_data_derived_from_the_old_text :: proc(t: ^testing.T) {
     file.folds_revision = file.state.revision
 
     rewrite_err := os.write_entire_file(TEST_PATH, transmute([]u8)string("beta :: 2\n"))
-    testing.expect(t, rewrite_err == nil, "could not rewrite test file")
+    testing.expectf(t, rewrite_err == nil, "could not rewrite test file: %v", rewrite_err)
     thor_reload_file(thor, file)
     thor_drain_io(thor)
     testing.expect_value(t, textedit.text(&file.state), "beta :: 2\n")
